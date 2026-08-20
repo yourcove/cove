@@ -14,9 +14,14 @@ public partial class CoveContext
     internal CovePrincipal? CurrentPrincipalForReadOptimization => CurrentPrincipal;
 
     private bool AuthorizationFiltersBypassed =>
+        _authorizationFilterSuppressionDepth > 0 ||
         CurrentPrincipal is null ||
         CurrentPrincipal.Kind == PrincipalKind.System ||
         CurrentPrincipal.Has("*");
+
+    private bool EmbeddingReadAuthorizationFilterBypassed =>
+        AuthorizationFiltersBypassed ||
+        _embeddingReadAuthorizationFilterSuppressionDepth > 0;
 
     internal bool AuthorizationBypassedForReadOptimization => AuthorizationFiltersBypassed;
 
@@ -145,7 +150,7 @@ public partial class CoveContext
             AuthorizationFiltersBypassed || CanReadFaces);
 
         modelBuilder.Entity<Embedding>().HasQueryFilter(embedding =>
-            AuthorizationFiltersBypassed || CanReadEmbeddings);
+            EmbeddingReadAuthorizationFilterBypassed || CanReadEmbeddings);
 
         modelBuilder.Entity<AiRun>().HasQueryFilter(run =>
             AuthorizationFiltersBypassed || CanReadAiRuns);

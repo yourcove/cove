@@ -81,6 +81,35 @@ describe("metadata refresh import endpoints", () => {
     }));
   });
 
+  it("shows tag metadata imports that skipped conflicting remote claims as partial successes", async () => {
+    const user = userEvent.setup();
+    mocks.tagsFindByIds.mockResolvedValue([{
+      endpoint: "https://second.example/graphql",
+      metadataServerName: "Second",
+      id: "second-tag",
+      name: "Refreshed tag",
+      aliases: ["Remote alias"],
+    }]);
+    mocks.tagsImport.mockResolvedValue({
+      importWarnings: ["Skipped a remote alias because it is already claimed by another tag."],
+    });
+    const tag = {
+      id: 12,
+      name: "Local tag",
+      favorite: false,
+      organized: false,
+      aliases: [],
+      remoteIds: [{ endpoint: "https://second.example/graphql", remoteId: "second-tag" }],
+    } satisfies Tag & { remoteIds: Array<{ endpoint: string; remoteId: string }> };
+
+    renderTagger(<TagTagger tags={[tag]} mode="detail" />);
+    await user.click(screen.getByRole("button", { name: "Refresh from Second" }));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(/Saved with warnings: Skipped a remote alias/i)).toBeInTheDocument();
+    expect(screen.getByText("Saved successfully")).toBeInTheDocument();
+  });
+
   it("imports a studio through the endpoint that returned the refreshed result", async () => {
     const user = userEvent.setup();
     mocks.studiosFindByIds.mockResolvedValue([{

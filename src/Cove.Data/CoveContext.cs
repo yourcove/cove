@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Linq.Expressions;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
+using Npgsql;
 using NpgsqlTypes;
 using System.Data;
 
@@ -19,10 +20,16 @@ public partial class CoveContext : DbContext
 {
     private static IReadOnlyList<IDataExtension> _dataExtensions = [];
     private static int _modelGeneration;
+    private readonly bool _includeDataExtensionsInModel;
     private const int DerivedArrayAdvisoryLockNamespace = 0x434F5600;
+    private const int TagNamespaceAdvisoryLockKey = 0x434F564E;
     private static readonly SemaphoreSlim[] DerivedArrayWriteStripes =
         Enumerable.Range(0, 257).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+    private static readonly SemaphoreSlim TagNamespaceWriteLock = new(1, 1);
     private bool _persistingDerivedCounts;
+    private int _tagNameValidationSuppressionDepth;
+    private int _authorizationFilterSuppressionDepth;
+    private int _embeddingReadAuthorizationFilterSuppressionDepth;
 
     /// <summary>
     /// Monotonic token that changes whenever the set of loaded data extensions changes. Consumed by
@@ -45,12 +52,26 @@ public partial class CoveContext : DbContext
             Interlocked.Increment(ref _modelGeneration);
     }
 
-    public CoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor? principalAccessor = null) : base(options)
+    public CoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor? principalAccessor = null)
+        : this(options, principalAccessor, includeDataExtensionsInModel: true)
     {
-        _principalAccessor = principalAccessor;
     }
 
-    protected CoveContext(DbContextOptions options) : base(options) { }
+    internal CoveContext(
+        DbContextOptions<CoveContext> options,
+        ICurrentPrincipalAccessor? principalAccessor,
+        bool includeDataExtensionsInModel) : base(options)
+    {
+        _principalAccessor = principalAccessor;
+        _includeDataExtensionsInModel = includeDataExtensionsInModel;
+    }
+
+    protected CoveContext(DbContextOptions options) : base(options)
+    {
+        _includeDataExtensionsInModel = true;
+    }
+
+    internal bool IncludeDataExtensionsInModel => _includeDataExtensionsInModel;
 
     // Core entities
     public DbSet<Video> Videos => Set<Video>();
@@ -158,7 +179,11 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<StudioUrl>().ToTable("studio_urls");
         modelBuilder.Entity<PerformerAlias>().ToTable("performer_aliases");
         modelBuilder.Entity<StudioAlias>().ToTable("studio_aliases");
-        modelBuilder.Entity<TagAlias>().ToTable("tag_aliases");
+        modelBuilder.Entity<TagAlias>(entity =>
+        {
+            entity.ToTable("tag_aliases");
+            entity.Property(alias => alias.NamespaceKey).IsRequired();
+        });
         modelBuilder.Entity<VideoPlayHistory>().ToTable("video_play_history");
 
         modelBuilder.Entity<VideoFile>()
@@ -214,7 +239,7 @@ public partial class CoveContext : DbContext
             entity.HasIndex(face => new { face.PerformerId, face.TopSuggestionComputedAt });
         });
 
-        foreach (var ext in _dataExtensions)
+        foreach (var ext in _includeDataExtensionsInModel ? _dataExtensions : [])
         {
             ext.ConfigureModel(modelBuilder);
         }
@@ -461,37 +486,47 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return base.SaveChanges();
 
-        ProtectDenormalizedIdArraysFromDirectWrites();
-        var arrayTargets = CollectDerivedArrayTargets();
-        var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
-            ? []
-            : AcquireLocalDerivedArrayWriteLocks(arrayTargets);
-        var databaseLock = default(DatabaseDerivedArrayWriteLock);
+        var tagNamespaceLock = AcquireTagNamespaceWriteLock();
         try
         {
-            databaseLock = AcquireDatabaseDerivedArrayWriteLocks(arrayTargets);
-            UpdateTimestamps();
-            ComputeFilePaths();
-            MaintainDenormalizedIdArrays(arrayTargets);
-            CleanupEngagementRowsForDeletedEntities();
-            var derivedCountTargets = CollectDerivedCountTargets();
-            var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-            var result = base.SaveChanges();
-            AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
-            MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
-            PersistDerivedCounts(derivedCountTargets);
-            return result;
-        }
-        finally
-        {
+            NormalizeAndValidateTagNames();
+            NormalizeAndValidateEntityNames();
+            ProtectDenormalizedIdArraysFromDirectWrites();
+            var arrayTargets = CollectDerivedArrayTargets();
+            var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
+                ? []
+                : AcquireLocalDerivedArrayWriteLocks(arrayTargets);
+            var databaseLock = default(DatabaseDerivedArrayWriteLock);
             try
             {
-                ReleaseDatabaseDerivedArrayWriteLocks(databaseLock);
+                databaseLock = AcquireDatabaseDerivedArrayWriteLocks(arrayTargets);
+                UpdateTimestamps();
+                ComputeFilePaths();
+                MaintainDenormalizedIdArrays(arrayTargets);
+                CleanupEngagementRowsForDeletedEntities();
+                var derivedCountTargets = CollectDerivedCountTargets();
+                var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
+                var result = SaveChangesWithNameConstraintTranslation();
+                AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
+                MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
+                PersistDerivedCounts(derivedCountTargets);
+                return result;
             }
             finally
             {
-                ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                try
+                {
+                    ReleaseDatabaseDerivedArrayWriteLocks(databaseLock);
+                }
+                finally
+                {
+                    ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                }
             }
+        }
+        finally
+        {
+            ReleaseTagNamespaceWriteLock(tagNamespaceLock);
         }
     }
 
@@ -500,33 +535,311 @@ public partial class CoveContext : DbContext
         if (_persistingDerivedCounts)
             return await base.SaveChangesAsync(cancellationToken);
 
-        ProtectDenormalizedIdArraysFromDirectWrites();
-        var arrayTargets = CollectDerivedArrayTargets();
-        var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
-            ? []
-            : await AcquireLocalDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
-        var databaseLock = default(DatabaseDerivedArrayWriteLock);
+        var tagNamespaceLock = await AcquireTagNamespaceWriteLockAsync(cancellationToken);
         try
         {
-            databaseLock = await AcquireDatabaseDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
-            UpdateTimestamps();
-            ComputeFilePaths();
-            MaintainDenormalizedIdArrays(arrayTargets);
-            await CleanupEngagementRowsForDeletedEntitiesAsync(cancellationToken);
-            var derivedCountTargets = CollectDerivedCountTargets();
-            var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
-            return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, cancellationToken);
-        }
-        finally
-        {
+            await NormalizeAndValidateTagNamesAsync(cancellationToken);
+            await NormalizeAndValidateEntityNamesAsync(cancellationToken);
+            ProtectDenormalizedIdArraysFromDirectWrites();
+            var arrayTargets = CollectDerivedArrayTargets();
+            var localLockIndexes = UsesDatabaseDerivedArrayWriteLocks()
+                ? []
+                : await AcquireLocalDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
+            var databaseLock = default(DatabaseDerivedArrayWriteLock);
             try
             {
-                await ReleaseDatabaseDerivedArrayWriteLocksAsync(databaseLock);
+                databaseLock = await AcquireDatabaseDerivedArrayWriteLocksAsync(arrayTargets, cancellationToken);
+                UpdateTimestamps();
+                ComputeFilePaths();
+                MaintainDenormalizedIdArrays(arrayTargets);
+                await CleanupEngagementRowsForDeletedEntitiesAsync(cancellationToken);
+                var derivedCountTargets = CollectDerivedCountTargets();
+                var postSaveDerivedCountTargets = CollectPostSaveDerivedCountTargets();
+                return await SaveChangesWithDerivedCountsAsync(derivedCountTargets, postSaveDerivedCountTargets, cancellationToken);
             }
             finally
             {
-                ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                try
+                {
+                    await ReleaseDatabaseDerivedArrayWriteLocksAsync(databaseLock);
+                }
+                finally
+                {
+                    ReleaseLocalDerivedArrayWriteLocks(localLockIndexes);
+                }
             }
+        }
+        finally
+        {
+            await ReleaseTagNamespaceWriteLockAsync(tagNamespaceLock);
+        }
+    }
+
+    /// <summary>
+    /// Temporarily disables shared tag-namespace validation for the internal merge implementation,
+    /// which must persist intermediate states before deleting source tags. Callers must leave the
+    /// database in a scanner-clean state before committing their transaction.
+    /// </summary>
+    public IDisposable SuppressTagNameValidation()
+    {
+        _tagNameValidationSuppressionDepth++;
+        return new TagNameValidationScope(this);
+    }
+
+    /// <summary>
+    /// Bypasses row-level read filters for a narrowly scoped internal data-maintenance operation.
+    /// The caller remains responsible for API authorization. This is required for merges because
+    /// references belonging to other users or hidden content must be transferred before a source
+    /// entity is deleted.
+    /// </summary>
+    internal IDisposable SuppressAuthorizationFilters()
+    {
+        _authorizationFilterSuppressionDepth++;
+        return new AuthorizationFilterScope(this);
+    }
+
+    /// <summary>
+    /// Temporarily bypasses only the embedding read-permission filter for an internal feature that
+    /// separately authorizes the visible host entities it returns. Face and other entity visibility
+    /// filters remain active while this scope is held.
+    /// </summary>
+    internal IDisposable SuppressEmbeddingReadAuthorizationFilter()
+    {
+        _embeddingReadAuthorizationFilterSuppressionDepth++;
+        return new EmbeddingReadAuthorizationFilterScope(this);
+    }
+
+    private void NormalizeAndValidateTagNames()
+    {
+        var candidates = NormalizeChangedTagNames(normalizeValues: _tagNameValidationSuppressionDepth == 0);
+        if (_tagNameValidationSuppressionDepth > 0 || candidates.Count == 0)
+            return;
+
+        ValidateTrackedTagNames(candidates);
+        var excludedTagIds = CandidateAndDeletedTagIds(candidates);
+        var excludedAliasIds = CandidateAndDeletedAliasIds(candidates);
+        var deletedTagIds = DeletedIds<Tag>();
+        var existingTags = Tags.IgnoreQueryFilters().AsNoTracking()
+            .Where(tag => !excludedTagIds.Contains(tag.Id))
+            .Select(tag => new { tag.Id, tag.Name })
+            .ToList();
+        var existingAliases = Set<TagAlias>().IgnoreQueryFilters().AsNoTracking()
+            .Where(alias => !excludedAliasIds.Contains(alias.Id) && !deletedTagIds.Contains(alias.TagId))
+            .Select(alias => new { alias.Id, alias.TagId, alias.Alias })
+            .ToList();
+
+        ThrowForPersistedConflicts(candidates,
+            existingTags.Select(tag => new TagNameConflictTarget(
+                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
+                tag.Name,
+                false,
+                tag.Id))
+            .Concat(existingAliases
+                .Select(alias => new { Alias = alias, Normalized = TagNameRules.NormalizeAlias(alias.Alias) })
+                .Where(row => row.Normalized != null)
+                .Select(row => new TagNameConflictTarget(
+                    TagNameRules.NamespaceKey(row.Normalized!),
+                    row.Alias.Alias,
+                    true,
+                    row.Alias.TagId))));
+    }
+
+    private async Task NormalizeAndValidateTagNamesAsync(CancellationToken cancellationToken)
+    {
+        var candidates = NormalizeChangedTagNames(normalizeValues: _tagNameValidationSuppressionDepth == 0);
+        if (_tagNameValidationSuppressionDepth > 0 || candidates.Count == 0)
+            return;
+
+        ValidateTrackedTagNames(candidates);
+        var excludedTagIds = CandidateAndDeletedTagIds(candidates);
+        var excludedAliasIds = CandidateAndDeletedAliasIds(candidates);
+        var deletedTagIds = DeletedIds<Tag>();
+        var existingTags = await Tags.IgnoreQueryFilters().AsNoTracking()
+            .Where(tag => !excludedTagIds.Contains(tag.Id))
+            .Select(tag => new { tag.Id, tag.Name })
+            .ToListAsync(cancellationToken);
+        var existingAliases = await Set<TagAlias>().IgnoreQueryFilters().AsNoTracking()
+            .Where(alias => !excludedAliasIds.Contains(alias.Id) && !deletedTagIds.Contains(alias.TagId))
+            .Select(alias => new { alias.Id, alias.TagId, alias.Alias })
+            .ToListAsync(cancellationToken);
+
+        ThrowForPersistedConflicts(candidates,
+            existingTags.Select(tag => new TagNameConflictTarget(
+                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
+                tag.Name,
+                false,
+                tag.Id))
+            .Concat(existingAliases
+                .Select(alias => new { Alias = alias, Normalized = TagNameRules.NormalizeAlias(alias.Alias) })
+                .Where(row => row.Normalized != null)
+                .Select(row => new TagNameConflictTarget(
+                    TagNameRules.NamespaceKey(row.Normalized!),
+                    row.Alias.Alias,
+                    true,
+                    row.Alias.TagId))));
+    }
+
+    private List<TagNameCandidate> NormalizeChangedTagNames(bool normalizeValues)
+    {
+        var candidates = new List<TagNameCandidate>();
+        foreach (var entry in ChangeTracker.Entries<Tag>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            var originalNamespaceKey = entry.State == EntityState.Modified
+                ? TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(
+                    entry.Property(tag => tag.Name).OriginalValue))
+                : null;
+            var normalized = TagNameRules.NormalizeCanonicalName(entry.Entity.Name);
+            if (normalizeValues)
+                entry.Entity.Name = normalized;
+            entry.Entity.NamespaceKey = TagNameRules.NamespaceKey(normalized);
+            if (string.Equals(entry.Entity.NamespaceKey, originalNamespaceKey, StringComparison.Ordinal))
+                continue;
+            candidates.Add(new TagNameCandidate(
+                entry.Entity.NamespaceKey,
+                normalized,
+                false,
+                entry.Entity.Id > 0 ? entry.Entity.Id : null,
+                null));
+        }
+
+        foreach (var entry in ChangeTracker.Entries<TagAlias>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .ToArray())
+        {
+            var originalNormalized = entry.State == EntityState.Modified
+                ? TagNameRules.NormalizeAlias(entry.Property(alias => alias.Alias).OriginalValue)
+                : null;
+            var originalNamespaceKey = originalNormalized == null
+                ? null
+                : TagNameRules.NamespaceKey(originalNormalized);
+            var normalized = TagNameRules.NormalizeAlias(entry.Entity.Alias);
+            if (normalized == null)
+            {
+                if (normalizeValues)
+                    entry.State = entry.State == EntityState.Added ? EntityState.Detached : EntityState.Deleted;
+                else
+                    entry.Entity.NamespaceKey = string.Empty;
+                continue;
+            }
+
+            if (normalizeValues)
+                entry.Entity.Alias = normalized;
+            entry.Entity.NamespaceKey = TagNameRules.NamespaceKey(normalized);
+            if (string.Equals(entry.Entity.NamespaceKey, originalNamespaceKey, StringComparison.Ordinal))
+                continue;
+            var owningTag = entry.Entity.Tag
+                ?? ChangeTracker.Entries<Tag>().FirstOrDefault(tag => tag.Entity.Id == entry.Entity.TagId)?.Entity;
+            candidates.Add(new TagNameCandidate(
+                entry.Entity.NamespaceKey,
+                normalized,
+                true,
+                entry.Entity.TagId > 0 ? entry.Entity.TagId : owningTag?.Id > 0 ? owningTag.Id : null,
+                entry.Entity.Id > 0 ? entry.Entity.Id : null));
+        }
+
+        return candidates;
+    }
+
+    private static void ValidateTrackedTagNames(IReadOnlyList<TagNameCandidate> candidates)
+    {
+        var duplicate = candidates
+            .GroupBy(candidate => candidate.Key, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate == null)
+            return;
+
+        var ordered = duplicate.OrderBy(candidate => candidate.IsAlias).ToArray();
+        ThrowTagNameConflict(ordered[0], ordered[1].DisplayName);
+    }
+
+    private static void ThrowForPersistedConflicts(
+        IReadOnlyList<TagNameCandidate> candidates,
+        IEnumerable<TagNameConflictTarget> existingNames)
+    {
+        var targets = existingNames
+            .GroupBy(target => target.Key, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderBy(target => target.IsAlias).ThenBy(target => target.TagId).First(), StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            if (targets.TryGetValue(candidate.Key, out var existing))
+                ThrowTagNameConflict(existing, candidate.DisplayName);
+        }
+    }
+
+    private static void ThrowTagNameConflict(TagNameConflictTarget conflict, string conflictingName)
+        => throw (conflict.IsAlias
+            ? TagNameConflictException.ForExistingAlias(conflict.DisplayName, conflictingName)
+            : TagNameConflictException.ForExistingTagName(conflict.DisplayName, conflictingName));
+
+    private int[] CandidateAndDeletedTagIds(IReadOnlyCollection<TagNameCandidate> candidates)
+        => candidates.Where(candidate => !candidate.IsAlias && candidate.TagId != null)
+            .Select(candidate => candidate.TagId!.Value)
+            .Concat(DeletedIds<Tag>())
+            .Distinct()
+            .ToArray();
+
+    private int[] CandidateAndDeletedAliasIds(IReadOnlyCollection<TagNameCandidate> candidates)
+        => candidates.Where(candidate => candidate.IsAlias && candidate.AliasId != null)
+            .Select(candidate => candidate.AliasId!.Value)
+            .Concat(DeletedIds<TagAlias>())
+            .Distinct()
+            .ToArray();
+
+    private int[] DeletedIds<TEntity>() where TEntity : class
+        => ChangeTracker.Entries<TEntity>()
+            .Where(entry => entry.State == EntityState.Deleted)
+            .Select(entry => entry.Property<int>("Id").CurrentValue)
+            .Where(id => id > 0)
+            .ToArray();
+
+    private record TagNameConflictTarget(
+        string Key,
+        string DisplayName,
+        bool IsAlias,
+        int? TagId);
+
+    private sealed record TagNameCandidate(
+        string Key,
+        string DisplayName,
+        bool IsAlias,
+        int? TagId,
+        int? AliasId)
+        : TagNameConflictTarget(Key, DisplayName, IsAlias, TagId);
+
+    private sealed class TagNameValidationScope(CoveContext context) : IDisposable
+    {
+        private CoveContext? _context = context;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _context, null);
+            if (owner != null)
+                owner._tagNameValidationSuppressionDepth--;
+        }
+    }
+
+    private sealed class AuthorizationFilterScope(CoveContext context) : IDisposable
+    {
+        private CoveContext? _context = context;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _context, null);
+            if (owner != null)
+                owner._authorizationFilterSuppressionDepth--;
+        }
+    }
+
+    private sealed class EmbeddingReadAuthorizationFilterScope(CoveContext context) : IDisposable
+    {
+        private CoveContext? _context = context;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _context, null);
+            if (owner != null)
+                owner._embeddingReadAuthorizationFilterSuppressionDepth--;
         }
     }
 
@@ -574,6 +887,112 @@ public partial class CoveContext : DbContext
     {
         for (var index = indexes.Length - 1; index >= 0; index--)
             DerivedArrayWriteStripes[indexes[index]].Release();
+    }
+
+    private bool HasPendingTagNamespaceWrite() =>
+        ChangeTracker.Entries<Tag>().Any(entry => entry.State is EntityState.Added or EntityState.Deleted
+            || entry.State == EntityState.Modified && entry.Property(tag => tag.Name).IsModified)
+        || ChangeTracker.Entries<TagAlias>().Any(entry => entry.State is EntityState.Added or EntityState.Deleted
+            || entry.State == EntityState.Modified && entry.Property(alias => alias.Alias).IsModified);
+
+    private TagNamespaceLock AcquireTagNamespaceWriteLock()
+    {
+        if (!HasPendingTagNamespaceWrite())
+            return default;
+
+        if (!UsesDatabaseDerivedArrayWriteLocks())
+        {
+            TagNamespaceWriteLock.Wait();
+            return new TagNamespaceLock(Acquired: true, Local: true, TransactionScoped: false, OpenedConnection: false);
+        }
+
+        var openedConnection = Database.GetDbConnection().State != ConnectionState.Open;
+        if (openedConnection)
+            Database.OpenConnection();
+        var transactionScoped = Database.CurrentTransaction != null;
+        try
+        {
+            if (transactionScoped)
+                Database.ExecuteSqlInterpolated($"SELECT pg_advisory_xact_lock({TagNamespaceAdvisoryLockKey})");
+            else
+                Database.ExecuteSqlInterpolated($"SELECT pg_advisory_lock({TagNamespaceAdvisoryLockKey})");
+            return new TagNamespaceLock(Acquired: true, Local: false, transactionScoped, openedConnection);
+        }
+        catch
+        {
+            if (openedConnection)
+                Database.CloseConnection();
+            throw;
+        }
+    }
+
+    private async Task<TagNamespaceLock> AcquireTagNamespaceWriteLockAsync(CancellationToken cancellationToken)
+    {
+        if (!HasPendingTagNamespaceWrite())
+            return default;
+
+        if (!UsesDatabaseDerivedArrayWriteLocks())
+        {
+            await TagNamespaceWriteLock.WaitAsync(cancellationToken);
+            return new TagNamespaceLock(Acquired: true, Local: true, TransactionScoped: false, OpenedConnection: false);
+        }
+
+        var openedConnection = Database.GetDbConnection().State != ConnectionState.Open;
+        if (openedConnection)
+            await Database.OpenConnectionAsync(cancellationToken);
+        var transactionScoped = Database.CurrentTransaction != null;
+        try
+        {
+            if (transactionScoped)
+                await Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({TagNamespaceAdvisoryLockKey})",
+                    cancellationToken);
+            else
+                await Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_lock({TagNamespaceAdvisoryLockKey})",
+                    cancellationToken);
+            return new TagNamespaceLock(Acquired: true, Local: false, transactionScoped, openedConnection);
+        }
+        catch
+        {
+            if (openedConnection)
+                await Database.CloseConnectionAsync();
+            throw;
+        }
+    }
+
+    private void ReleaseTagNamespaceWriteLock(TagNamespaceLock tagNamespaceLock)
+    {
+        try
+        {
+            if (!tagNamespaceLock.Local && !tagNamespaceLock.TransactionScoped && tagNamespaceLock.Acquired)
+                Database.ExecuteSqlInterpolated($"SELECT pg_advisory_unlock({TagNamespaceAdvisoryLockKey})");
+        }
+        finally
+        {
+            if (tagNamespaceLock.OpenedConnection)
+                Database.CloseConnection();
+            if (tagNamespaceLock.Local)
+                TagNamespaceWriteLock.Release();
+        }
+    }
+
+    private async Task ReleaseTagNamespaceWriteLockAsync(TagNamespaceLock tagNamespaceLock)
+    {
+        try
+        {
+            if (!tagNamespaceLock.Local && !tagNamespaceLock.TransactionScoped && tagNamespaceLock.Acquired)
+                await Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_unlock({TagNamespaceAdvisoryLockKey})",
+                    CancellationToken.None);
+        }
+        finally
+        {
+            if (tagNamespaceLock.OpenedConnection)
+                await Database.CloseConnectionAsync();
+            if (tagNamespaceLock.Local)
+                TagNamespaceWriteLock.Release();
+        }
     }
 
     private static int[] GetDerivedArrayWriteStripeIndexes(DerivedArrayTargets targets) =>
@@ -734,6 +1153,12 @@ public partial class CoveContext : DbContext
 
     private readonly record struct DatabaseDerivedArrayWriteLock(
         DerivedArrayLockKey[] Keys,
+        bool TransactionScoped,
+        bool OpenedConnection);
+
+    private readonly record struct TagNamespaceLock(
+        bool Acquired,
+        bool Local,
         bool TransactionScoped,
         bool OpenedConnection);
 
@@ -902,12 +1327,69 @@ public partial class CoveContext : DbContext
 
     private async Task<int> SaveChangesWithDerivedCountsAsync(DerivedCountTargets derivedCountTargets, PostSaveDerivedCountTargets postSaveDerivedCountTargets, CancellationToken cancellationToken)
     {
-        var result = await base.SaveChangesAsync(cancellationToken);
+        var result = await SaveChangesWithNameConstraintTranslationAsync(cancellationToken);
         AddPostSaveDerivedCountTargets(derivedCountTargets, postSaveDerivedCountTargets);
         MaintainPostSaveDenormalizedIdArrays(derivedCountTargets, postSaveDerivedCountTargets);
         await PersistDerivedCountsAsync(derivedCountTargets, cancellationToken);
         return result;
     }
+
+    private int SaveChangesWithNameConstraintTranslation()
+    {
+        try
+        {
+            return base.SaveChanges();
+        }
+        catch (DbUpdateException exception)
+        {
+            if (IsTagNameConstraint(exception))
+                throw TagNameConflictException.ForConcurrentWrite();
+            var entityType = EntityNameConstraintType(exception);
+            if (entityType != null)
+                throw new EntityNameConflictException(entityType, exception);
+            throw;
+        }
+    }
+
+    private async Task<int> SaveChangesWithNameConstraintTranslationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            if (IsTagNameConstraint(exception))
+                throw TagNameConflictException.ForConcurrentWrite();
+            var entityType = EntityNameConstraintType(exception);
+            if (entityType != null)
+                throw new EntityNameConflictException(entityType, exception);
+            throw;
+        }
+    }
+
+    private static string? EntityNameConstraintType(DbUpdateException exception)
+    {
+        if (exception.InnerException is not PostgresException postgres
+            || postgres.SqlState is not PostgresErrorCodes.ExclusionViolation and not PostgresErrorCodes.UniqueViolation)
+        {
+            return null;
+        }
+
+        return postgres.ConstraintName switch
+        {
+            "UQ_performers_identity" => NameConflictEntityTypes.Performer,
+            "UQ_studios_name" => NameConflictEntityTypes.Studio,
+            _ => null,
+        };
+    }
+
+    private static bool IsTagNameConstraint(DbUpdateException exception)
+        => exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.ExclusionViolation,
+            ConstraintName: "UQ_tag_name_claims_namespace",
+        };
 
     private void MaintainDenormalizedIdArrays(DerivedArrayTargets targets)
     {
@@ -2583,5 +3065,8 @@ public partial class CoveContext : DbContext
 public sealed class CoveModelCacheKeyFactory : Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory
 {
     public object Create(DbContext context, bool designTime)
-        => (context.GetType(), CoveContext.ModelGeneration, designTime);
+        => context is CoveContext coveContext
+            ? (context.GetType(), coveContext.IncludeDataExtensionsInModel,
+                coveContext.IncludeDataExtensionsInModel ? CoveContext.ModelGeneration : 0, designTime)
+            : (context.GetType(), false, 0, designTime);
 }

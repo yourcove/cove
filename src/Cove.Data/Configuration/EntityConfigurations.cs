@@ -322,6 +322,7 @@ public class PerformerConfiguration : IEntityTypeConfiguration<Performer>
         builder.ToTable("performers");
         builder.HasKey(p => p.Id);
         builder.Property(p => p.Name).IsRequired().HasMaxLength(500);
+        builder.Property(p => p.IdentityKey).IsRequired();
         builder.Property(p => p.VideoCount).HasDefaultValue(0);
         builder.Property(p => p.ImageCount).HasDefaultValue(0);
         builder.Property(p => p.GalleryCount).HasDefaultValue(0);
@@ -371,6 +372,7 @@ public class TagConfiguration : IEntityTypeConfiguration<Tag>
         builder.ToTable("tags");
         builder.HasKey(t => t.Id);
         builder.Property(t => t.Name).IsRequired().HasMaxLength(500);
+        builder.Property(t => t.NamespaceKey).IsRequired();
         builder.Property(t => t.Color).HasMaxLength(9);
         builder.Property(t => t.VideoCount).HasDefaultValue(0);
         builder.Property(t => t.SegmentCount).HasDefaultValue(0);
@@ -428,6 +430,7 @@ public class StudioConfiguration : IEntityTypeConfiguration<Studio>
         builder.ToTable("studios");
         builder.HasKey(s => s.Id);
         builder.Property(s => s.Name).IsRequired().HasMaxLength(500);
+        builder.Property(s => s.NameKey).IsRequired();
         builder.Property(s => s.VideoCount).HasDefaultValue(0);
         builder.Property(s => s.ImageCount).HasDefaultValue(0);
         builder.Property(s => s.GalleryCount).HasDefaultValue(0);

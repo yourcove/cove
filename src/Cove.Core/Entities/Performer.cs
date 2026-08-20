@@ -6,6 +6,8 @@ public class Performer : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
     public string? Disambiguation { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string IdentityKey { get; set; } = string.Empty;
     public GenderEnum? Gender { get; set; }
     public DateOnly? Birthdate { get; set; }
     public DateOnly? DeathDate { get; set; }
@@ -79,4 +81,3 @@ public class PerformerRemoteId
     public string RemoteId { get; set; } = string.Empty;
     public Performer? Performer { get; set; }
 }
-

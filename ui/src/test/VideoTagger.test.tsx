@@ -165,6 +165,34 @@ describe("VideoTagger", () => {
     );
   });
 
+  it("shows skipped related tag claims as a partial-success warning", async () => {
+    mocks.importFromMetadataServer.mockResolvedValue({
+      importWarnings: ["Skipped remote alias because it is already claimed by another tag."],
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const video = {
+      id: 123,
+      title: "Local video",
+      files: [{ duration: 60, basename: "video.mp4", path: "/library/video.mp4" }],
+      performers: [],
+      tags: [],
+      urls: [],
+      remoteIds: [{ endpoint: "https://first.example/graphql", remoteId: "first-video-id" }],
+    } as any;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <VideoTagger videos={[video]} mode="detail" />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh from First provider" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(/Saved with warnings: Skipped remote alias/i)).toBeInTheDocument();
+    expect(screen.getByText("Saved successfully")).toBeInTheDocument();
+  });
+
   it("can override Scrape All with fingerprint-only matching", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const videos = [

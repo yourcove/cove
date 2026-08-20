@@ -221,6 +221,25 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    public async Task DownloadAsync_WhenProviderThrows_RemovesAttemptTempDirectory()
+    {
+        var service = CreateService(out _, out var downloaderProvider);
+        downloaderProvider.DownloadFailureUrl = "https://example.com/watch/failure";
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => service.DownloadAsync(
+            new DownloaderRequest(
+                "tests.fake-downloader/example",
+                downloaderProvider.DownloadFailureUrl,
+                DownloaderEntity.Video,
+                new DownloaderPermissions(["example.com"])),
+            progress: null,
+            CancellationToken.None));
+
+        Assert.NotNull(downloaderProvider.LastTempDirectory);
+        Assert.False(Directory.Exists(downloaderProvider.LastTempDirectory));
+    }
+
+    [Fact]
     public async Task DownloadAndIngestAsync_MovesFileIntoLibraryAndDelegatesVideoImport()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -1344,6 +1363,8 @@ public class DownloaderServiceTests
         public IReadOnlyList<string> Categories => [ExtensionCategories.Downloader];
         public ConcurrentBag<DownloaderRequest> Requests { get; } = [];
         public string? MatchFailureUrl { get; set; }
+        public string? DownloadFailureUrl { get; set; }
+        public string? LastTempDirectory { get; private set; }
 
         public void ConfigureServices(IServiceCollection services, ExtensionContext context)
         {
@@ -1408,6 +1429,12 @@ public class DownloaderServiceTests
         public async Task<DownloaderResult?> DownloadAsync(DownloaderRequest request, IDownloaderHost host, CancellationToken ct)
         {
             Requests.Add(request);
+            LastTempDirectory = host.TempDirectory;
+            if (string.Equals(request.Url, DownloadFailureUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                await File.WriteAllTextAsync(Path.Combine(host.TempDirectory, "partial.tmp"), "partial", ct);
+                throw new HttpRequestException("Test downloader download failure");
+            }
 
             var filename = request.Entity == DownloaderEntity.Audio
                 ? $"downloaded-audio-{request.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "file"}.mp3"

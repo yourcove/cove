@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data.Services;
 using System.Text;
 
 namespace Cove.Api.Services;
@@ -72,13 +74,10 @@ public partial class StashMigrationService
             }
         }
 
-        var idMap = new Dictionary<int, int>(rows.Count);
         var customPerformerImageFiles = GetCustomPerformerImageFiles(_currentImportCustomPerformerImageLocation);
         var customPerformerImageBlobIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var customPerformerImageFailureCount = 0;
         var failedCustomPerformerImageSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        const int PerformerBatchSize = 500;
-        var pendingBatch = new List<(int StashId, Performer Entity)>(PerformerBatchSize);
         progress.Report(startProgress, "Importing performers...");
         if (!string.IsNullOrWhiteSpace(_currentImportCustomPerformerImageLocation)
             && customPerformerImageFiles.Count == 0
@@ -98,16 +97,50 @@ public partial class StashMigrationService
             performerStashIds.Count,
             stopwatch.Elapsed.TotalMilliseconds);
 
+        var identityKeys = rows
+            .Select(row => EntityNameRules.PerformerIdentityKey(row.Name, row.Disambiguation))
+            .ToHashSet(StringComparer.Ordinal);
+        var existingCandidates = await _db.Performers
+            .Include(performer => performer.Urls)
+            .Include(performer => performer.Aliases)
+            .Include(performer => performer.PerformerTags)
+            .Include(performer => performer.RemoteIds)
+            .OrderBy(performer => performer.Id)
+            .ToListAsync(ct);
+        var existingByIdentity = new Dictionary<string, Performer>(StringComparer.Ordinal);
+        foreach (var existing in existingCandidates)
+        {
+            var identityKey = EntityNameRules.PerformerIdentityKey(existing.Name, existing.Disambiguation);
+            if (!identityKeys.Contains(identityKey))
+                continue;
+            if (!existingByIdentity.TryAdd(identityKey, existing))
+                throw new EntityNameConflictException(NameConflictEntityTypes.Performer);
+        }
+
+        var byId = rows.ToDictionary(row => row.Id);
+        var groups = rows
+            .OrderBy(row => row.Id)
+            .GroupBy(row => EntityNameRules.PerformerIdentityKey(row.Name, row.Disambiguation), StringComparer.Ordinal)
+            .Select(group => (IdentityKey: group.Key, StashIds: (IReadOnlyList<int>)group.Select(row => row.Id).ToArray()))
+            .ToArray();
+        var idMap = new Dictionary<int, int>(rows.Count);
+        const int PerformerBatchSize = 500;
+        var pendingBatch = new List<(IReadOnlyList<int> StashIds, Performer Entity)>();
+        var pendingSourceCount = 0;
+
         async Task FlushPerformerBatchAsync()
         {
             if (pendingBatch.Count == 0)
                 return;
 
+            _db.ChangeTracker.DetectChanges();
             await _db.SaveChangesAsync(ct);
-            foreach (var (stashId, entity) in pendingBatch)
-                idMap[stashId] = entity.Id;
+            foreach (var (stashIds, entity) in pendingBatch)
+                foreach (var stashId in stashIds)
+                    idMap[stashId] = entity.Id;
 
             pendingBatch.Clear();
+            pendingSourceCount = 0;
             _db.ChangeTracker.Clear();
             ReportPhase(progress, startProgress, endProgress, idMap.Count, rows.Count, $"Importing performers ({idMap.Count}/{rows.Count})");
             _logger.LogDebug(
@@ -117,8 +150,54 @@ public partial class StashMigrationService
                 stopwatch.Elapsed.TotalMilliseconds);
         }
 
-        foreach (var row in rows)
+        async Task MergeImportedPerformerMetadataAsync(Performer entity, int stashId)
         {
+            var row = byId[stashId];
+            static string? FirstText(string? current, string? incoming)
+                => !string.IsNullOrWhiteSpace(current) ? current : incoming;
+
+            entity.Gender ??= ParseGender(row.Gender);
+            entity.Birthdate ??= ParseDate(row.Birthdate);
+            entity.Ethnicity = FirstText(entity.Ethnicity, row.Ethnicity);
+            entity.Country = FirstText(entity.Country, row.Country);
+            entity.EyeColor = FirstText(entity.EyeColor, row.EyeColor);
+            entity.HairColor = FirstText(entity.HairColor, row.HairColor);
+            entity.HeightCm ??= row.Height;
+            entity.Weight ??= row.Weight;
+            entity.Measurements = FirstText(entity.Measurements, row.Measurements);
+            entity.FakeTits = FirstText(entity.FakeTits, row.FakeTits);
+            entity.PenisLength ??= row.PenisLength;
+            entity.Circumcised ??= ParseCircumcised(row.Circumcised);
+            var (legacyCareerStart, legacyCareerEnd) = ParseCareerLength(row.CareerLength);
+            entity.CareerStart ??= ParseDate(row.CareerStart) ?? legacyCareerStart;
+            entity.CareerEnd ??= ParseDate(row.CareerEnd) ?? legacyCareerEnd;
+            entity.DeathDate ??= ParseDate(row.DeathDate);
+            entity.Tattoos = FirstText(entity.Tattoos, row.Tattoos);
+            entity.Piercings = FirstText(entity.Piercings, row.Piercings);
+            entity.Details = FirstText(entity.Details, row.Details);
+            entity.Favorite |= row.Favorite;
+
+            string? imageBlobId = null;
+            if (string.IsNullOrWhiteSpace(entity.ImageBlobId))
+            {
+                imageBlobId = GetBlobId(blobMap, row.ImageBlob);
+                if (imageBlobId is null && string.IsNullOrWhiteSpace(row.ImageBlob))
+                {
+                    var customImageImport = await TryImportCustomPerformerImageAsync(
+                        customPerformerImageFiles,
+                        customPerformerImageBlobIds,
+                        row.Name,
+                        ct);
+                    imageBlobId = customImageImport.BlobId;
+                    if (customImageImport.FailedSourcePath is not null)
+                    {
+                        customPerformerImageFailureCount++;
+                        failedCustomPerformerImageSources.Add(customImageImport.FailedSourcePath);
+                    }
+                }
+            }
+            entity.ImageBlobId = FirstText(entity.ImageBlobId, imageBlobId);
+
             var performerUrls = urls.GetValueOrDefault(row.Id, [])
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -133,66 +212,59 @@ public partial class StashMigrationService
             var performerRemoteIds = performerStashIds.GetValueOrDefault(row.Id, [])
                 .DistinctBy(s => (s.Ep, s.Rid))
                 .ToList();
-            var (legacyCareerStart, legacyCareerEnd) = ParseCareerLength(row.CareerLength);
-            var careerStart = ParseDate(row.CareerStart) ?? legacyCareerStart;
-            var careerEnd = ParseDate(row.CareerEnd) ?? legacyCareerEnd;
-            var imageBlobId = GetBlobId(blobMap, row.ImageBlob);
-            if (imageBlobId is null && string.IsNullOrWhiteSpace(row.ImageBlob))
+
+            var urlKeys = entity.Urls.Select(item => item.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var value in performerUrls)
+                if (urlKeys.Add(value))
+                    entity.Urls.Add(new PerformerUrl { Url = value });
+            var aliasKeys = entity.Aliases.Select(item => item.Alias).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var value in performerAliases)
+                if (aliasKeys.Add(value))
+                    entity.Aliases.Add(new PerformerAlias { Alias = value });
+            var tagKeys = entity.PerformerTags.Select(item => item.TagId).ToHashSet();
+            foreach (var tagId in performerTags)
+                if (tagKeys.Add(tagId))
+                    entity.PerformerTags.Add(new PerformerTag { TagId = tagId });
+            var remoteKeys = entity.RemoteIds.Select(item => (item.Endpoint, item.RemoteId)).ToHashSet();
+            foreach (var (endpoint, remoteId) in performerRemoteIds)
+                if (remoteKeys.Add((endpoint, remoteId)))
+                    entity.RemoteIds.Add(new PerformerRemoteId { Endpoint = endpoint, RemoteId = remoteId });
+        }
+
+        foreach (var group in groups)
+        {
+            var firstRow = byId[group.StashIds[0]];
+            Performer entity;
+            if (existingByIdentity.TryGetValue(group.IdentityKey, out var existing))
             {
-                var customImageImport = await TryImportCustomPerformerImageAsync(
-                    customPerformerImageFiles,
-                    customPerformerImageBlobIds,
-                    row.Name,
-                    ct);
-                imageBlobId = customImageImport.BlobId;
-                if (customImageImport.FailedSourcePath is not null)
+                entity = existing;
+                if (_db.Entry(entity).State == EntityState.Detached)
+                    _db.Performers.Attach(entity);
+            }
+            else
+            {
+                entity = new Performer
                 {
-                    customPerformerImageFailureCount++;
-                    failedCustomPerformerImageSources.Add(customImageImport.FailedSourcePath);
-                }
+                    Name = EntityNameRules.NormalizeCanonicalName(firstRow.Name),
+                    Disambiguation = EntityNameRules.NormalizeDisambiguation(firstRow.Disambiguation),
+                    CreatedAt = ParseDateTime(firstRow.CreatedAt),
+                    UpdatedAt = ParseDateTime(firstRow.UpdatedAt),
+                };
+                _db.Performers.Add(entity);
             }
 
-            var entity = new Performer
-            {
-                Name = row.Name,
-                Disambiguation = row.Disambiguation,
-                Gender = ParseGender(row.Gender),
-                Birthdate = ParseDate(row.Birthdate),
-                Ethnicity = row.Ethnicity,
-                Country = row.Country,
-                EyeColor = row.EyeColor,
-                HairColor = row.HairColor,
-                HeightCm = row.Height,
-                Weight = row.Weight,
-                Measurements = row.Measurements,
-                FakeTits = row.FakeTits,
-                PenisLength = row.PenisLength,
-                Circumcised = ParseCircumcised(row.Circumcised),
-                CareerStart = careerStart,
-                CareerEnd = careerEnd,
-                DeathDate = ParseDate(row.DeathDate),
-                Tattoos = row.Tattoos,
-                Piercings = row.Piercings,
-                Favorite = row.Favorite,
-                Details = row.Details,
-                ImageBlobId = imageBlobId,
-                Urls = performerUrls.Select(url => new PerformerUrl { Url = url }).ToList(),
-                Aliases = performerAliases.Select(alias => new PerformerAlias { Alias = alias }).ToList(),
-                PerformerTags = performerTags.Select(tagId => new PerformerTag { TagId = tagId }).ToList(),
-                RemoteIds = performerRemoteIds.Select(remoteId => new PerformerRemoteId { Endpoint = remoteId.Ep, RemoteId = remoteId.Rid }).ToList(),
-                CreatedAt = ParseDateTime(row.CreatedAt),
-                UpdatedAt = ParseDateTime(row.UpdatedAt),
-            };
-            _db.Performers.Add(entity);
-            pendingBatch.Add((row.Id, entity));
+            foreach (var stashId in group.StashIds)
+                await MergeImportedPerformerMetadataAsync(entity, stashId);
+            pendingBatch.Add((group.StashIds, entity));
+            pendingSourceCount += group.StashIds.Count;
 
-            if (pendingBatch.Count >= PerformerBatchSize)
+            if (pendingSourceCount >= PerformerBatchSize)
                 await FlushPerformerBatchAsync();
         }
 
         await FlushPerformerBatchAsync();
         await AddImportedOverallRatingsAsync(
-            rows.Select(row => new ImportedRatingSeed(row.Id, row.Rating)),
+            rows.OrderByDescending(row => row.Id).Select(row => new ImportedRatingSeed(row.Id, row.Rating)),
             idMap,
             RatingHostType.Performer,
             ct);

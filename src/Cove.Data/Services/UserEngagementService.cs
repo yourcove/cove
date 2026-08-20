@@ -801,7 +801,7 @@ public sealed partial class UserEngagementService(
                 .Where(e => e.State == Microsoft.EntityFrameworkCore.EntityState.Added && e.Entity.Session == session)
                 .Select(e => e.Entity));
         var prevTotal = session.TotalWatchedSec;
-        session.TotalWatchedSec = ComputeMergedWatchedSec(allIntervals);
+        session.TotalWatchedSec = PlaybackIntervalMath.ComputeMergedWatchedSec(allIntervals);
         var addedWatchedSeconds = Math.Max(0d, session.TotalWatchedSec - prevTotal);
         var (dwellLen, dwellStart) = ComputeMaxDwell(allIntervals);
 
@@ -946,30 +946,6 @@ public sealed partial class UserEngagementService(
         => exception.InnerException is PostgresException postgresException
             && postgresException.SqlState == PostgresErrorCodes.UniqueViolation
             && string.Equals(postgresException.ConstraintName, "IX_PlaybackSessions_UserId_SessionId", StringComparison.Ordinal);
-
-    private static double ComputeMergedWatchedSec(IEnumerable<PlaybackInterval> intervals)
-    {
-        var sorted = intervals.OrderBy(i => i.StartSec).ThenBy(i => i.EndSec).ToList();
-        var total = 0d;
-        var curStart = double.MinValue;
-        var curEnd = double.MinValue;
-        foreach (var iv in sorted)
-        {
-            if (iv.EndSec <= iv.StartSec) continue;
-            if (iv.StartSec > curEnd)
-            {
-                total += Math.Max(0d, curEnd - curStart);
-                curStart = iv.StartSec;
-                curEnd = iv.EndSec;
-            }
-            else
-            {
-                curEnd = Math.Max(curEnd, iv.EndSec);
-            }
-        }
-        total += Math.Max(0d, curEnd - curStart);
-        return total;
-    }
 
     /// <summary>The longest single contiguous watched run (merged) and where it starts — the user's deepest
     /// dwell. A long run is a strong "found a part worth staying on" signal; its start anchors future
@@ -1222,7 +1198,7 @@ public sealed partial class UserEngagementService(
             .OrderBy(iv => iv.StartSec)
             .ToList();
         var allTimeWatchedIntervals = MergeIntervalsForDisplay(allIntervals);
-        var totalDistinctWatchedSec = ComputeMergedWatchedSec(allIntervals);
+        var totalDistinctWatchedSec = PlaybackIntervalMath.ComputeMergedWatchedSec(allIntervals);
         var sessionsForUser = playbackSessions
             .Select(ToVideoPlaybackSessionDto)
             .ToList();

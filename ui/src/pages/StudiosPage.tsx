@@ -22,6 +22,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { STUDIO_MULTI_SORT_KEYS, STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 
 const SORT_OPTIONS = STUDIO_SORT_OPTIONS;
 
@@ -206,7 +207,7 @@ function StudioListTable({ studios: items, engagementById, onNavigate, selectedI
 }
 
 /* ── Studio Create Modal ── */
-function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+export function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     name: "",
@@ -223,6 +224,7 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
   };
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: StudioCreate) => studios.create(data),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["studios"] });
@@ -232,6 +234,10 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
       if (created?.id) onCreated(created.id);
     },
   });
+  const handleClose = () => {
+    mutation.reset();
+    onClose();
+  };
 
   const save = () => {
     const name = form.name.trim();
@@ -245,7 +251,7 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
   };
 
   return (
-    <EditModal title="Create Studio" open={open} onClose={onClose}>
+    <EditModal title="Create Studio" open={open} onClose={handleClose}>
       <Field label="Name">
         <TextInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
       </Field>
@@ -258,6 +264,7 @@ function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClos
       <Field label="Custom Fields">
         <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="studio" />
       </Field>
+      {mutation.error ? <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
       <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
   );

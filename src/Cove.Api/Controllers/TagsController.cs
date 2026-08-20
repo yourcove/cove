@@ -26,7 +26,8 @@ public class TagsController(
     IFieldProvenanceService? fieldProvenanceService = null,
     ExtensionEntityFilterService? extensionFilters = null,
     ICurrentPrincipalAccessor? principalAccessor = null,
-    IEventBus? eventBus = null) : ControllerBase
+    IEventBus? eventBus = null,
+    TagMergeService? tagMergeService = null) : ControllerBase
 {
     private const int ExtensionFilterCandidateLimit = 5_000;
 
@@ -350,9 +351,6 @@ public class TagsController(
     [RequiresPermission(Permissions.TagsWrite)]
     public async Task<ActionResult<TagDetailDto>> Create([FromBody] TagCreateDto dto, CancellationToken ct)
     {
-        var existing = await tagRepo.GetByNameAsync(dto.Name, ct);
-        if (existing != null) return Conflict(new { message = $"Tag '{dto.Name}' already exists" });
-
         var validation = await ValidateTagMetadataAsync(dto.Color, dto.TagGroupId, ct);
         if (validation != null) return validation;
 
@@ -374,7 +372,14 @@ public class TagsController(
         if (dto.ChildIds?.Count > 0) tag.ChildRelations = dto.ChildIds.Select(cid => new TagParent { ChildId = cid }).ToList();
         if (dto.RemoteIds?.Count > 0) tag.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new TagRemoteId { Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
 
-        tag = await tagRepo.AddAsync(tag, ct);
+        try
+        {
+            tag = await tagRepo.AddAsync(tag, ct);
+        }
+        catch (TagNameConflictException exception)
+        {
+            return Conflict(new { message = exception.Message });
+        }
         if (dto.CustomFields != null)
             await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, tag.Id, dto.CustomFields, ct);
         var result = await tagRepo.GetByIdWithRelationsAsync(tag.Id, ct);
@@ -398,8 +403,8 @@ public class TagsController(
         if (tag == null) return NotFound();
         var clearFields = dto.ClearFields?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
 
-            var validation = await ValidateTagMetadataAsync(dto.Color, dto.TagGroupId, ct);
-            if (validation != null) return validation;
+        var validation = await ValidateTagMetadataAsync(dto.Color, dto.TagGroupId, ct);
+        if (validation != null) return validation;
 
         if (dto.Name != null) tag.Name = dto.Name;
         if (dto.SortName != null) tag.SortName = dto.SortName;
@@ -436,13 +441,16 @@ public class TagsController(
             tag.RemoteIds.Clear();
             tag.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new TagRemoteId { TagId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
         }
-        if (tagRepo != null)
+        try
         {
-            await tagRepo.UpdateAsync(tag, ct);
+            if (tagRepo != null)
+                await tagRepo.UpdateAsync(tag, ct);
+            else
+                await db.SaveChangesAsync(ct);
         }
-        else
+        catch (TagNameConflictException exception)
         {
-            await db.SaveChangesAsync(ct);
+            return Conflict(new { message = exception.Message });
         }
         if (dto.CustomFields != null)
             await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, id, dto.CustomFields, ct);
@@ -514,14 +522,21 @@ public class TagsController(
 
         await db.Entry(tag).Collection(t => t.RemoteIds).LoadAsync(ct);
 
-        var imported = await metadataServerService.MergeTagAsync(tag, dto.Endpoint, dto.TagId, ct);
-        if (!imported)
+        var imported = await metadataServerService.MergeTagWithWarningsAsync(tag, dto.Endpoint, dto.TagId, ct);
+        if (!imported.Imported)
             return NotFound();
 
-        await tagRepo.UpdateAsync(tag, ct);
+        try
+        {
+            await tagRepo.UpdateAsync(tag, ct);
+        }
+        catch (TagNameConflictException exception)
+        {
+            return Conflict(new { code = "TAG_NAME_CONFLICT", message = exception.Message, exception.ConflictingName });
+        }
         eventBus?.Publish(new EntityEvent(EventType.TagUpdated, "Tag", tag.Id));
         var updated = await tagRepo.GetByIdWithRelationsAsync(id, ct);
-        return Ok(await MapToDetailDtoAsync(updated!, ct));
+        return Ok((await MapToDetailDtoAsync(updated!, ct)) with { ImportWarnings = imported.Warnings });
     }
 
     [HttpPost("{id:int}/metadata-server/submit-draft")]
@@ -1012,83 +1027,38 @@ public class TagsController(
     // ===== Merge =====
 
     [HttpPost("merge")]
-    [RequiresPermission(Permissions.TagsWrite)]
+    [RequiresPermission(Permissions.TagsWrite, Permissions.TagsDelete)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsWrite, ActionArgumentName = "dto", PropertyName = "TargetId")]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsDelete, ActionArgumentName = "dto", PropertyName = "SourceIds")]
     public async Task<ActionResult<TagDetailDto>> MergeTags([FromBody] TagMergeDto dto, CancellationToken ct)
     {
-        var target = await tagRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
-        if (target == null) return NotFound("Target tag not found");
-
-        var sources = await db.Tags
-            .Include(t => t.Aliases)
-            .Include(t => t.VideoTags)
-            .Include(t => t.PerformerTags)
-            .Include(t => t.ImageTags)
-            .Include(t => t.GalleryTags)
-            .AsSplitQuery()
-            .Where(t => dto.SourceIds.Contains(t.Id) && t.Id != target.Id)
-            .ToListAsync(ct);
-
-        // Seed dedup sets from the target's *actual* associations in the database. target was loaded
-        // without its join-table collections, and entries we add during the loop never land in its
-        // navigation collections — so checking target.VideoTags/ImageTags/etc. would miss both
-        // pre-existing duplicates and duplicates contributed by another source in the same merge,
-        // violating the join-table primary keys. Adding to the HashSet as we go dedups across sources.
-        var targetVideoIds = (await db.Set<VideoTag>().Where(t => t.TagId == target.Id).Select(t => t.VideoId).ToListAsync(ct)).ToHashSet();
-        var targetPerformerIds = (await db.Set<PerformerTag>().Where(t => t.TagId == target.Id).Select(t => t.PerformerId).ToListAsync(ct)).ToHashSet();
-        var targetImageIds = (await db.Set<ImageTag>().Where(t => t.TagId == target.Id).Select(t => t.ImageId).ToListAsync(ct)).ToHashSet();
-        var targetGalleryIds = (await db.Set<GalleryTag>().Where(t => t.TagId == target.Id).Select(t => t.GalleryId).ToListAsync(ct)).ToHashSet();
-        var targetAliases = target.Aliases.Select(alias => alias.Alias).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var source in sources)
+        TagMergeResult mergeResult;
+        try
         {
-            // Move video associations
-            foreach (var st in source.VideoTags)
-                if (targetVideoIds.Add(st.VideoId))
-                    db.Set<VideoTag>().Add(new VideoTag { VideoId = st.VideoId, TagId = target.Id });
-            // Move performer associations
-            foreach (var pt in source.PerformerTags)
-                if (targetPerformerIds.Add(pt.PerformerId))
-                    db.Set<PerformerTag>().Add(new PerformerTag { PerformerId = pt.PerformerId, TagId = target.Id });
-            // Move image associations
-            foreach (var it in source.ImageTags)
-                if (targetImageIds.Add(it.ImageId))
-                    db.Set<ImageTag>().Add(new ImageTag { ImageId = it.ImageId, TagId = target.Id });
-            // Move gallery associations
-            foreach (var gt in source.GalleryTags)
-                if (targetGalleryIds.Add(gt.GalleryId))
-                    db.Set<GalleryTag>().Add(new GalleryTag { GalleryId = gt.GalleryId, TagId = target.Id });
-            // Add source name as alias
-            if (!string.IsNullOrWhiteSpace(source.Name)
-                && !string.Equals(source.Name, target.Name, StringComparison.OrdinalIgnoreCase)
-                && targetAliases.Add(source.Name))
-                target.Aliases.Add(new TagAlias { Alias = source.Name, TagId = target.Id });
-            // Delete source
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Tag, source.Id, ct);
-            db.Tags.Remove(source);
+            var service = tagMergeService ?? new TagMergeService(
+                db,
+                eventBus,
+                externalReferenceInspector: new PostgresTagExternalReferenceInspector(db));
+            mergeResult = await service.MergeAsync(dto.TargetId, dto.SourceIds, ct);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound("Target tag not found");
+        }
+        catch (TagMergeBlockedException exception)
+        {
+            return Conflict(new
+            {
+                code = "TAG_MERGE_EXTENSION_REFERENCES",
+                message = exception.Message,
+                exception.ReferenceCount,
+                exception.AffectedTagCount,
+                exception.HasUninspectableReferences,
+            });
         }
 
-        // Re-point tag-keyed timeline data from the source tags to the target so a merge moves the
-        // segments instead of orphaning them. Without this, deleting the source tag would trigger the
-        // segments' ON DELETE SET NULL and leave kind=tag rows with no tag.
-        var mergedSourceIds = sources.Select(source => source.Id).ToArray();
-        if (mergedSourceIds.Length > 0)
-        {
-            await db.Segments
-                .Where(segment => segment.TagId != null && mergedSourceIds.Contains(segment.TagId.Value))
-                .ExecuteUpdateAsync(setters => setters.SetProperty(segment => segment.TagId, target.Id), ct);
-            await db.Set<SegmentDisplayRule>()
-                .Where(rule => rule.TagId != null && mergedSourceIds.Contains(rule.TagId.Value))
-                .ExecuteUpdateAsync(setters => setters.SetProperty(rule => rule.TagId, target.Id), ct);
-        }
-
-        await db.SaveChangesAsync(ct);
-        if (sources.Count > 0)
-        {
-            eventBus?.Publish(new EntityEvent(EventType.TagUpdated, "Tag", target.Id));
-            foreach (var source in sources)
-                eventBus?.Publish(new EntityEvent(EventType.TagDeleted, "Tag", source.Id));
-        }
-        var result = await tagRepo.GetByIdWithRelationsAsync(target.Id, ct);
+        await EvictSegmentSpanCachesForTagsAsync([mergeResult.TargetId], ct);
+        var result = await tagRepo.GetByIdWithRelationsAsync(mergeResult.TargetId, ct);
         return Ok(await MapToDetailDtoAsync(result!, ct));
     }
 

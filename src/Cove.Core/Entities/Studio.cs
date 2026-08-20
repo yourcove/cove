@@ -3,6 +3,8 @@ namespace Cove.Core.Entities;
 public class Studio : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string NameKey { get; set; } = string.Empty;
     public int? ParentId { get; set; }
     public bool Favorite { get; set; }
     public string? Details { get; set; }
@@ -67,4 +69,3 @@ public class StudioRemoteId
     public string RemoteId { get; set; } = string.Empty;
     public Studio? Studio { get; set; }
 }
-

@@ -15,6 +15,7 @@ ARG VERSION=0.0.0
 WORKDIR /build/src
 COPY src/Cove.slnx ./
 COPY src/Cove.Api/Cove.Api.csproj Cove.Api/
+COPY src/Cove.ApiTests/Cove.ApiTests.csproj Cove.ApiTests/
 COPY src/Cove.Core/Cove.Core.csproj Cove.Core/
 COPY src/Cove.Data/Cove.Data.csproj Cove.Data/
 COPY src/Cove.PerformanceTests/Cove.PerformanceTests.csproj Cove.PerformanceTests/

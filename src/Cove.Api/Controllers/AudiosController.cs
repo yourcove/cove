@@ -429,6 +429,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
         var updated = await db.Audios.AsNoTracking()
             .Include(item => item.Studio)
+            .Include(item => item.Urls)
             .Include(item => item.Files)
             .Include(item => item.AudioTags).ThenInclude(link => link.Tag)
             .Include(item => item.AudioPerformers).ThenInclude(link => link.Performer)

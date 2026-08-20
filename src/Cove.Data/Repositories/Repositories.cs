@@ -6,6 +6,7 @@ using PermissionKeys = Cove.Core.Auth.Permissions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Core.Common;
+using Cove.Data.Services;
 
 namespace Cove.Data.Repositories;
 
@@ -288,7 +289,14 @@ public class PerformerRepository : IPerformerRepository
 
     public async Task UpdateAsync(Performer entity, CancellationToken ct = default)
     {
-        _db.Performers.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+        {
+            var original = await _db.Performers.AsNoTracking()
+                .SingleOrDefaultAsync(performer => performer.Id == entity.Id, ct);
+            _db.Performers.Update(entity);
+            if (original != null)
+                _db.Entry(entity).OriginalValues.SetValues(original);
+        }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -751,7 +759,8 @@ public class TagRepository : ITagRepository
             .FirstOrDefaultAsync(t => t.Id == id, ct);
 
     public async Task<Tag?> GetByNameAsync(string name, CancellationToken ct = default)
-        => await _db.Tags.FirstOrDefaultAsync(t => t.Name == name, ct);
+        => (await RelationNameResolver.ResolveTagsAsync(_db, [name], ct))
+            .GetValueOrDefault(TagNameRules.NormalizeAlias(name) ?? string.Empty);
 
     public async Task<IReadOnlyList<Tag>> GetAllAsync(CancellationToken ct = default)
         => await _db.Tags.AsNoTracking().OrderBy(t => t.Name).ToListAsync(ct);
@@ -765,7 +774,12 @@ public class TagRepository : ITagRepository
 
     public async Task UpdateAsync(Tag entity, CancellationToken ct = default)
     {
-        _db.Tags.Update(entity);
+        // Controller edit paths load a tracked tag first. Calling Update on that instance marks every
+        // property modified, including an unchanged historical name, which would make the 1.2 write
+        // guard reject an unrelated metadata repair. Preserve EF's property-level change detection;
+        // retain the detached-entity behavior for repository callers that actually need attachment.
+        if (_db.Entry(entity).State == EntityState.Detached)
+            _db.Tags.Update(entity);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -1223,36 +1237,28 @@ public class TagRepository : ITagRepository
 
     public async Task<IReadOnlyList<Tag>> FindByNamesAsync(IReadOnlyList<string> names, CancellationToken ct = default)
     {
-        var loweredNames = names.Select(n => n.ToLowerInvariant()).ToList();
-        return await _db.Tags
-            .Where(t => loweredNames.Contains(t.Name.ToLower()))
-            .AsNoTracking()
-            .ToListAsync(ct);
+        var lookup = await RelationNameResolver.ResolveTagsAsync(_db, names, ct);
+        return lookup.Values.DistinctBy(tag => tag.Id).ToList();
     }
 
     public async Task<Dictionary<string, Tag>> FindOrCreateByNamesAsync(IReadOnlyList<string> names, CancellationToken ct = default)
     {
-        const string tagNameUniqueConstraint = "IX_tags_Name";
+        const string legacyTagNameUniqueConstraint = "IX_tags_Name";
+        const string sharedTagNamespaceUniqueConstraint = "UQ_tag_name_claims_namespace";
         const int maxAttempts = 3;
 
         var normalizedNames = names
             .Where(static n => !string.IsNullOrWhiteSpace(n))
             .Select(static n => n.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(TagNameRules.NamespaceComparer)
             .ToArray();
 
         if (normalizedNames.Length == 0)
-            return new Dictionary<string, Tag>(StringComparer.OrdinalIgnoreCase);
-
-        var lowered = normalizedNames.Select(static n => n.ToLowerInvariant()).ToArray();
+            return new Dictionary<string, Tag>(TagNameRules.NamespaceComparer);
 
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var existing = await _db.Tags
-                .Where(t => lowered.Contains(t.Name.ToLower()))
-                .ToListAsync(ct);
-
-            var byName = existing.ToDictionary(static t => t.Name, StringComparer.OrdinalIgnoreCase);
+            var byName = await RelationNameResolver.ResolveTagsAsync(_db, normalizedNames, ct);
             var created = new List<Tag>();
             foreach (var name in normalizedNames)
             {
@@ -1270,13 +1276,20 @@ public class TagRepository : ITagRepository
                 await _db.SaveChangesAsync(ct);
                 return byName;
             }
+            catch (TagNameConflictException) when (attempt < maxAttempts - 1)
+            {
+                foreach (var tag in created)
+                    _db.Entry(tag).State = EntityState.Detached;
+            }
             catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
                 when (attempt < maxAttempts - 1)
             {
                 var inner = ex.InnerException;
                 var sqlState = inner?.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
                 var constraint = inner?.GetType().GetProperty("ConstraintName")?.GetValue(inner) as string;
-                if (sqlState != "23505" || constraint != tagNameUniqueConstraint) throw;
+                if (sqlState is not "23505" and not "23P01"
+                    || constraint is not legacyTagNameUniqueConstraint and not sharedTagNamespaceUniqueConstraint)
+                    throw;
                 foreach (var tag in created)
                     _db.Entry(tag).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
             }
@@ -1335,7 +1348,14 @@ public class StudioRepository : IStudioRepository
 
     public async Task UpdateAsync(Studio entity, CancellationToken ct = default)
     {
-        _db.Studios.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+        {
+            var original = await _db.Studios.AsNoTracking()
+                .SingleOrDefaultAsync(studio => studio.Id == entity.Id, ct);
+            _db.Studios.Update(entity);
+            if (original != null)
+                _db.Entry(entity).OriginalValues.SetValues(original);
+        }
         await _db.SaveChangesAsync(ct);
     }
 

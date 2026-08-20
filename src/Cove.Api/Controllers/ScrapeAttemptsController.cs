@@ -57,7 +57,16 @@ public class ScrapeAttemptsController(ScrapeAttemptService scrapeAttemptService,
 
     [HttpPost("resolve-relations")]
     public async Task<ActionResult<ResolveScrapeRelationsResultDto>> ResolveRelations([FromBody] ResolveScrapeRelationsRequestDto dto, CancellationToken ct)
-        => Ok(await scrapeAttemptService.ResolveRelationsAsync(dto, ct));
+    {
+        try
+        {
+            return Ok(await scrapeAttemptService.ResolveRelationsAsync(dto, ct));
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "ENTITY_NAME_CONFLICT", message = exception.Message, exception.EntityType });
+        }
+    }
 
     [HttpPost("{id:guid}/apply")]
     public async Task<ActionResult<ScrapeAttemptDto>> Apply(Guid id, [FromBody] ApplyVideoScrapeAttemptDto dto, CancellationToken ct)
@@ -70,8 +79,15 @@ public class ScrapeAttemptsController(ScrapeAttemptService scrapeAttemptService,
         if (authorizationError != null)
             return authorizationError;
 
-        var attempt = await scrapeAttemptService.ApplyAttemptAsync(id, dto, ct);
-        return attempt == null ? NotFound() : Ok(attempt);
+        try
+        {
+            var attempt = await scrapeAttemptService.ApplyAttemptAsync(id, dto, ct);
+            return attempt == null ? NotFound() : Ok(attempt);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "ENTITY_NAME_CONFLICT", message = exception.Message, exception.EntityType });
+        }
     }
 
     private async Task<ObjectResult?> AuthorizeAttemptAsync(ScrapeAttemptDto attempt, bool write, CancellationToken ct)

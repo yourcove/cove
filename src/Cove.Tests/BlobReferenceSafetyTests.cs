@@ -277,6 +277,35 @@ public sealed class BlobReferenceSafetyTests
     }
 
     [Fact]
+    public async Task TransactionalTagMerge_TransfersArtworkWithTheProductionInterceptor()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var provider = CreateInterceptorProvider(connection);
+        await using var scope = provider.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
+        await context.Database.EnsureCreatedAsync();
+        var target = new Tag { Name = "target", ImageBlobId = "target-artwork" };
+        var source = new Tag
+        {
+            Name = "source",
+            ImageBlobId = "source-artwork",
+            ImageOverrideBlobId = "source-override-artwork",
+        };
+        context.Tags.AddRange(target, source);
+        await context.SaveChangesAsync();
+
+        await scope.ServiceProvider.GetRequiredService<TagMergeService>()
+            .MergeAsync(target.Id, [source.Id]);
+
+        context.ChangeTracker.Clear();
+        var merged = await context.Tags.SingleAsync();
+        Assert.Equal(target.Id, merged.Id);
+        Assert.Equal("target-artwork", merged.ImageBlobId);
+        Assert.Equal("source-override-artwork", merged.ImageOverrideBlobId);
+    }
+
+    [Fact]
     public async Task SaveChanges_CleansDetachedBlobOnlyAfterTheReferenceIsPersisted()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -386,7 +415,9 @@ public sealed class BlobReferenceSafetyTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBlobReferenceCoordinator, BlobReferenceCoordinator>();
+        services.AddScoped<BlobReferenceTransactionCoordinator>();
         services.AddScoped<BlobReferenceSaveChangesInterceptor>();
+        services.AddScoped<TagMergeService>();
         services.AddDbContext<CoveContext>((provider, options) =>
         {
             options.UseSqlite(connection)

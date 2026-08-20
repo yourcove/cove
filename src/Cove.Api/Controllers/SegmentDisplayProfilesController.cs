@@ -190,31 +190,37 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
         if (ruleDtos.Count == 0)
             return NoContent();
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-
-        var rules = ruleDtos.Select(dto => new SegmentDisplayRule
+        await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            ProfileId = profile.Id,
-            SourceKey = dto.SourceKey,
-            Kind = dto.Kind,
-            TagId = dto.TagId,
-            TagCategory = dto.TagCategory,
-            HostType = dto.HostType,
-            Visible = dto.Visible,
-            MinConfidence = dto.MinConfidence,
-            MinDurationSec = dto.MinDurationSec,
-            MergeGapSec = dto.MergeGapSec,
-            CollapseToInstant = dto.CollapseToInstant,
-            ColorOverride = dto.ColorOverride,
-            Lane = dto.Lane,
-            Priority = dto.Priority,
-            UserId = profile.UserId,
-        }).ToList();
+            db.ChangeTracker.Clear();
+            var retryProfile = await LoadEditableProfileAsync(profileId, ct)
+                ?? throw new InvalidOperationException($"Segment display profile {profileId} disappeared during bulk rule creation.");
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-        db.SegmentDisplayRules.AddRange(rules);
-        BumpProfileVersion(profile);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+            var rules = ruleDtos.Select(dto => new SegmentDisplayRule
+            {
+                ProfileId = retryProfile.Id,
+                SourceKey = dto.SourceKey,
+                Kind = dto.Kind,
+                TagId = dto.TagId,
+                TagCategory = dto.TagCategory,
+                HostType = dto.HostType,
+                Visible = dto.Visible,
+                MinConfidence = dto.MinConfidence,
+                MinDurationSec = dto.MinDurationSec,
+                MergeGapSec = dto.MergeGapSec,
+                CollapseToInstant = dto.CollapseToInstant,
+                ColorOverride = dto.ColorOverride,
+                Lane = dto.Lane,
+                Priority = dto.Priority,
+                UserId = retryProfile.UserId,
+            }).ToList();
+
+            db.SegmentDisplayRules.AddRange(rules);
+            BumpProfileVersion(retryProfile);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        });
 
         spanResolver.EvictProfile(profile.Id);
         return NoContent();
@@ -229,7 +235,6 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
             return NotFound();
 
         var rule = await db.SegmentDisplayRules
-            .Include(item => item.Tag)
             .FirstOrDefaultAsync(item => item.ProfileId == profileId && item.Id == id, ct);
         if (rule is null)
             return NotFound();
@@ -248,7 +253,6 @@ public class SegmentDisplayProfilesController(CoveContext db, SegmentSpanResolve
         rule.Lane = dto.Lane;
         rule.Priority = dto.Priority;
         rule.UserId = profile.UserId;
-        rule.Tag = null;
 
         BumpProfileVersion(profile);
         await db.SaveChangesAsync(ct);

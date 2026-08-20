@@ -10,7 +10,8 @@ namespace Cove.Data.Services;
 public sealed class BlobReferenceSaveChangesInterceptor(
     IBlobReferenceCoordinator coordinator,
     IServiceProvider serviceProvider,
-    ILogger<BlobReferenceSaveChangesInterceptor> logger) : SaveChangesInterceptor
+    ILogger<BlobReferenceSaveChangesInterceptor> logger,
+    BlobReferenceTransactionCoordinator? transactionCoordinator = null) : SaveChangesInterceptor
 {
     private IBlobReferenceLease? _lease;
     private IReadOnlyList<string> _cleanupBlobIds = [];
@@ -22,6 +23,14 @@ public sealed class BlobReferenceSaveChangesInterceptor(
         var plan = CollectPlan(eventData.Context);
         if (!plan.HasChanges)
             return result;
+
+        if (transactionCoordinator?.IsActive == true)
+        {
+            if (!transactionCoordinator.IsActiveFor(eventData.Context))
+                throw new InvalidOperationException("A blob-reference transaction is active for another Cove database context in this service scope.");
+            transactionCoordinator.RegisterPlan(plan.AssignedBlobIds, plan.CleanupBlobIds);
+            return result;
+        }
 
         RejectExplicitTransaction(eventData.Context);
         var lease = coordinator.Acquire();
@@ -46,6 +55,14 @@ public sealed class BlobReferenceSaveChangesInterceptor(
         var plan = CollectPlan(eventData.Context);
         if (!plan.HasChanges)
             return result;
+
+        if (transactionCoordinator?.IsActive == true)
+        {
+            if (!transactionCoordinator.IsActiveFor(eventData.Context))
+                throw new InvalidOperationException("A blob-reference transaction is active for another Cove database context in this service scope.");
+            transactionCoordinator.RegisterPlan(plan.AssignedBlobIds, plan.CleanupBlobIds);
+            return result;
+        }
 
         RejectExplicitTransaction(eventData.Context);
         var lease = await coordinator.AcquireAsync(cancellationToken);

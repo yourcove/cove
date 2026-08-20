@@ -258,9 +258,9 @@ function MultiIdFilterChipDisplay({ def, value, nameMap, fallback }: { def: Crit
     let connector = "";
     if (index > 0) {
       connector = values.length === 2
-        ? ` ${conjunction} `
+        ? `\u00a0${conjunction} `
         : index === values.length - 1
-          ? `, ${conjunction} `
+          ? `,\u00a0${conjunction} `
           : ", ";
     }
     const colorClass = kind === "included" ? "text-green-300" : "text-red-300";

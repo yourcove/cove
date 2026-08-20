@@ -230,7 +230,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
             return NotFound();
 
         db.GroupItems.Remove(item);
-        await ReindexItemsAsync(groupId, ct);
+        await ReindexItemsAsync(groupId, [item.Id], ct);
         await db.SaveChangesAsync(ct);
         PublishGroupUpdate(groupId);
         return NoContent();
@@ -259,8 +259,9 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         if (items.Count == 0)
             return Ok(new { removed = 0 });
 
+        var removedItemIds = items.Select(item => item.Id).ToArray();
         db.GroupItems.RemoveRange(items);
-        await ReindexItemsAsync(groupId, ct);
+        await ReindexItemsAsync(groupId, removedItemIds, ct);
         await db.SaveChangesAsync(ct);
         PublishGroupUpdate(groupId);
         return Ok(new { removed = items.Count });
@@ -1087,10 +1088,13 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         return GroupItemHostResolution.Fail($"Group items do not support host type '{hostType}'.");
     }
 
-    private async Task ReindexItemsAsync(int groupId, CancellationToken ct)
+    private async Task ReindexItemsAsync(int groupId, int[] excludedItemIds, CancellationToken ct)
     {
-        var items = await db.GroupItems
-            .Where(item => item.GroupId == groupId)
+        var query = db.GroupItems.Where(item => item.GroupId == groupId);
+        if (excludedItemIds.Length > 0)
+            query = query.Where(item => !excludedItemIds.Contains(item.Id));
+
+        var items = await query
             .OrderBy(item => item.OrderIndex)
             .ThenBy(item => item.Id)
             .ToListAsync(ct);

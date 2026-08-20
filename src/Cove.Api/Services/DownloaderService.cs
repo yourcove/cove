@@ -7,6 +7,7 @@ using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
 using Cove.Data;
+using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
@@ -223,27 +224,37 @@ public partial class DownloaderService(
 
         TraceDownloadStarted(request.DownloaderId, request.Entity, request.Url, request.QualityId);
 
-        var host = new DownloaderHost(tempDirectory, httpClientFactory, loggerFactory, progress);
-        using var downloadSlotLease = await AcquireDownloadSlotAsync(progress, ct);
-        var result = await extensionManager.ExecuteExtensionAsync(
-            registration.Execution,
-            () => registration.Provider.DownloadAsync(request, host, ct));
-        if (result == null)
+        var retainTempDirectory = false;
+        try
         {
-            TraceDownloadReturnedNoResult(request.DownloaderId, request.Entity, request.Url);
-            return null;
+            var host = new DownloaderHost(tempDirectory, httpClientFactory, loggerFactory, progress);
+            using var downloadSlotLease = await AcquireDownloadSlotAsync(progress, ct);
+            var result = await extensionManager.ExecuteExtensionAsync(
+                registration.Execution,
+                () => registration.Provider.DownloadAsync(request, host, ct));
+            if (result == null)
+            {
+                TraceDownloadReturnedNoResult(request.DownloaderId, request.Entity, request.Url);
+                return null;
+            }
+
+            var localPath = Path.IsPathRooted(result.LocalPath)
+                ? result.LocalPath
+                : Path.GetFullPath(Path.Combine(tempDirectory, result.LocalPath));
+
+            if (!File.Exists(localPath))
+                throw new InvalidOperationException($"Downloader {registration.Descriptor.Id} completed without producing a file at {localPath}");
+
+            retainTempDirectory = IsPathWithinDirectory(localPath, tempDirectory);
+            TraceDownloadCompleted(request.DownloaderId, request.Entity, request.Url, localPath, result.OriginalFilename);
+
+            return result with { LocalPath = localPath };
         }
-
-        var localPath = Path.IsPathRooted(result.LocalPath)
-            ? result.LocalPath
-            : Path.GetFullPath(Path.Combine(tempDirectory, result.LocalPath));
-
-        if (!File.Exists(localPath))
-            throw new InvalidOperationException($"Downloader {registration.Descriptor.Id} completed without producing a file at {localPath}");
-
-        TraceDownloadCompleted(request.DownloaderId, request.Entity, request.Url, localPath, result.OriginalFilename);
-
-        return result with { LocalPath = localPath };
+        finally
+        {
+            if (!retainTempDirectory)
+                TryDeleteDirectory(tempDirectory);
+        }
     }
 
     public async Task<(DownloaderResult? Result, int? ImportedEntityId)> DownloadAndIngestAsync(
@@ -1679,10 +1690,7 @@ public partial class DownloaderService(
 
     private static async Task<Dictionary<string, Tag>> LoadTagsByNameAsync(CoveContext db, IReadOnlyList<string> tagNames, bool createMissing, CancellationToken ct)
     {
-        var normalizedNames = tagNames.Select(name => name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, tagNames, ct);
 
         foreach (var tagName in tagNames)
         {
@@ -1702,10 +1710,7 @@ public partial class DownloaderService(
 
     private static async Task<Dictionary<string, Performer>> LoadPerformersByNameAsync(CoveContext db, IReadOnlyList<string> performerNames, bool createMissing, CancellationToken ct)
     {
-        var normalizedNames = performerNames.Select(name => name.ToLowerInvariant()).ToHashSet();
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(db, performerNames, ct);
 
         foreach (var performerName in performerNames)
         {
@@ -1726,7 +1731,7 @@ public partial class DownloaderService(
     private static async Task<Studio?> FindOrCreateStudioAsync(CoveContext db, string studioName, bool createMissing, CancellationToken ct)
     {
         var normalizedStudioName = studioName.Trim();
-        var studio = await db.Studios.FirstOrDefaultAsync(item => item.Name == normalizedStudioName, ct);
+        var studio = await RelationNameResolver.ResolveStudioAsync(db, normalizedStudioName, ct);
         if (studio == null && !createMissing)
             return null;
 
@@ -2910,6 +2915,28 @@ public partial class DownloaderService(
         catch
         {
             // Best-effort cleanup for the downloader temp directory.
+        }
+    }
+
+    private static bool IsPathWithinDirectory(string path, string directory)
+    {
+        var relativePath = Path.GetRelativePath(Path.GetFullPath(directory), Path.GetFullPath(path));
+        return !Path.IsPathRooted(relativePath)
+            && relativePath != ".."
+            && !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            && !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
+    }
+
+    private static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+        catch
+        {
+            // Best-effort cleanup for a downloader attempt that did not return a usable temp file.
         }
     }
 

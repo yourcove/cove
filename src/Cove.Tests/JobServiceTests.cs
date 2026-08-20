@@ -249,6 +249,54 @@ public class JobServiceTests
         }
     }
 
+    [Fact]
+    public async Task CancelAllAndWaitAsync_WaitsForRunningWorkToUnwindAndClearsHistory()
+    {
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var unwinding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            service.Enqueue(
+                "scan",
+                "Long-running scan",
+                async (_, ct) =>
+                {
+                    started.SetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.Infinite, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        unwinding.SetResult();
+                        await release.Task;
+                        throw;
+                    }
+                });
+
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var drain = service.CancelAllAndWaitAsync();
+            await unwinding.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.False(drain.IsCompleted);
+
+            release.SetResult();
+            await drain.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Empty(service.GetAllJobs());
+            Assert.Empty(service.GetJobHistory());
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     private static async Task<JobInfo?> WaitForTerminalStateAsync(IJobService service, string jobId, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

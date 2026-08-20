@@ -36,7 +36,8 @@ public record VideoDto(
     double? ClipStartSec = null,
     double? ClipEndSec = null,
     int ChildVideoCount = 0,
-    string? ImagePath = null);
+    string? ImagePath = null,
+    IReadOnlyList<string>? ImportWarnings = null);
 
 public record VideoListEntryDto(string Kind, int Id, VideoDto? Video = null, GroupDto? Group = null);
 
@@ -180,7 +181,8 @@ public record TagDetailDto(
     string? Color = null, int? TagGroupId = null, string? TagGroupName = null, string? TagGroupColor = null,
     double? MinOccurrenceSec = null, double? MinOccurrencePercent = null, List<TagRemoteIdDto>? RemoteIds = null,
     bool Organized = false,
-    List<FieldProvenanceDto>? FieldProvenance = null);
+    List<FieldProvenanceDto>? FieldProvenance = null,
+    IReadOnlyList<string>? ImportWarnings = null);
 
 public record TagRemoteIdDto(string Endpoint, string RemoteId);
 
@@ -1664,7 +1666,8 @@ public record MetadataServerEntityCandidateDto(
     string RemoteId,
     string Name,
     bool ExistsLocally,
-    int? LocalId
+    int? LocalId,
+    string? Disambiguation = null
 );
 
 public record MetadataServerVideoEntityOverrideDto

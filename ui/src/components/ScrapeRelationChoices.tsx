@@ -51,6 +51,7 @@ export function ScrapeRelationChoices({
   names,
   currentNames,
   existingNames,
+  displayNames,
   matchInfo,
   actions,
   onActionChange,
@@ -59,6 +60,9 @@ export function ScrapeRelationChoices({
   names: string[];
   currentNames: string[];
   existingNames: string[];
+  // relationKey(choice key) -> user-facing label. This lets callers use a stable identity key when
+  // multiple entities share the same display name.
+  displayNames?: Record<string, string>;
   // relationKey(scraped name) -> the existing entity's primary name. When it differs from the
   // scraped name, the match was via an alias; surfaced in the tooltip so a match is never a mystery.
   matchInfo?: Record<string, string>;
@@ -73,6 +77,7 @@ export function ScrapeRelationChoices({
     <div className="mt-2 flex flex-wrap gap-1.5">
       {names.map((name) => {
         const key = relationKey(name);
+        const displayName = displayNames?.[key] ?? name;
         const action = actions[key] ?? "exclude";
         const isCurrent = current.has(key);
         const existsLocally = isCurrent || existing.has(key);
@@ -90,16 +95,16 @@ export function ScrapeRelationChoices({
                 ? "Existing"
                 : "Include only";
         const title = action === "exclude"
-          ? `${name} is excluded`
+          ? `${displayName} is excluded`
           : action === "create"
-            ? `${name} has no existing match — a new entry will be created`
+            ? `${displayName} has no existing match — a new entry will be created`
             : isCurrent
-              ? `${name} is already linked`
+              ? `${displayName} is already linked`
               : aliasMatch
-                ? `${name} matches existing "${aliasMatch}" (alias) — no new entry created`
+                ? `${displayName} matches existing "${aliasMatch}" (alias) — no new entry created`
                 : existsLocally
-                  ? `${name} matches an existing entry — no new entry created`
-                  : `${name} will be included`;
+                  ? `${displayName} matches an existing entry — no new entry created`
+                  : `${displayName} will be included`;
 
         return (
           <button
@@ -108,11 +113,11 @@ export function ScrapeRelationChoices({
             disabled={disabled}
             onClick={() => onActionChange(name, nextAction)}
             title={title}
-            aria-label={`${name}: ${label}`}
+            aria-label={`${displayName}: ${label}`}
             className={`inline-flex max-w-full items-center gap-1 rounded border px-2 py-1 text-[11px] transition-colors ${getRelationChipClass(action, existsLocally, disabled)}`}
           >
             <RelationActionIcon action={action} />
-            <span className="truncate">{name}</span>
+            <span className="truncate">{displayName}</span>
           </button>
         );
       })}

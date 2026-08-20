@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data.Services;
 
 namespace Cove.Api.Services;
 
@@ -53,20 +54,22 @@ public partial class StashMigrationService
         var byId = rows.ToDictionary(r => r.Id);
         var ordered = TopologicalSort(rows.Select(r => r.Id).ToList(), id => tagParents.GetValueOrDefault(id, []));
         var rowNames = rows
-            .Select(row => row.Name)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.Ordinal)
+            .Select(row => TagNameRules.NormalizeCanonicalName(row.Name))
+            .Distinct(TagNameRules.NamespaceComparer)
             .ToArray();
-        var existingTags = await _db.Tags
-            .Where(tag => rowNames.Contains(tag.Name))
-            .ToListAsync(ct);
-        var existingByName = existingTags.ToDictionary(tag => tag.Name, StringComparer.Ordinal);
+        var resolvedTags = await RelationNameResolver.ResolveTagsAsync(_db, rowNames, ct);
+        var existingByName = resolvedTags
+            .GroupBy(pair => TagNameRules.NamespaceKey(pair.Key), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderBy(pair => pair.Value.Id).First().Value, StringComparer.Ordinal);
+        var resolvedTagIds = existingByName.Values.Select(tag => tag.Id).Distinct().ToArray();
+        if (resolvedTagIds.Length > 0)
+            await _db.Set<TagRemoteId>().Where(remoteId => resolvedTagIds.Contains(remoteId.TagId)).LoadAsync(ct);
 
         var idMap = new Dictionary<int, int>();
         const int TagBatchSize = 1000;
         const int TagParentBatchSize = 5000;
-        var pendingTags = new List<(int StashId, Tag Entity)>(TagBatchSize);
-        var pendingTagsByName = new Dictionary<string, Tag>(StringComparer.Ordinal);
+        var pendingTags = new List<(IReadOnlyList<int> StashIds, Tag Entity)>();
+        var pendingSourceCount = 0;
         progress.Report(startProgress, "Importing tags...");
         _logger.LogDebug(
             "[StashTiming] phase=tags checkpoint=loaded rows={Rows} aliases={AliasOwners} parentLinks={ParentLinks} elapsedMs={ElapsedMilliseconds:F0}",
@@ -80,14 +83,16 @@ public partial class StashMigrationService
             if (pendingTags.Count == 0)
                 return;
 
+            // RunBulkInsertPhaseAsync disables automatic change detection. Detect once per batch so
+            // metadata merged into existing tags and children appended after Add are persisted.
+            _db.ChangeTracker.DetectChanges();
             await _db.SaveChangesAsync(ct);
-            foreach (var (stashId, entity) in pendingTags)
-                idMap[stashId] = entity.Id;
-            foreach (var entity in pendingTags.Select(tag => tag.Entity).DistinctBy(tag => tag.Name))
-                existingByName[entity.Name] = entity;
+            foreach (var (stashIds, entity) in pendingTags)
+                foreach (var stashId in stashIds)
+                    idMap[stashId] = entity.Id;
 
             pendingTags.Clear();
-            pendingTagsByName.Clear();
+            pendingSourceCount = 0;
             _db.ChangeTracker.Clear();
             ReportPhase(progress, startProgress, endProgress, idMap.Count, ordered.Count, $"Importing tags ({idMap.Count}/{ordered.Count})");
             _logger.LogDebug(
@@ -97,41 +102,74 @@ public partial class StashMigrationService
                 stopwatch.Elapsed.TotalMilliseconds);
         }
 
-        foreach (var stashId in ordered)
+        void MergeImportedMetadata(Tag entity, int stashId)
         {
             var row = byId[stashId];
-            if (existingByName.TryGetValue(row.Name, out var existingTag))
+            if (string.IsNullOrWhiteSpace(entity.SortName) && !string.IsNullOrWhiteSpace(row.SortName))
+                entity.SortName = row.SortName;
+            if (string.IsNullOrWhiteSpace(entity.Description) && !string.IsNullOrWhiteSpace(row.Description))
+                entity.Description = row.Description;
+            entity.Favorite |= row.Favorite;
+            if (string.IsNullOrWhiteSpace(entity.ImageBlobId))
+                entity.ImageBlobId = GetBlobId(blobMap, row.ImageBlob);
+
+            var canonicalKey = TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(entity.Name));
+            var aliasKeys = entity.Aliases
+                .Select(alias => TagNameRules.NormalizeAlias(alias.Alias))
+                .Where(alias => alias != null)
+                .Select(alias => TagNameRules.NamespaceKey(alias!))
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var value in aliases.GetValueOrDefault(stashId, []))
             {
-                idMap[stashId] = existingTag.Id;
-                continue;
+                var normalized = TagNameRules.NormalizeAlias(value);
+                if (normalized == null)
+                    continue;
+                var aliasKey = TagNameRules.NamespaceKey(normalized);
+                if (aliasKey != canonicalKey && aliasKeys.Add(aliasKey))
+                    entity.Aliases.Add(new TagAlias { Alias = normalized });
             }
 
-            if (pendingTagsByName.TryGetValue(row.Name, out var pendingTag))
+            var remoteIds = entity.RemoteIds
+                .Select(remoteId => (remoteId.Endpoint, remoteId.RemoteId))
+                .ToHashSet();
+            foreach (var (endpoint, remoteId) in tagStashIds.GetValueOrDefault(stashId, []))
+                if (remoteIds.Add((endpoint, remoteId)))
+                    entity.RemoteIds.Add(new TagRemoteId { Endpoint = endpoint, RemoteId = remoteId });
+        }
+
+        var groups = ordered
+            .GroupBy(
+                stashId => TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(byId[stashId].Name)),
+                StringComparer.Ordinal)
+            .Select(group => (NamespaceKey: group.Key, StashIds: (IReadOnlyList<int>)group.ToArray()))
+            .ToArray();
+        foreach (var group in groups)
+        {
+            var firstRow = byId[group.StashIds[0]];
+            Tag entity;
+            if (existingByName.TryGetValue(group.NamespaceKey, out var existingTag))
             {
-                pendingTags.Add((stashId, pendingTag));
-                continue;
+                entity = existingTag;
+                if (_db.Entry(entity).State == EntityState.Detached)
+                    _db.Tags.Attach(entity);
+            }
+            else
+            {
+                entity = new Tag
+                {
+                    Name = TagNameRules.NormalizeCanonicalName(firstRow.Name),
+                    CreatedAt = ParseDateTime(firstRow.CreatedAt),
+                    UpdatedAt = ParseDateTime(firstRow.UpdatedAt),
+                };
+                _db.Tags.Add(entity);
             }
 
-            var entity = new Tag
-            {
-                Name = row.Name,
-                SortName = row.SortName,
-                Description = row.Description,
-                Favorite = row.Favorite,
-                ImageBlobId = GetBlobId(blobMap, row.ImageBlob),
-                Aliases = aliases.GetValueOrDefault(stashId, []).Select(a => new TagAlias { Alias = a }).ToList(),
-                RemoteIds = tagStashIds.GetValueOrDefault(stashId, [])
-                    .DistinctBy(s => (s.Ep, s.Rid))
-                    .Select(s => new TagRemoteId { Endpoint = s.Ep, RemoteId = s.Rid })
-                    .ToList(),
-                CreatedAt = ParseDateTime(row.CreatedAt),
-                UpdatedAt = ParseDateTime(row.UpdatedAt),
-            };
-            _db.Tags.Add(entity);
-            pendingTagsByName[row.Name] = entity;
-            pendingTags.Add((stashId, entity));
+            foreach (var stashId in group.StashIds)
+                MergeImportedMetadata(entity, stashId);
+            pendingTags.Add((group.StashIds, entity));
+            pendingSourceCount += group.StashIds.Count;
 
-            if (pendingTags.Count >= TagBatchSize)
+            if (pendingSourceCount >= TagBatchSize)
                 await FlushTagBatchAsync();
         }
 

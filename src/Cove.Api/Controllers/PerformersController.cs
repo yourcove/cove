@@ -225,7 +225,14 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.TagIds?.Count > 0) performer.PerformerTags = dto.TagIds.Select(id => new PerformerTag { TagId = id }).ToList();
         if (dto.RemoteIds?.Count > 0) performer.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new PerformerRemoteId { Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
 
-        performer = await performerRepo.AddAsync(performer, ct);
+        try
+        {
+            performer = await performerRepo.AddAsync(performer, ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
+        }
         if (dto.CustomFields != null)
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, performer.Id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
@@ -263,7 +270,6 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.Piercings != null) p.Piercings = dto.Piercings;
         if (dto.Favorite.HasValue) p.Favorite = dto.Favorite.Value;
         if (dto.Details != null) p.Details = dto.Details;
-
         if (dto.Urls != null)
         {
             p.Urls.Clear();
@@ -309,7 +315,14 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
                 case "details": p.Details = null; break;
             }
         }
-        await performerRepo.UpdateAsync(p, ct);
+        try
+        {
+            await performerRepo.UpdateAsync(p, ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
+        }
         if (dto.CustomFields != null)
             await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, id, dto.CustomFields, ct);
         if (dto.Rating.HasValue)
@@ -339,8 +352,15 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (resolvedScrape.ErrorResult != null)
             return resolvedScrape.ErrorResult;
 
-        await performerScrapeService.ApplyAsync(performer, resolvedScrape.Scraped!, dto.CreateMissingTags, ct: ct);
-        await performerRepo.UpdateAsync(performer, ct);
+        try
+        {
+            await performerScrapeService.ApplyAsync(performer, resolvedScrape.Scraped!, dto.CreateMissingTags, ct: ct);
+            await performerRepo.UpdateAsync(performer, ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
+        }
         eventBus?.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", performer.Id));
 
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
@@ -371,8 +391,15 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (performer == null)
             return NotFound();
 
-        await performerScrapeService.ApplyAsync(performer, dto.Scraped, dto.CreateMissingTags, dto.ReplaceFields, dto.CollectionModes, ct);
-        await performerRepo.UpdateAsync(performer, ct);
+        try
+        {
+            await performerScrapeService.ApplyAsync(performer, dto.Scraped, dto.CreateMissingTags, dto.ReplaceFields, dto.CollectionModes, ct);
+            await performerRepo.UpdateAsync(performer, ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
+        }
         eventBus?.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", performer.Id));
 
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
@@ -460,11 +487,17 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (performer == null)
             return NotFound();
 
-        var imported = await metadataServerService.MergePerformerAsync(performer, dto.Endpoint, dto.PerformerId, dto, ct);
-        if (!imported)
-            return NotFound();
-
-        await performerRepo.UpdateAsync(performer, ct);
+        try
+        {
+            var imported = await metadataServerService.MergePerformerAsync(performer, dto.Endpoint, dto.PerformerId, dto, ct);
+            if (!imported)
+                return NotFound();
+            await performerRepo.UpdateAsync(performer, ct);
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
+        }
         eventBus?.Publish(new EntityEvent(EventType.PerformerUpdated, "Performer", performer.Id));
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);
         return Ok(await MapToDetailDtoAsync(updated!, ct));
@@ -814,10 +847,27 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     // ===== Merge =====
 
     [HttpPost("merge")]
-    [RequiresPermission(Permissions.PerformersWrite)]
+    [RequiresPermission(Permissions.PerformersWrite, Permissions.PerformersDelete)]
+    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersWrite, ActionArgumentName = "dto", PropertyName = "TargetId")]
+    [RequiresEntityAccess(EntityKinds.Performer, Permissions.PerformersDelete, ActionArgumentName = "dto", PropertyName = "SourceIds")]
     public async Task<ActionResult<PerformerDto>> MergePerformers([FromBody] PerformerMergeDto dto, CancellationToken ct)
     {
-        var merged = await performerMergeService.MergeAsync(dto.TargetId, dto.SourceIds, ct);
+        Performer? merged;
+        try
+        {
+            merged = await performerMergeService.MergeAsync(dto.TargetId, dto.SourceIds, ct);
+        }
+        catch (EntityMergeBlockedException exception)
+        {
+            return Conflict(new
+            {
+                code = "PERFORMER_MERGE_EXTENSION_REFERENCES",
+                message = exception.Message,
+                exception.ReferenceCount,
+                exception.AffectedEntityCount,
+                exception.HasUninspectableReferences,
+            });
+        }
         if (merged == null) return NotFound("Target performer not found");
 
         var result = await performerRepo.GetByIdWithRelationsAsync(merged.Id, ct);

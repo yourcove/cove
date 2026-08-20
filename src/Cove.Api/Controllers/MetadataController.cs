@@ -8,6 +8,7 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -305,109 +306,223 @@ public class MetadataController(
             progress.Report(0.05, "Reading import file...");
             var json = await System.IO.File.ReadAllTextAsync(filePath, ct);
             var importData = JsonSerializer.Deserialize<JsonElement>(json, CoveJson.Default);
+            var importTags = ReadImportEntities<Tag>(importData, "tags");
+            var importStudios = ReadImportEntities<Studio>(importData, "studios");
+            var importPerformers = ReadImportEntities<Performer>(importData, "performers");
+            var importGroups = ReadImportEntities<Group>(importData, "groups");
 
-            // Import tags first (no dependencies)
-            if (importData.TryGetProperty("tags", out var tagsEl))
+            // An import can touch several entity kinds. Keep all staged saves atomic so a later
+            // identity conflict or malformed relationship cannot leave an unretryable partial job.
+            await dbCtx.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
             {
-                progress.Report(0.1, "Importing tags...");
-                var importTags = JsonSerializer.Deserialize<List<Tag>>(tagsEl.GetRawText(), CoveJson.Default) ?? [];
-                foreach (var tag in importTags)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Tags.FirstOrDefaultAsync(t => t.Name == tag.Name, ct);
-                    if (existing != null)
-                    {
-                        if (overwrite) { existing.Description = tag.Description; existing.Favorite = tag.Favorite; }
-                    }
-                    else
-                    {
-                        dbCtx.Tags.Add(new Tag { Name = tag.Name, Description = tag.Description, Favorite = tag.Favorite });
-                    }
-                }
-                await dbCtx.SaveChangesAsync(ct);
-            }
+                dbCtx.ChangeTracker.Clear();
+                await using var transaction = await dbCtx.Database.BeginTransactionAsync(ct);
 
-            // Import studios (may reference parent studios)
-            if (importData.TryGetProperty("studios", out var studiosEl))
-            {
-                progress.Report(0.3, "Importing studios...");
-                var importStudios = JsonSerializer.Deserialize<List<Studio>>(studiosEl.GetRawText(), CoveJson.Default) ?? [];
-                foreach (var studio in importStudios)
+                // Import tags first (no dependencies)
+                if (importTags.Count > 0)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Studios.FirstOrDefaultAsync(s => s.Name == studio.Name, ct);
-                    if (existing != null)
+                    progress.Report(0.1, "Importing tags...");
+                    var normalizedNames = importTags
+                        .Select(tag => TagNameRules.NormalizeCanonicalName(tag.Name))
+                        .ToArray();
+                    var tagLookup = await RelationNameResolver.ResolveTagsAsync(dbCtx, normalizedNames, ct);
+                    foreach (var tag in importTags)
                     {
-                        if (overwrite) { existing.Details = studio.Details; }
-                    }
-                    else
-                    {
-                        dbCtx.Studios.Add(new Studio { Name = studio.Name, Details = studio.Details });
-                    }
-                }
-                await dbCtx.SaveChangesAsync(ct);
-            }
-
-            // Import performers
-            if (importData.TryGetProperty("performers", out var performersEl))
-            {
-                progress.Report(0.5, "Importing performers...");
-                var importPerformers = JsonSerializer.Deserialize<List<Performer>>(performersEl.GetRawText(), CoveJson.Default) ?? [];
-                foreach (var performer in importPerformers)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Performers.FirstOrDefaultAsync(p => p.Name == performer.Name && p.Disambiguation == performer.Disambiguation, ct);
-                    if (existing != null)
-                    {
-                        if (overwrite)
+                        ct.ThrowIfCancellationRequested();
+                        var normalizedName = TagNameRules.NormalizeCanonicalName(tag.Name);
+                        tagLookup.TryGetValue(normalizedName, out var existing);
+                        if (existing != null)
                         {
-                            existing.Gender = performer.Gender;
-                            existing.Birthdate = performer.Birthdate;
-                            existing.Ethnicity = performer.Ethnicity;
-                            existing.Country = performer.Country;
-                            existing.Details = performer.Details;
+                            if (overwrite) { existing.Description = tag.Description; existing.Favorite = tag.Favorite; }
+                        }
+                        else
+                        {
+                            var created = new Tag { Name = normalizedName, Description = tag.Description, Favorite = tag.Favorite };
+                            dbCtx.Tags.Add(created);
+                            tagLookup[normalizedName] = created;
                         }
                     }
-                    else
-                    {
-                        dbCtx.Performers.Add(new Performer
-                        {
-                            Name = performer.Name, Disambiguation = performer.Disambiguation,
-                            Gender = performer.Gender, Birthdate = performer.Birthdate,
-                            Ethnicity = performer.Ethnicity, Country = performer.Country,
-                            Details = performer.Details, Favorite = performer.Favorite
-                        });
-                    }
+                    await dbCtx.SaveChangesAsync(ct);
                 }
-                await dbCtx.SaveChangesAsync(ct);
-            }
 
-            // Import groups
-            if (importData.TryGetProperty("groups", out var groupsEl))
-            {
-                progress.Report(0.7, "Importing groups...");
-                var importGroups = JsonSerializer.Deserialize<List<Group>>(groupsEl.GetRawText(), CoveJson.Default) ?? [];
-                foreach (var group in importGroups)
+                // Import studios (may reference parent studios)
+                if (importStudios.Count > 0)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var existing = await dbCtx.Groups.FirstOrDefaultAsync(g => g.Name == group.Name, ct);
-                    if (existing != null)
-                    {
-                        if (overwrite) { existing.Director = group.Director; existing.Synopsis = group.Synopsis; }
-                    }
-                    else
-                    {
-                        dbCtx.Groups.Add(new Group { Name = group.Name, Director = group.Director, Synopsis = group.Synopsis, Duration = group.Duration });
-                    }
+                    progress.Report(0.3, "Importing studios...");
+                    await ImportStudiosAsync(dbCtx, importStudios, overwrite, ct);
                 }
-                await dbCtx.SaveChangesAsync(ct);
-            }
+
+                // Import performers
+                if (importPerformers.Count > 0)
+                {
+                    progress.Report(0.5, "Importing performers...");
+                    await ImportPerformersAsync(dbCtx, importPerformers, overwrite, ct);
+                }
+
+                // Import groups
+                if (importGroups.Count > 0)
+                {
+                    progress.Report(0.7, "Importing groups...");
+                    foreach (var group in importGroups)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var existing = await dbCtx.Groups.FirstOrDefaultAsync(g => g.Name == group.Name, ct);
+                        if (existing != null)
+                        {
+                            if (overwrite) { existing.Director = group.Director; existing.Synopsis = group.Synopsis; }
+                        }
+                        else
+                        {
+                            dbCtx.Groups.Add(new Group { Name = group.Name, Director = group.Director, Synopsis = group.Synopsis, Duration = group.Duration });
+                        }
+                    }
+                    await dbCtx.SaveChangesAsync(ct);
+                }
+
+                await transaction.CommitAsync(ct);
+            });
 
             progress.Report(1.0, "Import completed");
             logger.LogInformation("Metadata import completed from: {Path}", filePath);
         }, exclusive: false);
 
         return Ok(new { jobId });
+    }
+
+    internal static List<TEntity> ReadImportEntities<TEntity>(JsonElement root, string propertyName)
+        where TEntity : class
+        => root.TryGetProperty(propertyName, out var value)
+            ? JsonSerializer.Deserialize<List<TEntity>>(value.GetRawText(), CoveJson.Default) ?? []
+            : [];
+
+    internal static Dictionary<string, TEntity> BuildUniqueImportIdentityLookup<TEntity>(
+        IEnumerable<TEntity> candidates,
+        Func<TEntity, string> identitySelector,
+        IReadOnlySet<string> requestedKeys,
+        string entityType)
+        where TEntity : class
+    {
+        var result = new Dictionary<string, TEntity>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            var key = identitySelector(candidate);
+            if (!requestedKeys.Contains(key))
+                continue;
+            if (!result.TryAdd(key, candidate))
+                throw new EntityNameConflictException(entityType);
+        }
+
+        return result;
+    }
+
+    internal static async Task ImportStudiosAsync(
+        CoveContext db,
+        IReadOnlyCollection<Studio> imported,
+        bool overwrite,
+        CancellationToken ct)
+    {
+        var groups = imported
+            .GroupBy(studio => EntityNameRules.StudioIdentityKey(studio.Name), StringComparer.Ordinal)
+            .ToArray();
+        var requestedKeys = groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+        var existingByIdentity = BuildUniqueImportIdentityLookup(
+            await db.Studios.ToListAsync(ct),
+            studio => EntityNameRules.StudioIdentityKey(studio.Name),
+            requestedKeys,
+            NameConflictEntityTypes.Studio);
+
+        foreach (var group in groups)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = group.Last();
+            if (existingByIdentity.TryGetValue(group.Key, out var existing))
+            {
+                if (overwrite)
+                    ApplyImportedStudioMetadata(existing, source);
+                continue;
+            }
+
+            var created = new Studio
+            {
+                Name = EntityNameRules.NormalizeCanonicalName(group.First().Name),
+            };
+            ApplyImportedStudioMetadata(created, source);
+            db.Studios.Add(created);
+            existingByIdentity[group.Key] = created;
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    internal static async Task ImportPerformersAsync(
+        CoveContext db,
+        IReadOnlyCollection<Performer> imported,
+        bool overwrite,
+        CancellationToken ct)
+    {
+        var groups = imported
+            .GroupBy(
+                performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+                StringComparer.Ordinal)
+            .ToArray();
+        var requestedKeys = groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+        var existingByIdentity = BuildUniqueImportIdentityLookup(
+            await db.Performers.ToListAsync(ct),
+            performer => EntityNameRules.PerformerIdentityKey(performer.Name, performer.Disambiguation),
+            requestedKeys,
+            NameConflictEntityTypes.Performer);
+
+        foreach (var group in groups)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = group.Last();
+            if (existingByIdentity.TryGetValue(group.Key, out var existing))
+            {
+                if (overwrite)
+                    ApplyImportedPerformerMetadata(existing, source);
+                continue;
+            }
+
+            var first = group.First();
+            var created = new Performer
+            {
+                Name = EntityNameRules.NormalizeCanonicalName(first.Name),
+                Disambiguation = EntityNameRules.NormalizeDisambiguation(first.Disambiguation),
+            };
+            ApplyImportedPerformerMetadata(created, source);
+            db.Performers.Add(created);
+            existingByIdentity[group.Key] = created;
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    internal static void ApplyImportedStudioMetadata(Studio target, Studio source)
+    {
+        target.Details = source.Details;
+        target.Favorite = source.Favorite;
+        target.Organized = source.Organized;
+    }
+
+    internal static void ApplyImportedPerformerMetadata(Performer target, Performer source)
+    {
+        target.Gender = source.Gender;
+        target.Birthdate = source.Birthdate;
+        target.DeathDate = source.DeathDate;
+        target.Ethnicity = source.Ethnicity;
+        target.Country = source.Country;
+        target.EyeColor = source.EyeColor;
+        target.HairColor = source.HairColor;
+        target.HeightCm = source.HeightCm;
+        target.Weight = source.Weight;
+        target.Measurements = source.Measurements;
+        target.FakeTits = source.FakeTits;
+        target.PenisLength = source.PenisLength;
+        target.Circumcised = source.Circumcised;
+        target.CareerStart = source.CareerStart;
+        target.CareerEnd = source.CareerEnd;
+        target.Tattoos = source.Tattoos;
+        target.Piercings = source.Piercings;
+        target.Details = source.Details;
+        target.Favorite = source.Favorite;
     }
 
     [HttpPost("clean-generated")]
@@ -514,21 +629,14 @@ public class MetadataController(
             var scraperSvc = scope.ServiceProvider.GetService<ScraperService>();
             var scrapeAttemptSvc = scope.ServiceProvider.GetService<ScrapeAttemptService>();
 
-            var videos = opts?.VideoIds?.Count > 0
+            var videoIds = opts?.VideoIds?.Count > 0
                 ? await dbCtx.Videos
-                    .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-                    .Include(s => s.VideoTags)
-                    .Include(s => s.VideoPerformers)
-                    .Include(s => s.RemoteIds)
-                    .Include(s => s.Urls)
-                    .Where(s => opts.VideoIds.Contains(s.Id)).AsSplitQuery().ToListAsync(ct)
+                    .Where(video => opts.VideoIds.Contains(video.Id))
+                    .Select(video => video.Id)
+                    .ToListAsync(ct)
                 : await dbCtx.Videos
-                    .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-                    .Include(s => s.VideoTags)
-                    .Include(s => s.VideoPerformers)
-                    .Include(s => s.RemoteIds)
-                    .Include(s => s.Urls)
-                    .AsSplitQuery().ToListAsync(ct);
+                    .Select(video => video.Id)
+                    .ToListAsync(ct);
 
             var identifyDefaults = config.Scraping.IdentifyDefaults;
             var sourceEndpoints = ResolveIdentifyMetadataServerEndpoints(opts?.Sources, config.Scraping.MetadataServers);
@@ -556,14 +664,24 @@ public class MetadataController(
                 SkipSingleNamePerformers = opts?.SkipSingleNamePerformers ?? true,
             };
 
-            var total = videos.Count;
+            var total = videoIds.Count;
             var identifiedCount = 0;
+            var warningCount = 0;
             for (var i = 0; i < total; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 progress.Report((double)(i + 1) / total, $"Identifying video {i + 1}/{total}");
 
-                var video = videos[i];
+                dbCtx.ChangeTracker.Clear();
+                metadataServerSvc?.ResetTrackedIdentityState();
+                var video = await dbCtx.Videos
+                    .Include(entity => entity.Files).ThenInclude(file => file.Fingerprints)
+                    .Include(entity => entity.VideoTags)
+                    .Include(entity => entity.VideoPerformers)
+                    .Include(entity => entity.RemoteIds)
+                    .Include(entity => entity.Urls)
+                    .AsSplitQuery()
+                    .SingleAsync(entity => entity.Id == videoIds[i], ct);
                 var fingerprints = video.Files.SelectMany(f => f.Fingerprints).ToList();
                 var identified = false;
 
@@ -670,10 +788,18 @@ public class MetadataController(
                                 rankedMatches.Count,
                                 matches.Count);
 
-                            var imported = await metadataServerSvc.MergeVideoAsync(video, best.Endpoint, best.Id, importConfig, ct);
-                            if (imported)
+                            var imported = await metadataServerSvc.MergeVideoWithWarningsAsync(video, best.Endpoint, best.Id, importConfig, ct);
+                            if (imported.Imported)
                             {
                                 await dbCtx.SaveChangesAsync(ct);
+                                if (imported.Warnings.Count > 0)
+                                {
+                                    warningCount++;
+                                    logger.LogWarning(
+                                        "MetadataServer identify partially updated video {VideoId}: {Warnings}",
+                                        video.Id,
+                                        string.Join(" ", imported.Warnings));
+                                }
                                 eventBus.Publish(new EntityEvent(EventType.VideoUpdated, "Video", video.Id));
                                 identified = true;
                             }
@@ -682,6 +808,16 @@ public class MetadataController(
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "MetadataServer identify failed for video {VideoId}", video.Id);
+                        dbCtx.ChangeTracker.Clear();
+                        metadataServerSvc.ResetTrackedIdentityState();
+                        video = await dbCtx.Videos
+                            .Include(entity => entity.Files).ThenInclude(file => file.Fingerprints)
+                            .Include(entity => entity.VideoTags)
+                            .Include(entity => entity.VideoPerformers)
+                            .Include(entity => entity.RemoteIds)
+                            .Include(entity => entity.Urls)
+                            .AsSplitQuery()
+                            .SingleAsync(entity => entity.Id == video.Id, ct);
                     }
                 }
 
@@ -705,14 +841,21 @@ public class MetadataController(
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Scraper identify failed for video {VideoId}", video.Id);
+                        dbCtx.ChangeTracker.Clear();
+                        metadataServerSvc?.ResetTrackedIdentityState();
                     }
                 }
 
                 if (identified)
+                {
+                    await dbCtx.SaveChangesAsync(ct);
                     identifiedCount++;
+                }
             }
 
             await dbCtx.SaveChangesAsync(ct);
+            if (warningCount > 0)
+                progress.Report(1d, $"Identified {identifiedCount} videos; {warningCount} saved with skipped conflicting tag names or aliases. See server logs for details.");
             logger.LogInformation(
                 "Identify completed: {Identified} identified, {Unmatched} unmatched of {Total} videos",
                 identifiedCount,

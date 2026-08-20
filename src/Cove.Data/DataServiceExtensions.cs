@@ -14,12 +14,16 @@ namespace Cove.Data;
 
 public static class DataServiceExtensions
 {
-    public static IServiceCollection AddCoveData(this IServiceCollection services, string connectionString)
+    public static IServiceCollection AddCoveData(
+        this IServiceCollection services,
+        string connectionString,
+        bool runBackgroundMaterializers = true)
     {
         // Segment span projection services are part of the data layer and share this host cache.
         // Register it here so AddCoveData remains a complete composition unit outside Cove.Api.
         services.AddMemoryCache();
         services.AddSingleton<IBlobReferenceCoordinator, BlobReferenceCoordinator>();
+        services.AddScoped<BlobReferenceTransactionCoordinator>();
         services.AddScoped<BlobReferenceSaveChangesInterceptor>();
 
         services.AddSingleton(sp =>
@@ -84,9 +88,15 @@ public static class DataServiceExtensions
         services.AddScoped<FacePerformerPropagationService>();
         services.AddScoped<IEmbeddingRepository, EmbeddingRepository>();
         services.AddScoped<ISegmentRepository, SegmentRepository>();
+        services.AddScoped<ITagExternalReferenceInspector, PostgresTagExternalReferenceInspector>();
+        services.AddScoped<IEntityExternalReferenceInspector, PostgresEntityExternalReferenceInspector>();
+        services.AddScoped<TagMergeService>();
+        services.AddScoped<StudioMergeService>();
+        services.AddScoped<NameRuleEnforcementService>();
         services.AddScoped<IDetectionRepository, DetectionRepository>();
         services.AddScoped<IFaceRepository, FaceRepository>();
-        services.AddScoped<IPerformerMergeService, PerformerMergeService>();
+        services.AddScoped<PerformerMergeService>();
+        services.AddScoped<IPerformerMergeService>(sp => sp.GetRequiredService<PerformerMergeService>());
         services.AddScoped<ITagApplicationRepository, TagApplicationRepository>();
         services.AddScoped<IAiRunRepository, AiRunRepository>();
         services.AddScoped<ICustomFieldRepository, CustomFieldRepository>();
@@ -101,7 +111,8 @@ services.AddScoped<ITextEncoderRegistry>(sp => sp.GetRequiredService<EmbeddingSe
         // FaceTopSuggestionCache, which could not scale past its entry cap.)
         services.AddScoped<FaceTopSuggestionService>();
         services.AddScoped<IFaceTopSuggestionMaintenance>(sp => sp.GetRequiredService<FaceTopSuggestionService>());
-        services.AddHostedService<FaceTopSuggestionMaterializerService>();
+        if (runBackgroundMaterializers)
+            services.AddHostedService<FaceTopSuggestionMaterializerService>();
 
         // Auth / RBAC services
         services.AddSingleton<IPermissionRegistry, PermissionRegistry>();

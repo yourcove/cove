@@ -297,7 +297,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.TagIds?.Count > 0)
             video.VideoTags = dto.TagIds.Select(id => new VideoTag { TagId = id }).ToList();
         if (dto.PerformerIds?.Count > 0)
-            video.VideoPerformers = dto.PerformerIds.Select(id => new VideoPerformer { PerformerId = id }).ToList();
+            video.VideoPerformers = dto.PerformerIds.Distinct().Select(id => new VideoPerformer { PerformerId = id }).ToList();
         if (dto.GalleryIds?.Count > 0)
             video.VideoGalleries = dto.GalleryIds.Select(id => new VideoGallery { GalleryId = id }).ToList();
         if (dto.Groups?.Count > 0)
@@ -391,7 +391,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.PerformerIds != null)
         {
             video.VideoPerformers.Clear();
-            video.VideoPerformers = dto.PerformerIds.Select(pid => new VideoPerformer { PerformerId = pid, VideoId = id }).ToList();
+            video.VideoPerformers = dto.PerformerIds.Distinct().Select(pid => new VideoPerformer { PerformerId = pid, VideoId = id }).ToList();
         }
         if (dto.GalleryIds != null)
         {
@@ -545,14 +545,22 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     {
         var video = await videoRepo.GetByIdWithRelationsAsync(id, ct);
         if (video == null) return NotFound();
+        IReadOnlyList<string> importWarnings;
 
-        var imported = await metadataServerService.MergeVideoAsync(video, dto.Endpoint, dto.VideoId, dto, ct);
-        if (!imported) return NotFound();
-
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            var imported = await metadataServerService.MergeVideoWithWarningsAsync(video, dto.Endpoint, dto.VideoId, dto, ct);
+            if (!imported.Imported) return NotFound();
+            await db.SaveChangesAsync(ct);
+            importWarnings = imported.Warnings;
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "RELATED_ENTITY_NAME_CONFLICT", message = exception.Message, exception.EntityType });
+        }
         PublishVideoEvent(EventType.VideoUpdated, id);
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);
-        return Ok(await MapToDtoWithProvenanceAsync(updated!, cancellationToken: ct));
+        return Ok((await MapToDtoWithProvenanceAsync(updated!, cancellationToken: ct)) with { ImportWarnings = importWarnings });
     }
 
     [HttpPost("{id:int}/metadata-server/submit-fingerprints")]
@@ -1407,12 +1415,12 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Set)
             {
                 video.VideoPerformers.Clear();
-                video.VideoPerformers = dto.PerformerIds.Select(pid => new VideoPerformer { PerformerId = pid, VideoId = video.Id }).ToList();
+                video.VideoPerformers = dto.PerformerIds.Distinct().Select(pid => new VideoPerformer { PerformerId = pid, VideoId = video.Id }).ToList();
             }
             else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Add)
             {
                 var existing = video.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
-                foreach (var pid in dto.PerformerIds.Where(p => !existing.Contains(p)))
+                foreach (var pid in dto.PerformerIds.Where(p => !existing.Contains(p)).Distinct())
                     video.VideoPerformers.Add(new VideoPerformer { PerformerId = pid, VideoId = video.Id });
             }
             else if (dto.PerformerIds != null && dto.PerformerMode == BulkUpdateMode.Remove)

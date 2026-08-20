@@ -954,10 +954,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = audio.AudioTags
             .Where(item => item.Tag != null)
@@ -1011,10 +1008,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = textDocument.TextTags
             .Where(item => item.Tag != null)
@@ -1068,10 +1062,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = image.ImageTags
             .Where(item => item.Tag != null)
@@ -1125,10 +1116,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedTagNames = selectedTagNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var tagLookup = await db.Tags
-            .Where(tag => normalizedTagNames.Contains(tag.Name.ToLower()))
-            .ToDictionaryAsync(tag => tag.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var tagLookup = await RelationNameResolver.ResolveTagsAsync(db, selectedTagNames.Select(item => item.Name).ToArray(), ct);
 
         var existingTagNames = gallery.GalleryTags
             .Where(item => item.Tag != null)
@@ -1182,10 +1170,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedPerformerNames = selectedPerformerNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedPerformerNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(
+            db,
+            selectedPerformerNames.Select(item => item.Name).ToArray(),
+            ct);
 
         var existingPerformerNames = audio.AudioPerformers
             .Where(item => item.Performer != null)
@@ -1235,10 +1223,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedPerformerNames = selectedPerformerNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedPerformerNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(
+            db,
+            selectedPerformerNames.Select(item => item.Name).ToArray(),
+            ct);
 
         var existingPerformerNames = textDocument.TextPerformers
             .Where(item => item.Performer != null)
@@ -1288,10 +1276,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedPerformerNames = selectedPerformerNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedPerformerNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(
+            db,
+            selectedPerformerNames.Select(item => item.Name).ToArray(),
+            ct);
 
         var existingPerformerNames = image.ImagePerformers
             .Where(item => item.Performer != null)
@@ -1341,10 +1329,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        var normalizedPerformerNames = selectedPerformerNames.Select(item => item.Name.ToLowerInvariant()).ToHashSet();
-        var performerLookup = await db.Performers
-            .Where(performer => normalizedPerformerNames.Contains(performer.Name.ToLower()))
-            .ToDictionaryAsync(performer => performer.Name, StringComparer.OrdinalIgnoreCase, ct);
+        var performerLookup = await RelationNameResolver.ResolvePerformersAsync(
+            db,
+            selectedPerformerNames.Select(item => item.Name).ToArray(),
+            ct);
 
         var existingPerformerNames = gallery.GalleryPerformers
             .Where(item => item.Performer != null)
@@ -1454,7 +1442,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (string.IsNullOrWhiteSpace(normalizedStudioName))
             return null;
 
-        var studio = await db.Studios.FirstOrDefaultAsync(item => item.Name.ToLower() == normalizedStudioName.ToLower(), ct);
+        var studio = await RelationNameResolver.ResolveStudioAsync(db, normalizedStudioName, ct);
         if (studio != null)
             return studio;
 
@@ -1694,8 +1682,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (tagLookup.TryGetValue(normalizedName, out var existingTag))
             return existingTag;
 
-        var normalizedKey = normalizedName.ToLowerInvariant();
-        var tag = await db.Tags.FirstOrDefaultAsync(item => item.Name.ToLower() == normalizedKey, ct);
+        var tag = (await RelationNameResolver.ResolveTagsAsync(db, [normalizedName], ct)).GetValueOrDefault(normalizedName);
         if (tag == null)
         {
             if (!createMissing)
@@ -1753,8 +1740,8 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             return;
         }
 
-        // Match on primary name or alias via the shared resolver so this apply and the dialog's
-        // resolve endpoint agree on create-vs-match. Keyed by the scraped name.
+        // Scraper relation selections only carry a name, so they resolve the exact (name, null)
+        // performer identity. Aliases are intentionally non-unique and never identify a performer.
         var performerLookup = await RelationNameResolver.ResolvePerformersAsync(db, selectedPerformerNames.Select(item => item.Name).ToList(), ct);
 
         if (mode == "replace")
@@ -1790,14 +1777,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         if (string.IsNullOrWhiteSpace(studioName))
             return;
 
-        var normalizedStudioName = studioName.ToLowerInvariant();
-        var studio = await db.Studios.FirstOrDefaultAsync(item => item.Name.ToLower() == normalizedStudioName, ct);
-        if (studio == null && createMissing)
-        {
-            studio = new Studio { Name = studioName };
-            db.Studios.Add(studio);
-            await db.SaveChangesAsync(ct);
-        }
+        var studio = await ResolveStudioAsync(studioName, createMissing, ct);
 
         if (studio != null)
             video.StudioId = studio.Id;
@@ -1820,18 +1800,21 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             if (selectedPerformer == null)
                 continue;
 
-            var performer = await db.Performers
-                .Include(candidate => candidate.Urls)
-                .Include(candidate => candidate.Aliases)
-                .Include(candidate => candidate.PerformerTags)
-                .FirstOrDefaultAsync(candidate => candidate.Name.ToLower() == performerName.ToLower(), ct);
+            // The scraper relation contract is name-only. A hydrated result may contain a
+            // disambiguation, but applying it here would select a different identity than the
+            // preview/selection that the user approved.
+            var performer = await RelationNameResolver.ResolvePerformerAsync(db, performerName, null, ct);
 
             if (performer == null)
             {
                 if (!selectedPerformer.AllowCreate)
                     continue;
 
-                performer = new Performer { Name = performerName };
+                performer = new Performer
+                {
+                    Name = performerName,
+                    Disambiguation = null,
+                };
                 db.Performers.Add(performer);
             }
 
@@ -1842,7 +1825,11 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             }
 
             if (scraped != null)
-                await performerScrapeService.ApplyAsync(performer, scraped, createMissingTags, ct: ct);
+                await performerScrapeService.ApplyAsync(
+                    performer,
+                    scraped with { Disambiguation = null },
+                    createMissingTags,
+                    ct: ct);
         }
     }
 

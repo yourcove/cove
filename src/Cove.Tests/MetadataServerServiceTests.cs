@@ -286,6 +286,441 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    public async Task MergeTagAsync_KeepsLocalNameAndSkipsRemoteAliasesClaimedByOtherTags()
+    {
+        await using var context = CreateContext();
+        var target = new Tag { Name = "Local tag" };
+        var canonicalOwner = new Tag { Name = "Remote canonical" };
+        var aliasOwner = new Tag
+        {
+            Name = "Other tag",
+            Aliases = [new TagAlias { Alias = "Remote alias" }],
+        };
+        context.AddRange(target, canonicalOwner, aliasOwner);
+        await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindTag", request.Query);
+            return GraphQlData("""
+                "findTag": {
+                  "id": "remote-tag-1",
+                  "name": "Remote canonical",
+                  "description": "Imported description",
+                  "aliases": ["Remote alias", "Safe alias"]
+                }
+                """);
+        }));
+        var service = CreateService(context, httpClient, fieldProvenance: new FieldProvenanceService(context));
+
+        var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.True(result.Imported);
+        Assert.Equal(2, result.Warnings.Count);
+        Assert.Contains(result.Warnings, warning => warning.Contains("Kept the local tag name", StringComparison.Ordinal));
+        Assert.Contains(result.Warnings, warning => warning.Contains("Skipped remote alias", StringComparison.Ordinal));
+        Assert.Equal("Local tag", target.Name);
+        Assert.Equal("Imported description", target.Description);
+        Assert.Equal(["Safe alias"], target.Aliases.Select(alias => alias.Alias));
+        Assert.Contains(target.RemoteIds, remoteId => remoteId.Endpoint == Endpoint && remoteId.RemoteId == "remote-tag-1");
+        var nameProvenance = await context.FieldProvenance
+            .Where(row => row.HostType == AffinityHostType.Tag && row.HostId == target.Id && row.FieldKey == "name")
+            .ToListAsync();
+        Assert.Empty(nameProvenance);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_IdentifiesTheExistingClaimWhenANewTagWouldCollide()
+    {
+        await using var context = CreateContext();
+        context.Tags.Add(new Tag { Name = "Remote canonical" });
+        await context.SaveChangesAsync();
+        var target = new Tag { Name = "Temporary" };
+        context.Tags.Add(target);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "remote CANONICAL",
+              "description": null,
+              "aliases": []
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() =>
+            service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None));
+
+        Assert.Equal(
+            "A tag with name \"Remote canonical\" already exists. Tag names and tag aliases must be unique.",
+            exception.Message);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_UsesCurrentTrackedClaimsInsteadOfStaleCachedClaims()
+    {
+        await using var context = CreateContext();
+        var renamed = new Tag { Name = "Released canonical" };
+        var aliasOwner = new Tag
+        {
+            Name = "Alias owner",
+            Aliases = [new TagAlias { Alias = "Released alias" }],
+        };
+        context.AddRange(renamed, aliasOwner);
+        await context.SaveChangesAsync();
+
+        var call = 0;
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ =>
+        {
+            call++;
+            var name = call switch
+            {
+                1 => "Renamed canonical",
+                2 => "Released canonical",
+                3 => "Released alias",
+                _ => throw new InvalidOperationException("Unexpected metadata request"),
+            };
+            return GraphQlData($$"""
+                "findTag": {
+                  "id": "remote-tag-{{call}}",
+                  "name": "{{name}}",
+                  "description": null,
+                  "aliases": []
+                }
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        await service.MergeTagWithWarningsAsync(renamed, Endpoint, "remote-tag-1", CancellationToken.None);
+        aliasOwner.Aliases.Clear();
+        var canonicalTarget = new Tag { Name = "Temporary canonical" };
+        var aliasTarget = new Tag { Name = "Temporary alias" };
+        context.AddRange(canonicalTarget, aliasTarget);
+
+        await service.MergeTagWithWarningsAsync(canonicalTarget, Endpoint, "remote-tag-2", CancellationToken.None);
+        await service.MergeTagWithWarningsAsync(aliasTarget, Endpoint, "remote-tag-3", CancellationToken.None);
+
+        Assert.Equal("Released canonical", canonicalTarget.Name);
+        Assert.Equal("Released alias", aliasTarget.Name);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_RetainsUnloadedAliasClaimsWhenAnotherAliasChanges()
+    {
+        await using var context = CreateContext();
+        var owner = new Tag
+        {
+            Name = "Owner",
+            Aliases =
+            [
+                new TagAlias { Alias = "Still claimed" },
+                new TagAlias { Alias = "Changing alias" },
+            ],
+        };
+        context.Tags.Add(owner);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        owner = await context.Tags.SingleAsync();
+        var changingAlias = await context.Set<TagAlias>()
+            .SingleAsync(alias => alias.Alias == "Changing alias");
+        changingAlias.Alias = "Changed alias";
+        var target = new Tag { Name = "Temporary" };
+        context.Tags.Add(target);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "Still claimed",
+              "description": null,
+              "aliases": []
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var exception = await Assert.ThrowsAsync<TagNameConflictException>(() =>
+            service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None));
+
+        Assert.Equal(
+            "A tag alias with name \"Still claimed\" already exists. Tag names and tag aliases must be unique.",
+            exception.Message);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_ReleasesASeparatelyLoadedDeletedAliasClaim()
+    {
+        await using var context = CreateContext();
+        var owner = new Tag
+        {
+            Name = "Owner",
+            Aliases = [new TagAlias { Alias = "Released alias" }],
+        };
+        context.Tags.Add(owner);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        owner = await context.Tags.SingleAsync();
+        var releasedAlias = await context.Set<TagAlias>().SingleAsync();
+        context.Remove(releasedAlias);
+        var target = new Tag { Name = "Temporary" };
+        context.Tags.Add(target);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "Released alias",
+              "description": null,
+              "aliases": []
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
+
+        Assert.Equal("Released alias", target.Name);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_DetectsAnAliasClaimedByAnotherNewTagBeforeSave()
+    {
+        await using var context = CreateContext();
+        var first = new Tag { Name = "Temporary one" };
+        var second = new Tag { Name = "Temporary two" };
+        context.AddRange(first, second);
+
+        var call = 0;
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ =>
+        {
+            call++;
+            return GraphQlData($$"""
+                "findTag": {
+                  "id": "remote-tag-{{call}}",
+                  "name": "Remote tag {{call}}",
+                  "description": null,
+                  "aliases": ["Shared remote alias"]
+                }
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        var firstResult = await service.MergeTagWithWarningsAsync(
+            first, Endpoint, "remote-tag-1", CancellationToken.None);
+        var secondResult = await service.MergeTagWithWarningsAsync(
+            second, Endpoint, "remote-tag-2", CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.Empty(firstResult.Warnings);
+        Assert.Equal(["Shared remote alias"], first.Aliases.Select(alias => alias.Alias));
+        Assert.Contains(secondResult.Warnings, warning => warning.Contains("Skipped remote alias", StringComparison.Ordinal));
+        Assert.Empty(second.Aliases);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_DetectsAPersistedAliasOnATrackedOwnerWhoseAliasesAreNotLoaded()
+    {
+        await using var context = CreateContext();
+        var target = new Tag { Name = "Local tag" };
+        var aliasOwner = new Tag
+        {
+            Name = "Other tag",
+            Aliases = [new TagAlias { Alias = "Remote alias" }],
+        };
+        context.AddRange(target, aliasOwner);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        target = await context.Tags.SingleAsync(tag => tag.Name == "Local tag");
+        _ = await context.Tags.SingleAsync(tag => tag.Name == "Other tag");
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "Local tag",
+              "description": null,
+              "aliases": ["Remote alias"]
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.True(result.Imported);
+        Assert.Contains(result.Warnings, warning => warning.Contains("Skipped remote alias", StringComparison.Ordinal));
+        Assert.Empty(target.Aliases);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_DoesNotTreatALegacyBlankAliasAsTheEmptyCanonicalClaim()
+    {
+        await using var context = CreateContext();
+        var target = new Tag { Name = "Local tag" };
+        var legacy = new Tag { Name = "Other tag", Aliases = [new TagAlias { Alias = "   " }] };
+        context.AddRange(target, legacy);
+        using (context.SuppressTagNameValidation())
+            await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "<empty>",
+              "description": null,
+              "aliases": []
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
+
+        Assert.True(result.Imported);
+        Assert.Empty(result.Warnings);
+        Assert.Equal("<empty>", target.Name);
+    }
+
+    [Fact]
+    public async Task BatchTagTagsAsync_ReportsPartialSuccessInJobProgress()
+    {
+        await using var context = CreateContext();
+        var target = new Tag { Name = "Local tag" };
+        target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
+        var aliasOwner = new Tag { Name = "Remote alias" };
+        context.AddRange(target, aliasOwner);
+        await context.SaveChangesAsync();
+        var progress = new CapturingJobProgress();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "Local tag",
+              "description": null,
+              "aliases": ["Remote alias"]
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.BatchTagTagsAsync(
+            Endpoint,
+            [target.Id],
+            refreshAlreadyTagged: true,
+            excludeFields: null,
+            progress,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Updated);
+        Assert.NotNull(Assert.Single(result.Items).Message);
+        Assert.Contains(progress.Reports, report => report.Progress == 1d && report.Message?.Contains("1 saved with skipped", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public async Task BatchTagTagsAsync_DoesNotEvaluateOrRecordExcludedIdentityFields()
+    {
+        await using var context = CreateContext();
+        var target = new Tag { Name = "Local tag", Description = "Local description", Aliases = [new TagAlias { Alias = "Existing alias" }] };
+        target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
+        context.AddRange(target, new Tag { Name = "Remote canonical" }, new Tag { Name = "Remote alias" });
+        await context.SaveChangesAsync();
+        var existingAliasId = Assert.Single(target.Aliases).Id;
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "Remote canonical",
+              "description": "Imported description",
+              "aliases": ["Remote alias"]
+            }
+            """)));
+        var service = CreateService(context, httpClient, fieldProvenance: new FieldProvenanceService(context));
+
+        var result = await service.BatchTagTagsAsync(
+            Endpoint,
+            [target.Id],
+            refreshAlreadyTagged: true,
+            excludeFields: ["name", "aliases", "description"],
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Updated);
+        Assert.Null(Assert.Single(result.Items).Message);
+        var saved = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Id == target.Id);
+        Assert.Equal("Local tag", saved.Name);
+        Assert.Equal(existingAliasId, Assert.Single(saved.Aliases).Id);
+        Assert.Equal("Existing alias", saved.Aliases.Single().Alias);
+        Assert.Equal("Local description", saved.Description);
+        Assert.Empty(await context.FieldProvenance
+            .Where(row => row.HostType == AffinityHostType.Tag
+                && row.HostId == target.Id
+                && (row.FieldKey == "name" || row.FieldKey == "aliases" || row.FieldKey == "description"))
+            .ToListAsync());
+    }
+
+    [Fact]
+    public async Task BatchTagTagsAsync_KeepsNameWhenAliasesExcludedAndRemoteNameMatchesOwnAlias()
+    {
+        await using var context = CreateContext();
+        var target = new Tag { Name = "Local tag", Aliases = [new TagAlias { Alias = "Remote canonical" }] };
+        target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
+        context.Add(target);
+        await context.SaveChangesAsync();
+        var aliasId = Assert.Single(target.Aliases).Id;
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "Remote canonical",
+              "description": null,
+              "aliases": []
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.BatchTagTagsAsync(
+            Endpoint,
+            [target.Id],
+            refreshAlreadyTagged: true,
+            excludeFields: ["aliases"],
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Updated);
+        Assert.Contains("excluded", Assert.Single(result.Items).Message, StringComparison.OrdinalIgnoreCase);
+        var saved = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Id == target.Id);
+        Assert.Equal("Local tag", saved.Name);
+        Assert.Equal(aliasId, Assert.Single(saved.Aliases).Id);
+    }
+
+    [Fact]
+    public async Task MergeTagAsync_RemovesAnOwnAliasWhenItBecomesTheCanonicalName()
+    {
+        await using var context = CreateContext();
+        var target = new Tag
+        {
+            Name = "Local tag",
+            Aliases = [new TagAlias { Alias = "  REMOTE canonical  " }],
+        };
+        context.Add(target);
+        using (context.SuppressTagNameValidation())
+            await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
+            "findTag": {
+              "id": "remote-tag-1",
+              "name": "Remote canonical",
+              "description": null,
+              "aliases": ["Remote canonical"]
+            }
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.True(result.Imported);
+        Assert.Empty(result.Warnings);
+        Assert.Equal("Remote canonical", target.Name);
+        Assert.Empty(target.Aliases);
+    }
+
+    [Fact]
     public async Task NonStrictSearch_DoesNotLogAggregateWarningWhenAnotherEndpointSucceeds()
     {
         await using var context = CreateContext();
@@ -419,6 +854,201 @@ public sealed class MetadataServerServiceTests
     }
 
     [Fact]
+    public async Task MergeVideoWithWarningsAsync_SkipsAConflictingRelatedTagAlias()
+    {
+        await using var context = CreateContext();
+        var aliasOwner = new Tag { Name = "Activity" };
+        var video = new Video { Title = "Original Video" };
+        context.AddRange(aliasOwner, video);
+        await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindVideoByID", request.Query);
+            return GraphQlData($$"""
+                "findVideo": {{RemoteVideoJson}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false },
+            CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.True(result.Imported);
+        Assert.Contains(result.Warnings, warning => warning.Contains("Skipped remote alias 'Activity'", StringComparison.Ordinal));
+        var importedTag = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Name == "Action");
+        Assert.Empty(importedTag.Aliases);
+        Assert.Contains(video.VideoTags, link => link.TagId == importedTag.Id || ReferenceEquals(link.Tag, importedTag));
+    }
+
+    [Fact]
+    public async Task MergeVideoWithWarningsAsync_LinksTheExistingOwnerWhenRemoteNameMatchesItsAlias()
+    {
+        await using var context = CreateContext();
+        var existing = new Tag
+        {
+            Name = "Local canonical",
+            Aliases = [new TagAlias { Alias = "Action" }],
+        };
+        var video = new Video { Title = "Original Video" };
+        context.AddRange(existing, video);
+        await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindVideoByID", request.Query);
+            return GraphQlData($$"""
+                "findVideo": {{RemoteVideoJson}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false },
+            CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.True(result.Imported);
+        Assert.Empty(result.Warnings);
+        Assert.Single(await context.Tags.ToListAsync());
+        Assert.Contains(video.VideoTags, link => link.TagId == existing.Id || ReferenceEquals(link.Tag, existing));
+    }
+
+    [Fact]
+    public async Task MergeVideoWithWarningsAsync_DeduplicatesRepeatedRemoteTags()
+    {
+        await using var context = CreateContext();
+        var video = new Video { Title = "Original Video" };
+        context.Add(video);
+        await context.SaveChangesAsync();
+        var repeatedTag = "{ \"id\": \"remote-tag-1\", \"name\": \"Action\", \"description\": \"Movement\", \"aliases\": [\"Activity\"] }";
+        var remoteVideoJson = RemoteVideoJson.Replace(repeatedTag, $"{repeatedTag}, {repeatedTag}", StringComparison.Ordinal);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
+            "findVideo": {{remoteVideoJson}}
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false },
+            CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.True(result.Imported);
+        Assert.Single(await context.Tags.ToListAsync());
+        Assert.Single(video.VideoTags);
+    }
+
+    [Theory]
+    [InlineData(" action ")]
+    [InlineData("Activity")]
+    public async Task MergeVideoWithWarningsAsync_ReusesANewTrackedNamespaceOwnerForAnotherRemoteId(string secondName)
+    {
+        await using var context = CreateContext();
+        var video = new Video { Title = "Original Video" };
+        context.Add(video);
+        await context.SaveChangesAsync();
+        var firstTag = "{ \"id\": \"remote-tag-1\", \"name\": \"Action\", \"description\": \"Movement\", \"aliases\": [\"Activity\"] }";
+        var secondTag = $"{{ \"id\": \"remote-tag-2\", \"name\": \"{secondName}\", \"description\": null, \"aliases\": [] }}";
+        var remoteVideoJson = RemoteVideoJson.Replace(firstTag, $"{firstTag}, {secondTag}", StringComparison.Ordinal);
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
+            "findVideo": {{remoteVideoJson}}
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false },
+            CancellationToken.None);
+        await context.SaveChangesAsync();
+
+        Assert.True(result.Imported);
+        var tag = Assert.Single(await context.Tags.Include(entity => entity.RemoteIds).ToListAsync());
+        Assert.Equal("Action", tag.Name);
+        Assert.Contains(tag.RemoteIds, id => id.RemoteId == "remote-tag-1");
+        Assert.Single(video.VideoTags);
+    }
+
+    [Fact]
+    public async Task MergeVideoWithWarningsAsync_UsesPersistedResolverPolicyInsteadOfAPretrackedLegacyConflict()
+    {
+        await using var context = CreateContext();
+        var lowestId = new Tag { Name = "Action" };
+        var pretracked = new Tag { Name = " action " };
+        var video = new Video { Title = "Original Video", VideoTags = [new VideoTag { Tag = pretracked }] };
+        context.AddRange(lowestId, pretracked, video);
+        using (context.SuppressTagNameValidation())
+            await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
+            "findVideo": {{RemoteVideoJson}}
+            """)));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.MergeVideoWithWarningsAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false },
+            CancellationToken.None);
+
+        Assert.True(result.Imported);
+        Assert.Contains(video.VideoTags, link => link.TagId == lowestId.Id || ReferenceEquals(link.Tag, lowestId));
+    }
+
+    [Fact]
+    public async Task MergeVideoAsync_MatchesPerformerIdentityAndNormalizedStudioName()
+    {
+        await using var context = CreateContext();
+        var sameNameDifferentPerson = new Performer { Name = "Jane Doe", Disambiguation = "Other person" };
+        var matchingPerformer = new Performer { Name = " jane doe ", Disambiguation = null };
+        var matchingStudio = new Studio { Name = " fixture studio " };
+        var video = new Video { Title = "Original Video" };
+        context.AddRange(sameNameDifferentPerson, matchingPerformer, matchingStudio, video);
+        await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            Assert.Contains("query FindVideoByID", request.Query);
+            return GraphQlData($$"""
+                "findVideo": {{RemoteVideoJson}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        Assert.True(await service.MergeVideoAsync(
+            video,
+            Endpoint,
+            "remote-video-1",
+            new MetadataServerVideoImportRequestDto { SetCoverImage = false },
+            CancellationToken.None));
+        await context.SaveChangesAsync();
+
+        Assert.Equal(2, await context.Performers.CountAsync());
+        Assert.Single(await context.Studios.ToListAsync());
+        var saved = await context.Videos
+            .Include(item => item.VideoPerformers)
+            .SingleAsync(item => item.Id == video.Id);
+        Assert.Contains(saved.VideoPerformers, link => link.PerformerId == matchingPerformer.Id);
+        Assert.DoesNotContain(saved.VideoPerformers, link => link.PerformerId == sameNameDifferentPerson.Id);
+        Assert.Equal(matchingStudio.Id, saved.StudioId);
+    }
+
+    [Fact]
     public async Task BatchTagPerformersAsync_UsesGraphQlImportAndRestoresExcludedFields()
     {
         await using var context = CreateContext();
@@ -463,6 +1093,112 @@ public sealed class MetadataServerServiceTests
         Assert.Equal("Local Jane", updated.Name);
         Assert.Equal(GenderEnum.Female, updated.Gender);
         Assert.Contains(updated.Urls, url => url.Url == "https://metadata.example/performers/remote-performer-1");
+    }
+
+    [Fact]
+    public async Task BatchTagPerformersAsync_IsolatesAnIdentityConflictFromLaterItems()
+    {
+        await using var context = CreateContext();
+        var conflictingIdentity = new Performer { Name = "Collision", Disambiguation = "Fixture performer" };
+        var first = new Performer { Name = "First local" };
+        first.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-first" });
+        var second = new Performer { Name = "Second local" };
+        second.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-second" });
+        context.AddRange(conflictingIdentity, first, second);
+        await context.SaveChangesAsync();
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            var id = GetVariableString(request, "id");
+            var json = RemotePerformerJson
+                .Replace("remote-performer-1", id, StringComparison.Ordinal)
+                .Replace("Remote Jane", id == "remote-first" ? "Collision" : "Updated second", StringComparison.Ordinal)
+                .Replace("Fixture performer", id == "remote-first" ? "Fixture performer" : "Second identity", StringComparison.Ordinal);
+            return GraphQlData($$"""
+                "findPerformer": {{json}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.BatchTagPerformersAsync(
+            Endpoint,
+            [first.Id, second.Id],
+            refreshAlreadyTagged: true,
+            excludeFields: null,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(1, result.Updated);
+        context.ChangeTracker.Clear();
+        Assert.Equal("First local", (await context.Performers.SingleAsync(item => item.Id == first.Id)).Name);
+        var updated = await context.Performers.SingleAsync(item => item.Id == second.Id);
+        Assert.Equal("Updated second", updated.Name);
+        Assert.Equal("Second identity", updated.Disambiguation);
+    }
+
+    [Fact]
+    public async Task BatchTagStudiosAsync_RebuildsIdentityLookupAfterAnEarlierRename()
+    {
+        await using var context = CreateContext();
+        var existingParent = new Studio { Name = "Existing parent", ImageBlobId = "existing-image" };
+        var first = new Studio { Name = "Former name" };
+        first.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-first" });
+        var second = new Studio { Name = "Second studio" };
+        second.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-second" });
+        context.AddRange(existingParent, first, second);
+        await context.SaveChangesAsync();
+
+        static string StudioJson(string id, string name, string? parentId = null, string? parentName = null)
+        {
+            var parent = parentId == null
+                ? "null"
+                : JsonSerializer.Serialize(new { id = parentId, name = parentName });
+            return $$"""
+                {
+                  "id": {{JsonSerializer.Serialize(id)}},
+                  "name": {{JsonSerializer.Serialize(name)}},
+                  "aliases": [],
+                  "urls": [],
+                  "images": [],
+                  "parent": {{parent}}
+                }
+                """;
+        }
+
+        using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
+        {
+            var id = GetVariableString(request, "id");
+            var json = id switch
+            {
+                "remote-first" => StudioJson(id, "Renamed studio", "remote-existing-parent", "Existing parent"),
+                "remote-second" => StudioJson(id, "Second studio", "remote-new-parent", "Former name"),
+                "remote-new-parent" => StudioJson(id, "Former name"),
+                _ => throw new InvalidOperationException($"Unexpected studio id {id}"),
+            };
+            return GraphQlData($$"""
+                "findStudio": {{json}}
+                """);
+        }));
+        var service = CreateService(context, httpClient);
+
+        var result = await service.BatchTagStudiosAsync(
+            Endpoint,
+            [first.Id, second.Id],
+            refreshAlreadyTagged: true,
+            excludeFields: null,
+            createParentStudios: true,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(2, result.Updated);
+        context.ChangeTracker.Clear();
+        var renamed = await context.Studios.SingleAsync(item => item.Id == first.Id);
+        var updatedSecond = await context.Studios.SingleAsync(item => item.Id == second.Id);
+        var createdParent = await context.Studios.SingleAsync(item => item.Name == "Former name");
+        Assert.Equal("Renamed studio", renamed.Name);
+        Assert.NotEqual(renamed.Id, createdParent.Id);
+        Assert.Equal(createdParent.Id, updatedSecond.ParentId);
     }
 
     [Fact]
@@ -599,6 +1335,14 @@ public sealed class MetadataServerServiceTests
             .Options;
 
         return new CoveContext(options);
+    }
+
+    private sealed class CapturingJobProgress : IJobProgress
+    {
+        public List<(double Progress, string? Message)> Reports { get; } = [];
+
+        public void Report(double progress, string? subTask = null)
+            => Reports.Add((progress, subTask));
     }
 
     private static Video CreateSearchStrategyVideo()

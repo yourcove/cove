@@ -1,9 +1,12 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PerformerEditModal } from "../pages/PerformerEditModal";
 import type { Performer } from "../api/types";
+import { MutationFailureNotice } from "../components/MutationFailureNotice";
+import { createAppQueryClient } from "../queryClient";
+import { resetMutationFailureForTests } from "../state/mutationFailure";
 
 const mocks = vi.hoisted(() => ({
   performersUpdate: vi.fn(),
@@ -57,16 +60,11 @@ vi.mock("../state/AppConfigContext", () => ({
 }));
 
 function renderModal(performer: Performer) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  });
+  const queryClient = createAppQueryClient();
 
   return render(
     <QueryClientProvider client={queryClient}>
+      <MutationFailureNotice />
       <PerformerEditModal performer={performer} open onClose={vi.fn()} />
     </QueryClientProvider>,
   );
@@ -79,6 +77,38 @@ describe("PerformerEditModal", () => {
     mocks.performerImageUrl.mockReturnValue("/performers/1/image");
     mocks.uploadPerformerImage.mockResolvedValue(undefined);
     mocks.deletePerformerImage.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => resetMutationFailureForTests());
+
+  it("shows a rename conflict inline without exposing the API wrapper or global notice", async () => {
+    const detail = "A performer with name \"Existing performer\" and no disambiguation already exists.";
+    mocks.performersUpdate.mockRejectedValueOnce(new Error(`API Error 409: ${JSON.stringify({ message: detail })}`));
+    const performer: Performer = {
+      id: 1,
+      name: "Performer being edited",
+      favorite: false,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+      videoCount: 0,
+      imageCount: 0,
+      galleryCount: 0,
+      groupCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    };
+    renderModal(performer);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
+    expect(screen.queryByText("Couldn’t complete the action")).not.toBeInTheDocument();
+    expect(screen.queryByText(/API Error 409/)).not.toBeInTheDocument();
   });
 
   it("uses the shared rating input and omits favorite from the payload", async () => {

@@ -28,6 +28,7 @@ import { WallMediaCard } from "../components/WallMediaCard";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 
 /** Convert 2-letter ISO country code to flag emoji */
 function countryToFlag(code: string): string {
@@ -285,9 +286,10 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
 /* ── Performer Create Modal ── */
 const SELECT_CLASS = "w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
 
-function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+export function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
+  const [disambiguation, setDisambiguation] = useState("");
   const [gender, setGender] = useState("");
   const [birthdate, setBirthdate] = useState("");
   const [deathDate, setDeathDate] = useState("");
@@ -304,6 +306,7 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
 
   const resetForm = () => {
     setName("");
+    setDisambiguation("");
     setGender("");
     setBirthdate("");
     setDeathDate("");
@@ -319,6 +322,7 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
   };
 
   const mutation = useMutation({
+    meta: { suppressGlobalError: true },
     mutationFn: (data: PerformerCreate) => performers.create(data),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["performers"] });
@@ -328,6 +332,10 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
       if (created?.id) onCreated(created.id);
     },
   });
+  const handleClose = () => {
+    mutation.reset();
+    onClose();
+  };
 
   const save = () => {
     const trimmedName = name.trim();
@@ -335,6 +343,7 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
     const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
     mutation.mutate({
       name: trimmedName,
+      disambiguation: disambiguation.trim() || undefined,
       gender: gender || undefined,
       birthdate: birthdate || undefined,
       deathDate: deathDate || undefined,
@@ -351,10 +360,14 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
   };
 
   return (
-    <EditModal title="Create Performer" open={open} onClose={onClose}>
+    <EditModal title="Create Performer" open={open} onClose={handleClose}>
       <div className="space-y-4">
         <Field label="Name *">
           <TextInput value={name} onChange={setName} placeholder="Performer name" />
+        </Field>
+
+        <Field label="Disambiguation">
+          <TextInput value={disambiguation} onChange={setDisambiguation} placeholder="Optional identity qualifier" />
         </Field>
 
         <div className="grid grid-cols-4 gap-4">
@@ -409,6 +422,7 @@ function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onC
         <Field label="Custom Fields">
           <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="performer" />
         </Field>
+        {mutation.error ? <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
       </div>
       <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>

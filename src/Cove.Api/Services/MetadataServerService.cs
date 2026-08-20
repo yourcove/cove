@@ -11,8 +11,12 @@ using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Services;
 
 namespace Cove.Api.Services;
+
+public sealed record TagMetadataMergeResult(bool Imported, IReadOnlyList<string> Warnings);
+public sealed record VideoMetadataMergeResult(bool Imported, IReadOnlyList<string> Warnings);
 
 public enum VideoMetadataSearchStrategy
 {
@@ -225,6 +229,11 @@ query Me {
     private readonly IFieldProvenanceService? _fieldProvenanceService;
     private readonly IEventBus? _eventBus;
     private readonly ILogger<MetadataServerService> _logger;
+    private Dictionary<string, int[]>? _performerIdentityIndex;
+    private Dictionary<string, int[]>? _studioIdentityIndex;
+    private Dictionary<string, int[]>? _tagNamespaceOwnerIndex;
+    private Dictionary<string, TagNamespaceClaim>? _tagNamespaceClaimIndex;
+    private Dictionary<int, HashSet<string>>? _tagNamespaceKeysByOwner;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -460,9 +469,7 @@ query Me {
                 var parent = await _db.Studios
                     .Include(s => s.RemoteIds)
                     .FirstOrDefaultAsync(s => s.RemoteIds.Any(id => id.Endpoint == box.Endpoint && id.RemoteId == remote.Parent.Id), ct)
-                    ?? await _db.Studios
-                        .Include(s => s.RemoteIds)
-                        .FirstOrDefaultAsync(s => s.Name == remote.Parent.Name, ct);
+                    ?? await FindStudioByIdentityAsync(remote.Parent.Name, ct);
 
                 if (parent == null)
                 {
@@ -529,20 +536,44 @@ query Me {
     }
 
     public async Task<bool> MergeTagAsync(Tag tag, string endpoint, string tagId, CancellationToken ct)
+        => (await MergeTagWithWarningsAsync(tag, endpoint, tagId, ct)).Imported;
+
+    public async Task<TagMetadataMergeResult> MergeTagWithWarningsAsync(Tag tag, string endpoint, string tagId, CancellationToken ct)
+        => await MergeTagWithWarningsAsync(tag, endpoint, tagId, ct, importName: true, importAliases: true, importDescription: true);
+
+    private async Task<TagMetadataMergeResult> MergeTagWithWarningsAsync(
+        Tag tag,
+        string endpoint,
+        string tagId,
+        CancellationToken ct,
+        bool importName,
+        bool importAliases,
+        bool importDescription)
     {
         var box = ResolveBox(endpoint);
         var remote = await GetRemoteTagAsync(box, tagId, tagName: null, ct);
         if (remote == null)
-            return false;
+            return new TagMetadataMergeResult(false, []);
 
-        tag.Name = remote.Name.Trim();
-        tag.Description = Coalesce(tag.Description, remote.Description) ?? tag.Description;
-        MergeAliases(tag, remote.Aliases);
+        var identity = await ApplyRemoteTagIdentityAsync(
+            tag,
+            remote.Name,
+            importAliases ? remote.Aliases : [],
+            ct,
+            importCanonicalName: importName,
+            allowRemoveRedundantAlias: importAliases);
+        if (importDescription)
+            tag.Description = Coalesce(tag.Description, remote.Description) ?? tag.Description;
         UpsertRemoteId(tag.RemoteIds, box.Endpoint, remote.Id, id => id.Endpoint, id => id.RemoteId, (id, value) => id.RemoteId = value, value => new TagRemoteId { Endpoint = box.Endpoint, RemoteId = value });
-        var fieldProvenance = BuildTagMetadataFieldProvenance(remote, box.Endpoint);
+        var fieldProvenance = BuildTagMetadataFieldProvenance(
+            remote,
+            box.Endpoint,
+            identity.AcceptedRemoteName,
+            identity.ImportedAliases,
+            importDescription);
         if (fieldProvenance.Count > 0 && _fieldProvenanceService != null)
             await _fieldProvenanceService.RecordManyAsync(AffinityHostType.Tag, tag.Id, fieldProvenance, BuildMetadataSourceKey(box.Endpoint), sourceRunId: box.Endpoint, cancellationToken: ct);
-        return true;
+        return new TagMetadataMergeResult(true, identity.Warnings);
     }
 
     public async Task<MetadataServerBatchTagResultDto> BatchTagPerformersAsync(string endpoint, IEnumerable<int> performerIds, bool refreshAlreadyTagged, IEnumerable<string>? excludeFields, IJobProgress? progress, CancellationToken ct)
@@ -567,7 +598,7 @@ query Me {
 
                 var match = !string.IsNullOrWhiteSpace(remoteId)
                     ? await GetPerformerMatchAsync(endpoint, remoteId, ct)
-                    : await FindBestPerformerMatchAsync(endpoint, performer.Name, ct);
+                    : await FindBestPerformerMatchAsync(endpoint, performer.Name, performer.Disambiguation, ct);
                 if (match == null)
                     return new MetadataServerBatchTagItemResultDto(performer.Id, performer.Name, "skipped", null, "No remote match found");
 
@@ -626,6 +657,8 @@ query Me {
 
     public async Task<MetadataServerBatchTagResultDto> BatchTagTagsAsync(string endpoint, IEnumerable<int> tagIds, bool refreshAlreadyTagged, IEnumerable<string>? excludeFields, IJobProgress? progress, CancellationToken ct)
     {
+        _tagNamespaceOwnerIndex = null;
+        _tagNamespaceClaimIndex = null;
         var tags = await _db.Tags
             .Include(entity => entity.RemoteIds)
             .Include(entity => entity.Aliases)
@@ -634,7 +667,7 @@ query Me {
             .ToListAsync(ct);
 
         var normalizedExcludeFields = NormalizeFieldNames(excludeFields);
-        return await ExecuteBatchTagAsync(
+        var result = await ExecuteBatchTagAsync(
             tags,
             progress,
             async tag =>
@@ -650,16 +683,38 @@ query Me {
                     return new MetadataServerBatchTagItemResultDto(tag.Id, tag.Name, "skipped", null, "No remote match found");
 
                 var snapshot = CaptureTagSnapshot(tag);
-                var imported = await MergeTagAsync(tag, endpoint, match.Id, ct);
-                if (!imported)
+                var imported = await MergeTagWithWarningsAsync(
+                    tag,
+                    endpoint,
+                    match.Id,
+                    ct,
+                    importName: !normalizedExcludeFields.Contains("name"),
+                    importAliases: !normalizedExcludeFields.Contains("aliases"),
+                    importDescription: !normalizedExcludeFields.Contains("description"));
+                if (!imported.Imported)
                     return new MetadataServerBatchTagItemResultDto(tag.Id, tag.Name, "failed", match.Id, "Remote tag no longer exists");
 
-                await RestoreExcludedTagFieldsAsync(tag, snapshot, normalizedExcludeFields);
+                await RestoreExcludedTagFieldsAsync(
+                    tag,
+                    snapshot,
+                    normalizedExcludeFields.Where(field => field != "name" && field != "aliases").ToHashSet(StringComparer.OrdinalIgnoreCase));
                 await _db.SaveChangesAsync(ct);
+                RefreshTagNamespaceOwnerIndex(tag);
                 _eventBus?.Publish(new EntityEvent(EventType.TagUpdated, "Tag", tag.Id));
-                return new MetadataServerBatchTagItemResultDto(tag.Id, tag.Name, "updated", match.Id);
+                return new MetadataServerBatchTagItemResultDto(
+                    tag.Id,
+                    tag.Name,
+                    "updated",
+                    match.Id,
+                    imported.Warnings.Count == 0 ? null : string.Join(" ", imported.Warnings));
             },
             ct);
+        var warningItems = result.Items.Where(item => item.Outcome == "updated" && item.Message != null).ToArray();
+        foreach (var item in warningItems)
+            _logger.LogWarning("Metadata-server tag batch partially updated tag {TagId}: {Warning}", item.LocalId, item.Message);
+        if (warningItems.Length > 0)
+            progress?.Report(1d, $"Processed {result.Processed} tags; {warningItems.Length} saved with skipped conflicting names or aliases. See server logs for details.");
+        return result;
     }
 
     private async Task<MetadataServerRemoteStudio?> GetRemoteStudioAsync(MetadataServerInstance box, string? studioId, string? studioName, CancellationToken ct)
@@ -725,24 +780,29 @@ query Me {
         );
     }
 
-    private async Task<MetadataServerPerformerMatchDto?> FindBestPerformerMatchAsync(string endpoint, string name, CancellationToken ct)
+    private async Task<MetadataServerPerformerMatchDto?> FindBestPerformerMatchAsync(
+        string endpoint,
+        string name,
+        string? disambiguation,
+        CancellationToken ct)
     {
         var matches = await SearchPerformersAsync(name, endpoint, ct);
-        return matches.FirstOrDefault(match => !match.Deleted && string.Equals(match.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? matches.FirstOrDefault(match => !match.Deleted)
-            ?? matches.FirstOrDefault();
+        var identityKey = EntityNameRules.PerformerIdentityKey(name, disambiguation);
+        return matches.FirstOrDefault(match =>
+            !match.Deleted
+            && EntityNameRules.PerformerIdentityKey(match.Name, match.Disambiguation) == identityKey);
     }
 
     private async Task<MetadataServerStudioMatchDto?> FindBestStudioMatchAsync(string endpoint, string name, CancellationToken ct)
     {
         var box = ResolveBox(endpoint);
         var exact = await GetRemoteStudioAsync(box, studioId: null, studioName: name, ct);
-        if (exact != null)
+        var identityKey = EntityNameRules.StudioIdentityKey(name);
+        if (exact != null && EntityNameRules.StudioIdentityKey(exact.Name) == identityKey)
             return ToStudioMatchDto(box, exact);
 
         var matches = await SearchStudiosAsync(name, endpoint, ct);
-        return matches.FirstOrDefault(match => string.Equals(match.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? matches.FirstOrDefault();
+        return matches.FirstOrDefault(match => EntityNameRules.StudioIdentityKey(match.Name) == identityKey);
     }
 
     private async Task<MetadataServerTagMatchDto?> FindBestTagMatchAsync(string endpoint, string name, CancellationToken ct)
@@ -767,17 +827,25 @@ query Me {
         {
             ct.ThrowIfCancellationRequested();
 
-            var item = items[index];
-            var (entityId, entityName) = DescribeBatchEntity(item);
+            var originalItem = items[index];
+            var (entityId, entityName) = DescribeBatchEntity(originalItem);
             progress?.Report(items.Count == 0 ? 1d : (double)index / items.Count, entityName);
 
             MetadataServerBatchTagItemResultDto result;
             try
             {
+                // Every processor performs its one database save only after the remote result and
+                // provenance graph have been prepared. Reload into a clean tracker so a failed item
+                // cannot leave Modified/Added state that contaminates later items in this batch.
+                _db.ChangeTracker.Clear();
+                InvalidateEntityIdentityIndexes(invalidateTagNamespace: false);
+                var item = await ReloadBatchEntityAsync(originalItem, entityId, ct);
                 result = await process(item);
             }
             catch (Exception ex)
             {
+                _db.ChangeTracker.Clear();
+                InvalidateEntityIdentityIndexes(invalidateTagNamespace: false);
                 _logger.LogWarning(ex, "Failed metadata batch tagging for {EntityType} {EntityId}", typeof(T).Name, entityId);
                 result = new MetadataServerBatchTagItemResultDto(entityId, entityName, "failed", null, ex.Message);
             }
@@ -799,6 +867,46 @@ query Me {
 
         progress?.Report(1d, $"Processed {items.Count} items");
         return new MetadataServerBatchTagResultDto(items.Count, updated, skipped, failed, results);
+    }
+
+    private void InvalidateEntityIdentityIndexes(bool invalidateTagNamespace = true)
+    {
+        _performerIdentityIndex = null;
+        _studioIdentityIndex = null;
+        if (invalidateTagNamespace)
+        {
+            _tagNamespaceOwnerIndex = null;
+            _tagNamespaceClaimIndex = null;
+            _tagNamespaceKeysByOwner = null;
+        }
+    }
+
+    internal void ResetTrackedIdentityState() => InvalidateEntityIdentityIndexes();
+
+    private async Task<T> ReloadBatchEntityAsync<T>(T fallback, int entityId, CancellationToken ct)
+    {
+        object? entity = fallback switch
+        {
+            Performer => await _db.Performers
+                .Include(item => item.RemoteIds)
+                .Include(item => item.Aliases)
+                .Include(item => item.Urls)
+                .SingleOrDefaultAsync(item => item.Id == entityId, ct),
+            Studio => await _db.Studios
+                .Include(item => item.Parent)
+                .Include(item => item.RemoteIds)
+                .Include(item => item.Aliases)
+                .Include(item => item.Urls)
+                .SingleOrDefaultAsync(item => item.Id == entityId, ct),
+            Tag => await _db.Tags
+                .Include(item => item.RemoteIds)
+                .Include(item => item.Aliases)
+                .SingleOrDefaultAsync(item => item.Id == entityId, ct),
+            _ => fallback,
+        };
+        if (entity is T typed)
+            return typed;
+        throw new InvalidOperationException($"{typeof(T).Name} {entityId} no longer exists or is no longer accessible.");
     }
 
     private static (int Id, string Name) DescribeBatchEntity<T>(T item)
@@ -1183,14 +1291,17 @@ query Me {
     }
 
     public async Task<bool> MergeVideoAsync(Video video, string endpoint, string videoId, MetadataServerVideoImportRequestDto? importConfig, CancellationToken ct)
+        => (await MergeVideoWithWarningsAsync(video, endpoint, videoId, importConfig, ct)).Imported;
+
+    public async Task<VideoMetadataMergeResult> MergeVideoWithWarningsAsync(Video video, string endpoint, string videoId, MetadataServerVideoImportRequestDto? importConfig, CancellationToken ct)
     {
         var box = ResolveBox(endpoint);
         var remote = await GetRemoteVideoAsync(box, videoId, ct);
         if (remote == null)
-            return false;
+            return new VideoMetadataMergeResult(false, []);
 
-        await ApplyRemoteVideoAsync(video, box.Endpoint, remote, importConfig, ct);
-        return true;
+        var warnings = await ApplyRemoteVideoAsync(video, box.Endpoint, remote, importConfig, ct);
+        return new VideoMetadataMergeResult(true, warnings);
     }
 
     private async Task<MetadataServerRemotePerformer?> GetRemotePerformerAsync(MetadataServerInstance box, string performerId, CancellationToken ct)
@@ -1205,8 +1316,9 @@ query Me {
         return response.FindVideo;
     }
 
-    private async Task ApplyRemoteVideoAsync(Video video, string endpoint, MetadataServerRemoteVideo remote, MetadataServerVideoImportRequestDto? importConfig, CancellationToken ct)
+    private async Task<IReadOnlyList<string>> ApplyRemoteVideoAsync(Video video, string endpoint, MetadataServerRemoteVideo remote, MetadataServerVideoImportRequestDto? importConfig, CancellationToken ct)
     {
+        var warnings = new List<string>();
         var setCoverImage = importConfig?.SetCoverImage ?? true;
         var setTags = importConfig?.SetTags ?? true;
         var setPerformers = importConfig?.SetPerformers ?? true;
@@ -1274,16 +1386,22 @@ query Me {
             var appliedTagNames = new List<string>();
             var appliedTagIds = new HashSet<int>();
 
-            foreach (var remoteTag in remote.Tags)
+            foreach (var remoteTag in remote.Tags
+                .GroupBy(tag => string.IsNullOrWhiteSpace(tag.Id)
+                    ? $"name:{TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name))}"
+                    : $"id:{tag.Id}", StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First()))
             {
                 var tagOverride = MatchVideoEntityOverride(tagOverrides, remoteTag.Id, remoteTag.Name);
                 if (GetVideoEntityOverrideAction(tagOverride) == VideoEntityOverrideAction.Skip)
                     continue;
                 if (tagOverride == null && excludedTagNames != null && excludedTagNames.Contains(remoteTag.Name))
                     continue;
-                var tag = await ResolveVideoTagAsync(remoteTag, endpoint, tagOverride, ct, allowCreate: !onlyExistingTags);
-                if (tag == null)
+                var resolvedTag = await ResolveVideoTagAsync(remoteTag, endpoint, tagOverride, ct, allowCreate: !onlyExistingTags);
+                if (resolvedTag.Tag == null)
                     continue;
+                var tag = resolvedTag.Tag;
+                warnings.AddRange(resolvedTag.Warnings);
                 appliedTagNames.Add(tag.Name);
                 if (tag.Id > 0)
                     appliedTagIds.Add(tag.Id);
@@ -1366,6 +1484,7 @@ query Me {
 
         if (fieldProvenance.Count > 0 && _fieldProvenanceService != null)
             await _fieldProvenanceService.RecordManyAsync(AffinityHostType.Video, video.Id, fieldProvenance, sourceKey, sourceRunId: endpoint, cancellationToken: ct);
+        return warnings;
     }
 
     // ===== Submissions =====
@@ -1625,7 +1744,7 @@ query Me {
         };
     }
 
-    private async Task<Tag?> ResolveVideoTagAsync(
+    private async Task<ResolvedVideoTag> ResolveVideoTagAsync(
         MetadataServerRemoteTag remote,
         string endpoint,
         MetadataServerVideoEntityOverrideDto? entityOverride,
@@ -1634,8 +1753,10 @@ query Me {
     {
         return GetVideoEntityOverrideAction(entityOverride) switch
         {
-            VideoEntityOverrideAction.Skip => null,
-            VideoEntityOverrideAction.Existing when entityOverride?.LocalId is int localId => await _db.Tags.FirstOrDefaultAsync(tag => tag.Id == localId, ct),
+            VideoEntityOverrideAction.Skip => new ResolvedVideoTag(null, []),
+            VideoEntityOverrideAction.Existing when entityOverride?.LocalId is int localId => new ResolvedVideoTag(
+                await _db.Tags.FirstOrDefaultAsync(tag => tag.Id == localId, ct),
+                []),
             VideoEntityOverrideAction.Create => await FindOrCreateTagAsync(remote, endpoint, ct, allowCreate: true),
             _ => await FindOrCreateTagAsync(remote, endpoint, ct, allowCreate: allowCreate),
         };
@@ -1649,9 +1770,14 @@ query Me {
         if (overrides == null)
             return null;
 
-        return overrides.FirstOrDefault(entityOverride =>
-            (!string.IsNullOrWhiteSpace(remoteId) && string.Equals(entityOverride.RemoteId, remoteId, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrWhiteSpace(name) && string.Equals(entityOverride.Name, name, StringComparison.OrdinalIgnoreCase)));
+        if (!string.IsNullOrWhiteSpace(remoteId))
+            return overrides.FirstOrDefault(entityOverride =>
+                string.Equals(entityOverride.RemoteId, remoteId, StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(name)
+            ? null
+            : overrides.FirstOrDefault(entityOverride =>
+                string.Equals(entityOverride.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 
     private static MetadataServerVideoEntityOverrideDto? MatchVideoEntityOverride(
@@ -1764,21 +1890,25 @@ query Me {
         return fields;
     }
 
-    private static Dictionary<string, object?> BuildTagMetadataFieldProvenance(MetadataServerRemoteTag remote, string endpoint)
+    private static Dictionary<string, object?> BuildTagMetadataFieldProvenance(
+        MetadataServerRemoteTag remote,
+        string endpoint,
+        string? acceptedRemoteName,
+        IReadOnlyCollection<string> importedAliases,
+        bool importDescription)
     {
         var fields = new Dictionary<string, object?>
         {
             ["remote_ids"] = new[] { new { endpoint, remoteId = remote.Id } },
         };
 
-        if (!string.IsNullOrWhiteSpace(remote.Name))
-            fields["name"] = remote.Name.Trim();
-        if (!string.IsNullOrWhiteSpace(remote.Description))
+        if (acceptedRemoteName != null)
+            fields["name"] = acceptedRemoteName;
+        if (importDescription && !string.IsNullOrWhiteSpace(remote.Description))
             fields["description"] = remote.Description.Trim();
 
-        var aliases = CleanStrings(remote.Aliases).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (aliases.Count > 0)
-            fields["aliases"] = aliases;
+        if (importedAliases.Count > 0)
+            fields["aliases"] = importedAliases;
 
         return fields;
     }
@@ -2078,16 +2208,16 @@ query Me {
 
     private async Task<Performer?> FindOrCreatePerformerAsync(MetadataServerRemotePerformer remote, string endpoint, CancellationToken ct, bool allowCreate = true)
     {
-        var performer = await _db.Performers
+        var performer = _db.Performers.Local.FirstOrDefault(entity =>
+                entity.Id <= 0
+                && _db.Entry(entity).State != EntityState.Deleted
+                && entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id))
+            ?? await _db.Performers
             .Include(entity => entity.RemoteIds)
             .Include(entity => entity.Aliases)
             .Include(entity => entity.Urls)
             .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct)
-            ?? await _db.Performers
-                .Include(entity => entity.RemoteIds)
-                .Include(entity => entity.Aliases)
-                .Include(entity => entity.Urls)
-                .FirstOrDefaultAsync(entity => entity.Name == remote.Name, ct);
+            ?? await FindPerformerByIdentityAsync(remote.Name, remote.Disambiguation, ct);
 
         if (performer == null && !allowCreate)
         {
@@ -2096,7 +2226,11 @@ query Me {
 
         if (performer == null)
         {
-            performer = new Performer { Name = remote.Name };
+            performer = new Performer
+            {
+                Name = EntityNameRules.NormalizeCanonicalName(remote.Name),
+                Disambiguation = EntityNameRules.NormalizeDisambiguation(remote.Disambiguation),
+            };
             _db.Performers.Add(performer);
         }
 
@@ -2107,16 +2241,16 @@ query Me {
 
     private async Task<Studio?> FindOrCreateStudioAsync(MetadataServerRemoteStudio remote, string endpoint, CancellationToken ct, bool allowCreate = true)
     {
-        var studio = await _db.Studios
+        var studio = _db.Studios.Local.FirstOrDefault(entity =>
+                entity.Id <= 0
+                && _db.Entry(entity).State != EntityState.Deleted
+                && entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id))
+            ?? await _db.Studios
             .Include(entity => entity.RemoteIds)
             .Include(entity => entity.Aliases)
             .Include(entity => entity.Urls)
             .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct)
-            ?? await _db.Studios
-                .Include(entity => entity.RemoteIds)
-                .Include(entity => entity.Aliases)
-                .Include(entity => entity.Urls)
-                .FirstOrDefaultAsync(entity => entity.Name == remote.Name, ct);
+            ?? await FindStudioByIdentityAsync(remote.Name, ct);
 
         if (studio == null && !allowCreate)
         {
@@ -2125,7 +2259,7 @@ query Me {
 
         if (studio == null)
         {
-            studio = new Studio { Name = remote.Name };
+            studio = new Studio { Name = EntityNameRules.NormalizeCanonicalName(remote.Name) };
             _db.Studios.Add(studio);
         }
 
@@ -2143,13 +2277,11 @@ query Me {
             var parent = await _db.Studios
                 .Include(s => s.RemoteIds)
                 .FirstOrDefaultAsync(s => s.RemoteIds.Any(id => id.Endpoint == endpoint && id.RemoteId == remote.Parent.Id), ct)
-                ?? await _db.Studios
-                    .Include(s => s.RemoteIds)
-                    .FirstOrDefaultAsync(s => s.Name == remote.Parent.Name, ct);
+                ?? await FindStudioByIdentityAsync(remote.Parent.Name, ct);
 
             if (parent == null)
             {
-                parent = new Studio { Name = remote.Parent.Name };
+                parent = new Studio { Name = EntityNameRules.NormalizeCanonicalName(remote.Parent.Name) };
                 parent.RemoteIds.Add(new StudioRemoteId { Endpoint = endpoint, RemoteId = remote.Parent.Id });
                 _db.Studios.Add(parent);
             }
@@ -2175,20 +2307,272 @@ query Me {
         return studio;
     }
 
-    private async Task<Tag?> FindOrCreateTagAsync(MetadataServerRemoteTag remote, string endpoint, CancellationToken ct, bool allowCreate = true)
+    private async Task<Performer?> FindPerformerByIdentityAsync(
+        string name,
+        string? disambiguation,
+        CancellationToken ct)
     {
-        var tag = await _db.Tags
-            .Include(entity => entity.RemoteIds)
-            .Include(entity => entity.Aliases)
-            .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct)
-            ?? await _db.Tags
+        var identityKey = EntityNameRules.PerformerIdentityKey(name, disambiguation);
+        _performerIdentityIndex ??= (await _db.Performers
+                .AsNoTracking()
+                .Select(entity => new { entity.Id, entity.Name, entity.Disambiguation })
+                .ToListAsync(ct))
+            .GroupBy(entity => EntityNameRules.PerformerIdentityKey(entity.Name, entity.Disambiguation), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(entity => entity.Id).Order().ToArray(), StringComparer.Ordinal);
+
+        var trackedIds = _db.ChangeTracker.Entries<Performer>()
+            .Where(entry => entry.Entity.Id > 0)
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
+        var persistedIds = _performerIdentityIndex.GetValueOrDefault(identityKey, [])
+            .Where(id => !trackedIds.Contains(id));
+        var local = _db.ChangeTracker.Entries<Performer>()
+            .Where(entry => entry.State != EntityState.Deleted
+                && EntityNameRules.PerformerIdentityKey(entry.Entity.Name, entry.Entity.Disambiguation) == identityKey)
+            .Select(entry => entry.Entity)
+            .ToArray();
+        var persisted = persistedIds.ToArray();
+        if (local.Length + persisted.Length > 1)
+            throw new EntityNameConflictException(NameConflictEntityTypes.Performer);
+        if (local.Length == 1)
+        {
+            if (local[0].Id <= 0)
+                return local[0];
+            return await _db.Performers
                 .Include(entity => entity.RemoteIds)
                 .Include(entity => entity.Aliases)
-                .FirstOrDefaultAsync(entity => entity.Name == remote.Name, ct);
+                .Include(entity => entity.Urls)
+                .SingleAsync(entity => entity.Id == local[0].Id, ct);
+        }
+        if (persisted.Length == 0)
+            return null;
+
+        return await _db.Performers
+            .Include(entity => entity.RemoteIds)
+            .Include(entity => entity.Aliases)
+            .Include(entity => entity.Urls)
+            .SingleAsync(entity => entity.Id == persisted[0], ct);
+    }
+
+    private async Task<Studio?> FindStudioByIdentityAsync(string name, CancellationToken ct)
+    {
+        var identityKey = EntityNameRules.StudioIdentityKey(name);
+        _studioIdentityIndex ??= (await _db.Studios
+                .AsNoTracking()
+                .Select(entity => new { entity.Id, entity.Name })
+                .ToListAsync(ct))
+            .GroupBy(entity => EntityNameRules.StudioIdentityKey(entity.Name), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(entity => entity.Id).Order().ToArray(), StringComparer.Ordinal);
+
+        var trackedIds = _db.ChangeTracker.Entries<Studio>()
+            .Where(entry => entry.Entity.Id > 0)
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
+        var persistedIds = _studioIdentityIndex.GetValueOrDefault(identityKey, [])
+            .Where(id => !trackedIds.Contains(id));
+        var local = _db.ChangeTracker.Entries<Studio>()
+            .Where(entry => entry.State != EntityState.Deleted
+                && EntityNameRules.StudioIdentityKey(entry.Entity.Name) == identityKey)
+            .Select(entry => entry.Entity)
+            .ToArray();
+        var persisted = persistedIds.ToArray();
+        if (local.Length + persisted.Length > 1)
+            throw new EntityNameConflictException(NameConflictEntityTypes.Studio);
+        if (local.Length == 1)
+        {
+            if (local[0].Id <= 0)
+                return local[0];
+            return await _db.Studios
+                .Include(entity => entity.RemoteIds)
+                .Include(entity => entity.Aliases)
+                .Include(entity => entity.Urls)
+                .SingleAsync(entity => entity.Id == local[0].Id, ct);
+        }
+        if (persisted.Length == 0)
+            return null;
+
+        return await _db.Studios
+            .Include(entity => entity.RemoteIds)
+            .Include(entity => entity.Aliases)
+            .Include(entity => entity.Urls)
+            .SingleAsync(entity => entity.Id == persisted[0], ct);
+    }
+
+    private async Task<TagIdentityImportResult> ApplyRemoteTagIdentityAsync(
+        Tag tag,
+        string remoteName,
+        IEnumerable<string>? remoteAliases,
+        CancellationToken ct,
+        bool importCanonicalName = true,
+        bool allowRemoveRedundantAlias = true)
+    {
+        var proposedName = TagNameRules.NormalizeCanonicalName(remoteName);
+        var proposedAliases = CleanStrings(remoteAliases)
+            .Select(alias => TagNameRules.NormalizeAlias(alias))
+            .Where(alias => alias != null)
+            .Select(alias => alias!)
+            .Distinct(TagNameRules.NamespaceComparer)
+            .ToArray();
+        if (_tagNamespaceOwnerIndex == null)
+        {
+            var namespaceRows = await _db.Tags
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Select(entity => new
+                {
+                    entity.Id,
+                    entity.Name,
+                    Aliases = entity.Aliases.Select(alias => alias.Alias).ToArray(),
+                })
+                .ToListAsync(ct);
+            var claims = namespaceRows.SelectMany(entity => entity.Aliases
+                    .Select(TagNameRules.NormalizeAlias)
+                    .Where(alias => alias != null)
+                    .Select(alias => new TagNamespaceClaim(
+                        TagNameRules.NamespaceKey(alias!), entity.Id, alias!, IsAlias: true))
+                    .Append(new TagNamespaceClaim(
+                        TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(entity.Name)),
+                        entity.Id,
+                        TagNameRules.NormalizeCanonicalName(entity.Name),
+                        IsAlias: false)))
+                .ToArray();
+            _tagNamespaceOwnerIndex = claims.GroupBy(claim => claim.Key, StringComparer.Ordinal).ToDictionary(
+                group => group.Key,
+                group => group.Select(claim => claim.OwnerId).Distinct().Order().ToArray(),
+                StringComparer.Ordinal);
+            _tagNamespaceClaimIndex = claims.GroupBy(claim => claim.Key, StringComparer.Ordinal).ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(claim => claim.IsAlias).ThenBy(claim => claim.OwnerId).First(),
+                StringComparer.Ordinal);
+            _tagNamespaceKeysByOwner = claims.GroupBy(claim => claim.OwnerId).ToDictionary(
+                group => group.Key,
+                group => group.Select(claim => claim.Key).ToHashSet(StringComparer.Ordinal));
+        }
+
+        var trackedTags = _db.ChangeTracker.Entries<Tag>()
+            .Where(entry => entry.State != EntityState.Deleted)
+            .Select(entry => entry.Entity)
+            .ToArray();
+        TagNamespaceClaim? FindClaimByAnotherTag(string value)
+        {
+            var key = TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(value));
+            var trackedOwnerIds = trackedTags
+                .Where(owner => owner.Id > 0)
+                .Select(owner => owner.Id)
+                .ToHashSet();
+            var trackedOwnersWithLoadedAliases = trackedTags
+                .Where(owner => owner.Id > 0 && _db.Entry(owner).Collection(entity => entity.Aliases).IsLoaded)
+                .Select(owner => owner.Id)
+                .ToHashSet();
+            var trackedClaims = trackedTags
+                .Where(owner => !ReferenceEquals(owner, tag))
+                .SelectMany(owner => owner.Aliases
+                    .Where(alias => _db.Entry(alias).State != EntityState.Deleted
+                        && TagAliasKey(alias.Alias) == key)
+                    .Select(alias => new TagNamespaceClaim(key, owner.Id, alias.Alias, IsAlias: true))
+                    .Append(new TagNamespaceClaim(key, owner.Id, owner.Name, IsAlias: false))
+                    .Where(claim => claim.IsAlias || TagNameKey(claim.DisplayName) == key));
+            var persisted = _tagNamespaceClaimIndex?.GetValueOrDefault(key);
+            var trackedAliasChangedForKey = persisted != null
+                && _db.ChangeTracker.Entries<TagAlias>().Any(alias =>
+                    alias.Entity.TagId == persisted.OwnerId
+                    && alias.State is EntityState.Modified or EntityState.Deleted
+                    && TagAliasKey(alias.Property(item => item.Alias).OriginalValue) == key);
+            var persistedIsOverriddenByTrackedState = persisted != null
+                && trackedOwnerIds.Contains(persisted.OwnerId)
+                && (!persisted.IsAlias
+                    || trackedOwnersWithLoadedAliases.Contains(persisted.OwnerId)
+                    || trackedAliasChangedForKey);
+            var persistedClaim = persistedIsOverriddenByTrackedState || persisted?.OwnerId == tag.Id
+                ? null
+                : persisted;
+            return trackedClaims
+                .Append(persistedClaim)
+                .Where(claim => claim != null)
+                .Select(claim => claim!)
+                .OrderBy(claim => claim.IsAlias)
+                .ThenBy(claim => claim.OwnerId)
+                .FirstOrDefault();
+        }
+
+        var warnings = new List<string>();
+        var isNewTag = tag.Id <= 0
+            || _db.Entry(tag).State == EntityState.Added;
+        var importedName = TagNameRules.NormalizeCanonicalName(tag.Name);
+        string? acceptedRemoteName = null;
+        if (importCanonicalName)
+        {
+            var ownMatchingAliases = tag.Aliases
+                .Where(alias => TagAliasKey(alias.Alias) == TagNameKey(proposedName))
+                .ToArray();
+            if (!allowRemoveRedundantAlias && ownMatchingAliases.Length > 0)
+            {
+                warnings.Add($"Kept the local tag name because changing it to '{proposedName}' would require removing an alias that was excluded from this refresh.");
+            }
+            else if (FindClaimByAnotherTag(proposedName) is { } existingClaim)
+            {
+                if (isNewTag)
+                {
+                    throw existingClaim.IsAlias
+                        ? TagNameConflictException.ForExistingAlias(existingClaim.DisplayName, proposedName)
+                        : TagNameConflictException.ForExistingTagName(existingClaim.DisplayName, proposedName);
+                }
+                warnings.Add($"Kept the local tag name because the remote name '{proposedName}' is already claimed by another tag.");
+            }
+            else
+            {
+                tag.Name = proposedName;
+                importedName = proposedName;
+                acceptedRemoteName = proposedName;
+                foreach (var redundantAlias in ownMatchingAliases)
+                    tag.Aliases.Remove(redundantAlias);
+            }
+        }
+
+        var acceptedAliases = new List<string>();
+        foreach (var alias in proposedAliases)
+        {
+            if (TagAliasKey(alias) == TagNameKey(importedName))
+                continue;
+            if (FindClaimByAnotherTag(alias) != null)
+            {
+                warnings.Add($"Skipped remote alias '{alias}' because it is already claimed by another tag.");
+                continue;
+            }
+
+            acceptedAliases.Add(alias);
+        }
+
+        MergeAliases(tag, acceptedAliases);
+        return new TagIdentityImportResult(importedName, acceptedRemoteName, acceptedAliases, warnings);
+    }
+
+    private async Task<ResolvedVideoTag> FindOrCreateTagAsync(MetadataServerRemoteTag remote, string endpoint, CancellationToken ct, bool allowCreate = true)
+    {
+        var tag = _db.ChangeTracker.Entries<Tag>()
+            .Where(entry => entry.State != EntityState.Deleted)
+            .Select(entry => entry.Entity)
+            .FirstOrDefault(entity => entity.RemoteIds.Any(remoteId =>
+                string.Equals(remoteId.Endpoint, endpoint, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(remoteId.RemoteId, remote.Id, StringComparison.Ordinal)));
+        var matchedByRemoteId = tag != null;
+        var remoteNameKey = TagNameKey(remote.Name);
+        tag ??= _db.ChangeTracker.Entries<Tag>()
+            .Where(entry => entry.State == EntityState.Added || entry.Entity.Id == 0)
+            .Select(entry => entry.Entity)
+            .FirstOrDefault(entity => TagNameKey(entity.Name) == remoteNameKey
+                || entity.Aliases.Any(alias => TagAliasKey(alias.Alias) == remoteNameKey));
+        var matchedTrackedNamespace = tag != null && !matchedByRemoteId;
+        tag ??= await _db.Tags
+            .Include(entity => entity.RemoteIds)
+            .Include(entity => entity.Aliases)
+            .FirstOrDefaultAsync(entity => entity.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remote.Id), ct);
+        matchedByRemoteId = tag != null && !matchedTrackedNamespace;
+        tag ??= (await RelationNameResolver.ResolveTagsAsync(_db, [remote.Name], ct)).GetValueOrDefault(remote.Name.Trim());
 
         if (tag == null && !allowCreate)
         {
-            return null;
+            return new ResolvedVideoTag(null, []);
         }
 
         if (tag == null)
@@ -2197,12 +2581,70 @@ query Me {
             _db.Tags.Add(tag);
         }
 
-        tag.Name = remote.Name.Trim();
+        var identity = await ApplyRemoteTagIdentityAsync(
+            tag,
+            remote.Name,
+            remote.Aliases,
+            ct,
+            importCanonicalName: tag.Id == 0 || matchedByRemoteId);
         tag.Description = Coalesce(tag.Description, remote.Description) ?? tag.Description;
-        MergeAliases(tag, remote.Aliases);
-        UpsertRemoteId(tag.RemoteIds, endpoint, remote.Id, id => id.Endpoint, id => id.RemoteId, (id, value) => id.RemoteId = value, value => new TagRemoteId { Endpoint = endpoint, RemoteId = value });
-        return tag;
+        if (!matchedTrackedNamespace || !tag.RemoteIds.Any(id => string.Equals(id.Endpoint, endpoint, StringComparison.OrdinalIgnoreCase)))
+            UpsertRemoteId(tag.RemoteIds, endpoint, remote.Id, id => id.Endpoint, id => id.RemoteId, (id, value) => id.RemoteId = value, value => new TagRemoteId { Endpoint = endpoint, RemoteId = value });
+        return new ResolvedVideoTag(tag, identity.Warnings);
     }
+
+    private void RefreshTagNamespaceOwnerIndex(Tag tag)
+    {
+        if (_tagNamespaceOwnerIndex == null || tag.Id <= 0)
+            return;
+
+        foreach (var key in _tagNamespaceKeysByOwner?.GetValueOrDefault(tag.Id) ?? [])
+        {
+            var remaining = _tagNamespaceOwnerIndex[key].Where(ownerId => ownerId != tag.Id).ToArray();
+            if (remaining.Length == 0)
+                _tagNamespaceOwnerIndex.Remove(key);
+            else
+                _tagNamespaceOwnerIndex[key] = remaining;
+            if (_tagNamespaceClaimIndex?.GetValueOrDefault(key)?.OwnerId == tag.Id)
+                _tagNamespaceClaimIndex.Remove(key);
+        }
+
+        var claims = tag.Aliases
+            .Select(alias => TagNameRules.NormalizeAlias(alias.Alias))
+            .Where(alias => alias != null)
+            .Select(alias => new TagNamespaceClaim(
+                TagNameRules.NamespaceKey(alias!), tag.Id, alias!, IsAlias: true))
+            .Append(new TagNamespaceClaim(
+                TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(tag.Name)),
+                tag.Id,
+                TagNameRules.NormalizeCanonicalName(tag.Name),
+                IsAlias: false))
+            .GroupBy(claim => claim.Key, StringComparer.Ordinal)
+            .Select(group => group.OrderBy(claim => claim.IsAlias).First());
+        var refreshedKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var claim in claims)
+        {
+            var key = claim.Key;
+            refreshedKeys.Add(key);
+            _tagNamespaceOwnerIndex[key] = _tagNamespaceOwnerIndex.GetValueOrDefault(key, [])
+                .Append(tag.Id)
+                .Distinct()
+                .Order()
+                .ToArray();
+            _tagNamespaceClaimIndex ??= new(StringComparer.Ordinal);
+            var currentClaim = _tagNamespaceClaimIndex.GetValueOrDefault(key);
+            if (currentClaim == null
+                || currentClaim.IsAlias && !claim.IsAlias
+                || currentClaim.IsAlias == claim.IsAlias && claim.OwnerId < currentClaim.OwnerId)
+            {
+                _tagNamespaceClaimIndex[key] = claim;
+            }
+        }
+        _tagNamespaceKeysByOwner ??= [];
+        _tagNamespaceKeysByOwner[tag.Id] = refreshedKeys;
+    }
+
+    private sealed record TagNamespaceClaim(string Key, int OwnerId, string DisplayName, bool IsAlias);
 
     private static void MergeAliases(Studio studio, IEnumerable<string> aliases)
     {
@@ -2226,18 +2668,39 @@ query Me {
 
     private static void MergeAliases(Tag tag, IEnumerable<string>? aliases)
     {
-        var existing = tag.Aliases.Select(alias => alias.Alias).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var alias in CleanStrings(aliases).Where(alias => !string.Equals(alias, tag.Name, StringComparison.OrdinalIgnoreCase)))
+        var existing = tag.Aliases
+            .Select(alias => TagAliasKey(alias.Alias))
+            .Where(key => key != null)
+            .ToHashSet(StringComparer.Ordinal);
+        var tagNameKey = TagNameKey(tag.Name);
+        foreach (var alias in CleanStrings(aliases).Where(alias => TagAliasKey(alias) != tagNameKey))
         {
-            if (existing.Add(alias))
+            if (existing.Add(TagAliasKey(alias)!))
                 tag.Aliases.Add(new TagAlias { Alias = alias, TagId = tag.Id });
         }
+    }
+
+    private static string TagNameKey(string? name) =>
+        TagNameRules.NamespaceKey(TagNameRules.NormalizeCanonicalName(name));
+
+    private static string? TagAliasKey(string? alias)
+    {
+        var normalized = TagNameRules.NormalizeAlias(alias);
+        return normalized == null ? null : TagNameRules.NamespaceKey(normalized);
     }
 
     private static IEnumerable<string> CleanStrings(IEnumerable<string>? values)
         => values == null
             ? []
             : values.Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value.Trim());
+
+    private sealed record TagIdentityImportResult(
+        string ImportedName,
+        string? AcceptedRemoteName,
+        IReadOnlyList<string> ImportedAliases,
+        IReadOnlyList<string> Warnings);
+
+    private sealed record ResolvedVideoTag(Tag? Tag, IReadOnlyList<string> Warnings);
 
     private static void UpsertRemoteId<TRemoteId>(ICollection<TRemoteId> collection, string endpoint, string remoteId, Func<TRemoteId, string> getEndpoint, Func<TRemoteId, string> getRemoteId, Action<TRemoteId, string> setRemoteId, Func<string, TRemoteId> create)
     {
@@ -2456,9 +2919,10 @@ query Me {
             return null;
 
         var localId = await _db.Studios
-            .Where(studio => studio.Name == remoteStudio.Name || studio.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remoteStudio.Id))
+            .Where(studio => studio.RemoteIds.Any(remoteId => remoteId.Endpoint == endpoint && remoteId.RemoteId == remoteStudio.Id))
             .Select(studio => (int?)studio.Id)
             .FirstOrDefaultAsync(ct);
+        localId ??= (await FindStudioByIdentityAsync(remoteStudio.Name, ct))?.Id;
 
         return new MetadataServerEntityCandidateDto(remoteStudio.Id, remoteStudio.Name.Trim(), localId.HasValue, localId);
     }
@@ -2477,8 +2941,6 @@ query Me {
             return [];
 
         var remoteIds = remotePerformers.Select(performer => performer.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var remoteNames = remotePerformers.Select(performer => performer.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
         var matchedByRemoteId = remoteIds.Count == 0
             ? []
             : await _db.Performers
@@ -2487,31 +2949,31 @@ query Me {
                     .Select(remoteId => new { remoteId.RemoteId, PerformerId = performer.Id }))
                 .ToListAsync(ct);
 
-        var matchedByName = remoteNames.Count == 0
-            ? []
-            : await _db.Performers
-                .Where(performer => remoteNames.Contains(performer.Name))
-                .Select(performer => new { performer.Name, performer.Id })
-                .ToListAsync(ct);
-
         var idsByRemoteId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var match in matchedByRemoteId)
         {
             idsByRemoteId.TryAdd(match.RemoteId, match.PerformerId);
         }
 
-        var idsByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var match in matchedByName)
-        {
-            idsByName.TryAdd(match.Name, match.Id);
-        }
-
-        return remotePerformers.Select(remotePerformer =>
+        var result = new List<MetadataServerEntityCandidateDto>(remotePerformers.Count);
+        foreach (var remotePerformer in remotePerformers)
         {
             var name = remotePerformer.Name.Trim();
-            var exists = idsByRemoteId.TryGetValue(remotePerformer.Id, out var localId) || idsByName.TryGetValue(name, out localId);
-            return new MetadataServerEntityCandidateDto(remotePerformer.Id, name, exists, exists ? localId : null);
-        }).ToList();
+            var exists = idsByRemoteId.TryGetValue(remotePerformer.Id, out var localId);
+            if (!exists)
+            {
+                var identityMatch = await FindPerformerByIdentityAsync(name, remotePerformer.Disambiguation, ct);
+                localId = identityMatch?.Id ?? 0;
+                exists = identityMatch != null;
+            }
+            result.Add(new MetadataServerEntityCandidateDto(
+                remotePerformer.Id,
+                name,
+                exists,
+                exists ? localId : null,
+                EntityNameRules.NormalizeDisambiguation(remotePerformer.Disambiguation)));
+        }
+        return result;
     }
 
     private async Task<List<MetadataServerEntityCandidateDto>> BuildTagCandidatesAsync(string endpoint, MetadataServerRemoteVideo video, CancellationToken ct)
@@ -2526,7 +2988,7 @@ query Me {
             return [];
 
         var remoteIds = remoteTags.Select(tag => tag.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var remoteNames = remoteTags.Select(tag => tag.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var remoteNames = remoteTags.Select(tag => tag.Name.Trim()).Distinct(TagNameRules.NamespaceComparer).ToList();
 
         var matchedByRemoteId = remoteIds.Count == 0
             ? []
@@ -2536,12 +2998,7 @@ query Me {
                     .Select(remoteId => new { remoteId.RemoteId, TagId = tag.Id }))
                 .ToListAsync(ct);
 
-        var matchedByName = remoteNames.Count == 0
-            ? []
-            : await _db.Tags
-                .Where(tag => remoteNames.Contains(tag.Name))
-                .Select(tag => new { tag.Name, tag.Id })
-                .ToListAsync(ct);
+        var matchedByName = await RelationNameResolver.ResolveTagsAsync(_db, remoteNames, ct);
 
         var idsByRemoteId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var match in matchedByRemoteId)
@@ -2549,16 +3006,15 @@ query Me {
             idsByRemoteId.TryAdd(match.RemoteId, match.TagId);
         }
 
-        var idsByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var match in matchedByName)
-        {
-            idsByName.TryAdd(match.Name, match.Id);
-        }
-
         return remoteTags.Select(remoteTag =>
         {
             var name = remoteTag.Name.Trim();
-            var exists = idsByRemoteId.TryGetValue(remoteTag.Id, out var localId) || idsByName.TryGetValue(name, out localId);
+            var exists = idsByRemoteId.TryGetValue(remoteTag.Id, out var localId);
+            if (!exists && matchedByName.TryGetValue(name, out var nameMatch))
+            {
+                exists = true;
+                localId = nameMatch.Id;
+            }
             return new MetadataServerEntityCandidateDto(remoteTag.Id, name, exists, exists ? localId : null);
         }).ToList();
     }

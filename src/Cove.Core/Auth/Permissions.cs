@@ -300,4 +300,3 @@ public sealed record PermissionDefinition(
     string[]? Implies = null,
     string Source = "core",
     bool GrantToAdminsByDefault = false);
-

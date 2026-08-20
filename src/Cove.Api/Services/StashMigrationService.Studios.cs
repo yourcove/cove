@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data.Services;
 
 namespace Cove.Api.Services;
 
@@ -35,15 +37,7 @@ public partial class StashMigrationService
             }
         }
 
-        var byId = rows.ToDictionary(r => r.Id);
-        var ordered = TopologicalSort(rows.Select(r => r.Id).ToList(),
-            id => byId[id].ParentId.HasValue ? [byId[id].ParentId!.Value] : (IEnumerable<int>)[]);
-
         _logger.LogDebug("Preparing to import {Total} studios", rows.Count);
-        var idMap = new Dictionary<int, int>();
-        var createdStudiosByStashId = new Dictionary<int, Studio>();
-        const int StudioBatchSize = 500;
-        var pendingStudios = new List<(int StashId, Studio Entity)>(StudioBatchSize);
         progress.Report(startProgress, "Importing studios...");
         _logger.LogDebug(
             "[StashTiming] phase=studios checkpoint=loaded rows={Rows} urlOwners={UrlOwners} aliasOwners={AliasOwners} remoteIdOwners={RemoteIdOwners} elapsedMs={ElapsedMilliseconds:F0}",
@@ -53,6 +47,34 @@ public partial class StashMigrationService
             studioStashIds.Count,
             stopwatch.Elapsed.TotalMilliseconds);
 
+        var byId = rows.ToDictionary(row => row.Id);
+        var identityKeys = rows.Select(row => EntityNameRules.StudioIdentityKey(row.Name)).ToHashSet(StringComparer.Ordinal);
+        var existingCandidates = await _db.Studios
+            .Include(studio => studio.Urls)
+            .Include(studio => studio.Aliases)
+            .Include(studio => studio.RemoteIds)
+            .OrderBy(studio => studio.Id)
+            .ToListAsync(ct);
+        var existingByIdentity = new Dictionary<string, Studio>(StringComparer.Ordinal);
+        foreach (var existing in existingCandidates)
+        {
+            var identityKey = EntityNameRules.StudioIdentityKey(existing.Name);
+            if (!identityKeys.Contains(identityKey))
+                continue;
+            if (!existingByIdentity.TryAdd(identityKey, existing))
+                throw new EntityNameConflictException(NameConflictEntityTypes.Studio);
+        }
+
+        var groups = rows
+            .OrderBy(row => row.Id)
+            .GroupBy(row => EntityNameRules.StudioIdentityKey(row.Name), StringComparer.Ordinal)
+            .Select(group => (IdentityKey: group.Key, StashIds: (IReadOnlyList<int>)group.Select(row => row.Id).ToArray()))
+            .ToArray();
+        var idMap = new Dictionary<int, int>(rows.Count);
+        const int StudioBatchSize = 500;
+        var pendingStudios = new List<(IReadOnlyList<int> StashIds, Studio Entity)>();
+        var pendingSourceCount = 0;
+
         async Task FlushStudioBatchAsync()
         {
             if (pendingStudios.Count == 0)
@@ -60,6 +82,7 @@ public partial class StashMigrationService
 
             try
             {
+                _db.ChangeTracker.DetectChanges();
                 await _db.SaveChangesAsync(ct);
             }
             catch (Exception ex)
@@ -73,58 +96,128 @@ public partial class StashMigrationService
                 throw;
             }
 
-            foreach (var (stashId, entity) in pendingStudios)
-                idMap[stashId] = entity.Id;
+            foreach (var (stashIds, entity) in pendingStudios)
+                foreach (var stashId in stashIds)
+                    idMap[stashId] = entity.Id;
 
             pendingStudios.Clear();
+            pendingSourceCount = 0;
             _db.ChangeTracker.Clear();
 
-            ReportPhase(progress, startProgress, endProgress, idMap.Count, ordered.Count, $"Importing studios ({idMap.Count}/{ordered.Count})");
+            ReportPhase(progress, startProgress, endProgress, idMap.Count, rows.Count, $"Importing studios ({idMap.Count}/{rows.Count})");
             _logger.LogDebug(
                 "[StashTiming] phase=studios checkpoint=batch imported={Imported} total={Total} elapsedMs={ElapsedMilliseconds:F0}",
                 idMap.Count,
-                ordered.Count,
+                rows.Count,
                 stopwatch.Elapsed.TotalMilliseconds);
         }
 
-        foreach (var stashId in ordered)
+        void MergeImportedStudioMetadata(Studio entity, int stashId)
         {
             var row = byId[stashId];
-            var remoteIds = studioStashIds.GetValueOrDefault(stashId, [])
-                .DistinctBy(s => (s.Ep, s.Rid))
-                .Select(s => new StudioRemoteId { Endpoint = s.Ep, RemoteId = s.Rid })
-                .ToList();
-            var entity = new Studio
-            {
-                Name = row.Name,
-                ParentId = row.ParentId.HasValue && idMap.TryGetValue(row.ParentId.Value, out var pId) ? pId : null,
-                Parent = row.ParentId.HasValue && !idMap.ContainsKey(row.ParentId.Value) && createdStudiosByStashId.TryGetValue(row.ParentId.Value, out var parentStudio) ? parentStudio : null,
-                Details = row.Details,
-                Favorite = row.Favorite,
-                Organized = false,
-                ImageBlobId = GetBlobId(blobMap, row.ImageBlob),
-                Urls = urls.GetValueOrDefault(stashId, []).Select(u => new StudioUrl { Url = u }).ToList(),
-                Aliases = aliases.GetValueOrDefault(stashId, []).Select(a => new StudioAlias { Alias = a }).ToList(),
-                RemoteIds = remoteIds,
-                CreatedAt = ParseDateTime(row.CreatedAt),
-                UpdatedAt = ParseDateTime(row.UpdatedAt),
-            };
-            _db.Studios.Add(entity);
-            createdStudiosByStashId[stashId] = entity;
-            pendingStudios.Add((stashId, entity));
+            if (string.IsNullOrWhiteSpace(entity.Details) && !string.IsNullOrWhiteSpace(row.Details))
+                entity.Details = row.Details;
+            entity.Favorite |= row.Favorite;
+            if (string.IsNullOrWhiteSpace(entity.ImageBlobId))
+                entity.ImageBlobId = GetBlobId(blobMap, row.ImageBlob);
 
-            if (pendingStudios.Count >= StudioBatchSize)
+            var urlKeys = entity.Urls.Select(item => item.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var value in urls.GetValueOrDefault(stashId, []).Where(value => !string.IsNullOrWhiteSpace(value)))
+                if (urlKeys.Add(value))
+                    entity.Urls.Add(new StudioUrl { Url = value });
+            var aliasKeys = entity.Aliases.Select(item => item.Alias).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var value in aliases.GetValueOrDefault(stashId, []).Where(value => !string.IsNullOrWhiteSpace(value)))
+                if (aliasKeys.Add(value))
+                    entity.Aliases.Add(new StudioAlias { Alias = value });
+            var remoteKeys = entity.RemoteIds.Select(item => (item.Endpoint, item.RemoteId)).ToHashSet();
+            foreach (var (endpoint, remoteId) in studioStashIds.GetValueOrDefault(stashId, []))
+                if (remoteKeys.Add((endpoint, remoteId)))
+                    entity.RemoteIds.Add(new StudioRemoteId { Endpoint = endpoint, RemoteId = remoteId });
+        }
+
+        foreach (var group in groups)
+        {
+            var firstRow = byId[group.StashIds[0]];
+            Studio entity;
+            if (existingByIdentity.TryGetValue(group.IdentityKey, out var existing))
+            {
+                entity = existing;
+                if (_db.Entry(entity).State == EntityState.Detached)
+                    _db.Studios.Attach(entity);
+            }
+            else
+            {
+                entity = new Studio
+                {
+                    Name = EntityNameRules.NormalizeCanonicalName(firstRow.Name),
+                    Organized = false,
+                    CreatedAt = ParseDateTime(firstRow.CreatedAt),
+                    UpdatedAt = ParseDateTime(firstRow.UpdatedAt),
+                };
+                _db.Studios.Add(entity);
+            }
+
+            foreach (var stashId in group.StashIds)
+                MergeImportedStudioMetadata(entity, stashId);
+            pendingStudios.Add((group.StashIds, entity));
+            pendingSourceCount += group.StashIds.Count;
+
+            if (pendingSourceCount >= StudioBatchSize)
                 await FlushStudioBatchAsync();
         }
 
         await FlushStudioBatchAsync();
+
+        var targetIds = idMap.Values.Distinct().ToArray();
+        var targetsById = await _db.Studios.Where(studio => targetIds.Contains(studio.Id)).ToDictionaryAsync(studio => studio.Id, ct);
+        var parentByStudioId = await _db.Studios.AsNoTracking()
+            .ToDictionaryAsync(studio => studio.Id, studio => studio.ParentId, ct);
+        foreach (var group in groups)
+        {
+            var targetId = idMap[group.StashIds[0]];
+            var target = targetsById[targetId];
+            if (target.ParentId.HasValue)
+                continue;
+            foreach (var stashId in group.StashIds)
+            {
+                var parentStashId = byId[stashId].ParentId;
+                if (!parentStashId.HasValue
+                    || !idMap.TryGetValue(parentStashId.Value, out var parentTargetId)
+                    || WouldCreateStudioParentCycle(targetId, parentTargetId, parentByStudioId))
+                    continue;
+                target.ParentId = parentTargetId;
+                parentByStudioId[targetId] = parentTargetId;
+                break;
+            }
+        }
+        _db.ChangeTracker.DetectChanges();
+        await _db.SaveChangesAsync(ct);
+        _db.ChangeTracker.Clear();
+
         await AddImportedOverallRatingsAsync(
-            rows.Select(row => new ImportedRatingSeed(row.Id, row.Rating)),
+            rows.OrderByDescending(row => row.Id).Select(row => new ImportedRatingSeed(row.Id, row.Rating)),
             idMap,
             RatingHostType.Studio,
             ct);
         _logger.LogInformation("Imported {Count} studios in {Elapsed}", idMap.Count, stopwatch.Elapsed);
         return idMap;
+    }
+
+    private static bool WouldCreateStudioParentCycle(
+        int studioId,
+        int proposedParentId,
+        IReadOnlyDictionary<int, int?> parentByStudioId)
+    {
+        var visited = new HashSet<int>();
+        var current = proposedParentId;
+        while (true)
+        {
+            if (current == studioId || !visited.Add(current))
+                return true;
+            if (!parentByStudioId.TryGetValue(current, out var parentId) || !parentId.HasValue)
+                return false;
+            current = parentId.Value;
+        }
     }
 
     private async Task<int> ImportStudioTagRelationshipsAsync(

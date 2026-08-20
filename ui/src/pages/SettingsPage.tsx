@@ -38,6 +38,7 @@ import {
   FileText,
   Layers,
   UserCog,
+  AlertTriangle,
   X,
 } from "lucide-react";
 import { customFields, system, jobs, metadata, database, plugins as pluginsApi, logs as logsApi, tagGroups, auth as authApi, usersApi, entityEngagement } from "../api/client";

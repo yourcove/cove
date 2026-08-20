@@ -59,4 +59,5 @@ describe("API client timeout policies", () => {
     fetchRequest.finish();
     await request;
   });
+
 });

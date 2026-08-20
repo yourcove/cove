@@ -1,3 +1,4 @@
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -90,16 +91,20 @@ public sealed partial class TagProvenanceService(
         var removedTagIds = previous.Except(current).ToArray();
         if (removedTagIds.Length > 0)
         {
-            var removedApplications = await _db.TagApplications
+            var candidateApplications = await _db.TagApplications
                 .Where(application => application.HostType == hostType
                     && application.HostId == hostId
                     && application.ContextType == null
                     && application.ContextId == null
-                    && application.SourceKey == normalizedSourceKey
                     && removedTagIds.Contains(application.TagId))
                 .ToListAsync(cancellationToken);
+            var removedApplications = candidateApplications
+                .Where(application => application.SourceKey == normalizedSourceKey
+                    || (normalizedSourceKey == "user"
+                        && !SourceKeyConventions.IsExtensionSource(application.SourceKey)))
+                .ToArray();
 
-            if (removedApplications.Count > 0)
+            if (removedApplications.Length > 0)
             {
                 _db.TagApplications.RemoveRange(removedApplications);
             }
@@ -293,6 +298,7 @@ public sealed partial class TagProvenanceService(
         var trimmed = value.Trim();
         return trimmed.ToLowerInvariant() switch
         {
+            "user" => "user",
             "scraper" => "scraper:local",
             "metadata" => "metadata:default",
             "import:stash" => "stash-import",

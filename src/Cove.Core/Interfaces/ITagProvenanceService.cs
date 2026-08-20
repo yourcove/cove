@@ -33,6 +33,9 @@ public interface ITagProvenanceService
         double? hostDurationSec = null,
         CancellationToken cancellationToken = default);
 
+    // Synchronizes the direct tag set for one source. A user edit also removes non-extension provenance
+    // for tags removed from the direct set, because metadata and scraper applications are represented by
+    // that editable link. Extension applications remain independently derived and reportable.
     Task SyncTagSetAsync(
         AffinityHostType hostType,
         int hostId,

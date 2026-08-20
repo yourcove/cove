@@ -10,6 +10,32 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+- Tag, performer, and studio merges now share documented transfer rules for Cove-owned relationships, metadata, JSON references, engagement, security, artwork, and extension safeguards. Foreign keys in extension-owned tables block source deletion, uninspectable locations fail closed, and opaque non-foreign-key data remains the extension's responsibility.
+- Metadata-server, scraper, Stash, and Cove metadata-import paths now use the enforced performer and studio identity rules. Normalized duplicate Stash identities collapse deterministically without losing mapped relationships, Cove metadata JSON restores run transactionally, and non-unique performer aliases are never treated as identity keys.
+- Tag metadata refreshes preserve the local canonical name and skip newly supplied aliases when those remote claims belong to another tag, saving the remaining metadata and reporting the omitted claims as warnings instead of failing the entire refresh.
+
+## [1.3.0] - 2026-08-19
+
+Safer entity naming with a guided upgrade path for existing libraries.
+
+- Tag names and aliases now share one unique namespace, performer names are unique within each disambiguation, and studio names are unique.
+- Before upgrading, Cove checks for conflicting tag, performer, and studio names without changing the database or creating a backup. Libraries with conflicts are directed to the cleanup tools in the latest Cove 1.2.x release; libraries without conflicts upgrade directly.
+- The upgrade trims affected names, applies deterministic safe cleanup, guards against concurrent changes, validates the result, and enforces the new rules atomically.
+
+## [1.2.0] - 2026-08-19
+
+More powerful discovery and filtering, more resilient media workflows, and broader extension support.
+
+- Upgrading to 1.2.0 before 1.3.0 is strongly recommended. Its Name Conflicts tool finds and resolves duplicate tag, performer, and studio names; 1.3.0 cannot upgrade a library while those conflicts remain, although libraries without conflicts can upgrade directly.
+- Lists now support multi-level sorting, consistent filters and sorts across entity types, library-path filtering, editable applied filters, clearer filter pins, and more stable loading and pagination behavior.
+- Media discovery adds metadata-aware remote ID filters, video-segment presence and tag filters, recorded-like sorting and history, aggregate media totals, and faster, better-ranked global search.
+- Video and gallery workflows preserve navigation and editor state more reliably, restore timestamp and popover links, improve mobile playback controls, and handle missing or migrated covers safely.
+- Scans better tolerate overlapping filesystem changes, skip verified unchanged work, limit asset generation to changed files, and provide stronger validation, cancellation, and FFprobe handling.
+- Clients recover from server outages and session-refresh races more reliably, while external authentication gains host-managed identity links and explicit password requirements.
+- Extensions can use shared list filtering, install directly from ZIP files, contribute floating UI, receive accurate entity events, and integrate with host authentication.
+- The tagger adds previews and seeking, metadata matching is configurable, saved-filter display and zoom preferences persist, and autocomplete and bulk-edit feedback are steadier.
+- Nightly development builds now use ordered, change-aware versions, and trace logging provides more useful diagnostics across high-volume operations.
+
 ## [1.1.0] - 2026-07-29
 
 Smarter browsing and editing, smoother compilations, and a major expansion of Cove's extension platform.

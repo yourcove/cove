@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, scrapeAttempts, system } from "../api/client";
-import type { ApplyVideoScrapeAttemptRequest, Video, MetadataServer, MetadataServerVideoMatch, MetadataServerVideoImportRequest, ScrapeAttempt, ScraperSummary, ScrapeCollectionItemSelection } from "../api/types";
+import type { ApplyVideoScrapeAttemptRequest, Video, MetadataServer, MetadataServerEntityCandidate, MetadataServerVideoMatch, MetadataServerVideoImportRequest, ScrapeAttempt, ScraperSummary, ScrapeCollectionItemSelection } from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { formatDuration, getResolutionLabel } from "./shared";
 import { createNestedRouteLinkProps } from "./cardNavigation";
@@ -88,6 +88,7 @@ interface VideoSearchState {
   loading: boolean;
   results?: UnifiedVideoMatch[];
   error?: string;
+  warning?: string;
   selectedIndex?: number;
   saved?: boolean;
   excludedPerformers?: Set<string>;
@@ -184,6 +185,49 @@ function toCandidates(names: string[]) {
   return names.map((name) => ({ remoteId: name, name, existsLocally: false }));
 }
 
+interface PerformerChoice {
+  key: string;
+  label: string;
+  candidate: MetadataServerEntityCandidate;
+}
+
+function formatPerformerIdentity(name: string, disambiguation?: string | null) {
+  const normalizedDisambiguation = disambiguation?.trim();
+  return normalizedDisambiguation ? `${name} (${normalizedDisambiguation})` : name;
+}
+
+function performerChoiceKey(candidate: MetadataServerEntityCandidate) {
+  return `remote-performer:${candidate.remoteId}`;
+}
+
+function getPerformerChoices(result: MetadataServerVideoMatch): PerformerChoice[] {
+  const candidates: MetadataServerEntityCandidate[] = result.performerCandidates.length > 0
+    ? result.performerCandidates
+    : result.performerNames.map((name) => ({ remoteId: name, name, existsLocally: false }));
+  return candidates.map((candidate) => ({
+    key: performerChoiceKey(candidate),
+    label: formatPerformerIdentity(candidate.name, candidate.disambiguation),
+    candidate,
+  }));
+}
+
+function getPerformerChoiceDisplayNames(choices: PerformerChoice[]) {
+  return Object.fromEntries(choices.map((choice) => [relationKey(choice.key), choice.label]));
+}
+
+function getCurrentPerformerChoiceKeys(video: Video, choices: PerformerChoice[]) {
+  const linkedIds = new Set(video.performers.map((performer) => performer.id));
+  return choices
+    .filter((choice) => {
+      if (choice.candidate.localId != null)
+        return linkedIds.has(choice.candidate.localId);
+      const candidateIdentity = relationKey(formatPerformerIdentity(choice.candidate.name, choice.candidate.disambiguation));
+      return video.performers.some((performer) =>
+        relationKey(formatPerformerIdentity(performer.name, performer.disambiguation)) === candidateIdentity);
+    })
+    .map((choice) => choice.key);
+}
+
 function toScraperVideoMatch(attempt: ScrapeAttempt, result: Record<string, unknown>, index: number, scraper: ScraperSummary): UnifiedVideoMatch {
   const title = pickString(result, "Title", "Name");
   const imageUrl = pickString(result, "Image", "ImageUrl", "ImageURL");
@@ -223,7 +267,9 @@ function getVideoTagNames(video: Video) {
 }
 
 function getVideoPerformerNames(video: Video) {
-  return video.performers.map((performer) => performer.name).filter(Boolean);
+  return video.performers
+    .map((performer) => formatPerformerIdentity(performer.name, performer.disambiguation))
+    .filter(Boolean);
 }
 
 function normalizeDecisionValue(value?: string | null) {
@@ -345,6 +391,15 @@ function buildScraperVideoApplyRequest(result: UnifiedVideoMatch, video: Video, 
   // Cover is driven by the per-result image decision (defaulting to the global toggle).
   if (getVideoImageReplace(video, result, state, taggerConfig) && pickString(raw, "Image", "ImageUrl", "ImageURL")) replaceFields.push("image");
 
+  const performerChoices = getPerformerChoices(result);
+  const performerActions = buildVideoRelationActionMap(
+    performerChoices.map((choice) => choice.key),
+    getCurrentPerformerChoiceKeys(video, performerChoices),
+    performerChoices.filter((choice) => choice.candidate.existsLocally).map((choice) => choice.key),
+    state?.excludedPerformers,
+    state?.forceIncludedPerformers,
+    !taggerConfig.onlyExistingPerformers,
+  );
   return {
     replaceFields,
     collectionModes,
@@ -355,7 +410,12 @@ function buildScraperVideoApplyRequest(result: UnifiedVideoMatch, video: Video, 
     hydratePerformers: taggerConfig.createParentTags,
     selectedCandidateIndex: result.selectedCandidateIndex,
     tagSelections: result.tagNames.length > 0 ? buildVideoRelationSelections(result.tagNames, getVideoTagNames(video), result.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name), state?.excludedTags, state?.forceIncludedTags, !taggerConfig.onlyExistingTags) : undefined,
-    performerSelections: result.performerNames.length > 0 ? buildVideoRelationSelections(result.performerNames, getVideoPerformerNames(video), result.performerCandidates.filter((performer) => performer.existsLocally).map((performer) => performer.name), state?.excludedPerformers, state?.forceIncludedPerformers, !taggerConfig.onlyExistingPerformers) : undefined,
+    performerSelections: performerChoices.length > 0
+      ? performerChoices.map((choice) => ({
+          name: choice.candidate.name,
+          action: performerActions[relationKey(choice.key)] ?? "exclude",
+        }))
+      : undefined,
   };
 }
 
@@ -563,7 +623,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
     async (video: Video, bulkStrategy?: VideoMetadataSearchStrategy) => {
       const source = selectedSource;
       const query = getSourceQuery(video, source);
-      updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
       try {
         let results: UnifiedVideoMatch[] = [];
         if (source?.kind === "scraper") {
@@ -614,7 +674,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
   // Fingerprint-only search
   const searchVideoFingerprints = useCallback(
     async (video: Video) => {
-      updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
       try {
         if (selectedSource?.kind !== "metadata-server") throw new Error("Fingerprint search is only available for metadata-server sources.");
         const results = (await videos.searchMetadataServer(video.id, undefined, selectedSource.endpoint || undefined, "fingerprint")).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
@@ -636,7 +696,7 @@ export function VideoTagger({ videos: videoList, onNavigate, selectedIds, select
   // Refresh/rescrape directly from an existing remote id (no name search needed).
   const refreshVideoFromRemote = useCallback(
     async (video: Video, endpoint: string, remoteId: string) => {
-      updateSearchState(video.id, { loading: true, error: undefined, results: undefined, saved: false });
+      updateSearchState(video.id, { loading: true, error: undefined, warning: undefined, results: undefined, saved: false });
       try {
         const results = (await videos.findMetadataServerByIds({ endpoint, ids: [remoteId] })).map((match) => ({ ...match, sourceKind: "metadata-server" as const }));
         updateSearchState(video.id, {
@@ -966,7 +1026,7 @@ function TaggerVideoRow({
   };
   const queryClient = useQueryClient();
   // Resolve which scraper-returned tag/performer names already exist locally, using the same backend
-  // matcher the apply path uses (alias-aware for performers). Metadata-server results already carry
+  // matcher the apply path uses (exact name + blank disambiguation for performers). Metadata-server results already carry
   // correct existsLocally from their own search, so only scraper candidates are enriched below.
   const scraperResultNames = useMemo(() => {
     const tags = new Set<string>();
@@ -1019,21 +1079,33 @@ function TaggerVideoRow({
       if (!selectedResult) throw new Error("No result selected");
       const collectionModes = getVideoCollectionModes(selectedResult, state, taggerConfig);
       const tagActions = buildVideoRelationActionMap(selectedResult.tagNames, getVideoTagNames(video), selectedResult.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name), state?.excludedTags, state?.forceIncludedTags, !taggerConfig.onlyExistingTags);
-      const performerActions = buildVideoRelationActionMap(selectedResult.performerNames, getVideoPerformerNames(video), selectedResult.performerCandidates.filter((performer) => performer.existsLocally).map((performer) => performer.name), state?.excludedPerformers, state?.forceIncludedPerformers, !taggerConfig.onlyExistingPerformers);
+      const performerChoices = getPerformerChoices(selectedResult);
+      const performerActions = buildVideoRelationActionMap(
+        performerChoices.map((choice) => choice.key),
+        getCurrentPerformerChoiceKeys(video, performerChoices),
+        performerChoices.filter((choice) => choice.candidate.existsLocally).map((choice) => choice.key),
+        state?.excludedPerformers,
+        state?.forceIncludedPerformers,
+        !taggerConfig.onlyExistingPerformers,
+      );
       const excludedTags = collectionModes.tags === "skip" ? selectedResult.tagNames : selectedResult.tagNames.filter((name) => tagActions[relationKey(name)] === "exclude");
-      const excludedPerformers = collectionModes.performers === "skip" ? selectedResult.performerNames : selectedResult.performerNames.filter((name) => performerActions[relationKey(name)] === "exclude");
       if (selectedResult?.sourceKind === "scraper") {
         if (!selectedResult.scrapeAttemptId) throw new Error("No scraper attempt selected");
         return scrapeAttempts.apply(selectedResult.scrapeAttemptId, buildScraperVideoApplyRequest(selectedResult, video, state, taggerConfig));
       }
 
-      // Build overrides for force-included entities (entities that would normally be skipped
-      // by onlyExisting* flags but the user explicitly opted to create)
-      const performerOverrides = selectedResult.performerCandidates.some((performer) => performerActions[relationKey(performer.name)] === "create")
-        ? selectedResult.performerCandidates
-            .filter(p => performerActions[relationKey(p.name)] === "create")
-            .map(p => ({ remoteId: p.remoteId, name: p.name, action: "create" }))
-        : undefined;
+      // Remote IDs keep same-name performer identities independent. Send every non-default choice so
+      // an exclusion for one disambiguation can never affect another performer with the same name.
+      const performerOverrides = performerChoices.flatMap((choice) => {
+        const action = performerActions[relationKey(choice.key)] ?? "exclude";
+        if (action === "exclude")
+          return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "skip" }];
+        if (action === "create")
+          return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "create" }];
+        if (choice.candidate.localId != null)
+          return [{ remoteId: choice.candidate.remoteId, name: choice.candidate.name, action: "existing", localId: choice.candidate.localId }];
+        return [];
+      });
       const tagOverrides = selectedResult.tagCandidates.some((tag) => tagActions[relationKey(tag.name)] === "create")
         ? selectedResult.tagCandidates
             .filter(t => tagActions[relationKey(t.name)] === "create")
@@ -1057,16 +1129,19 @@ function TaggerVideoRow({
         onlyExistingStudio: taggerConfig.onlyExistingStudio,
         markOrganized: taggerConfig.markOrganized,
         excludedTagNames: excludedTags.length > 0 ? excludedTags : undefined,
-        excludedPerformerNames: excludedPerformers.length > 0 ? excludedPerformers : undefined,
-        performerOverrides,
+        performerOverrides: performerOverrides.length > 0 ? performerOverrides : undefined,
         tagOverrides,
         studioOverride,
         fieldStrategies: buildVideoFieldStrategies(video, selectedResult, state, taggerConfig),
       };
       return videos.importFromMetadataServer(video.id, importReq);
     },
-    onSuccess: async () => {
-      onUpdateState({ saved: true });
+    onSuccess: async (result) => {
+      const importWarnings = "importWarnings" in result ? result.importWarnings : undefined;
+      onUpdateState({
+        saved: true,
+        warning: importWarnings && importWarnings.length > 0 ? importWarnings.join(" ") : undefined,
+      });
       await invalidateVideoMetadataQueries(queryClient, video.id);
     },
   });
@@ -1303,7 +1378,9 @@ function TaggerVideoRow({
                 onUpdateState({ collectionModes: { ...getVideoCollectionModes(selectedResult, state, taggerConfig), [field]: mode } });
               }}
               onTogglePerformer={(name) => {
-                const perf = selectedResult?.performerCandidates.find(p => p.name === name);
+                const perf = selectedResult == null
+                  ? undefined
+                  : getPerformerChoices(selectedResult).find((choice) => choice.key === name)?.candidate;
                 const willSkipByDefault = taggerConfig.onlyExistingPerformers && perf && !perf.existsLocally;
                 if (willSkipByDefault) {
                   const current = new Set(state.forceIncludedPerformers ?? []);
@@ -1349,6 +1426,12 @@ function TaggerVideoRow({
             <div className="flex items-center gap-1 mt-2 text-xs text-green-400">
               <Check className="w-3.5 h-3.5" />
               Saved successfully
+            </div>
+          )}
+          {state?.warning && (
+            <div className="mt-2 flex items-start gap-1 text-xs text-amber-300">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>Saved with warnings: {state.warning}</span>
             </div>
           )}
         </div>
@@ -1486,10 +1569,14 @@ function TaggerResultRow({
   ].filter((row) => Boolean(row.scraped));
   const currentTagNames = getVideoTagNames(video);
   const currentPerformerNames = getVideoPerformerNames(video);
+  const performerChoices = getPerformerChoices(result);
+  const performerChoiceKeys = performerChoices.map((choice) => choice.key);
+  const currentPerformerChoiceKeys = getCurrentPerformerChoiceKeys(video, performerChoices);
+  const performerChoiceDisplayNames = getPerformerChoiceDisplayNames(performerChoices);
   const existingTagNames = result.tagCandidates.filter((tag) => tag.existsLocally).map((tag) => tag.name);
-  const existingPerformerNames = result.performerCandidates.filter((performer) => performer.existsLocally).map((performer) => performer.name);
+  const existingPerformerChoiceKeys = performerChoices.filter((choice) => choice.candidate.existsLocally).map((choice) => choice.key);
   const tagActions = buildVideoRelationActionMap(result.tagNames, currentTagNames, existingTagNames, excludedTags, forceIncludedTags, !taggerConfig.onlyExistingTags);
-  const performerActions = buildVideoRelationActionMap(result.performerNames, currentPerformerNames, existingPerformerNames, excludedPerformers, forceIncludedPerformers, !taggerConfig.onlyExistingPerformers);
+  const performerActions = buildVideoRelationActionMap(performerChoiceKeys, currentPerformerChoiceKeys, existingPerformerChoiceKeys, excludedPerformers, forceIncludedPerformers, !taggerConfig.onlyExistingPerformers);
 
   return (
     <div
@@ -1537,8 +1624,8 @@ function TaggerResultRow({
                 )}
               </span>
             )}
-            {result.performerNames.length > 0 && (
-              <span className="truncate">{result.performerNames.join(", ")}</span>
+            {performerChoices.length > 0 && (
+              <span className="truncate">{performerChoices.map((choice) => choice.label).join(", ")}</span>
             )}
           </div>
         </div>
@@ -1617,7 +1704,7 @@ function TaggerResultRow({
             />
           )}
 
-          {result.performerNames.length > 0 && taggerConfig.setPerformers && (
+          {performerChoices.length > 0 && taggerConfig.setPerformers && (
             <CompactCollectionDecision
               label="Performers"
               current={currentPerformerNames}
@@ -1626,9 +1713,10 @@ function TaggerResultRow({
               scraped={(
                 <div onClick={(event) => event.stopPropagation()}>
                   <ScrapeRelationChoices
-                    names={result.performerNames}
-                    currentNames={currentPerformerNames}
-                    existingNames={existingPerformerNames}
+                    names={performerChoiceKeys}
+                    currentNames={currentPerformerChoiceKeys}
+                    existingNames={existingPerformerChoiceKeys}
+                    displayNames={performerChoiceDisplayNames}
                     matchInfo={performerMatchInfo}
                     actions={performerActions}
                     disabled={collectionModes.performers === "skip"}

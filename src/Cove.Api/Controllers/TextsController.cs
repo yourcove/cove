@@ -432,6 +432,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         var updated = await db.TextDocuments.AsNoTracking()
             .Include(item => item.Studio)
             .Include(item => item.Files)
+            .Include(item => item.Urls)
             .Include(item => item.TextTags).ThenInclude(link => link.Tag)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
