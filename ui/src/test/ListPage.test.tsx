@@ -394,6 +394,8 @@ describe("ListPage active filter chips", () => {
     expect(tagsChip.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
     expect(tagsChip.querySelector('[data-filter-value-kind="included"]')).not.toHaveClass("border", "rounded", "bg-green-900/40");
     expect(tagsChip.querySelector('[data-filter-value-kind="excluded"]')).not.toHaveClass("border", "rounded", "bg-red-900/40");
+    expect(tagsChip.textContent).toContain("Tag Two,\u00a0and Tag Three");
+    expect(tagsChip.textContent).toContain("Excluded One\u00a0nor Excluded Two");
     expect(tagsChip.querySelector('[data-filter-excluded-prefix]')?.textContent).toBe("neither ");
     expect(screen.getByRole("button", { name: "Edit filter: Performers" })).toHaveTextContent("Performer One, Performer Two, or Performer Three");
     const studiosChip = screen.getByRole("button", { name: "Edit filter: Studios" });
