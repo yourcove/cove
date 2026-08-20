@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 138;
+    public const int ExpectedMappedEndpoints = 161;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 362;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 339;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -30,13 +30,9 @@ public static class EndpointCoverageProgress
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         DELETE /api/galleries/{id:int}
         DELETE /api/galleries/{id:int}/cover
-        DELETE /api/galleries/{id:int}/image
-        DELETE /api/galleries/{id:int}/image/back
         DELETE /api/galleries/{id:int}/images
         DELETE /api/groups/bulk
         DELETE /api/groups/{id:int}
-        DELETE /api/groups/{id:int}/image/back
-        DELETE /api/groups/{id:int}/image/front
         DELETE /api/groups/{id:int}/subgroups/{subgroupid:int}
         DELETE /api/images/bulk
         DELETE /api/images/{id:int}
@@ -49,8 +45,6 @@ public static class EndpointCoverageProgress
         DELETE /api/performers/{id:int}/image
         DELETE /api/roles/{id:int}
         DELETE /api/savedfilters/{id:int}
-        DELETE /api/segment-display-profiles/{id:int}
-        DELETE /api/segment-display-profiles/{profileid:int}/rules/{id:int}
         DELETE /api/segments/{id:int}/image
         DELETE /api/share-links/{id:guid}
         DELETE /api/studios/bulk
@@ -102,13 +96,9 @@ public static class EndpointCoverageProgress
         GET /api/galleries/{id:int}
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
-        GET /api/galleries/{id:int}/image
-        GET /api/galleries/{id:int}/image/back
         GET /api/groups/dynamic-sources
         GET /api/groups/{id:int}
         GET /api/groups/{id:int}/containinggroups
-        GET /api/groups/{id:int}/image/back
-        GET /api/groups/{id:int}/image/front
         GET /api/groups/{id:int}/subgroups
         GET /api/images/{id:int}
         GET /api/images/{id:int}/history
@@ -125,8 +115,6 @@ public static class EndpointCoverageProgress
         GET /api/roles/{id:int}
         GET /api/savedfilters/{id:int}
         GET /api/scrape-attempts/{id:guid}
-        GET /api/segment-display-profiles/{id:int}
-        GET /api/segment-display-profiles/{profileid:int}/rules
         GET /api/segments/{id:int}/image
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/detection/{detectionid:int}/crop
@@ -228,16 +216,12 @@ public static class EndpointCoverageProgress
         POST /api/galleries/bulk
         POST /api/galleries/find
         POST /api/galleries/{id:int}/chapters
-        POST /api/galleries/{id:int}/image
-        POST /api/galleries/{id:int}/image/back
         POST /api/galleries/{id:int}/images
         POST /api/galleries/{id:int}/rescan
         POST /api/groups
         POST /api/groups/bulk
         POST /api/groups/find
         POST /api/groups/{groupid:int}/items/from-spans
-        POST /api/groups/{id:int}/image/back
-        POST /api/groups/{id:int}/image/front
         POST /api/groups/{id:int}/snapshot
         POST /api/groups/{id:int}/subgroups
         POST /api/images
@@ -276,10 +260,6 @@ public static class EndpointCoverageProgress
         POST /api/scrape-attempts
         POST /api/scrape-attempts/resolve-relations
         POST /api/scrape-attempts/{id:guid}/apply
-        POST /api/segment-display-profiles
-        POST /api/segment-display-profiles/preview
-        POST /api/segment-display-profiles/{profileid:int}/rules
-        POST /api/segment-display-profiles/{profileid:int}/rules/bulk
         POST /api/segments/spans/count
         POST /api/segments/spans/search
         POST /api/segments/{id:int}/image
@@ -368,9 +348,6 @@ public static class EndpointCoverageProgress
         PUT /api/performers/{id:int}/image/source
         PUT /api/roles/{id:int}
         PUT /api/savedfilters/{id:int}
-        PUT /api/segment-display-profiles/{id:int}
-        PUT /api/segment-display-profiles/{id:int}/default
-        PUT /api/segment-display-profiles/{profileid:int}/rules/{id:int}
         PUT /api/studios/{id:int}
         PUT /api/studios/{id:int}/image/source
         PUT /api/system/config
