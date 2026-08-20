@@ -245,7 +245,8 @@ public class SystemController(
         var config = configService.GetConfig();
         if (principalAccessor.Current?.Has(Permissions.SystemSettingsWrite) != true)
         {
-            var canReadLibraryPaths = principalAccessor.Current?.Has(Permissions.LibraryScan) == true;
+            var canReadLibraryPaths = principalAccessor.Current?.Has(Permissions.LibraryScan) == true
+                || principalAccessor.Current?.Has(Permissions.FilesRead) == true;
             config = RedactSensitiveConfig(config, canReadLibraryPaths);
         }
         return Ok(config);
