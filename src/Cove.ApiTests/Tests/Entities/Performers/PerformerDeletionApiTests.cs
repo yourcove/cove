@@ -11,6 +11,7 @@ public sealed class PerformerDeletionApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("DELETE", "/api/performers/{id:int}")]
     public async Task GivenPerformer_WhenDeleted_ThenPerformerCanNoLongerBeReadOrListed()
     {
         // Arrange

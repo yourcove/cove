@@ -234,6 +234,27 @@ public sealed partial class CoveClient
                 SourceProfileId: null),
             cancellationToken);
 
+    public Task<GroupItemDto> AddPerformerToGroupAsync(
+        PerformerDto performer,
+        GroupDto group,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupItemDto>(
+            HttpMethod.Post,
+            $"/api/groups/{group.Id}/items",
+            new GroupItemCreateDto(
+                OrderIndex: 0,
+                Kind: GroupItemKind.Performer,
+                VideoId: null,
+                HostType: "performer",
+                HostId: performer.Id,
+                StartSec: null,
+                EndSec: null,
+                Title: null,
+                Notes: null,
+                SourceSpanKey: null,
+                SourceProfileId: null),
+            cancellationToken);
+
     public Task<IReadOnlyList<GroupItemDto>> GetGroupItemsAsync(
         GroupDto group,
         CancellationToken cancellationToken = default)

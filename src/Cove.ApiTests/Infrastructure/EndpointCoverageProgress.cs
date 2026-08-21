@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 258;
+    public const int ExpectedMappedEndpoints = 267;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 246;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 237;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -30,8 +30,6 @@ public static class EndpointCoverageProgress
         DELETE /api/images/{id:int}/like/history
         DELETE /api/images/{imageid:int}/detections/{id:int}
         DELETE /api/jobs/{jobid}
-        DELETE /api/performers/bulk
-        DELETE /api/performers/{id:int}
         DELETE /api/roles/{id:int}
         DELETE /api/savedfilters/{id:int}
         DELETE /api/share-links/{id:guid}
@@ -82,9 +80,6 @@ public static class EndpointCoverageProgress
         GET /api/images/{imageid:int}/detections/{id:int}
         GET /api/jobs/backup/latest
         GET /api/jobs/history
-        GET /api/performers/{id:int}
-        GET /api/performers/{id:int}/appears-with
-        GET /api/performers/{id:int}/groups
         GET /api/performers/{id:int}/metadata-server/search
         GET /api/plugins/tasks
         GET /api/plugins/{pluginid}/config
@@ -183,9 +178,6 @@ public static class EndpointCoverageProgress
         POST /api/jobs/scan
         POST /api/metadata/identify
         POST /api/metadata/sync-fingerprints
-        POST /api/performers
-        POST /api/performers/bulk
-        POST /api/performers/find
         POST /api/performers/merge
         POST /api/performers/metadata-server/batch-tag
         POST /api/performers/metadata-server/find-by-ids
@@ -255,7 +247,6 @@ public static class EndpointCoverageProgress
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/images/{imageid:int}/detections/{id:int}
         PUT /api/jobs/{jobid}/reorder
-        PUT /api/performers/{id:int}
         PUT /api/roles/{id:int}
         PUT /api/savedfilters/{id:int}
         PUT /api/studios/{id:int}

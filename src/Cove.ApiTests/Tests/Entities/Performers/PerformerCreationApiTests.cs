@@ -135,6 +135,8 @@ public sealed class PerformerCreationApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/performers")]
+    [CoversEndpoint("GET", "/api/performers/{id:int}")]
     public async Task GivenPerformerMetadata_WhenPerformerIsCreated_ThenAllMetadataCanBeRetrieved()
     {
         // Arrange
