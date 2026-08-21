@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 344;
+    public const int ExpectedMappedEndpoints = 348;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 160;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 156;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -29,7 +29,6 @@ public static class EndpointCoverageProgress
         DELETE /api/images/{imageid:int}/detections/{id:int}
         DELETE /api/jobs/{jobid}
         DELETE /api/roles/{id:int}
-        DELETE /api/savedfilters/{id:int}
         DELETE /api/share-links/{id:guid}
         DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
         DELETE /api/tagapplications/{id:int}
@@ -61,7 +60,6 @@ public static class EndpointCoverageProgress
         GET /api/plugins/{pluginid}/config
         GET /api/roles/permissions
         GET /api/roles/{id:int}
-        GET /api/savedfilters/{id:int}
         GET /api/scrape-attempts/{id:guid}
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/image/{imageid:int}/thumbnail
@@ -132,7 +130,6 @@ public static class EndpointCoverageProgress
         POST /api/plugins/settings
         POST /api/plugins/{pluginid}/config
         POST /api/roles
-        POST /api/savedfilters
         POST /api/scrape-attempts
         POST /api/scrape-attempts/resolve-relations
         POST /api/scrape-attempts/{id:guid}/apply
@@ -173,7 +170,6 @@ public static class EndpointCoverageProgress
         PUT /api/images/{imageid:int}/detections/{id:int}
         PUT /api/jobs/{jobid}/reorder
         PUT /api/roles/{id:int}
-        PUT /api/savedfilters/{id:int}
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
         PUT /api/videos/{videoid:int}/detections/{id:int}
