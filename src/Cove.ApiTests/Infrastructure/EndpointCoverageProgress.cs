@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 300;
+    public const int ExpectedMappedEndpoints = 311;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 204;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 193;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -45,10 +45,6 @@ public static class EndpointCoverageProgress
         DELETE /api/videos/{videoid:int}/detections/{id:int}
         GET /api/ai-runs/{id:int}
         GET /api/audios/{id:int}/history
-        GET /api/auth/bootstrap-status
-        GET /api/auth/external/links
-        GET /api/auth/external/providers
-        GET /api/auth/invite-info
         GET /api/content-rules/overrides
         GET /api/embeddings/{id:int}
         GET /api/engagement/interactions
@@ -109,16 +105,10 @@ public static class EndpointCoverageProgress
         POST /api/audios/{id:int}/like/historical
         POST /api/audios/{id:int}/like/reset
         POST /api/auth/bootstrap-owner
-        POST /api/auth/change-password
         POST /api/auth/external/links/cancel
         POST /api/auth/external/links/confirm
         POST /api/auth/external/links/preview
         POST /api/auth/external/redeem
-        POST /api/auth/invite-redeem
-        POST /api/auth/login
-        POST /api/auth/logout
-        POST /api/auth/refresh
-        POST /api/auth/revoke-sessions
         POST /api/auth/setup-token-redeem
         POST /api/content-rules
         POST /api/custom-fields
@@ -207,7 +197,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/play
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rescan
-        PUT /api/auth/me/ui-preferences
         PUT /api/content-rules/{id:int}
         PUT /api/custom-fields
         PUT /api/custom-fields/{id:int}
