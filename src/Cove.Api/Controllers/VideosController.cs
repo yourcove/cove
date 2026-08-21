@@ -21,7 +21,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -1661,6 +1661,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         db.ChangeTracker.Clear();
         if (mergedSourceIds.Length > 0)
         {
+            segmentSpanCacheInvalidator?.InvalidateVideo(dto.TargetId);
+            foreach (var sourceId in mergedSourceIds)
+                segmentSpanCacheInvalidator?.InvalidateVideo(sourceId);
             PublishVideoEvent(EventType.VideoUpdated, dto.TargetId);
             foreach (var sourceId in mergedSourceIds)
                 PublishVideoEvent(EventType.VideoDeleted, sourceId);
