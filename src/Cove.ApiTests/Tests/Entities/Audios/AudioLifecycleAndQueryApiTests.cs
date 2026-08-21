@@ -62,7 +62,7 @@ public sealed class AudioLifecycleAndQueryApiTests(
         // Arrange
         const string fileName = "audio-file-lifecycle.wav";
         var fileSystem = AsTestFileSystem();
-        var path = fileSystem.CreatePcmWaveFile(fileName, sampleFrames: 800);
+        var path = fileSystem.CreatePcmWaveFile(fileName, sampleFrames: 8_000);
         var expectedStream = await File.ReadAllBytesAsync(path);
 
         // Act
@@ -71,7 +71,7 @@ public sealed class AudioLifecycleAndQueryApiTests(
         var streamed = await AsUser(ApiTestUsers.Eva).GetAudioStreamAsync(created.Id);
         var createdFile = created.Files.Should().ContainSingle().Which;
         var originalFile = read.Files.Should().ContainSingle().Which;
-        fileSystem.ReplacePcmWaveFile(path, sampleFrames: 1_600);
+        fileSystem.ReplacePcmWaveFile(path, sampleFrames: 16_000);
         var expectedRescannedStream = await File.ReadAllBytesAsync(path);
         File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-1));
         var jobId = await AsUser(ApiTestUsers.Eva).RescanAudioAsync(created.Id);
