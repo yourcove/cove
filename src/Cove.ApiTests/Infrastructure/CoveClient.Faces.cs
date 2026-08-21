@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Globalization;
 using System.Text.Json;
 using Cove.Core.DTOs;
 
@@ -149,6 +150,44 @@ public sealed partial class CoveClient
             HttpMethod.Get,
             WithCacheNonce($"/api/faces/review/unlinked?take={take}"),
             payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<FaceDto>> GetAiRunFaceReviewAsync(
+        DateTime? startedAt,
+        DateTime? completedAt,
+        int take = 12,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string> { $"take={take}" };
+        if (startedAt.HasValue)
+            query.Add($"startedAt={Uri.EscapeDataString(startedAt.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))}");
+        if (completedAt.HasValue)
+            query.Add($"completedAt={Uri.EscapeDataString(completedAt.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))}");
+
+        return SendAsync<IReadOnlyList<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/review/ai-run?{string.Join("&", query)}"),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<FaceSuggestionDto>> GetFaceSuggestionsAsync(
+        int faceId,
+        int maxResults = 5,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<FaceSuggestionDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces/{faceId}/suggestions?maxResults={maxResults}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<FaceBatchOperationResultDto> BatchLinkTopSuggestionAsync(
+        FaceBatchLinkTopSuggestionDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<FaceBatchOperationResultDto>(
+            HttpMethod.Post,
+            "/api/faces/batch/link-top-suggestion",
+            request,
             cancellationToken);
 
     public Task<PaginatedResponse<FaceSimilarDto>> GetSimilarFacesAsync(

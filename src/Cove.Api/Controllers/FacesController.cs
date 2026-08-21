@@ -614,7 +614,10 @@ public class FacesController(
         take = Math.Clamp(take, 1, 100);
         var windowStart = startedAt.Value.ToUniversalTime().AddMinutes(-1);
         var windowEnd = completedAt.Value.ToUniversalTime().AddMinutes(1);
+        // Run provenance is internal correlation data for this face-reading endpoint. The
+        // FaceAppearance query below still applies face and media-host visibility filters.
         var runKeys = await db.AiRuns
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(run => run.Status == AiRunStatus.Completed
                 && run.StartedAt >= windowStart

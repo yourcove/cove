@@ -233,6 +233,7 @@ public sealed class DatabaseClient
         double? lastSeenAtSec,
         float? topConfidence,
         string sourceKey = "api-test",
+        string? sourceRunId = null,
         CancellationToken cancellationToken = default)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
@@ -251,10 +252,39 @@ public sealed class DatabaseClient
             LastSeenAtSec = lastSeenAtSec,
             TopConfidence = topConfidence,
             SourceKey = sourceKey,
+            SourceRunId = sourceRunId,
         };
         db.FaceAppearances.Add(appearance);
         await db.SaveChangesAsync(cancellationToken);
         return appearance.Id;
+    }
+
+    public async Task CreateCompletedAiRunAsync(
+        string runKey,
+        AiRunTargetType targetType,
+        int targetId,
+        DateTime startedAt,
+        DateTime completedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(runKey))
+            throw new ArgumentException("An AI run key is required.", nameof(runKey));
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        db.AiRuns.Add(new AiRun
+        {
+            RunKey = runKey,
+            SourceKey = "api-test",
+            TargetType = targetType,
+            TargetId = targetId,
+            Status = AiRunStatus.Completed,
+            StartedAt = startedAt.ToUniversalTime(),
+            CompletedAt = completedAt.ToUniversalTime(),
+        });
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<int> CreateFaceEmbeddingAsync(

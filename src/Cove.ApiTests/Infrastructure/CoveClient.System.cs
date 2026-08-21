@@ -72,13 +72,13 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => UploadSystemUiAssetAsync("/api/system/ui/logo", content, fileName, mediaType, cancellationToken);
 
-    public Task<UserDto> CreateUserAsync(
-        CreateUserRequest user,
+    public Task<IReadOnlyList<RoleDto>> GetRolesAsync(
         CancellationToken cancellationToken = default)
-        => SendAsync<UserDto>(HttpMethod.Post, "/api/users", user, cancellationToken);
-
-    public Task<IReadOnlyList<RoleDto>> GetRolesAsync(CancellationToken cancellationToken = default)
-        => SendAsync<IReadOnlyList<RoleDto>>(HttpMethod.Get, WithCacheNonce("/api/roles"), payload: null, cancellationToken);
+        => SendAsync<IReadOnlyList<RoleDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/roles"),
+            payload: null,
+            cancellationToken);
 
     public Task<RoleDto> UpdateRoleAsync(
         int roleId,

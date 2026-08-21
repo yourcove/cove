@@ -14,6 +14,7 @@ public sealed class StudioUpdateApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("PUT", "/api/studios/{id:int}")]
     public async Task GivenStudio_WhenPartiallyUpdated_ThenSuppliedMetadataChangesAndOtherMetadataIsPreserved()
     {
         // Arrange
