@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 268;
+    public const int ExpectedMappedEndpoints = 275;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 236;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 229;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -42,10 +42,7 @@ public static class EndpointCoverageProgress
         DELETE /api/texts/{id:int}/like/history
         DELETE /api/users/{id:int}
         DELETE /api/users/{id:int}/external-links/{linkid:int}
-        DELETE /api/videos/{id:int}/like
-        DELETE /api/videos/{id:int}/like/history
         DELETE /api/videos/{id:int}/play
-        DELETE /api/videos/{id:int}/rating
         DELETE /api/videos/{videoid:int}/detections/{id:int}
         GET /api/ai-runs/{id:int}
         GET /api/audios/{id:int}/history
@@ -112,7 +109,6 @@ public static class EndpointCoverageProgress
         GET /api/users/{id:int}
         GET /api/users/{id:int}/external-links
         GET /api/videos/{id:int}/metadata-server/search
-        GET /api/videos/{id:int}/ratings
         GET /api/videos/{videoid:int}/detections/{id:int}
         HEAD /api/stream/video/{videoid:int}/preview
         POST /api/ai-data/purge
@@ -229,14 +225,11 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/activity/reset
         POST /api/videos/{id:int}/cover/from-frame
         POST /api/videos/{id:int}/generate-screenshot
-        POST /api/videos/{id:int}/like/historical
-        POST /api/videos/{id:int}/like/reset
         POST /api/videos/{id:int}/metadata-server/import
         POST /api/videos/{id:int}/metadata-server/submit-draft
         POST /api/videos/{id:int}/metadata-server/submit-fingerprints
         POST /api/videos/{id:int}/play
         POST /api/videos/{id:int}/play/reset
-        POST /api/videos/{id:int}/rating
         POST /api/videos/{id:int}/rescan
         PUT /api/auth/me/ui-preferences
         PUT /api/content-rules/{id:int}
