@@ -38,6 +38,7 @@ public sealed class DatabaseClient
         int videoId,
         double duration,
         long size,
+        IReadOnlyDictionary<string, string>? fingerprints = null,
         CancellationToken cancellationToken = default)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
@@ -45,15 +46,15 @@ public sealed class DatabaseClient
             .Options;
         await using var db = new CoveContext(options);
 
-        // Public video creation cannot supply deterministic probe metrics. Seed only the file row
-        // needed to verify the aggregate endpoint's derived duration and file-size totals.
+        // Public video creation cannot supply deterministic file metrics or fingerprints. Seed only
+        // the file row needed to probe aggregate and duplicate-discovery behavior.
         var now = DateTime.UtcNow;
         var folder = new Folder
         {
             Path = $"/api-tests/video-aggregate/{Guid.NewGuid():N}",
             ModTime = now,
         };
-        db.VideoFiles.Add(new VideoFile
+        var file = new VideoFile
         {
             VideoId = videoId,
             Basename = "aggregate-source.mp4",
@@ -62,8 +63,33 @@ public sealed class DatabaseClient
             ModTime = now,
             Format = "mp4",
             Duration = duration,
-        });
+        };
+        if (fingerprints != null)
+        {
+            foreach (var (type, value) in fingerprints)
+                file.Fingerprints.Add(new FileFingerprint { Type = type, Value = value });
+        }
+        db.VideoFiles.Add(file);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task SetVideoParentAsync(
+        int videoId,
+        int parentVideoId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public clip creation flattens nested requests to the file-backed root. Seed a deeper
+        // legacy hierarchy only to verify that merge validation cannot create a parent cycle.
+        await db.Videos
+            .Where(video => video.Id == videoId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(video => video.ParentVideoId, parentVideoId),
+                cancellationToken);
     }
 
     public async Task AttachAudioFileAsync(

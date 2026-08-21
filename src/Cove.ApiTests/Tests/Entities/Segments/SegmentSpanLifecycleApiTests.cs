@@ -42,11 +42,12 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
         detail.Span.SegmentIds.Should().Equal(first.Id, second.Id);
         detail.Intervals.Should().Equal(new ResolvedSpanIntervalDto(2, 4), new ResolvedSpanIntervalDto(4.5, 7));
 
-        var derived = await eva.QueryVideoResolvedSpansAsync(video, new SegmentSpanQueryRequestDto(profile.Id, "union", [new SegmentSpanOperandDto("span-slice", "chapter", [tag.Id], null)], 0, 0));
+        var derivedRequest = new SegmentSpanQueryRequestDto(profile.Id, "union", [new SegmentSpanOperandDto("span-slice", "chapter", [tag.Id], null)], 0, 0);
+        var derived = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest);
         derived.Spans.Select(item => (item.StartSec, item.EndSec)).Should().Equal((2, 4), (4.5, 7));
         derived.Spans.Select(item => item.SegmentIds.Single()).Should().Equal(first.Id, second.Id);
 
-        var update = new SegmentUpdateDto(10, 14, tag.Id, "chapter", 42, Json("{\"source\":\"api\"}"), "span-slice", "run-1", .8f, "Updated segment", "#abcdef");
+        var update = new SegmentUpdateDto(10, 14, tag.Id, "chapter", 42, Json("{\"source\":\"api\"}"), "span-slice", "run-1", .55f, "Updated segment", "#abcdef");
         var updated = await eva.UpdateVideoSegmentAsync(video, first.Id, update);
         var persisted = await eva.GetVideoSegmentAsync(video, first.Id);
         foreach (var actual in new[] { updated, persisted })
@@ -64,7 +65,7 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
             actual.Payload!.Value.GetProperty("source").GetString().Should().Be("api");
             actual.SourceKey.Should().Be("span-slice");
             actual.SourceRunId.Should().Be("run-1");
-            actual.Confidence.Should().Be(.8f);
+            actual.Confidence.Should().Be(.55f);
             actual.Title.Should().Be("Updated segment");
             actual.ColorHint.Should().Be("#abcdef");
         }
@@ -89,10 +90,15 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
         afterUpdate.Spans.Select(item => (item.StartSec, item.EndSec)).Should().Equal((4.5, 7), (10, 14));
         afterUpdate.Spans[0].SegmentIds.Should().Equal(second.Id);
         afterUpdate.Spans[1].SegmentIds.Should().Equal(first.Id);
+        var derivedAfterUpdate = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest);
+        derivedAfterUpdate.Spans.Select(item => (item.StartSec, item.EndSec)).Should().Equal((4.5, 7), (10, 14));
+        derivedAfterUpdate.Spans.Select(item => item.SegmentIds.Single()).Should().Equal(second.Id, first.Id);
 
         await eva.DeleteVideoSegmentAsync(video, first.Id);
         var afterDelete = await eva.GetVideoResolvedSpansAsync(video, profile.Id);
         afterDelete.Spans.Should().ContainSingle().Which.SegmentIds.Should().Equal(second.Id);
+        var derivedAfterDelete = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest);
+        derivedAfterDelete.Spans.Should().ContainSingle().Which.SegmentIds.Should().Equal(second.Id);
         var deleted = () => eva.GetVideoSegmentAsync(video, first.Id);
         await deleted.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
     }

@@ -77,6 +77,20 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => SendAsync<UserDto>(HttpMethod.Post, "/api/users", user, cancellationToken);
 
+    public Task<IReadOnlyList<RoleDto>> GetRolesAsync(CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<RoleDto>>(HttpMethod.Get, WithCacheNonce("/api/roles"), payload: null, cancellationToken);
+
+    public Task<RoleDto> UpdateRoleAsync(
+        int roleId,
+        UpdateRoleRequest request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<RoleDto>(HttpMethod.Put, $"/api/roles/{roleId}", request, cancellationToken);
+
+    public Task<ContentRuleDto> CreateContentRuleAsync(
+        CreateContentRuleRequest request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ContentRuleDto>(HttpMethod.Post, "/api/content-rules", request, cancellationToken);
+
     public Task<JsonElement> ReadEndpointAsync(
         ReadEndpoint endpoint,
         CancellationToken cancellationToken = default)

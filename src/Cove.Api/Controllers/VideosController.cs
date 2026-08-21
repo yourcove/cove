@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using System.Numerics;
 using Microsoft.AspNetCore.Mvc;
@@ -20,7 +21,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -1517,54 +1518,175 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     // ===== Merge =====
 
     [HttpPost("merge")]
-    [RequiresPermission(Permissions.VideosWrite)]
+    [RequiresPermission(Permissions.VideosWrite, Permissions.VideosDelete)]
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "TargetId")]
-    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosWrite, ActionArgumentName = "dto", PropertyName = "SourceIds")]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosDelete, ActionArgumentName = "dto", PropertyName = "SourceIds")]
     public async Task<ActionResult<VideoDto>> MergeVideos([FromBody] VideoMergeDto dto, CancellationToken ct)
     {
-        var target = await videoRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
-        if (target == null) return NotFound("Target video not found");
-
-        var sources = await db.Videos
-            .Include(s => s.Files)
-            .Include(s => s.VideoTags)
-            .Include(s => s.VideoPerformers)
-            .Include(s => s.VideoGalleries)
-            .Include(s => s.Urls)
-            .Where(s => dto.SourceIds.Contains(s.Id) && s.Id != target.Id)
-            .OrderBy(s => s.Id)
-            .ToListAsync(ct);
-
-        var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
-        var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
-
-        foreach (var source in sources)
+        var requestedIds = dto.SourceIds
+            .Where(id => id > 0 && id != dto.TargetId)
+            .Append(dto.TargetId)
+            .Distinct()
+            .ToArray();
+        var targetFound = false;
+        var invalidHierarchy = false;
+        int[] mergedSourceIds = [];
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
         {
-            // Move files to target
-            foreach (var f in source.Files) f.VideoId = target.Id;
-            // Merge tags
-            foreach (var st in source.VideoTags.Where(st => !existingTagIds.Contains(st.TagId)))
-                target.VideoTags.Add(new VideoTag { TagId = st.TagId, VideoId = target.Id });
-            // Merge performers
-            foreach (var sp in source.VideoPerformers.Where(sp => !existingPerfIds.Contains(sp.PerformerId)))
-                target.VideoPerformers.Add(new VideoPerformer { PerformerId = sp.PerformerId, VideoId = target.Id });
-            // Delete source
-            if (tagProvenanceService != null)
-                await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);
-            db.Videos.Remove(source);
-        }
+            targetFound = false;
+            invalidHierarchy = false;
+            mergedSourceIds = [];
+            db.ChangeTracker.Clear();
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+                : null;
+            var visibleIds = await db.Videos
+                .AsNoTracking()
+                .Where(video => requestedIds.Contains(video.Id))
+                .Select(video => video.Id)
+                .ToArrayAsync(ct);
+            if (!visibleIds.Contains(dto.TargetId))
+                return;
 
-        await db.SaveChangesAsync(ct);
-        if (sources.Count > 0)
-        {
-            PublishVideoEvent(EventType.VideoUpdated, target.Id);
+            using var authorizationFilterSuppression = db.SuppressAuthorizationFilters();
+            var videos = await db.Videos
+                .Include(video => video.Files)
+                .Include(video => video.VideoTags)
+                .Include(video => video.VideoPerformers)
+                .Include(video => video.VideoGalleries)
+                .Include(video => video.Urls)
+                .Include(video => video.RemoteIds)
+                .Include(video => video.GroupItems)
+                .Include(video => video.ChildVideos)
+                .Where(video => visibleIds.Contains(video.Id))
+                .OrderBy(video => video.Id)
+                .ToListAsync(ct);
+            var target = videos.SingleOrDefault(video => video.Id == dto.TargetId);
+            if (target == null)
+                return;
+
+            targetFound = true;
+            var sources = videos.Where(video => video.Id != target.Id).ToArray();
+            var sourceIds = sources.Select(source => source.Id).ToArray();
+            var ancestorId = target.ParentVideoId;
+            var visitedAncestorIds = new HashSet<int> { target.Id };
+            while (ancestorId.HasValue)
+            {
+                if (!visitedAncestorIds.Add(ancestorId.Value)
+                    || sourceIds.Contains(ancestorId.Value))
+                {
+                    invalidHierarchy = true;
+                    return;
+                }
+
+                var ancestor = await db.Videos
+                    .AsNoTracking()
+                    .Where(video => video.Id == ancestorId.Value)
+                    .Select(video => new { video.ParentVideoId })
+                    .SingleOrDefaultAsync(ct);
+                ancestorId = ancestor?.ParentVideoId;
+            }
+            var sourceSegments = await db.Segments
+                .Where(segment => segment.HostType == SegmentHostType.Video && sourceIds.Contains(segment.HostId))
+                .ToListAsync(ct);
+            var sourceDetections = await db.Detections
+                .Where(detection => detection.HostType == DetectionHostType.Video && sourceIds.Contains(detection.HostId))
+                .ToListAsync(ct);
+            foreach (var segment in sourceSegments)
+                segment.HostId = target.Id;
+            foreach (var detection in sourceDetections)
+                detection.HostId = target.Id;
+            var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
+            var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
+            var existingGalleryIds = target.VideoGalleries.Select(videoGallery => videoGallery.GalleryId).ToHashSet();
+            var existingUrls = target.Urls.Select(videoUrl => videoUrl.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var existingRemoteIds = target.RemoteIds
+                .Select(remoteId => (remoteId.Endpoint, remoteId.RemoteId))
+                .ToHashSet(RemoteIdKeyComparer.Instance);
+
             foreach (var source in sources)
-                PublishVideoEvent(EventType.VideoDeleted, source.Id);
+            {
+                foreach (var file in source.Files)
+                    file.VideoId = target.Id;
+                foreach (var videoTag in source.VideoTags)
+                {
+                    if (existingTagIds.Add(videoTag.TagId))
+                        target.VideoTags.Add(new VideoTag { TagId = videoTag.TagId, VideoId = target.Id });
+                }
+                foreach (var videoPerformer in source.VideoPerformers)
+                {
+                    if (existingPerfIds.Add(videoPerformer.PerformerId))
+                        target.VideoPerformers.Add(new VideoPerformer { PerformerId = videoPerformer.PerformerId, VideoId = target.Id });
+                }
+                foreach (var videoGallery in source.VideoGalleries)
+                {
+                    if (existingGalleryIds.Add(videoGallery.GalleryId))
+                        target.VideoGalleries.Add(new VideoGallery { GalleryId = videoGallery.GalleryId, VideoId = target.Id });
+                }
+                foreach (var videoUrl in source.Urls)
+                {
+                    if (existingUrls.Add(videoUrl.Url))
+                        target.Urls.Add(new VideoUrl { Url = videoUrl.Url, VideoId = target.Id });
+                }
+                foreach (var remoteId in source.RemoteIds)
+                {
+                    if (existingRemoteIds.Add((remoteId.Endpoint, remoteId.RemoteId)))
+                        remoteId.VideoId = target.Id;
+                }
+                foreach (var groupItem in source.GroupItems)
+                {
+                    groupItem.VideoId = target.Id;
+                    if (string.Equals(groupItem.HostType, "video", StringComparison.OrdinalIgnoreCase))
+                        groupItem.HostId = target.Id;
+                }
+                foreach (var child in source.ChildVideos.ToArray())
+                {
+                    if (child.Id != target.Id)
+                        child.ParentVideoId = target.Id;
+                }
+                if (tagProvenanceService != null)
+                    await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);
+                db.Videos.Remove(source);
+            }
+
+            await db.SaveChangesAsync(ct);
+            if (transaction != null)
+                await transaction.CommitAsync(ct);
+            mergedSourceIds = sources.Select(source => source.Id).ToArray();
+        });
+
+        if (!targetFound)
+            return NotFound("Target video not found");
+        if (invalidHierarchy)
+            return BadRequest("A merge target cannot descend from one of its sources");
+        db.ChangeTracker.Clear();
+        foreach (var requestedId in requestedIds.Where(id => id > 0))
+            segmentSpanCacheInvalidator?.InvalidateVideo(requestedId);
+        if (mergedSourceIds.Length > 0)
+        {
+            PublishVideoEvent(EventType.VideoUpdated, dto.TargetId);
+            foreach (var sourceId in mergedSourceIds)
+                PublishVideoEvent(EventType.VideoDeleted, sourceId);
         }
 
-        var result = await videoRepo.GetByIdWithRelationsAsync(target.Id, ct);
-        var engagement = (await engagementService.GetVideoSnapshotsAsync([target.Id], ct)).GetValueOrDefault(target.Id);
+        var result = await videoRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
+        var engagement = (await engagementService.GetVideoSnapshotsAsync([dto.TargetId], ct)).GetValueOrDefault(dto.TargetId);
         return Ok(await MapToDtoWithProvenanceAsync(result!, engagement, HasUserScopedEngagement, ct));
+    }
+
+    private sealed class RemoteIdKeyComparer : IEqualityComparer<(string Endpoint, string RemoteId)>
+    {
+        public static RemoteIdKeyComparer Instance { get; } = new();
+
+        public bool Equals((string Endpoint, string RemoteId) left, (string Endpoint, string RemoteId) right)
+            => string.Equals(left.Endpoint, right.Endpoint, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.RemoteId, right.RemoteId, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Endpoint, string RemoteId) value)
+            => HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Endpoint),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.RemoteId));
     }
 
     // ===== Generate Screenshot =====

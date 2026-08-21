@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "scope": "src/Cove.Api/Controllers/**/*.cs",
   "minimum": {
-    "coveredLines": 6787,
-    "totalLines": 14061
+    "coveredLines": 7077,
+    "totalLines": 14059
   },
   "targetLineRate": 0.9
 }
