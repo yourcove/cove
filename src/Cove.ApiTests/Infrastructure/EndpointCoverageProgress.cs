@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 337;
+    public const int ExpectedMappedEndpoints = 344;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 167;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 160;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -18,8 +18,6 @@ public static class EndpointCoverageProgress
 
     private const string TemporaryUnmappedEndpointText = """
         DELETE /api/apitokens/{id:guid}
-        DELETE /api/audios/{id:int}/like
-        DELETE /api/audios/{id:int}/like/history
         DELETE /api/auth/external/links/{linkid:int}
         DELETE /api/content-rules/overrides/{id:int}
         DELETE /api/content-rules/{id:int}
@@ -42,7 +40,6 @@ public static class EndpointCoverageProgress
         DELETE /api/videos/{id:int}/play
         DELETE /api/videos/{videoid:int}/detections/{id:int}
         GET /api/ai-runs/{id:int}
-        GET /api/audios/{id:int}/history
         GET /api/content-rules/overrides
         GET /api/embeddings/{id:int}
         GET /api/engagement/interactions
@@ -82,10 +79,6 @@ public static class EndpointCoverageProgress
         GET /api/videos/{videoid:int}/detections/{id:int}
         POST /api/ai-data/purge
         POST /api/apitokens
-        POST /api/audios/{id:int}/activity/reset
-        POST /api/audios/{id:int}/like
-        POST /api/audios/{id:int}/like/historical
-        POST /api/audios/{id:int}/like/reset
         POST /api/auth/bootstrap-owner
         POST /api/auth/external/links/cancel
         POST /api/auth/external/links/confirm
