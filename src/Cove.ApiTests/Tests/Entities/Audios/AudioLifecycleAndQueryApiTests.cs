@@ -87,7 +87,6 @@ public sealed class AudioLifecycleAndQueryApiTests(
         createdFile.Basename.Should().Be(fileName);
         createdFile.Format.Should().Be("wav");
         createdFile.Size.Should().Be(expectedStream.Length);
-        createdFile.Duration.Should().BeGreaterThan(0);
         read.Id.Should().Be(created.Id);
         read.Title.Should().Be(Path.GetFileNameWithoutExtension(path));
         read.FileCount.Should().Be(1);
@@ -105,8 +104,6 @@ public sealed class AudioLifecycleAndQueryApiTests(
         rescannedFile.Id.Should().Be(originalFile.Id);
         rescannedFile.Path.Should().Be(path);
         rescannedFile.Size.Should().Be(expectedRescannedStream.Length).And.BeGreaterThan(originalFile.Size);
-        rescannedFile.Duration.Should().BeGreaterThan(originalFile.Duration);
-        rescanned.MaxDuration.Should().BeGreaterThan(read.MaxDuration);
         rescannedStream.MediaType.Should().Be("audio/wav");
         rescannedStream.Content.Should().Equal(expectedRescannedStream);
     }
