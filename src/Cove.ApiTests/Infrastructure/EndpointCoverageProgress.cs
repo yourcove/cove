@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 348;
+    public const int ExpectedMappedEndpoints = 357;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 156;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 147;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -24,9 +24,6 @@ public static class EndpointCoverageProgress
         DELETE /api/custom-fields/{id:int}
         DELETE /api/embeddings
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
-        DELETE /api/images/{id:int}/like
-        DELETE /api/images/{id:int}/like/history
-        DELETE /api/images/{imageid:int}/detections/{id:int}
         DELETE /api/jobs/{jobid}
         DELETE /api/roles/{id:int}
         DELETE /api/share-links/{id:guid}
@@ -51,8 +48,6 @@ public static class EndpointCoverageProgress
         GET /api/faces/{id:int}/host-tracks
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
-        GET /api/images/{id:int}/history
-        GET /api/images/{imageid:int}/detections/{id:int}
         GET /api/jobs/backup/latest
         GET /api/jobs/history
         GET /api/performers/{id:int}/metadata-server/search
@@ -107,9 +102,6 @@ public static class EndpointCoverageProgress
         POST /api/files/{id:int}/reveal
         POST /api/galleries/{id:int}/chapters
         POST /api/galleries/{id:int}/rescan
-        POST /api/images/{id:int}/like/historical
-        POST /api/images/{id:int}/like/reset
-        POST /api/images/{id:int}/rescan
         POST /api/jobs/backup
         POST /api/jobs/clean
         POST /api/jobs/generate-image-phashes
@@ -167,7 +159,6 @@ public static class EndpointCoverageProgress
         PUT /api/custom-fields
         PUT /api/custom-fields/{id:int}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
-        PUT /api/images/{imageid:int}/detections/{id:int}
         PUT /api/jobs/{jobid}/reorder
         PUT /api/roles/{id:int}
         PUT /api/system/config

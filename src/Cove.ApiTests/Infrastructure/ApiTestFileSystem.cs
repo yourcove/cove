@@ -55,6 +55,19 @@ public sealed class ApiTestFileSystem
         return path;
     }
 
+    public void ReplaceLibraryFile(string path, byte[] contents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(contents);
+        var fullPath = Path.GetFullPath(path);
+        var libraryRoot = Path.GetFullPath(LibraryPath) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(libraryRoot, StringComparison.Ordinal)
+            || !string.Equals(Path.GetDirectoryName(fullPath), Path.GetFullPath(LibraryPath), StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(path), "API test media files must stay directly under the library root.");
+
+        File.WriteAllBytes(fullPath, contents);
+    }
+
     public string CreateVideoScreenshot(int videoId, double seconds, byte[] contents)
         => CreateGeneratedFile(
             Path.Combine("screenshots", GetVideoBucket(videoId), $"{videoId}_t{(int)seconds}.jpg"),
