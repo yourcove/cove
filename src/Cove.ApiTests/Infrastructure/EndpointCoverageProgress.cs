@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 213;
+    public const int ExpectedMappedEndpoints = 229;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 287;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 275;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -29,8 +29,6 @@ public static class EndpointCoverageProgress
         DELETE /api/groups/bulk
         DELETE /api/groups/{id:int}
         DELETE /api/groups/{id:int}/subgroups/{subgroupid:int}
-        DELETE /api/images/bulk
-        DELETE /api/images/{id:int}
         DELETE /api/images/{id:int}/like
         DELETE /api/images/{id:int}/like/history
         DELETE /api/images/{imageid:int}/detections/{id:int}
@@ -55,7 +53,6 @@ public static class EndpointCoverageProgress
         DELETE /api/videos/{id:int}/play
         DELETE /api/videos/{id:int}/rating
         DELETE /api/videos/{videoid:int}/detections/{id:int}
-        DELETE /api/videos/{videoid:int}/segments/{id:int}
         GET /api/ai-runs/{id:int}
         GET /api/audios/{id:int}/history
         GET /api/audios/{id:int}/stream
@@ -79,7 +76,9 @@ public static class EndpointCoverageProgress
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/extensions/{id}/data
         GET /api/extensions/{id}/dependencies/missing
+        GET /api/faces/capabilities
         GET /api/faces/review/ai-run
+        GET /api/faces/{id:int}/host-tracks
         GET /api/faces/{id:int}/suggestions
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
@@ -87,7 +86,6 @@ public static class EndpointCoverageProgress
         GET /api/groups/{id:int}
         GET /api/groups/{id:int}/containinggroups
         GET /api/groups/{id:int}/subgroups
-        GET /api/images/{id:int}
         GET /api/images/{id:int}/history
         GET /api/images/{imageid:int}/detections/{id:int}
         GET /api/jobs/backup/latest
@@ -134,9 +132,6 @@ public static class EndpointCoverageProgress
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{id:int}/ratings
         GET /api/videos/{videoid:int}/detections/{id:int}
-        GET /api/videos/{videoid:int}/segments/spans
-        GET /api/videos/{videoid:int}/segments/{id:int}
-        GET /api/videos/{videoid:int}/spans/{spankey}
         HEAD /api/stream/video/{videoid:int}/preview
         POST /api/ai-data/purge
         POST /api/apitokens
@@ -181,6 +176,8 @@ public static class EndpointCoverageProgress
         POST /api/extensions/{id}/enable
         POST /api/extensions/{id}/jobs/{jobid}/run
         POST /api/faces/batch/link-top-suggestion
+        POST /api/faces/{id:int}/not-present
+        POST /api/faces/{id:int}/split
         POST /api/files/delete
         POST /api/files/fingerprints
         POST /api/files/folders/{id:int}/reveal
@@ -194,10 +191,6 @@ public static class EndpointCoverageProgress
         POST /api/groups/{groupid:int}/items/from-spans
         POST /api/groups/{id:int}/snapshot
         POST /api/groups/{id:int}/subgroups
-        POST /api/images
-        POST /api/images/aggregate
-        POST /api/images/bulk
-        POST /api/images/find
         POST /api/images/{id:int}/like/historical
         POST /api/images/{id:int}/like/reset
         POST /api/images/{id:int}/rescan
@@ -230,8 +223,6 @@ public static class EndpointCoverageProgress
         POST /api/scrape-attempts
         POST /api/scrape-attempts/resolve-relations
         POST /api/scrape-attempts/{id:guid}/apply
-        POST /api/segments/spans/count
-        POST /api/segments/spans/search
         POST /api/share-links
         POST /api/stash-migration/import
         POST /api/studios
@@ -281,7 +272,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rating
         POST /api/videos/{id:int}/rescan
-        POST /api/videos/{videoid:int}/segments/spans/query
         PUT /api/auth/me/ui-preferences
         PUT /api/content-rules/{id:int}
         PUT /api/custom-fields
@@ -292,7 +282,6 @@ public static class EndpointCoverageProgress
         PUT /api/groups/{id:int}
         PUT /api/groups/{id:int}/query
         PUT /api/groups/{id:int}/subgroups/reorder
-        PUT /api/images/{id:int}
         PUT /api/images/{imageid:int}/detections/{id:int}
         PUT /api/jobs/{jobid}/reorder
         PUT /api/performers/{id:int}
@@ -303,6 +292,5 @@ public static class EndpointCoverageProgress
         PUT /api/system/config/ui/{key}
         PUT /api/users/{id:int}
         PUT /api/videos/{videoid:int}/detections/{id:int}
-        PUT /api/videos/{videoid:int}/segments/{id:int}
         """;
 }
