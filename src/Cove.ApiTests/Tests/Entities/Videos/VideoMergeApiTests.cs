@@ -1,6 +1,7 @@
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
+using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Xunit.Abstractions;
@@ -12,6 +13,34 @@ public sealed class VideoMergeApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
+    [Fact]
+    public async Task GivenSourceRemoteIdsAndGroupMembership_WhenMerged_ThenTheyMoveToTheTarget()
+    {
+        // Arrange
+        var suffix = Guid.NewGuid().ToString("N");
+        var targetRemoteId = new VideoRemoteIdDto("https://target-metadata.example/graphql", $"target-{suffix}");
+        var sourceRemoteId = new VideoRemoteIdDto("https://source-metadata.example/graphql", $"source-{suffix}");
+        var target = await AsUser().CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Merge association target {suffix}")
+            .WithRemoteId(targetRemoteId.Endpoint, targetRemoteId.RemoteId)
+            .Build());
+        var source = await AsUser().CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Merge association source {suffix}")
+            .WithRemoteId(sourceRemoteId.Endpoint, sourceRemoteId.RemoteId)
+            .Build());
+        var group = await AsUser().CreateGroupAsync($"Merge association group {suffix}");
+        await AsUser().AddVideoToGroupAsync(source, group);
+
+        // Act
+        await AsUser().MergeVideosAsync(target, source);
+        var persisted = await AsUser().GetVideoByIdAsync(target.Id);
+        var groupItems = await AsUser().GetGroupItemsAsync(group);
+
+        // Assert
+        persisted.RemoteIds.Should().BeEquivalentTo(new[] { targetRemoteId, sourceRemoteId });
+        groupItems.Should().ContainSingle(item => item.VideoId == target.Id);
+    }
+
     [Fact]
     [CoversEndpoint("POST", "/api/videos/merge")]
     public async Task GivenSelectedVideoSources_WhenMerged_ThenFilesAndDistinctRelationshipsMoveToTheTargetAndSourcesAreDeleted()
