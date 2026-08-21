@@ -123,6 +123,20 @@ public partial class BlobService(
         {
             return null;
         }
+        catch (UnauthorizedAccessException) when (!File.Exists(path))
+        {
+            // Windows can answer a concurrent delete with ERROR_ACCESS_DENIED instead of
+            // ERROR_FILE_NOT_FOUND: once the delete is issued the entry stops resolving, but an open
+            // keeps reporting access denied until the last handle closes. That is the same "deletion
+            // won" outcome as the catch above.
+            //
+            // Reading it as a deletion rather than as a permission problem is sound because
+            // ResolveBlobFile only ever returns a path it has just seen File.Exists succeed on, so
+            // the payload going missing between that check and this open is a delete. A blob that is
+            // present but unreadable still throws: denying read on the file leaves File.Exists true,
+            // so it never reaches this filter.
+            return null;
+        }
     }
 
     public Task DeleteBlobAsync(string blobId, CancellationToken ct = default)

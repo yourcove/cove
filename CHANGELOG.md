@@ -13,6 +13,7 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 - Tag, performer, and studio merges now share documented transfer rules for Cove-owned relationships, metadata, JSON references, engagement, security, artwork, and extension safeguards. Foreign keys in extension-owned tables block source deletion, uninspectable locations fail closed, and opaque non-foreign-key data remains the extension's responsibility.
 - Metadata-server, scraper, Stash, and Cove metadata-import paths now use the enforced performer and studio identity rules. Normalized duplicate Stash identities collapse deterministically without losing mapped relationships, Cove metadata JSON restores run transactionally, and non-unique performer aliases are never treated as identity keys.
 - Tag metadata refreshes preserve the local canonical name and skip newly supplied aliases when those remote claims belong to another tag, saving the remaining metadata and reporting the omitted claims as warnings instead of failing the entire refresh.
+- Fixed reading a blob on Windows while it is being deleted. Windows can report the concurrent delete as an access-denied error rather than a missing file, which surfaced as a failed request instead of the blob simply being gone. A genuine permission problem on a blob that is still on disk is still reported as an error.
 
 ## [1.3.0] - 2026-08-19
 
