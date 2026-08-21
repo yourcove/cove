@@ -6,6 +6,8 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
+public sealed record GroupBulkDeleteResponse(int Deleted, int Skipped);
+
 public sealed partial class CoveClient
 {
     public Task<GroupDto> CreateGroupAsync(
@@ -144,6 +146,72 @@ public sealed partial class CoveClient
             $"/api/groups/{groupId}/subgroups/{subGroupId}",
             new { },
             cancellationToken);
+
+    public Task<IReadOnlyList<DynamicGroupSourceDto>> GetDynamicGroupSourcesAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<DynamicGroupSourceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/groups/dynamic-sources"),
+            payload: null,
+            cancellationToken);
+
+    public Task UpdateGroupQueryAsync(
+        int groupId,
+        GroupQueryUpdateDto request,
+        CancellationToken cancellationToken = default)
+        => SendForOkAsync(
+            HttpMethod.Put,
+            $"/api/groups/{groupId}/query",
+            request,
+            cancellationToken);
+
+    public Task SnapshotGroupAsync(
+        int groupId,
+        CancellationToken cancellationToken = default)
+        => SendForOkAsync(
+            HttpMethod.Post,
+            $"/api/groups/{groupId}/snapshot",
+            new { },
+            cancellationToken);
+
+    public Task ReorderGroupsAsync(
+        GroupItemsReorderDto request,
+        CancellationToken cancellationToken = default)
+        => SendForOkAsync(HttpMethod.Put, "/api/groups/reorder", request, cancellationToken);
+
+    public Task ReorderSubGroupsAsync(
+        int groupId,
+        ReorderSubGroupsDto request,
+        CancellationToken cancellationToken = default)
+        => SendForOkAsync(
+            HttpMethod.Put,
+            $"/api/groups/{groupId}/subgroups/reorder",
+            request,
+            cancellationToken);
+
+    public Task<IReadOnlyList<GroupItemDto>> CreateGroupItemsFromSpansAsync(
+        int groupId,
+        GroupItemsFromSpansDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<GroupItemDto>>(
+            HttpMethod.Post,
+            $"/api/groups/{groupId}/items/from-spans",
+            request,
+            cancellationToken);
+
+    public async Task<GroupBulkDeleteResponse> BulkDeleteGroupsAsync(
+        BatchDeleteDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Delete,
+            "/api/groups/bulk",
+            request,
+            cancellationToken);
+        return new GroupBulkDeleteResponse(
+            response.GetProperty("deleted").GetInt32(),
+            response.GetProperty("skipped").GetInt32());
+    }
 
     public Task<GroupItemDto> AddVideoToGroupAsync(
         VideoDto video,
