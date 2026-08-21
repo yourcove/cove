@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 235;
+    public const int ExpectedMappedEndpoints = 245;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 269;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 259;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -27,8 +27,6 @@ public static class EndpointCoverageProgress
         DELETE /api/embeddings
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         DELETE /api/groups/bulk
-        DELETE /api/groups/{id:int}
-        DELETE /api/groups/{id:int}/subgroups/{subgroupid:int}
         DELETE /api/images/{id:int}/like
         DELETE /api/images/{id:int}/like/history
         DELETE /api/images/{imageid:int}/detections/{id:int}
@@ -83,9 +81,6 @@ public static class EndpointCoverageProgress
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
         GET /api/groups/dynamic-sources
-        GET /api/groups/{id:int}
-        GET /api/groups/{id:int}/containinggroups
-        GET /api/groups/{id:int}/subgroups
         GET /api/images/{id:int}/history
         GET /api/images/{imageid:int}/detections/{id:int}
         GET /api/jobs/backup/latest
@@ -182,12 +177,8 @@ public static class EndpointCoverageProgress
         POST /api/files/{id:int}/reveal
         POST /api/galleries/{id:int}/chapters
         POST /api/galleries/{id:int}/rescan
-        POST /api/groups
-        POST /api/groups/bulk
-        POST /api/groups/find
         POST /api/groups/{groupid:int}/items/from-spans
         POST /api/groups/{id:int}/snapshot
-        POST /api/groups/{id:int}/subgroups
         POST /api/images/{id:int}/like/historical
         POST /api/images/{id:int}/like/reset
         POST /api/images/{id:int}/rescan
@@ -273,7 +264,6 @@ public static class EndpointCoverageProgress
         PUT /api/extensions/{id}/data/{key}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/groups/reorder
-        PUT /api/groups/{id:int}
         PUT /api/groups/{id:int}/query
         PUT /api/groups/{id:int}/subgroups/reorder
         PUT /api/images/{imageid:int}/detections/{id:int}

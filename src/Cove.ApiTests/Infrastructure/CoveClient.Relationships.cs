@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -10,9 +11,7 @@ public sealed partial class CoveClient
     public Task<GroupDto> CreateGroupAsync(
         string name,
         CancellationToken cancellationToken = default)
-        => SendAsync<GroupDto>(
-            HttpMethod.Post,
-            "/api/groups",
+        => CreateGroupAsync(
             new GroupCreateDto(
                 Name: name,
                 Aliases: null,
@@ -24,6 +23,11 @@ public sealed partial class CoveClient
                 Urls: [],
                 TagIds: []),
             cancellationToken);
+
+    public Task<GroupDto> CreateGroupAsync(
+        GroupCreateDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupDto>(HttpMethod.Post, "/api/groups", request, cancellationToken);
 
     public Task<GroupDto> CreateCompilationAsync(
         string name,
@@ -54,6 +58,92 @@ public sealed partial class CoveClient
             cancellationToken);
         return result.Items;
     }
+
+    public Task<GroupDto> GetGroupByIdAsync(
+        int groupId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/groups/{groupId}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<GroupDto> UpdateGroupAsync(
+        int groupId,
+        GroupUpdateDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupDto>(HttpMethod.Put, $"/api/groups/{groupId}", request, cancellationToken);
+
+    public Task<PaginatedResponse<GroupDto>> FindGroupsAsync(
+        FilteredQueryRequest<GroupFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<GroupDto>>(HttpMethod.Post, "/api/groups/find", request, cancellationToken);
+
+    public async Task<int> BulkUpdateGroupsAsync(
+        BulkGroupUpdateDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(HttpMethod.Post, "/api/groups/bulk", request, cancellationToken);
+        return response.GetProperty("updated").GetInt32();
+    }
+
+    public Task<EntityEngagementDto> SetGroupRatingAsync(
+        GroupDto group,
+        int rating,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Put,
+            $"/api/engagement/{AffinityHostType.Group}/{group.Id}/rating",
+            new VideoRatingDto(rating, "overall"),
+            cancellationToken);
+
+    public Task DeleteGroupAsync(
+        int groupId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(HttpMethod.Delete, $"/api/groups/{groupId}", new { }, cancellationToken);
+
+    public async Task AddSubGroupAsync(
+        int groupId,
+        AddSubGroupDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/groups/{groupId}/subgroups";
+        using var response = await _client.PostAsJsonAsync(requestUri, request, ApiJson.Options, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.OK)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new InvalidOperationException(
+            $"POST {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+    }
+
+    public Task<IReadOnlyList<GroupDto>> GetSubGroupsAsync(
+        int groupId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<GroupDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/groups/{groupId}/subgroups"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<GroupDto>> GetContainingGroupsAsync(
+        int groupId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<GroupDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/groups/{groupId}/containinggroups"),
+            payload: null,
+            cancellationToken);
+
+    public Task RemoveSubGroupAsync(
+        int groupId,
+        int subGroupId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/groups/{groupId}/subgroups/{subGroupId}",
+            new { },
+            cancellationToken);
 
     public Task<GroupItemDto> AddVideoToGroupAsync(
         VideoDto video,
