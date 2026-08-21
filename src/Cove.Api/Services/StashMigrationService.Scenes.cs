@@ -236,6 +236,7 @@ public partial class StashMigrationService
             StringComparer.Ordinal);
         var seenFileKeys = new HashSet<string>(StringComparer.Ordinal);
         var skippedDuplicateFiles = 0;
+        var engagementUserId = await GetRequiredImportEngagementUserIdAsync(ct);
 
         foreach (var row in sceneRows)
         {
@@ -279,7 +280,7 @@ public partial class StashMigrationService
                         OrderIndex = g.Index,
                         Kind = GroupItemKind.Video,
                     }).ToList(),
-                PlayHistory = viewHistory.Select(d => new ScenePlayHistory { PlayedAt = d }).ToList(),
+                PlayHistory = viewHistory.Select(d => new ScenePlayHistory { UserId = engagementUserId, PlayedAt = d }).ToList(),
                 RemoteIds = sceneStashIds.GetValueOrDefault(row.Id, [])
                     .Select(s => new SceneRemoteId { Endpoint = s.Ep, RemoteId = s.Rid }).ToList(),
             };

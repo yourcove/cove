@@ -3,6 +3,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -178,6 +179,9 @@ public class VideoEngagementControllerTests
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
 
+        context.Users.AddRange(
+            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+            new User { Id = 9, Username = "user-9", PasswordHash = "test" });
         context.Videos.Add(new Video { Title = "Scoped Video" });
         await context.SaveChangesAsync();
         var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
@@ -268,6 +272,8 @@ public class VideoEngagementControllerTests
         var userTwoRatingsOk = Assert.IsType<OkObjectResult>(userTwoRatingsResult.Result);
         var userTwoRatingsDto = Assert.IsType<EntityRatingsDto>(userTwoRatingsOk.Value);
         Assert.Empty(userTwoRatingsDto.Ratings);
+        var userTwoHistory = await new UserEngagementService(context, principalAccessor).GetVideoHistoryAsync(videoId);
+        Assert.Empty(userTwoHistory!.PlayHistory);
 
         var affinityRows = await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync();
         var affinity = Assert.Single(affinityRows);
@@ -276,6 +282,9 @@ public class VideoEngagementControllerTests
         Assert.Equal(1, affinity.LikeCount);
         Assert.Equal(1, affinity.CompleteCount);
         Assert.Equal(59.5, affinity.TotalConsumedSec, precision: 5);
+
+        var playHistoryRow = Assert.Single(await context.Set<VideoPlayHistory>().IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(7, playHistoryRow.UserId);
 
         var playbackSessions = await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync();
         var playbackSession = Assert.Single(playbackSessions);
@@ -314,6 +323,82 @@ public class VideoEngagementControllerTests
             });
     }
 
+    [Fact]
+    public async Task OwnerlessSystemPlayHistory_IsNotExposedOrMutatedWithoutAPrincipal()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        context.Videos.Add(new Video { Title = "Ownerless system history" });
+        await context.SaveChangesAsync();
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        var service = new UserEngagementService(context, principalAccessor);
+
+        principalAccessor.Set(CovePrincipal.System());
+        await service.RecordVideoPlayAsync(videoId);
+        Assert.Single((await service.GetVideoHistoryAsync(videoId))!.PlayHistory);
+
+        principalAccessor.Set(null);
+        await service.RecordVideoPlayAsync(videoId);
+        await service.DeleteVideoPlayAsync(videoId);
+        await service.ResetVideoPlayAsync(videoId);
+
+        Assert.Empty((await service.GetVideoHistoryAsync(videoId))!.PlayHistory);
+        var ownerlessRow = Assert.Single(await context.Set<VideoPlayHistory>().IgnoreQueryFilters().ToListAsync());
+        Assert.Null(ownerlessRow.UserId);
+
+        principalAccessor.Set(new CovePrincipal
+        {
+            UserId = null,
+            Username = "share-link",
+            Kind = PrincipalKind.ShareLink,
+            Roles = new HashSet<string>(),
+            Permissions = new HashSet<string> { Permissions.VideosRead },
+        });
+        await service.RecordVideoPlayAsync(videoId);
+        await service.DeleteVideoPlayAsync(videoId);
+        await service.ResetVideoPlayAsync(videoId);
+        Assert.Empty((await service.GetVideoHistoryAsync(videoId))!.PlayHistory);
+        ownerlessRow = Assert.Single(await context.Set<VideoPlayHistory>().IgnoreQueryFilters().ToListAsync());
+        Assert.Null(ownerlessRow.UserId);
+
+        principalAccessor.Set(CovePrincipal.System());
+        Assert.Single((await service.GetVideoHistoryAsync(videoId))!.PlayHistory);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnerGlobalActivityCleanup_RemovesOwnedAndLegacyPlayHistoryButPreservesOtherUsers(bool wipeAll)
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        context.Users.AddRange(
+            new User { Id = 7, Username = "owner-7", PasswordHash = "test" },
+            new User { Id = 9, Username = "user-9", PasswordHash = "test" });
+        var video = new Video { Title = "Scoped cleanup" };
+        context.Videos.Add(video);
+        await context.SaveChangesAsync();
+        context.Set<VideoPlayHistory>().AddRange(
+            new VideoPlayHistory { VideoId = video.Id, UserId = 7, PlayedAt = DateTime.UtcNow.AddMinutes(-3) },
+            new VideoPlayHistory { VideoId = video.Id, UserId = null, PlayedAt = DateTime.UtcNow.AddMinutes(-2) },
+            new VideoPlayHistory { VideoId = video.Id, UserId = 9, PlayedAt = DateTime.UtcNow.AddMinutes(-1) });
+        await context.SaveChangesAsync();
+        principalAccessor.Set(CreatePrincipal(7, isOwner: true));
+        var service = new UserEngagementService(context, principalAccessor);
+
+        if (wipeAll)
+            await service.WipeAllEngagementAsync();
+        else
+            await service.ResetAllActivityAsync();
+
+        var remaining = Assert.Single(await context.Set<VideoPlayHistory>()
+            .IgnoreQueryFilters()
+            .ToListAsync());
+        Assert.Equal(9, remaining.UserId);
+    }
+
     private static VideosController CreateVideosController(CoveContext context, CurrentPrincipalAccessor principalAccessor)
     {
         var repository = new VideoRepository(context);
@@ -328,16 +413,15 @@ public class VideoEngagementControllerTests
         return new PlaybackController(engagementService, principalAccessor);
     }
 
-    private static CovePrincipal CreatePrincipal(int userId) => new()
+    private static CovePrincipal CreatePrincipal(int userId, bool isOwner = false) => new()
     {
         UserId = userId,
         Username = $"user-{userId}",
         Kind = PrincipalKind.User,
         Roles = new HashSet<string>(),
-        Permissions = new HashSet<string>
-        {
-            Permissions.VideosRead,
-        },
+        Permissions = isOwner
+            ? new HashSet<string> { "*" }
+            : new HashSet<string> { Permissions.VideosRead },
     };
 
     private static async Task<TestContextScope> CreateContextAsync()
