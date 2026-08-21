@@ -106,21 +106,28 @@ public sealed class VideoMergeApiTests(
     {
         // Arrange
         var suffix = Guid.NewGuid().ToString("N");
+        var eva = AsUser(ApiTestUsers.Eva);
         var target = await AsUser().CreateVideoAsync($"Merge hosted-data target {suffix}");
         var source = await AsUser().CreateVideoAsync($"Merge hosted-data source {suffix}");
         var segment = await AsUser().CreateVideoSegmentAsync(source, $"Merge segment {suffix}");
         var detection = await AsUser().CreateVideoDetectionAsync(source, $"merge-detection-{suffix}");
+        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Merge span profile {suffix}", null, false));
+        await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("api-test", "chapter", null, null, SegmentHostType.Video, true, null, null, null, false, null, 1, 100));
+        (await eva.GetVideoResolvedSpansAsync(target, profile.Id)).Spans.Should().BeEmpty();
 
         // Act
         await AsUser().MergeVideosAsync(target, source);
         var targetSegments = await AsUser().GetVideoSegmentsAsync(target);
         var targetDetections = await AsUser().GetVideoDetectionsAsync(target);
+        var targetSpans = await eva.GetVideoResolvedSpansAsync(target, profile.Id);
 
         // Assert
         targetSegments.Should().ContainSingle(item => item.Id == segment.Id)
             .Which.HostId.Should().Be(target.Id);
         targetDetections.Should().ContainSingle(item => item.Id == detection.Id)
             .Which.HostId.Should().Be(target.Id);
+        targetSpans.Spans.Should().ContainSingle()
+            .Which.SegmentIds.Should().Equal(segment.Id);
     }
 
     [Fact]
