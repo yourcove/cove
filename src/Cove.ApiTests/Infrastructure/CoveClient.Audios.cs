@@ -28,6 +28,46 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => SendAsync<AudioDto>(HttpMethod.Post, "/api/audios", audio, cancellationToken);
 
+    public Task<AudioDto> CreateAudioFromFileAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+        => SendAsync<AudioDto>(
+            HttpMethod.Post,
+            "/api/audios/from-file",
+            new FileBackedCreateDto(filePath),
+            cancellationToken);
+
+    public async Task<ApiBinaryContent> GetAudioStreamAsync(
+        int audioId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = WithCacheNonce($"/api/audios/{audioId}/stream");
+        using var response = await _client.GetAsync(requestUri, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"GET {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return new ApiBinaryContent(
+            await response.Content.ReadAsByteArrayAsync(cancellationToken),
+            response.Content.Headers.ContentType?.MediaType);
+    }
+
+    public async Task<string> RescanAudioAsync(
+        int audioId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/audios/{audioId}/rescan",
+            payload: null,
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException($"POST /api/audios/{audioId}/rescan did not return a job id.");
+    }
+
     public Task<AudioDto> GetAudioByIdAsync(
         int audioId,
         CancellationToken cancellationToken = default)

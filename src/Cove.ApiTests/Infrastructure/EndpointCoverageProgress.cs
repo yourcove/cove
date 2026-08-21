@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 275;
+    public const int ExpectedMappedEndpoints = 290;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 229;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 214;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -46,7 +46,6 @@ public static class EndpointCoverageProgress
         DELETE /api/videos/{videoid:int}/detections/{id:int}
         GET /api/ai-runs/{id:int}
         GET /api/audios/{id:int}/history
-        GET /api/audios/{id:int}/stream
         GET /api/auth/bootstrap-status
         GET /api/auth/external/links
         GET /api/auth/external/providers
@@ -55,18 +54,13 @@ public static class EndpointCoverageProgress
         GET /api/embeddings/{id:int}
         GET /api/engagement/interactions
         GET /api/extensions/assets/{extensionid}/{**path}
-        GET /api/extensions/bundles/ui.css
-        GET /api/extensions/bundles/ui.mjs
-        GET /api/extensions/categories
         GET /api/extensions/dependencies/validate
-        GET /api/extensions/manifest
         GET /api/extensions/registry/categories
         GET /api/extensions/registry/search
         GET /api/extensions/registry/updates
         GET /api/extensions/registry/{extensionid}
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/extensions/{id}/data
-        GET /api/extensions/{id}/dependencies/missing
         GET /api/faces/capabilities
         GET /api/faces/review/ai-run
         GET /api/faces/{id:int}/host-tracks
@@ -113,12 +107,10 @@ public static class EndpointCoverageProgress
         HEAD /api/stream/video/{videoid:int}/preview
         POST /api/ai-data/purge
         POST /api/apitokens
-        POST /api/audios/from-file
         POST /api/audios/{id:int}/activity/reset
         POST /api/audios/{id:int}/like
         POST /api/audios/{id:int}/like/historical
         POST /api/audios/{id:int}/like/reset
-        POST /api/audios/{id:int}/rescan
         POST /api/auth/bootstrap-owner
         POST /api/auth/change-password
         POST /api/auth/external/links/cancel
@@ -145,12 +137,7 @@ public static class EndpointCoverageProgress
         POST /api/engagement/batch
         POST /api/engagement/interactions
         POST /api/engagement/wipe-all
-        POST /api/extensions/install-from-url
-        POST /api/extensions/install-from-zip
         POST /api/extensions/registry/install
-        POST /api/extensions/registry/uninstall
-        POST /api/extensions/{id}/disable
-        POST /api/extensions/{id}/enable
         POST /api/extensions/{id}/jobs/{jobid}/run
         POST /api/faces/batch/link-top-suggestion
         POST /api/faces/{id:int}/not-present
@@ -171,8 +158,6 @@ public static class EndpointCoverageProgress
         POST /api/jobs/generate-thumbnails
         POST /api/jobs/generate-video-phashes
         POST /api/jobs/scan
-        POST /api/metadata/identify
-        POST /api/metadata/sync-fingerprints
         POST /api/performers/merge
         POST /api/performers/metadata-server/batch-tag
         POST /api/performers/metadata-server/find-by-ids

@@ -10,6 +10,16 @@ public sealed record GroupBulkDeleteResponse(int Deleted, int Skipped);
 
 public sealed partial class CoveClient
 {
+    public Task<GroupItemDto> CreateGroupItemAsync(
+        int groupId,
+        GroupItemCreateDto request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GroupItemDto>(
+            HttpMethod.Post,
+            $"/api/groups/{groupId}/items",
+            request,
+            cancellationToken);
+
     public Task<GroupDto> CreateGroupAsync(
         string name,
         CancellationToken cancellationToken = default)

@@ -4,6 +4,7 @@ namespace Cove.ApiTests.Builders;
 
 public sealed class MetadataServiceSceneBuilder
 {
+    private readonly List<MetadataServiceFingerprint> _fingerprints = [];
     private readonly List<MetadataServiceTag> _tags = [];
     private string _id = Guid.NewGuid().ToString("N");
     private string _title = $"API test metadata scene {Guid.NewGuid():N}";
@@ -32,6 +33,12 @@ public sealed class MetadataServiceSceneBuilder
         return this;
     }
 
+    public MetadataServiceSceneBuilder WithFingerprint(string algorithm, string hash, int? duration = null)
+    {
+        _fingerprints.Add(new MetadataServiceFingerprint(algorithm, hash, duration));
+        return this;
+    }
+
     public MetadataServiceScene Build()
-        => new(_id, _title, [.. _tags]);
+        => new(_id, _title, [.. _tags], [.. _fingerprints]);
 }
