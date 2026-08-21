@@ -1556,6 +1556,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 .Include(video => video.Urls)
                 .Include(video => video.RemoteIds)
                 .Include(video => video.GroupItems)
+                .Include(video => video.ChildVideos)
                 .Where(video => visibleIds.Contains(video.Id))
                 .OrderBy(video => video.Id)
                 .ToListAsync(ct);
@@ -1607,6 +1608,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     groupItem.VideoId = target.Id;
                     if (string.Equals(groupItem.HostType, "video", StringComparison.OrdinalIgnoreCase))
                         groupItem.HostId = target.Id;
+                }
+                foreach (var child in source.ChildVideos.ToArray())
+                {
+                    if (child.Id != target.Id)
+                        child.ParentVideoId = target.Id;
                 }
                 if (tagProvenanceService != null)
                     await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);

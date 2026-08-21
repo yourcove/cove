@@ -25,6 +25,7 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
             .Include(s => s.VideoGalleries).ThenInclude(sg => sg.Gallery)
             .Include(s => s.GroupItems).ThenInclude(item => item.Group)
+            .Include(s => s.ChildVideos)
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
             .Include(s => s.Files).ThenInclude(f => f.Captions)
             .Include(s => s.Files).ThenInclude(f => f.ParentFolder)
