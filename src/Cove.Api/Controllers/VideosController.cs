@@ -1661,11 +1661,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (invalidHierarchy)
             return BadRequest("A merge target cannot descend from one of its sources");
         db.ChangeTracker.Clear();
+        foreach (var requestedId in requestedIds.Where(id => id > 0))
+            segmentSpanCacheInvalidator?.InvalidateVideo(requestedId);
         if (mergedSourceIds.Length > 0)
         {
-            segmentSpanCacheInvalidator?.InvalidateVideo(dto.TargetId);
-            foreach (var sourceId in mergedSourceIds)
-                segmentSpanCacheInvalidator?.InvalidateVideo(sourceId);
             PublishVideoEvent(EventType.VideoUpdated, dto.TargetId);
             foreach (var sourceId in mergedSourceIds)
                 PublishVideoEvent(EventType.VideoDeleted, sourceId);
