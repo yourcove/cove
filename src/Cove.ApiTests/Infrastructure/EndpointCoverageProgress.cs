@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 290;
+    public const int ExpectedMappedEndpoints = 300;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 214;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 204;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -40,7 +40,6 @@ public static class EndpointCoverageProgress
         DELETE /api/tags/{id:int}
         DELETE /api/texts/{id:int}/like
         DELETE /api/texts/{id:int}/like/history
-        DELETE /api/users/{id:int}
         DELETE /api/users/{id:int}/external-links/{linkid:int}
         DELETE /api/videos/{id:int}/play
         DELETE /api/videos/{videoid:int}/detections/{id:int}
@@ -100,8 +99,6 @@ public static class EndpointCoverageProgress
         GET /api/system/ffmpeg-capabilities
         GET /api/tags/{id:int}/metadata-server/search
         GET /api/texts/{id:int}/history
-        GET /api/users/{id:int}
-        GET /api/users/{id:int}/external-links
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{videoid:int}/detections/{id:int}
         HEAD /api/stream/video/{videoid:int}/preview
@@ -200,12 +197,6 @@ public static class EndpointCoverageProgress
         POST /api/texts/{id:int}/like/historical
         POST /api/texts/{id:int}/like/reset
         POST /api/texts/{id:int}/rescan
-        POST /api/users
-        POST /api/users/invite
-        POST /api/users/{id:int}/invite
-        POST /api/users/{id:int}/password
-        POST /api/users/{id:int}/roles
-        POST /api/users/{id:int}/unlock
         POST /api/videos/metadata-server/find-by-ids
         POST /api/videos/{id:int}/activity/reset
         POST /api/videos/{id:int}/cover/from-frame
@@ -229,7 +220,6 @@ public static class EndpointCoverageProgress
         PUT /api/studios/{id:int}
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
-        PUT /api/users/{id:int}
         PUT /api/videos/{videoid:int}/detections/{id:int}
         """;
 }
