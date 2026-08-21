@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
+using Cove.Plugins;
 using Cove.Sdk;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,8 +12,25 @@ namespace Cove.ApiTestFaceProvider;
 /// A deliberately small runtime extension used only by API tests. Its plan is owned by the
 /// corresponding test host, rather than static state, so the two API-test lanes cannot affect each other.
 /// </summary>
-public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase
+public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefulExtension, IJobExtension
 {
+    public const string RecordParametersJobId = "record-parameters";
+    public const string JobParametersStoreKey = "api-test.job.parameters";
+    public const string JobProgressStoreKey = "api-test.job.progress";
+
+    private static readonly IReadOnlyList<ExtensionJobDefinition> JobDefinitions =
+    [
+        new(
+            RecordParametersJobId,
+            "Record API test parameters",
+            "Records deterministic API-test parameters and progress in extension state.",
+            SupportsParameters: true),
+    ];
+
+    private IExtensionStore? _store;
+
+    public IReadOnlyList<ExtensionJobDefinition> Jobs => JobDefinitions;
+
     public override void ConfigureServices(IServiceCollection services, Cove.Plugins.ExtensionContext context)
         => services.AddSingleton<IFaceSuggester, PlannedFaceSuggester>();
 
@@ -20,6 +38,31 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase
     {
         PublishContributions<IFaceSuggester>(services);
         return Task.CompletedTask;
+    }
+
+    public void SetStore(IExtensionStore store)
+        => _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    public async Task RunJobAsync(
+        string jobId,
+        IReadOnlyDictionary<string, string>? parameters,
+        Cove.Plugins.IJobProgress progress,
+        CancellationToken ct)
+    {
+        if (!string.Equals(jobId, RecordParametersJobId, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Unknown API-test extension job '{jobId}'.");
+
+        var store = _store ?? throw new InvalidOperationException("Extension store has not been initialized.");
+        var orderedParameters = (parameters ?? new Dictionary<string, string>())
+            .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+            .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+
+        progress.Report(0.25, "Recording API test parameters");
+        await store.SetAsync(JobParametersStoreKey, JsonSerializer.Serialize(orderedParameters), ct);
+        await store.SetAsync(JobProgressStoreKey, "0.25|Recording API test parameters", ct);
+
+        progress.Report(1, "API test parameters recorded");
+        await store.SetAsync(JobProgressStoreKey, "1|API test parameters recorded", ct);
     }
 }
 

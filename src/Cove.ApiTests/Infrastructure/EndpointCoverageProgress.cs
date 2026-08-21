@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 332;
+    public const int ExpectedMappedEndpoints = 337;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 172;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 167;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -46,14 +46,11 @@ public static class EndpointCoverageProgress
         GET /api/content-rules/overrides
         GET /api/embeddings/{id:int}
         GET /api/engagement/interactions
-        GET /api/extensions/assets/{extensionid}/{**path}
-        GET /api/extensions/dependencies/validate
         GET /api/extensions/registry/categories
         GET /api/extensions/registry/search
         GET /api/extensions/registry/updates
         GET /api/extensions/registry/{extensionid}
         GET /api/extensions/registry/{extensionid}/dependencies
-        GET /api/extensions/{id}/data
         GET /api/faces/capabilities
         GET /api/faces/{id:int}/host-tracks
         GET /api/galleries/{id:int}/chapters
@@ -110,7 +107,6 @@ public static class EndpointCoverageProgress
         POST /api/engagement/interactions
         POST /api/engagement/wipe-all
         POST /api/extensions/registry/install
-        POST /api/extensions/{id}/jobs/{jobid}/run
         POST /api/faces/{id:int}/not-present
         POST /api/faces/{id:int}/split
         POST /api/files/delete
@@ -180,7 +176,6 @@ public static class EndpointCoverageProgress
         PUT /api/content-rules/{id:int}
         PUT /api/custom-fields
         PUT /api/custom-fields/{id:int}
-        PUT /api/extensions/{id}/data/{key}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/images/{imageid:int}/detections/{id:int}
         PUT /api/jobs/{jobid}/reorder

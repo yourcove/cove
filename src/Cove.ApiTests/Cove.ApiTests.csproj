@@ -31,6 +31,7 @@
     <ItemGroup>
       <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\Cove.ApiTestFaceProvider.*" />
       <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\extension.json" />
+      <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\api-test-asset.*" />
     </ItemGroup>
 
     <MakeDir Directories="$(OutputPath)face-suggestion-provider" />
