@@ -343,7 +343,20 @@ internal sealed class ScanJobRunner(
                             {
                                 if (!isKnownFile || contentChanged || work.ForceMetadataProbe)
                                     processedImagePaths.TryAdd(file.Path, 0);
-                                var (image, relinked, moved) = await imageProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, knownNew: !isKnownFile, parentFolderId: folderId, contentChanged: contentChanged, scanOptions: options, moveIndex: moveIndex);
+                                var (image, relinked, moved) = await imageProcessor.ProcessAsync(
+                                    workerDb,
+                                    file.Path,
+                                    null,
+                                    ct,
+                                    file.Stat,
+                                    null,
+                                    knownNew: !isKnownFile,
+                                    parentFolderId: folderId,
+                                    contentChanged: contentChanged,
+                                    scanOptions: options,
+                                    moveIndex: moveIndex,
+                                    validatedWidth: validation.Width,
+                                    validatedHeight: validation.Height);
                                 events.Add(() =>
                                 {
                                     RecordPersistedFile(isKnownFile || moved);
