@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Cove</Name>
+  <Repository>ghcr.io/yourcove/cove-app:latest</Repository>
+  <Registry>https://github.com/yourcove/cove/pkgs/container/cove-app</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/yourcove/cove/issues</Support>
+  <Project>https://yourcove.net</Project>
+  <Overview>Cove is a local media organizer for videos, images, galleries, audio, and text. This template is the Cove app container (ghcr.io/yourcove/cove-app). It requires PostgreSQL 18 with pgvector running separately. Point the connection string at that database before starting Cove.[br][br]On a custom Docker network, set Host to the PostgreSQL container name. On the default bridge network, set Host to your Unraid server IP and publish PostgreSQL port 5432.[br][br]After the container starts, open the WebUI and complete first-run setup. Add /media as a library path inside Cove. Do not expose the WebUI to the internet until you have created the owner account.[br][br]Keep appdata on a cache pool. The app runs as uid 1000; if startup reports it cannot write to /config, run chown -R 1000:1000 /mnt/user/appdata/cove from the Unraid terminal.[br][br]GPU transcoding is optional. Pick one path:[br]Intel/AMD: set VAAPI Device to /dev/dri, then choose VAAPI or QSV in Cove Settings - Transcoding.[br]NVIDIA: install the Nvidia-Driver plugin, add --runtime=nvidia to Extra Parameters (not --gpus all), set NVIDIA Visible Devices to all, then choose NVENC in Cove Settings - Transcoding.</Overview>
+  <Category>MediaApp:Video MediaApp:Music MediaApp:Photos MediaServer:Video</Category>
+  <WebUI>http://[IP]:[PORT:5073]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/yourcove/cove/main/docker/unraid/cove.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/yourcove/cove/main/docker/unraid/cove.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <Date>2026-08-20</Date>
+  <DonateText>Support Cove on Open Collective</DonateText>
+  <DonateLink>https://opencollective.com/yourcove</DonateLink>
+  <Requires/>
+  <Screenshot>https://raw.githubusercontent.com/yourcove/cove/main/docs/screenshots/search-and-filters.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/yourcove/cove/main/docs/screenshots/global-search.png</Screenshot>
+  <Config Name="WebUI Port" Target="5073" Default="5073" Mode="tcp" Description="Cove web interface port" Type="Port" Display="always" Required="true" Mask="false">5073</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/cove/config" Mode="rw" Description="Cove configuration, installed extensions, and logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/config</Config>
+  <Config Name="Generated Assets" Target="/generated" Default="/mnt/user/appdata/cove/generated" Mode="rw" Description="Covers, thumbnails, previews, and other derived assets. Can grow large; move to a share if needed." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/generated</Config>
+  <Config Name="Backups" Target="/backups" Default="/mnt/user/appdata/cove/backups" Mode="rw" Description="Automatic database backups created before migrations" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/backups</Config>
+  <Config Name="Cache" Target="/cache" Default="/mnt/user/appdata/cove/cache" Mode="rw" Description="Temporary cache. Safe to delete." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cove/cache</Config>
+  <Config Name="Media" Target="/media" Default="/mnt/user/media" Mode="rw" Description="Host path to your media library. Add /media as a library path in Cove. Change to read-only to prevent source deletion and extension-provided rename operations. Add more Path mappings for additional shares." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/media</Config>
+  <Config Name="PostgreSQL Connection String" Target="COVE__Postgres__ConnectionString" Default="Host=db;Port=5432;Database=cove;Username=cove;Password=cove" Mode="" Description="PostgreSQL 18 with pgvector. On a custom docker network, Host is the database container name. On bridge, set Host to your Unraid server IP." Type="Variable" Display="always" Required="true" Mask="false">Host=db;Port=5432;Database=cove;Username=cove;Password=cove</Config>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Container timezone, for example America/Chicago" Type="Variable" Display="always" Required="false" Mask="false">UTC</Config>
+  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/cove/data" Mode="rw" Description="Reserved for managed PostgreSQL data. Unused with the external database in this template." Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/cove/data</Config>
+  <Config Name="Managed PostgreSQL" Target="COVE__Postgres__Managed" Default="false" Mode="" Description="Must stay false. This image uses the external PostgreSQL connection string." Type="Variable" Display="advanced" Required="true" Mask="false">false</Config>
+  <Config Name="Hardware Acceleration" Target="COVE__TranscodeHardwareAcceleration" Default="none" Mode="" Description="none, nvenc, vaapi, or qsv. You can also set this in Cove Settings - Transcoding." Type="Variable" Display="advanced" Required="false" Mask="false">none</Config>
+  <Config Name="VAAPI Device" Target="/dev/dri" Default="" Mode="" Description="Intel/AMD GPU for VAAPI or QSV. Set to /dev/dri when using those backends. Leave empty for NVIDIA or CPU-only." Type="Device" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NVIDIA Visible Devices (requires --runtime=nvidia in Extra Parameters)" Target="NVIDIA_VISIBLE_DEVICES" Default="" Mode="" Description="Requires --runtime=nvidia in Extra Parameters. Set to all or a GPU UUID. Do not use --gpus all on Unraid." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NVIDIA Driver Capabilities (requires --runtime=nvidia in Extra Parameters)" Target="NVIDIA_DRIVER_CAPABILITIES" Default="" Mode="" Description="Requires --runtime=nvidia in Extra Parameters. Typical value: all" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+</Container>
