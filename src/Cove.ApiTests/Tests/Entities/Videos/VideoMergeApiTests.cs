@@ -42,6 +42,34 @@ public sealed class VideoMergeApiTests(
     }
 
     [Fact]
+    public async Task GivenAChildVideoOfTheSource_WhenMerged_ThenTheChildIsReparentedToTheTarget()
+    {
+        // Arrange
+        var suffix = Guid.NewGuid().ToString("N");
+        var target = await AsUser().CreateVideoAsync($"Merge child target {suffix}");
+        var source = await AsUser().CreateVideoAsync($"Merge child source {suffix}");
+        await AsDbUser().AttachVideoFileAsync(source.Id, duration: 60, size: 1);
+        var childRequest = new VideoBuilder().WithTitle($"Merge child {suffix}").Build() with
+        {
+            ParentVideoId = source.Id,
+            ClipStartSec = 10,
+            ClipEndSec = 20,
+        };
+        var child = await AsUser().CreateVideoAsync(childRequest);
+
+        // Act
+        await AsUser().MergeVideosAsync(target, source);
+        var persistedChild = await AsUser().GetVideoByIdAsync(child.Id);
+        var persistedTarget = await AsUser().GetVideoByIdAsync(target.Id);
+
+        // Assert
+        persistedChild.ParentVideoId.Should().Be(target.Id);
+        persistedChild.ClipStartSec.Should().Be(10);
+        persistedChild.ClipEndSec.Should().Be(20);
+        persistedTarget.ChildVideoCount.Should().Be(1);
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/videos/merge")]
     public async Task GivenSelectedVideoSources_WhenMerged_ThenFilesAndDistinctRelationshipsMoveToTheTargetAndSourcesAreDeleted()
     {
