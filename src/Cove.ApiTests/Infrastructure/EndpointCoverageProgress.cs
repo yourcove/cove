@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 322;
+    public const int ExpectedMappedEndpoints = 332;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 182;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 172;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -70,29 +70,19 @@ public static class EndpointCoverageProgress
         GET /api/savedfilters/{id:int}
         GET /api/scrape-attempts/{id:guid}
         GET /api/stash-migration/import/{jobid}
-        GET /api/stream/detection/{detectionid:int}/crop
-        GET /api/stream/image/{imageid:int}
         GET /api/stream/image/{imageid:int}/thumbnail
-        GET /api/stream/video/{videoid:int}
         GET /api/stream/video/{videoid:int}/caption/{captionid:int}
         GET /api/stream/video/{videoid:int}/captions
-        GET /api/stream/video/{videoid:int}/hls/master.m3u8
         GET /api/stream/video/{videoid:int}/hls/segment/{segment}
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
-        GET /api/stream/video/{videoid:int}/preview
         GET /api/stream/video/{videoid:int}/resolutions
-        GET /api/stream/video/{videoid:int}/screenshot
-        GET /api/stream/video/{videoid:int}/segment-preview
-        GET /api/stream/video/{videoid:int}/sprite
         GET /api/stream/video/{videoid:int}/transcode
-        GET /api/stream/video/{videoid:int}/vtt/thumbs
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/ffmpeg-capabilities
         GET /api/tags/{id:int}/metadata-server/search
         GET /api/texts/{id:int}/history
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{videoid:int}/detections/{id:int}
-        HEAD /api/stream/video/{videoid:int}/preview
         POST /api/ai-data/purge
         POST /api/apitokens
         POST /api/audios/{id:int}/activity/reset

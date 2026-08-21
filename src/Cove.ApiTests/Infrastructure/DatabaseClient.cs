@@ -92,6 +92,68 @@ public sealed class DatabaseClient
                 cancellationToken);
     }
 
+    public async Task AttachStreamVideoFileAsync(
+        int videoId,
+        string path,
+        int width,
+        int height,
+        double duration,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        var file = new FileInfo(path);
+        if (!file.Exists || file.DirectoryName is null)
+            throw new FileNotFoundException("The API test video source does not exist.", path);
+
+        db.VideoFiles.Add(new VideoFile
+        {
+            VideoId = videoId,
+            Basename = file.Name,
+            ParentFolder = new Folder { Path = file.DirectoryName, ModTime = file.LastWriteTimeUtc },
+            Size = file.Length,
+            ModTime = file.LastWriteTimeUtc,
+            Format = file.Extension.TrimStart('.'),
+            Width = width,
+            Height = height,
+            Duration = duration,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task AttachStreamImageFileAsync(
+        int imageId,
+        string path,
+        int width,
+        int height,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        var file = new FileInfo(path);
+        if (!file.Exists || file.DirectoryName is null)
+            throw new FileNotFoundException("The API test image source does not exist.", path);
+
+        db.ImageFiles.Add(new ImageFile
+        {
+            ImageId = imageId,
+            Basename = file.Name,
+            ParentFolder = new Folder { Path = file.DirectoryName, ModTime = file.LastWriteTimeUtc },
+            Size = file.Length,
+            ModTime = file.LastWriteTimeUtc,
+            Format = file.Extension.TrimStart('.'),
+            Width = width,
+            Height = height,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task AttachAudioFileAsync(
         int audioId,
         double duration,
