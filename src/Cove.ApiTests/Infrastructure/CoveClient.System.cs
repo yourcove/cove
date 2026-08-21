@@ -91,6 +91,15 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => SendAsync<ContentRuleDto>(HttpMethod.Post, "/api/content-rules", request, cancellationToken);
 
+    public Task<EntityOverrideDto> CreateEntityOverrideAsync(
+        CreateEntityOverrideRequest request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityOverrideDto>(
+            HttpMethod.Post,
+            "/api/content-rules/overrides",
+            request,
+            cancellationToken);
+
     public Task<JsonElement> ReadEndpointAsync(
         ReadEndpoint endpoint,
         CancellationToken cancellationToken = default)

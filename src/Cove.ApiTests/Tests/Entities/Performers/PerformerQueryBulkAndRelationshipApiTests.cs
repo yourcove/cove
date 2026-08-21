@@ -1,3 +1,4 @@
+using System.Globalization;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
@@ -142,6 +143,53 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
         retained.Details.Should().Be("Control details");
         retained.Tags.Select(tag => tag.Id).Should().Equal(originalTag.Id);
         retainedEngagement.Rating.Should().Be(17);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/content-rules/overrides")]
+    public async Task GivenPerformerWriteOverride_WhenMemberBulkUpdatesMixedScope_ThenEntireRequestIsForbidden()
+    {
+        var owner = AsUser();
+        var memberRole = (await owner.GetRolesAsync()).Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
+        var allowed = await owner.CreatePerformerAsync(new PerformerBuilder()
+            .WithName($"Allowed bulk performer {Guid.NewGuid():N}")
+            .WithDetails("Allowed original details")
+            .Build());
+        var denied = await owner.CreatePerformerAsync(new PerformerBuilder()
+            .WithName($"Denied bulk performer {Guid.NewGuid():N}")
+            .WithDetails("Denied original details")
+            .Build());
+        var entityOverride = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+            memberRole.Id,
+            EntityKinds.Performer,
+            denied.Id.ToString(CultureInfo.InvariantCulture),
+            "deny",
+            "write"));
+        var mixedRequest = new BulkPerformerUpdateDto
+        {
+            Ids = [allowed.Id, denied.Id],
+            Details = "Mixed request must not persist",
+        };
+        var forbidden = () => AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(mixedRequest);
+
+        entityOverride.RoleId.Should().Be(memberRole.Id);
+        entityOverride.EntityKind.Should().Be(EntityKinds.Performer);
+        entityOverride.EntityId.Should().Be(denied.Id.ToString(CultureInfo.InvariantCulture));
+        entityOverride.Effect.Should().Be("deny");
+        entityOverride.AppliesTo.Should().Be("write");
+        await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
+        (await owner.GetPerformerByIdAsync(allowed.Id)).Details.Should().Be("Allowed original details");
+        (await owner.GetPerformerByIdAsync(denied.Id)).Details.Should().Be("Denied original details");
+
+        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(new BulkPerformerUpdateDto
+        {
+            Ids = [allowed.Id],
+            Details = "Allowed updated details",
+        });
+
+        updatedCount.Should().Be(1);
+        (await owner.GetPerformerByIdAsync(allowed.Id)).Details.Should().Be("Allowed updated details");
+        (await owner.GetPerformerByIdAsync(denied.Id)).Details.Should().Be("Denied original details");
     }
 
     [Fact]
