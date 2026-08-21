@@ -88,6 +88,7 @@ public sealed class VideoMergeApiTests(
             ClipStartSec = 10,
             ClipEndSec = 20,
         });
+        await AsDbUser().SetVideoParentAsync(grandchild.Id, child.Id);
 
         // Act
         var directMerge = () => AsUser().MergeVideosAsync(child, source);

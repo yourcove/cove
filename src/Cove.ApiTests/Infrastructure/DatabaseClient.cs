@@ -73,6 +73,25 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task SetVideoParentAsync(
+        int videoId,
+        int parentVideoId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Public clip creation flattens nested requests to the file-backed root. Seed a deeper
+        // legacy hierarchy only to verify that merge validation cannot create a parent cycle.
+        await db.Videos
+            .Where(video => video.Id == videoId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(video => video.ParentVideoId, parentVideoId),
+                cancellationToken);
+    }
+
     public async Task AttachAudioFileAsync(
         int audioId,
         double duration,
