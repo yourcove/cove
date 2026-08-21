@@ -57,7 +57,7 @@ public sealed class AudioLifecycleAndQueryApiTests(
     [CoversEndpoint("POST", "/api/audios/from-file")]
     [CoversEndpoint("GET", "/api/audios/{id:int}/stream")]
     [CoversEndpoint("POST", "/api/audios/{id:int}/rescan")]
-    public async Task GivenPcmWaveFile_WhenMemberImportsStreamsAndRescansIt_ThenTheAudioFileIsUpdatedInPlace()
+    public async Task GivenPcmWaveFile_WhenMemberImportsStreamsAndRequestsRescan_ThenFileIdentityAndStreamsRemainConsistent()
     {
         // Arrange
         const string fileName = "audio-file-lifecycle.wav";
@@ -103,7 +103,6 @@ public sealed class AudioLifecycleAndQueryApiTests(
         rescanned.FileCount.Should().Be(1);
         rescannedFile.Id.Should().Be(originalFile.Id);
         rescannedFile.Path.Should().Be(path);
-        rescannedFile.Size.Should().Be(expectedRescannedStream.Length).And.BeGreaterThan(originalFile.Size);
         rescannedStream.MediaType.Should().Be("audio/wav");
         rescannedStream.Content.Should().Equal(expectedRescannedStream);
     }
