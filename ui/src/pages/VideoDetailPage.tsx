@@ -661,7 +661,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         </span>
       ) : null}
 
-      {file ? (
+      {file && video.parentVideoId == null ? (
         <a
           href={streamUrl}
           target="_blank"
@@ -803,6 +803,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             audioCodec={file.audioCodec}
             resumeTime={effectiveVideoResumeTime}
             seekTo={initialSeekTo}
+            clip={video.parentVideoId != null ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false } : undefined}
             videoId={video.id}
             extensionSurface="detail"
             detections={detections}
@@ -823,7 +824,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           <div className="flex h-48 items-center justify-center text-muted">No video file available</div>
         )}
       </div>
-      {file ? (
+      {file && video.parentVideoId == null ? (
         <VideoScrubber
           videoId={video.id}
           duration={file.duration}

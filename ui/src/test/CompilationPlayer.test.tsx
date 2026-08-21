@@ -33,7 +33,7 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../components/VideoPlayer", () => ({
-  VideoPlayer: (props: { autostart?: boolean; posterUrl?: string; videoId: number; onPlay?: () => void; onPause?: () => void; onPlaybackStateChange?: (playing: boolean) => void }) => {
+  VideoPlayer: (props: { autostart?: boolean; posterUrl?: string; videoId: number; clip?: { start: number; end?: number | null; loop?: boolean }; onPlay?: () => void; onPause?: () => void; onPlaybackStateChange?: (playing: boolean) => void }) => {
     videoPlayerMock(props);
     return (
       <div data-testid="compilation-video-player" data-autostart={String(props.autostart)} data-poster={props.posterUrl} data-video-id={props.videoId}>
@@ -125,6 +125,64 @@ describe("CompilationPlayer", () => {
       extensionSurface: "compilation",
       interactionResetKey: "group:9:item:1",
     }));
+  });
+
+  it("offsets compilation ranges into a sub-video's parent clip", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      parentVideoId: 10,
+      clipStartSec: 30,
+      clipEndSec: 60,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    });
+
+    renderPlayer();
+
+    expect(await screen.findByTestId("compilation-video-player")).toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
+      videoId: 14,
+      clip: { start: 35, end: 45, loop: false },
+    }));
+  });
+
+  it("shows the bounded duration for a whole sub-video compilation item", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      parentVideoId: 10,
+      clipStartSec: 30,
+      clipEndSec: 60,
+      files: [{ format: "mp4", duration: 120, captions: [] }],
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CompilationPlayer
+          groupId={9}
+          groupName="Summer Compilation"
+          items={[{
+            groupItemId: 1,
+            hostType: "video",
+            hostId: 14,
+            videoId: 14,
+            audioId: null,
+            title: "Whole sub-video",
+            src: "/video-14.mp4",
+            startSec: 0,
+            endSec: null,
+            durationSec: 120,
+            hasVideoTrack: false,
+          }]}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("compilation-video-player")).toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
+      clip: { start: 30, end: 60, loop: false },
+    }));
+    expect(screen.getByText("0:30")).toBeInTheDocument();
   });
 
   it("leaves compilation playback paused when automatic playback is disabled", async () => {

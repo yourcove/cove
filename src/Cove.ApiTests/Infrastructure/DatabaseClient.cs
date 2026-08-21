@@ -149,7 +149,7 @@ public sealed class DatabaseClient
         await using var db = new CoveContext(options);
 
         // Public video creation cannot supply deterministic file metrics or fingerprints. Seed only
-        // the file row needed to probe aggregate and duplicate-discovery behavior.
+        // the file row needed for API assertions that depend on persisted video-file metadata.
         var now = DateTime.UtcNow;
         var folder = new Folder
         {

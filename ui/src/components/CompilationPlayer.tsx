@@ -158,16 +158,27 @@ export function CompilationPlayer({
         : itemIsText
           ? currentTextId != null
           : false;
+  const videoSourceStart = currentVideo?.parentVideoId != null ? currentVideo.clipStartSec ?? 0 : 0;
+  const videoSourceEnd = currentVideo?.parentVideoId != null
+    ? currentVideo.clipEndSec ?? currentFile?.duration ?? 0
+    : currentFile?.duration ?? 0;
+  const videoItemStart = videoSourceStart + (item?.startSec ?? 0);
+  const videoItemEnd = item?.endSec != null
+    ? Math.min(videoSourceEnd, videoSourceStart + item.endSec)
+    : videoSourceEnd;
+  const playbackStart = itemIsVideo ? videoItemStart : item?.startSec ?? 0;
   const displayDurationSec = item ? getDisplayDurationSec(item, imageDisplayDurationSec, textDisplayDurationSec) : 0;
   const clipEnd = item
     ? itemIsImage || itemIsText
       ? displayDurationSec
-      : item.endSec ?? currentFile?.duration ?? currentAudioFile?.duration ?? item.startSec + (item.durationSec ?? 0)
+      : itemIsVideo
+        ? videoItemEnd
+        : item.endSec ?? currentAudioFile?.duration ?? item.startSec + (item.durationSec ?? 0)
     : 0;
   const clipDuration = item
     ? itemIsImage || itemIsText
       ? displayDurationSec
-      : Math.max(0, clipEnd - item.startSec)
+      : Math.max(0, clipEnd - (itemIsVideo ? videoItemStart : item.startSec))
     : 0;
 
   useEffect(() => {
@@ -179,8 +190,8 @@ export function CompilationPlayer({
       return;
     }
 
-    seekRef.current?.(item.startSec);
-  }, [autostart, autostartToken, currentPlayable, item, itemLoading]);
+    seekRef.current?.(playbackStart);
+  }, [autostart, autostartToken, currentPlayable, item, itemLoading, playbackStart]);
 
   const moveToItem = useCallback((nextIndex: number, shouldAutoPlay = false) => {
     if (visibleItems.length === 0) {
@@ -229,8 +240,8 @@ export function CompilationPlayer({
 
     setAutostart(true);
     setAutostartToken((value) => value + 1);
-    seekRef.current?.(item.startSec);
-  }, [item]);
+    seekRef.current?.(playbackStart);
+  }, [item, playbackStart]);
 
   const toggleType = useCallback((key: TypeFilterKey) => {
     setEnabledTypes((current) => ({ ...current, [key]: !current[key] }));
@@ -258,9 +269,9 @@ export function CompilationPlayer({
       return;
     }
     if (currentVideoId != null) {
-      onNavigate({ page: "video", id: currentVideoId, seekTo: item.startSec });
+      onNavigate({ page: "video", id: currentVideoId, seekTo: videoItemStart });
     }
-  }, [currentAudioId, currentImageId, currentVideoId, currentTextId, item, onNavigate]);
+  }, [currentAudioId, currentImageId, currentVideoId, currentTextId, item, onNavigate, videoItemStart]);
 
   const tabs = useMemo(() => [
     { key: "playlist", label: "Playlist", icon: <ListMusic className="h-4 w-4" />, count: visibleItems.length },
@@ -280,8 +291,8 @@ export function CompilationPlayer({
     itemHostId: item.hostId,
     groupItemId: item.groupItemId,
     segmentId: item.segmentId ?? undefined,
-    clipStartSec: item.startSec,
-    clipEndSec: item.endSec ?? null,
+    clipStartSec: itemIsVideo ? videoItemStart : item.startSec,
+    clipEndSec: itemIsVideo ? videoItemEnd : item.endSec ?? null,
     context: {
       videoId: item.videoId ?? undefined,
       audioId: item.audioId ?? undefined,
@@ -310,7 +321,7 @@ export function CompilationPlayer({
             format={currentFile.format}
             audioCodec={currentFile.audioCodec}
             duration={currentFile.duration}
-            resumeTime={item.startSec}
+            resumeTime={videoItemStart}
             videoId={currentVideoId}
             extensionSurface="compilation"
             interactionResetKey={`group:${groupId}:item:${item.groupItemId}`}
@@ -323,14 +334,14 @@ export function CompilationPlayer({
             onSeekRegister={(fn) => {
               seekRef.current = fn;
               if (autostart && item && !itemLoading && currentPlayable) {
-                fn(item.startSec);
+                fn(videoItemStart);
               }
             }}
             autostart={autostart}
             autostartToken={autostartToken}
             playbackTracking={currentPlaybackTracking}
             onEnded={advanceToNextItem}
-            clip={{ start: item.startSec, end: item.endSec ?? currentFile.duration, loop: false }}
+            clip={{ start: videoItemStart, end: videoItemEnd, loop: false }}
           />
         </div>
       ) : itemIsAudio && currentAudioId != null ? (
