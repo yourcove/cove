@@ -333,6 +333,10 @@ public partial class CoveContext
                         ? (!RequiresImageReadScopeEvaluation
                             ? CanReadImages
                             : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadImages, CanReadImagesByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Image, item.HostId))
+                    : item.HostType == "performer"
+                        ? (!RequiresPerformerReadScopeEvaluation
+                            ? CanReadPerformers
+                            : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadPerformers, CanReadPerformersByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Performer, item.HostId))
                         : item.HostType == "group"
                             ? (!RequiresGroupReadScopeEvaluation
                                 ? CanReadGroups

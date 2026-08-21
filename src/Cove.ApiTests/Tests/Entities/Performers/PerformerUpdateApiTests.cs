@@ -14,6 +14,7 @@ public sealed class PerformerUpdateApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("PUT", "/api/performers/{id:int}")]
     public async Task GivenPerformer_WhenPartiallyUpdated_ThenSuppliedMetadataChangesAndOtherMetadataIsPreserved()
     {
         // Arrange

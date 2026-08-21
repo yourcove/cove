@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Cove.Core.DTOs;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -52,6 +54,53 @@ public sealed partial class CoveClient
             cancellationToken);
         return result.Items;
     }
+
+    public Task<PaginatedResponse<PerformerDto>> FindPerformersAsync(
+        FilteredQueryRequest<PerformerFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<PerformerDto>>(
+            HttpMethod.Post,
+            "/api/performers/find",
+            request,
+            cancellationToken);
+
+    public async Task<int> BulkUpdatePerformersAsync(
+        BulkPerformerUpdateDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(HttpMethod.Post, "/api/performers/bulk", request, cancellationToken);
+        return response.GetProperty("updated").GetInt32();
+    }
+
+    public async Task<int> BulkDeletePerformersAsync(
+        BatchDeleteDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(HttpMethod.Delete, "/api/performers/bulk", request, cancellationToken);
+        return response.GetProperty("deleted").GetInt32();
+    }
+
+    public Task<PaginatedResponse<GroupDto>> GetPerformerGroupsAsync(
+        int performerId,
+        int page = 1,
+        int perPage = 18,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<GroupDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/performers/{performerId}/groups?page={page}&perPage={perPage}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<PaginatedResponse<PerformerDto>> GetPerformerAppearsWithAsync(
+        int performerId,
+        int page = 1,
+        int perPage = 18,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<PerformerDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/performers/{performerId}/appears-with?page={page}&perPage={perPage}"),
+            payload: null,
+            cancellationToken);
 
     public async Task<PerformerDto> LinkTagToPerformerAsync(
         TagDetailDto tag,
