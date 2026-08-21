@@ -54,6 +54,64 @@ public sealed class AudioLifecycleAndQueryApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/audios/from-file")]
+    [CoversEndpoint("GET", "/api/audios/{id:int}/stream")]
+    [CoversEndpoint("POST", "/api/audios/{id:int}/rescan")]
+    public async Task GivenPcmWaveFile_WhenMemberImportsStreamsAndRescansIt_ThenTheAudioFileIsUpdatedInPlace()
+    {
+        // Arrange
+        const string fileName = "audio-file-lifecycle.wav";
+        var fileSystem = AsTestFileSystem();
+        var path = fileSystem.CreatePcmWaveFile(fileName, sampleFrames: 800);
+        var expectedStream = await File.ReadAllBytesAsync(path);
+
+        // Act
+        var created = await AsUser(ApiTestUsers.Eva).CreateAudioFromFileAsync(path);
+        var read = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id);
+        var streamed = await AsUser(ApiTestUsers.Eva).GetAudioStreamAsync(created.Id);
+        var createdFile = created.Files.Should().ContainSingle().Which;
+        var originalFile = read.Files.Should().ContainSingle().Which;
+        fileSystem.ReplacePcmWaveFile(path, sampleFrames: 1_600);
+        var expectedRescannedStream = await File.ReadAllBytesAsync(path);
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-1));
+        var jobId = await AsUser(ApiTestUsers.Eva).RescanAudioAsync(created.Id);
+        var job = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(jobId);
+        var rescanned = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id);
+        var rescannedFile = rescanned.Files.Should().ContainSingle().Which;
+        var rescannedStream = await AsUser(ApiTestUsers.Eva).GetAudioStreamAsync(created.Id);
+
+        // Assert
+        created.Title.Should().Be(Path.GetFileNameWithoutExtension(path));
+        created.FileCount.Should().Be(1);
+        createdFile.Path.Should().Be(path);
+        createdFile.Basename.Should().Be(fileName);
+        createdFile.Format.Should().Be("wav");
+        createdFile.Size.Should().Be(expectedStream.Length);
+        createdFile.Duration.Should().BeGreaterThan(0);
+        read.Id.Should().Be(created.Id);
+        read.Title.Should().Be(Path.GetFileNameWithoutExtension(path));
+        read.FileCount.Should().Be(1);
+        originalFile.Id.Should().Be(createdFile.Id);
+        originalFile.Path.Should().Be(path);
+        originalFile.Basename.Should().Be(fileName);
+        originalFile.Format.Should().Be("wav");
+        originalFile.Size.Should().Be(expectedStream.Length);
+        originalFile.Duration.Should().Be(createdFile.Duration);
+        streamed.MediaType.Should().Be("audio/wav");
+        streamed.Content.Should().Equal(expectedStream);
+        job.Status.Should().Be(JobStatus.Completed);
+        rescanned.Id.Should().Be(created.Id);
+        rescanned.FileCount.Should().Be(1);
+        rescannedFile.Id.Should().Be(originalFile.Id);
+        rescannedFile.Path.Should().Be(path);
+        rescannedFile.Size.Should().Be(expectedRescannedStream.Length).And.BeGreaterThan(originalFile.Size);
+        rescannedFile.Duration.Should().BeGreaterThan(originalFile.Duration);
+        rescanned.MaxDuration.Should().BeGreaterThan(read.MaxDuration);
+        rescannedStream.MediaType.Should().Be("audio/wav");
+        rescannedStream.Content.Should().Equal(expectedRescannedStream);
+    }
+
+    [Fact]
     [CoversEndpoint("PUT", "/api/audios/{id:int}")]
     public async Task GivenAudioMetadata_WhenMemberPartiallyUpdatesIt_ThenResponseAndReadPreserveRelationships()
     {

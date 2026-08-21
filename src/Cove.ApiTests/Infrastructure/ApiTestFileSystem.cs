@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Microsoft.Data.Sqlite;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -41,6 +42,28 @@ public sealed class ApiTestFileSystem
         return path;
     }
 
+    public string CreatePcmWaveFile(string fileName, int sampleFrames, int sampleRate = 8_000)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "PCM wave test files must use a leaf filename under the library root.");
+        if (!string.Equals(Path.GetExtension(fileName), ".wav", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "PCM wave test files must use the .wav extension.");
+
+        var path = Path.Combine(LibraryPath, fileName);
+        WritePcmWaveFile(path, sampleFrames, sampleRate);
+        return path;
+    }
+
+    public void ReplacePcmWaveFile(string path, int sampleFrames, int sampleRate = 8_000)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (!Path.GetFullPath(path).StartsWith(Path.GetFullPath(LibraryPath) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(path), "PCM wave test files must stay under the library root.");
+
+        WritePcmWaveFile(path, sampleFrames, sampleRate);
+    }
+
     public string CreateGeneratedFile(string relativePath, byte[] contents)
     {
         var path = Path.GetFullPath(Path.Combine(GeneratedPath, relativePath));
@@ -78,5 +101,33 @@ public sealed class ApiTestFileSystem
             File.Delete(file);
         foreach (var directory in Directory.EnumerateDirectories(path))
             Directory.Delete(directory, recursive: true);
+    }
+
+    private static void WritePcmWaveFile(string path, int sampleFrames, int sampleRate)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleFrames);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+
+        const short channels = 1;
+        const short bitsPerSample = 16;
+        const int headerLength = 44;
+        var dataLength = checked(sampleFrames * channels * (bitsPerSample / 8));
+        var bytes = new byte[checked(headerLength + dataLength)];
+        var header = bytes.AsSpan();
+        "RIFF"u8.CopyTo(header);
+        BinaryPrimitives.WriteInt32LittleEndian(header.Slice(4), bytes.Length - 8);
+        "WAVEfmt "u8.CopyTo(header.Slice(8));
+        BinaryPrimitives.WriteInt32LittleEndian(header.Slice(16), 16);
+        BinaryPrimitives.WriteInt16LittleEndian(header.Slice(20), 1);
+        BinaryPrimitives.WriteInt16LittleEndian(header.Slice(22), channels);
+        BinaryPrimitives.WriteInt32LittleEndian(header.Slice(24), sampleRate);
+        var blockAlign = checked((short)(channels * (bitsPerSample / 8)));
+        BinaryPrimitives.WriteInt32LittleEndian(header.Slice(28), checked(sampleRate * blockAlign));
+        BinaryPrimitives.WriteInt16LittleEndian(header.Slice(32), blockAlign);
+        BinaryPrimitives.WriteInt16LittleEndian(header.Slice(34), bitsPerSample);
+        "data"u8.CopyTo(header.Slice(36));
+        BinaryPrimitives.WriteInt32LittleEndian(header.Slice(40), dataLength);
+
+        File.WriteAllBytes(path, bytes);
     }
 }
