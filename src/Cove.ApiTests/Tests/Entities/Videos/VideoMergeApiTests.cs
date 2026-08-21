@@ -100,6 +100,13 @@ public sealed class VideoMergeApiTests(
         (await AsUser().GetVideoByIdAsync(source.Id)).Id.Should().Be(source.Id);
         (await AsUser().GetVideoByIdAsync(child.Id)).ParentVideoId.Should().Be(source.Id);
         (await AsUser().GetVideoByIdAsync(grandchild.Id)).ParentVideoId.Should().Be(child.Id);
+
+        var unrelatedSource = await AsUser().CreateVideoAsync($"Merge cycle source {suffix}");
+        await AsDbUser().SetVideoParentAsync(child.Id, grandchild.Id);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var cycleMerge = () => AsUser().MergeVideosAsync(child, new[] { unrelatedSource }, timeout.Token);
+        await cycleMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
+        (await AsUser().GetVideoByIdAsync(unrelatedSource.Id)).Id.Should().Be(unrelatedSource.Id);
     }
 
     [Fact]
