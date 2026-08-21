@@ -1566,6 +1566,17 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
             targetFound = true;
             var sources = videos.Where(video => video.Id != target.Id).ToArray();
+            var sourceIds = sources.Select(source => source.Id).ToArray();
+            var sourceSegments = await db.Segments
+                .Where(segment => segment.HostType == SegmentHostType.Video && sourceIds.Contains(segment.HostId))
+                .ToListAsync(ct);
+            var sourceDetections = await db.Detections
+                .Where(detection => detection.HostType == DetectionHostType.Video && sourceIds.Contains(detection.HostId))
+                .ToListAsync(ct);
+            foreach (var segment in sourceSegments)
+                segment.HostId = target.Id;
+            foreach (var detection in sourceDetections)
+                detection.HostId = target.Id;
             var existingTagIds = target.VideoTags.Select(st => st.TagId).ToHashSet();
             var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
             var existingGalleryIds = target.VideoGalleries.Select(videoGallery => videoGallery.GalleryId).ToHashSet();
