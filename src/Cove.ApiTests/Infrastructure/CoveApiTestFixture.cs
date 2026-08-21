@@ -1,3 +1,5 @@
+using Cove.Core.DTOs;
+
 namespace Cove.ApiTests.Infrastructure;
 
 public sealed class CoveApiTestFixture : IAsyncLifetime
@@ -27,6 +29,13 @@ public sealed class CoveApiTestFixture : IAsyncLifetime
         => (_server
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
             .DbUser;
+
+    internal Task ConfigureFaceSuggestionPlanAsync(
+        IReadOnlyDictionary<int, IReadOnlyList<FaceSuggestionDto>> plan,
+        CancellationToken cancellationToken = default)
+        => (_server
+            ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
+            .ConfigureFaceSuggestionPlanAsync(plan, cancellationToken);
 
     public async Task InitializeAsync()
         => _server = await CoveApiServer.StartAsync();

@@ -1,3 +1,4 @@
+using Cove.Core.DTOs;
 using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -40,6 +41,11 @@ public abstract class ApiTest : IAsyncLifetime
 
     protected ApiTestFileSystem AsTestFileSystem()
         => _fixture.FileSystem;
+
+    protected Task ConfigureFaceSuggestionPlanAsync(
+        IReadOnlyDictionary<int, IReadOnlyList<FaceSuggestionDto>> plan,
+        CancellationToken cancellationToken = default)
+        => _fixture.ConfigureFaceSuggestionPlanAsync(plan, cancellationToken);
 
     public async Task InitializeAsync()
     {

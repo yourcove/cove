@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Net;
 using Cove.ApiTests.ExampleData;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using Cove.Core.DTOs;
 using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
 
@@ -13,12 +15,15 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
 {
     private const string EnvironmentName = "IntegrationStartup";
     private const string ResetTokenHeader = "X-Cove-Test-Reset-Token";
+    private const string FaceSuggestionProviderDirectoryName = "com.cove.api-test-face-provider";
+    private const string FaceSuggestionProviderBuildDirectoryName = "face-suggestion-provider";
 
     private readonly PostgreSqlTestDatabase _database;
     private readonly MetadataServiceSimulator _metadataService;
     private readonly DownloadSourceSimulator _downloadSource;
     private readonly Process _process;
     private readonly string _dataRoot;
+    private readonly string _faceSuggestionPlanPath;
     private readonly string _resetToken;
     private readonly ConcurrentQueue<string> _output;
     private bool _disposed;
@@ -31,6 +36,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         Uri baseAddress,
         string dataRoot,
         string libraryPath,
+        string faceSuggestionPlanPath,
         string resetToken,
         ConcurrentQueue<string> output)
     {
@@ -40,6 +46,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         _process = process;
         BaseAddress = baseAddress;
         _dataRoot = dataRoot;
+        _faceSuggestionPlanPath = faceSuggestionPlanPath;
         FileSystem = new ApiTestFileSystem(libraryPath, Path.Combine(dataRoot, "generated"));
         _resetToken = resetToken;
         _output = output;
@@ -61,6 +68,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         Process? process = null;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"cove-api-tests-{Guid.NewGuid():N}");
         var libraryPath = Path.Combine(dataRoot, "library");
+        var faceSuggestionPlanPath = Path.Combine(dataRoot, "face-suggestion-plan.json");
         var resetToken = Convert.ToHexString(Guid.NewGuid().ToByteArray());
         var output = new ConcurrentQueue<string>();
 
@@ -68,6 +76,11 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         {
             Directory.CreateDirectory(dataRoot);
             Directory.CreateDirectory(libraryPath);
+            InstallFaceSuggestionProvider(dataRoot);
+            await WriteFaceSuggestionPlanAsync(
+                faceSuggestionPlanPath,
+                new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>(),
+                cancellationToken);
             metadataService = await MetadataServiceSimulator.StartAsync(cancellationToken);
             downloadSource = await DownloadSourceSimulator.StartAsync(cancellationToken);
             database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
@@ -76,6 +89,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 database.ConnectionString,
                 metadataService.Endpoint,
                 libraryPath,
+                faceSuggestionPlanPath,
                 resetToken,
                 output);
             var processStartedTimestamp = Stopwatch.GetTimestamp();
@@ -84,7 +98,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             using var startupClient = new HttpClient { BaseAddress = baseAddress };
             await WaitUntilReadyAsync(startupClient, process, output, cancellationToken);
 
-            return new CoveApiServer(database, metadataService, downloadSource, process, baseAddress, dataRoot, libraryPath, resetToken, output)
+            return new CoveApiServer(database, metadataService, downloadSource, process, baseAddress, dataRoot, libraryPath, faceSuggestionPlanPath, resetToken, output)
             {
                 ProcessStartedTimestamp = processStartedTimestamp,
                 ReadyTimestamp = Stopwatch.GetTimestamp(),
@@ -156,6 +170,9 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     public async Task<IReadOnlyDictionary<string, CoveClient>> ResetAsync(
         CancellationToken cancellationToken = default)
     {
+        await ConfigureFaceSuggestionPlanAsync(
+            new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>(),
+            cancellationToken);
         using var client = CreateLifecycleClient();
         using var response = await client.PostAsync("/health/test-reset", content: null, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -195,6 +212,11 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             throw;
         }
     }
+
+    internal Task ConfigureFaceSuggestionPlanAsync(
+        IReadOnlyDictionary<int, IReadOnlyList<FaceSuggestionDto>> plan,
+        CancellationToken cancellationToken = default)
+        => WriteFaceSuggestionPlanAsync(_faceSuggestionPlanPath, plan, cancellationToken);
 
     private async Task<CoveClient> CreateOwnerAsync(CancellationToken cancellationToken)
     {
@@ -329,6 +351,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         string connectionString,
         Uri metadataServiceEndpoint,
         string libraryPath,
+        string faceSuggestionPlanPath,
         string resetToken,
         ConcurrentQueue<string> output)
     {
@@ -353,6 +376,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__CachePath"] = Path.Combine(dataRoot, "cache");
         startInfo.Environment["COVE__CovePaths__0__Path"] = libraryPath;
         startInfo.Environment["COVE__ExtensionPaths__0"] = Path.Combine(dataRoot, "plugins");
+        startInfo.Environment["COVE__ApiTestFaceSuggestions__PlanPath"] = faceSuggestionPlanPath;
         startInfo.Environment["COVE__GeneratedPath"] = Path.Combine(dataRoot, "generated");
         startInfo.Environment["COVE__IntegrationTestResetToken"] = resetToken;
         startInfo.Environment["COVE__Postgres__ConnectionString"] = connectionString;
@@ -368,6 +392,47 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         return process;
+    }
+
+    private static void InstallFaceSuggestionProvider(string dataRoot)
+    {
+        var sourceDirectory = Path.Combine(
+            Path.GetDirectoryName(typeof(CoveApiServer).Assembly.Location)
+                ?? throw new InvalidOperationException("The API-test assembly has no directory."),
+            FaceSuggestionProviderBuildDirectoryName);
+        var manifestPath = Path.Combine(sourceDirectory, "extension.json");
+        var assemblyPath = Path.Combine(sourceDirectory, "Cove.ApiTestFaceProvider.dll");
+        if (!File.Exists(manifestPath) || !File.Exists(assemblyPath))
+        {
+            throw new InvalidOperationException(
+                "The API-test face suggestion provider is missing from the test output. Build Cove.ApiTests before starting the API test host.");
+        }
+
+        var targetDirectory = Path.Combine(dataRoot, "extensions", FaceSuggestionProviderDirectoryName);
+        Directory.CreateDirectory(targetDirectory);
+        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.TopDirectoryOnly))
+            File.Copy(sourcePath, Path.Combine(targetDirectory, Path.GetFileName(sourcePath)), overwrite: true);
+    }
+
+    private static async Task WriteFaceSuggestionPlanAsync(
+        string path,
+        IReadOnlyDictionary<int, IReadOnlyList<FaceSuggestionDto>> plan,
+        CancellationToken cancellationToken)
+    {
+        var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(
+                temporaryPath,
+                JsonSerializer.Serialize(plan, ApiJson.Options),
+                cancellationToken);
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
     }
 
     private static async Task<Uri> WaitForListeningAddressAsync(

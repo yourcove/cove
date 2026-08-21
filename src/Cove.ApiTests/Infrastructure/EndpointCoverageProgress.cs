@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 319;
+    public const int ExpectedMappedEndpoints = 322;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 185;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 182;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -55,9 +55,7 @@ public static class EndpointCoverageProgress
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/extensions/{id}/data
         GET /api/faces/capabilities
-        GET /api/faces/review/ai-run
         GET /api/faces/{id:int}/host-tracks
-        GET /api/faces/{id:int}/suggestions
         GET /api/galleries/{id:int}/chapters
         GET /api/galleries/{id:int}/cover
         GET /api/images/{id:int}/history
@@ -123,7 +121,6 @@ public static class EndpointCoverageProgress
         POST /api/engagement/wipe-all
         POST /api/extensions/registry/install
         POST /api/extensions/{id}/jobs/{jobid}/run
-        POST /api/faces/batch/link-top-suggestion
         POST /api/faces/{id:int}/not-present
         POST /api/faces/{id:int}/split
         POST /api/files/delete

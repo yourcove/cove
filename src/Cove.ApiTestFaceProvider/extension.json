@@ -1,0 +1,7 @@
+{
+  "id": "com.cove.api-test-face-provider",
+  "name": "API Test Face Provider",
+  "version": "1.0.0",
+  "kind": "extension",
+  "entryDll": "Cove.ApiTestFaceProvider.dll"
+}

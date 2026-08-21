@@ -23,7 +23,20 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cove.Api\Cove.Api.csproj" />
+    <ProjectReference Include="..\Cove.ApiTestFaceProvider\Cove.ApiTestFaceProvider.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Cove.Core\Cove.Core.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyApiTestFaceSuggestionProvider" AfterTargets="Build">
+    <ItemGroup>
+      <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\Cove.ApiTestFaceProvider.*" />
+      <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\extension.json" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(OutputPath)face-suggestion-provider" />
+    <Copy SourceFiles="@(ApiTestFaceSuggestionProviderFiles)"
+      DestinationFolder="$(OutputPath)face-suggestion-provider\"
+      SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
