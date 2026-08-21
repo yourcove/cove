@@ -205,7 +205,8 @@ public sealed class TagNameWriteValidationTests
     private static CoveContext CreateContext(string databasePath, params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
-            .UseSqlite($"Data Source={databasePath}")
+            // Pooling off so the file handle dies with the context; the finally below deletes this file.
+            .UseSqlite($"Data Source={databasePath};Pooling=False")
             .AddInterceptors(interceptors)
             .Options;
         var context = new CoveContext(options);
