@@ -1570,9 +1570,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             var sources = videos.Where(video => video.Id != target.Id).ToArray();
             var sourceIds = sources.Select(source => source.Id).ToArray();
             var ancestorId = target.ParentVideoId;
+            var visitedAncestorIds = new HashSet<int> { target.Id };
             while (ancestorId.HasValue)
             {
-                if (sourceIds.Contains(ancestorId.Value))
+                if (!visitedAncestorIds.Add(ancestorId.Value)
+                    || sourceIds.Contains(ancestorId.Value))
                 {
                     invalidHierarchy = true;
                     return;
