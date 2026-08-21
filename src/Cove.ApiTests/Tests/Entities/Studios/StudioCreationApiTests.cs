@@ -86,6 +86,8 @@ public sealed class StudioCreationApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/studios")]
+    [CoversEndpoint("GET", "/api/studios/{id:int}")]
     public async Task GivenStudioMetadata_WhenStudioIsCreated_ThenAllMetadataCanBeRetrieved()
     {
         // Arrange

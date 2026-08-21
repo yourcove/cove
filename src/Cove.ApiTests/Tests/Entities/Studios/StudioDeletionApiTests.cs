@@ -11,6 +11,7 @@ public sealed class StudioDeletionApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("DELETE", "/api/studios/{id:int}")]
     public async Task GivenStudio_WhenDeleted_ThenStudioCanNoLongerBeReadOrListed()
     {
         // Arrange

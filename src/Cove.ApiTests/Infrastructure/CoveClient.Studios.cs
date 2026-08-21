@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Cove.Core.DTOs;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -34,6 +36,16 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<StudioDto> GetStudioByIdAtDepthAsync(
+        int studioId,
+        int depth,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StudioDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/studios/{studioId}?depth={depth}"),
+            payload: null,
+            cancellationToken);
+
     public async Task<IReadOnlyList<StudioDto>> GetStudiosAsync(
         CancellationToken cancellationToken = default)
         => await GetStudiosAsync(sort: null, direction: null, cancellationToken);
@@ -55,6 +67,49 @@ public sealed partial class CoveClient
             cancellationToken);
         return result.Items;
     }
+
+    public Task<PaginatedResponse<StudioDto>> FindStudiosAsync(
+        FilteredQueryRequest<StudioFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<StudioDto>>(
+            HttpMethod.Post,
+            "/api/studios/find",
+            request,
+            cancellationToken);
+
+    public async Task<int> BulkUpdateStudiosAsync(
+        BulkStudioUpdateDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/studios/bulk",
+            request,
+            cancellationToken);
+        return response.GetProperty("updated").GetInt32();
+    }
+
+    public async Task<int> BulkDeleteStudiosAsync(
+        BatchDeleteDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Delete,
+            "/api/studios/bulk",
+            request,
+            cancellationToken);
+        return response.GetProperty("deleted").GetInt32();
+    }
+
+    public Task<StudioDto> MergeStudiosAsync(
+        StudioDto target,
+        IReadOnlyCollection<StudioDto> sources,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StudioDto>(
+            HttpMethod.Post,
+            "/api/studios/merge",
+            new StudioMergeDto(target.Id, sources.Select(source => source.Id).ToList()),
+            cancellationToken);
 
     public Task<StudioDto> UpdateStudioAsync(
         int studioId,

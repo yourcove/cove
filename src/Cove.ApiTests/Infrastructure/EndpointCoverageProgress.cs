@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 311;
+    public const int ExpectedMappedEndpoints = 319;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 193;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 185;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -33,8 +33,6 @@ public static class EndpointCoverageProgress
         DELETE /api/roles/{id:int}
         DELETE /api/savedfilters/{id:int}
         DELETE /api/share-links/{id:guid}
-        DELETE /api/studios/bulk
-        DELETE /api/studios/{id:int}
         DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
         DELETE /api/tagapplications/{id:int}
         DELETE /api/tags/{id:int}
@@ -90,7 +88,6 @@ public static class EndpointCoverageProgress
         GET /api/stream/video/{videoid:int}/sprite
         GET /api/stream/video/{videoid:int}/transcode
         GET /api/stream/video/{videoid:int}/vtt/thumbs
-        GET /api/studios/{id:int}
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/ffmpeg-capabilities
         GET /api/tags/{id:int}/metadata-server/search
@@ -165,10 +162,6 @@ public static class EndpointCoverageProgress
         POST /api/scrape-attempts/{id:guid}/apply
         POST /api/share-links
         POST /api/stash-migration/import
-        POST /api/studios
-        POST /api/studios/bulk
-        POST /api/studios/find
-        POST /api/studios/merge
         POST /api/studios/metadata-server/batch-tag
         POST /api/studios/metadata-server/find-by-ids
         POST /api/studios/{id:int}/metadata-server/import
@@ -206,7 +199,6 @@ public static class EndpointCoverageProgress
         PUT /api/jobs/{jobid}/reorder
         PUT /api/roles/{id:int}
         PUT /api/savedfilters/{id:int}
-        PUT /api/studios/{id:int}
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
         PUT /api/videos/{videoid:int}/detections/{id:int}
