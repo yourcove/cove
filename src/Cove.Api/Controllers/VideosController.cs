@@ -1529,11 +1529,13 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             .Distinct()
             .ToArray();
         var targetFound = false;
+        var invalidHierarchy = false;
         int[] mergedSourceIds = [];
         var executionStrategy = db.Database.CreateExecutionStrategy();
         await executionStrategy.ExecuteAsync(async () =>
         {
             targetFound = false;
+            invalidHierarchy = false;
             mergedSourceIds = [];
             db.ChangeTracker.Clear();
             await using var transaction = db.Database.IsRelational()
@@ -1567,6 +1569,22 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             targetFound = true;
             var sources = videos.Where(video => video.Id != target.Id).ToArray();
             var sourceIds = sources.Select(source => source.Id).ToArray();
+            var ancestorId = target.ParentVideoId;
+            while (ancestorId.HasValue)
+            {
+                if (sourceIds.Contains(ancestorId.Value))
+                {
+                    invalidHierarchy = true;
+                    return;
+                }
+
+                var ancestor = await db.Videos
+                    .AsNoTracking()
+                    .Where(video => video.Id == ancestorId.Value)
+                    .Select(video => new { video.ParentVideoId })
+                    .SingleOrDefaultAsync(ct);
+                ancestorId = ancestor?.ParentVideoId;
+            }
             var sourceSegments = await db.Segments
                 .Where(segment => segment.HostType == SegmentHostType.Video && sourceIds.Contains(segment.HostId))
                 .ToListAsync(ct);
@@ -1638,6 +1656,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         if (!targetFound)
             return NotFound("Target video not found");
+        if (invalidHierarchy)
+            return BadRequest("A merge target cannot descend from one of its sources");
         db.ChangeTracker.Clear();
         if (mergedSourceIds.Length > 0)
         {
