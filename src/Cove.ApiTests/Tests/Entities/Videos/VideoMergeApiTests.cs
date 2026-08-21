@@ -92,6 +92,33 @@ public sealed class VideoMergeApiTests(
     }
 
     [Fact]
+    public async Task GivenEquivalentUrlsAndRemoteIds_WhenMerged_ThenOnlyOneNormalizedAssociationRemains()
+    {
+        // Arrange
+        var suffix = Guid.NewGuid().ToString("N");
+        var targetUrl = $"https://merge.example/resource/{suffix}";
+        var target = await AsUser().CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Merge dedup target {suffix}")
+            .WithUrl(targetUrl)
+            .WithRemoteId("https://metadata.example/graphql", $"remote-{suffix}")
+            .Build());
+        var source = await AsUser().CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Merge dedup source {suffix}")
+            .WithUrl(targetUrl.ToUpperInvariant())
+            .WithRemoteId("HTTPS://METADATA.EXAMPLE/GRAPHQL", $"REMOTE-{suffix}")
+            .Build());
+
+        // Act
+        await AsUser().MergeVideosAsync(target, source);
+        var persisted = await AsUser().GetVideoByIdAsync(target.Id);
+
+        // Assert
+        persisted.Urls.Should().ContainSingle().Which.Should().Be(targetUrl);
+        persisted.RemoteIds.Should().ContainSingle().Which.Should().Be(
+            new VideoRemoteIdDto("https://metadata.example/graphql", $"remote-{suffix}"));
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/videos/merge")]
     public async Task GivenSelectedVideoSources_WhenMerged_ThenFilesAndDistinctRelationshipsMoveToTheTargetAndSourcesAreDeleted()
     {
