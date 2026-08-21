@@ -1,5 +1,8 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -98,6 +101,60 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
         return result.Items;
+    }
+
+    public Task<PaginatedResponse<TagListDto>> FindTagsAsync(
+        FilteredQueryRequest<TagFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<TagListDto>>(HttpMethod.Post, "/api/tags/find", request, cancellationToken);
+
+    public Task<TagGraphResponseDto> GetTagGraphAsync(
+        FilteredQueryRequest<TagFilter> request,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagGraphResponseDto>(HttpMethod.Post, "/api/tags/graph", request, cancellationToken);
+
+    public Task<IReadOnlyList<TagSegmentWallDto>> GetTagSegmentsAsync(
+        int tagId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<TagSegmentWallDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/tags/{tagId}/segments"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<string>> GetTagSegmentTitlesAsync(
+        string query,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<string>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/tags/segment-titles?q={Uri.EscapeDataString(query)}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<int> BulkUpdateTagsAsync(
+        BulkTagUpdateDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(HttpMethod.Post, "/api/tags/bulk", request, cancellationToken);
+        return response.GetProperty("updated").GetInt32();
+    }
+
+    public Task<EntityEngagementDto> SetTagRatingAsync(
+        TagDetailDto tag,
+        int rating,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Put,
+            $"/api/engagement/{AffinityHostType.Tag}/{tag.Id}/rating",
+            new VideoRatingDto(rating, "overall"),
+            cancellationToken);
+
+    public async Task<int> BulkDeleteTagsAsync(
+        BatchDeleteDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(HttpMethod.Delete, "/api/tags/bulk", request, cancellationToken);
+        return response.GetProperty("deleted").GetInt32();
     }
 
     public async Task DeleteTagAsync(

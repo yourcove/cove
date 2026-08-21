@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 245;
+    public const int ExpectedMappedEndpoints = 251;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 259;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 253;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -40,7 +40,6 @@ public static class EndpointCoverageProgress
         DELETE /api/studios/{id:int}
         DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
         DELETE /api/tagapplications/{id:int}
-        DELETE /api/tags/bulk
         DELETE /api/tags/{id:int}
         DELETE /api/texts/{id:int}/like
         DELETE /api/texts/{id:int}/like/history
@@ -115,9 +114,7 @@ public static class EndpointCoverageProgress
         GET /api/studios/{id:int}
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/ffmpeg-capabilities
-        GET /api/tags/segment-titles
         GET /api/tags/{id:int}/metadata-server/search
-        GET /api/tags/{id:int}/segments
         GET /api/texts/{id:int}/history
         GET /api/users/{id:int}
         GET /api/users/{id:int}/external-links
@@ -226,9 +223,6 @@ public static class EndpointCoverageProgress
         POST /api/system/scrapers/scrape-name
         POST /api/system/shutdown
         POST /api/tagapplications
-        POST /api/tags/bulk
-        POST /api/tags/find
-        POST /api/tags/graph
         POST /api/tags/metadata-server/batch-tag
         POST /api/tags/metadata-server/find-by-ids
         POST /api/tags/merge
