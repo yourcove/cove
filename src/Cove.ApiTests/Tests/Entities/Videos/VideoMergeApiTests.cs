@@ -70,6 +70,28 @@ public sealed class VideoMergeApiTests(
     }
 
     [Fact]
+    public async Task GivenSourceSegmentsAndDetections_WhenMerged_ThenTheyMoveToTheTarget()
+    {
+        // Arrange
+        var suffix = Guid.NewGuid().ToString("N");
+        var target = await AsUser().CreateVideoAsync($"Merge hosted-data target {suffix}");
+        var source = await AsUser().CreateVideoAsync($"Merge hosted-data source {suffix}");
+        var segment = await AsUser().CreateVideoSegmentAsync(source, $"Merge segment {suffix}");
+        var detection = await AsUser().CreateVideoDetectionAsync(source, $"merge-detection-{suffix}");
+
+        // Act
+        await AsUser().MergeVideosAsync(target, source);
+        var targetSegments = await AsUser().GetVideoSegmentsAsync(target);
+        var targetDetections = await AsUser().GetVideoDetectionsAsync(target);
+
+        // Assert
+        targetSegments.Should().ContainSingle(item => item.Id == segment.Id)
+            .Which.HostId.Should().Be(target.Id);
+        targetDetections.Should().ContainSingle(item => item.Id == detection.Id)
+            .Which.HostId.Should().Be(target.Id);
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/videos/merge")]
     public async Task GivenSelectedVideoSources_WhenMerged_ThenFilesAndDistinctRelationshipsMoveToTheTargetAndSourcesAreDeleted()
     {
