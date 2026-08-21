@@ -167,6 +167,58 @@ public sealed partial class CoveClient
             request,
             cancellationToken);
 
+    public Task<int> AddHistoricalVideoLikeAsync(
+        VideoDto video,
+        DateTime at,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Post, $"/api/videos/{video.Id}/like/historical", new HistoricalLikeDto(at), cancellationToken);
+
+    public Task DeleteHistoricalVideoLikeAsync(
+        VideoDto video,
+        DateTime at,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/videos/{video.Id}/like/history?at={Uri.EscapeDataString(at.ToUniversalTime().ToString("O"))}",
+            new { },
+            cancellationToken);
+
+    public Task DecrementVideoLikeAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(HttpMethod.Delete, $"/api/videos/{video.Id}/like", new { }, cancellationToken);
+
+    public Task ResetVideoLikeAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(HttpMethod.Post, $"/api/videos/{video.Id}/like/reset", new { }, cancellationToken);
+
+    public Task<int?> SetVideoRatingViaVideoAsync(
+        VideoDto video,
+        int? rating,
+        string aspect = "overall",
+        CancellationToken cancellationToken = default)
+        => SendAsync<int?>(HttpMethod.Post, $"/api/videos/{video.Id}/rating", new VideoRatingDto(rating, aspect), cancellationToken);
+
+    public Task<EntityRatingsDto> GetVideoRatingsViaVideoAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityRatingsDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/{video.Id}/ratings"),
+            payload: null,
+            cancellationToken);
+
+    public Task ClearVideoRatingViaVideoAsync(
+        VideoDto video,
+        string aspect = "overall",
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/videos/{video.Id}/rating?aspect={Uri.EscapeDataString(aspect)}",
+            new { },
+            cancellationToken);
+
     public async Task<int> DestroyVideosAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
