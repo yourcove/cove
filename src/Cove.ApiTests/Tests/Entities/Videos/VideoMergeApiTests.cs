@@ -70,6 +70,38 @@ public sealed class VideoMergeApiTests(
     }
 
     [Fact]
+    public async Task GivenTheTargetDescendsFromASource_WhenMerged_ThenTheHierarchyIsRejectedWithoutDeletion()
+    {
+        // Arrange
+        var suffix = Guid.NewGuid().ToString("N");
+        var source = await AsUser().CreateVideoAsync($"Merge ancestor source {suffix}");
+        await AsDbUser().AttachVideoFileAsync(source.Id, duration: 60, size: 1);
+        var child = await AsUser().CreateVideoAsync(new VideoBuilder().WithTitle($"Merge direct child {suffix}").Build() with
+        {
+            ParentVideoId = source.Id,
+            ClipStartSec = 5,
+            ClipEndSec = 40,
+        });
+        var grandchild = await AsUser().CreateVideoAsync(new VideoBuilder().WithTitle($"Merge deep child {suffix}").Build() with
+        {
+            ParentVideoId = child.Id,
+            ClipStartSec = 10,
+            ClipEndSec = 20,
+        });
+
+        // Act
+        var directMerge = () => AsUser().MergeVideosAsync(child, source);
+        var deepMerge = () => AsUser().MergeVideosAsync(grandchild, source);
+
+        // Assert
+        await directMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
+        await deepMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
+        (await AsUser().GetVideoByIdAsync(source.Id)).Id.Should().Be(source.Id);
+        (await AsUser().GetVideoByIdAsync(child.Id)).ParentVideoId.Should().Be(source.Id);
+        (await AsUser().GetVideoByIdAsync(grandchild.Id)).ParentVideoId.Should().Be(child.Id);
+    }
+
+    [Fact]
     public async Task GivenSourceSegmentsAndDetections_WhenMerged_ThenTheyMoveToTheTarget()
     {
         // Arrange
