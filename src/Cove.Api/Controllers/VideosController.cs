@@ -1554,6 +1554,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 .Include(video => video.VideoPerformers)
                 .Include(video => video.VideoGalleries)
                 .Include(video => video.Urls)
+                .Include(video => video.RemoteIds)
+                .Include(video => video.GroupItems)
                 .Where(video => visibleIds.Contains(video.Id))
                 .OrderBy(video => video.Id)
                 .ToListAsync(ct);
@@ -1567,6 +1569,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             var existingPerfIds = target.VideoPerformers.Select(sp => sp.PerformerId).ToHashSet();
             var existingGalleryIds = target.VideoGalleries.Select(videoGallery => videoGallery.GalleryId).ToHashSet();
             var existingUrls = target.Urls.Select(videoUrl => videoUrl.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var existingRemoteIds = target.RemoteIds
+                .Select(remoteId => (remoteId.Endpoint, remoteId.RemoteId))
+                .ToHashSet(RemoteIdKeyComparer.Instance);
 
             foreach (var source in sources)
             {
@@ -1592,6 +1597,17 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     if (existingUrls.Add(videoUrl.Url))
                         target.Urls.Add(new VideoUrl { Url = videoUrl.Url, VideoId = target.Id });
                 }
+                foreach (var remoteId in source.RemoteIds)
+                {
+                    if (existingRemoteIds.Add((remoteId.Endpoint, remoteId.RemoteId)))
+                        remoteId.VideoId = target.Id;
+                }
+                foreach (var groupItem in source.GroupItems)
+                {
+                    groupItem.VideoId = target.Id;
+                    if (string.Equals(groupItem.HostType, "video", StringComparison.OrdinalIgnoreCase))
+                        groupItem.HostId = target.Id;
+                }
                 if (tagProvenanceService != null)
                     await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Video, source.Id, ct);
                 db.Videos.Remove(source);
@@ -1616,6 +1632,20 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         var result = await videoRepo.GetByIdWithRelationsAsync(dto.TargetId, ct);
         var engagement = (await engagementService.GetVideoSnapshotsAsync([dto.TargetId], ct)).GetValueOrDefault(dto.TargetId);
         return Ok(await MapToDtoWithProvenanceAsync(result!, engagement, HasUserScopedEngagement, ct));
+    }
+
+    private sealed class RemoteIdKeyComparer : IEqualityComparer<(string Endpoint, string RemoteId)>
+    {
+        public static RemoteIdKeyComparer Instance { get; } = new();
+
+        public bool Equals((string Endpoint, string RemoteId) left, (string Endpoint, string RemoteId) right)
+            => string.Equals(left.Endpoint, right.Endpoint, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.RemoteId, right.RemoteId, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Endpoint, string RemoteId) value)
+            => HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Endpoint),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.RemoteId));
     }
 
     // ===== Generate Screenshot =====
