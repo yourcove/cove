@@ -20,22 +20,31 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     private readonly ConcurrentDictionary<string, MetadataServicePerformer> _performers;
     private readonly ConcurrentDictionary<string, MetadataServiceScene> _scenes;
     private readonly ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> _fingerprintSyncVideos;
+    private readonly MetadataServiceSubmissionLog _submissions;
 
     private MetadataServiceSimulator(
         WebApplication application,
         ConcurrentDictionary<string, MetadataServicePerformer> performers,
         ConcurrentDictionary<string, MetadataServiceScene> scenes,
         ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> fingerprintSyncVideos,
+        MetadataServiceSubmissionLog submissions,
         Uri endpoint)
     {
         _application = application;
         _performers = performers;
         _scenes = scenes;
         _fingerprintSyncVideos = fingerprintSyncVideos;
+        _submissions = submissions;
         Endpoint = endpoint;
     }
 
     public Uri Endpoint { get; }
+
+    public IReadOnlyList<MetadataServiceFingerprintSubmission> FingerprintSubmissions
+        => _submissions.FingerprintSubmissions;
+
+    public IReadOnlyList<MetadataServiceSceneDraftSubmission> SceneDraftSubmissions
+        => _submissions.SceneDraftSubmissions;
 
     internal static async Task<MetadataServiceSimulator> StartAsync(
         CancellationToken cancellationToken = default)
@@ -43,6 +52,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         var performers = new ConcurrentDictionary<string, MetadataServicePerformer>(StringComparer.Ordinal);
         var scenes = new ConcurrentDictionary<string, MetadataServiceScene>(StringComparer.Ordinal);
         var fingerprintSyncVideos = new ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo>();
+        var submissions = new MetadataServiceSubmissionLog();
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
         {
             EnvironmentName = Environments.Development,
@@ -51,7 +61,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
 
         var application = builder.Build();
-        application.MapPost("/", context => HandleRequestAsync(context, performers, scenes, fingerprintSyncVideos));
+        application.MapPost("/", context => HandleRequestAsync(context, performers, scenes, fingerprintSyncVideos, submissions));
 
         try
         {
@@ -64,7 +74,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             var address = addresses?.SingleOrDefault()
                 ?? throw new InvalidOperationException("The metadata-service simulator did not publish a listening address.");
 
-            return new MetadataServiceSimulator(application, performers, scenes, fingerprintSyncVideos, new Uri(address));
+            return new MetadataServiceSimulator(application, performers, scenes, fingerprintSyncVideos, submissions, new Uri(address));
         }
         catch
         {
@@ -123,6 +133,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         _performers.Clear();
         _scenes.Clear();
         _fingerprintSyncVideos.Clear();
+        _submissions.Reset();
     }
 
     public async ValueTask DisposeAsync()
@@ -135,7 +146,8 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         HttpContext context,
         ConcurrentDictionary<string, MetadataServicePerformer> performers,
         ConcurrentDictionary<string, MetadataServiceScene> scenes,
-        ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> fingerprintSyncVideos)
+        ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> fingerprintSyncVideos,
+        MetadataServiceSubmissionLog submissions)
     {
         if (!string.Equals(context.Request.Headers["ApiKey"], ApiKey, StringComparison.Ordinal))
         {
@@ -178,6 +190,13 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             return;
         }
 
+        if (request.Query.Contains("query SearchVideo", StringComparison.Ordinal)
+            && request.Query.Contains("searchVideo: searchScene(term: $term)", StringComparison.Ordinal))
+        {
+            await HandleVideoSearchAsync(context, request, scenes);
+            return;
+        }
+
         if (request.Query.Contains("query FindVideosByVideoFingerprints", StringComparison.Ordinal))
         {
             if (!request.Query.Contains("findVideosByVideoFingerprints: findScenesBySceneFingerprints", StringComparison.Ordinal)
@@ -209,6 +228,20 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             return;
         }
 
+        if (request.Query.Contains("mutation SubmitFingerprint", StringComparison.Ordinal)
+            && request.Query.Contains("submitFingerprint(input: $input)", StringComparison.Ordinal))
+        {
+            await HandleFingerprintSubmissionAsync(context, request, submissions);
+            return;
+        }
+
+        if (request.Query.Contains("mutation SubmitSceneDraft", StringComparison.Ordinal)
+            && request.Query.Contains("submitSceneDraft(input: $input)", StringComparison.Ordinal))
+        {
+            await HandleSceneDraftSubmissionAsync(context, request, submissions);
+            return;
+        }
+
         if (!request.Query.Contains("query FindVideoByID", StringComparison.Ordinal)
             || !request.Query.Contains("findVideo: findScene(id: $id)", StringComparison.Ordinal)
             || !request.Query.Contains("tags {", StringComparison.Ordinal))
@@ -231,6 +264,69 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
 
         await context.Response.WriteAsJsonAsync(
             new { data = new { findVideo = remoteScene } },
+            ApiJson.Options,
+            context.RequestAborted);
+    }
+
+    private static async Task HandleVideoSearchAsync(
+        HttpContext context,
+        GraphQlRequest request,
+        ConcurrentDictionary<string, MetadataServiceScene> scenes)
+    {
+        if (!request.Variables.TryGetProperty("term", out var termProperty)
+            || string.IsNullOrWhiteSpace(termProperty.GetString()))
+        {
+            await WriteGraphQlErrorAsync(context, "SearchVideo requires a term variable.");
+            return;
+        }
+
+        var term = termProperty.GetString()!;
+        var matches = scenes.Values
+            .Where(scene => scene.Title.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(scene => scene.Title, StringComparer.OrdinalIgnoreCase)
+            .Select(ToRemoteScene)
+            .ToArray();
+
+        await context.Response.WriteAsJsonAsync(
+            new { data = new { searchVideo = matches } },
+            ApiJson.Options,
+            context.RequestAborted);
+    }
+
+    private static async Task HandleFingerprintSubmissionAsync(
+        HttpContext context,
+        GraphQlRequest request,
+        MetadataServiceSubmissionLog submissions)
+    {
+        if (!request.Variables.TryGetProperty("input", out var input)
+            || input.ValueKind != JsonValueKind.Object)
+        {
+            await WriteGraphQlErrorAsync(context, "SubmitFingerprint requires an input object.");
+            return;
+        }
+
+        submissions.RecordFingerprint(input);
+        await context.Response.WriteAsJsonAsync(
+            new { data = new { submitFingerprint = true } },
+            ApiJson.Options,
+            context.RequestAborted);
+    }
+
+    private static async Task HandleSceneDraftSubmissionAsync(
+        HttpContext context,
+        GraphQlRequest request,
+        MetadataServiceSubmissionLog submissions)
+    {
+        if (!request.Variables.TryGetProperty("input", out var input)
+            || input.ValueKind != JsonValueKind.Object)
+        {
+            await WriteGraphQlErrorAsync(context, "SubmitSceneDraft requires an input object.");
+            return;
+        }
+
+        var submission = submissions.RecordSceneDraft(input);
+        await context.Response.WriteAsJsonAsync(
+            new { data = new { submitSceneDraft = new { id = submission.DraftId } } },
             ApiJson.Options,
             context.RequestAborted);
     }
@@ -432,6 +528,38 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             ApiJson.Options,
             context.RequestAborted);
 
+    private sealed class MetadataServiceSubmissionLog
+    {
+        private readonly ConcurrentQueue<MetadataServiceFingerprintSubmission> _fingerprintSubmissions = new();
+        private readonly ConcurrentQueue<MetadataServiceSceneDraftSubmission> _sceneDraftSubmissions = new();
+        private int _nextDraftNumber;
+
+        public IReadOnlyList<MetadataServiceFingerprintSubmission> FingerprintSubmissions
+            => _fingerprintSubmissions.ToArray();
+
+        public IReadOnlyList<MetadataServiceSceneDraftSubmission> SceneDraftSubmissions
+            => _sceneDraftSubmissions.ToArray();
+
+        public void RecordFingerprint(JsonElement input)
+            => _fingerprintSubmissions.Enqueue(new MetadataServiceFingerprintSubmission(input.Clone()));
+
+        public MetadataServiceSceneDraftSubmission RecordSceneDraft(JsonElement input)
+        {
+            var submission = new MetadataServiceSceneDraftSubmission(
+                $"draft-{Interlocked.Increment(ref _nextDraftNumber)}",
+                input.Clone());
+            _sceneDraftSubmissions.Enqueue(submission);
+            return submission;
+        }
+
+        public void Reset()
+        {
+            _fingerprintSubmissions.Clear();
+            _sceneDraftSubmissions.Clear();
+            Interlocked.Exchange(ref _nextDraftNumber, 0);
+        }
+    }
+
     private sealed record GraphQlRequest(string Query, JsonElement Variables);
 }
 
@@ -455,6 +583,10 @@ public sealed record MetadataServiceFingerprint(string Algorithm, string Hash, i
 public sealed record MetadataServiceFingerprintSourceVideo(IReadOnlyList<MetadataServiceFingerprintSourceEntry> Fingerprints);
 
 public sealed record MetadataServiceFingerprintSourceEntry(string Type, string Value);
+
+public sealed record MetadataServiceFingerprintSubmission(JsonElement Input);
+
+public sealed record MetadataServiceSceneDraftSubmission(string DraftId, JsonElement Input);
 
 public sealed record MetadataServicePerformer(
     string Id,

@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 384;
+    public const int ExpectedMappedEndpoints = 389;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 120;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 115;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -55,7 +55,6 @@ public static class EndpointCoverageProgress
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/ffmpeg-capabilities
         GET /api/tags/{id:int}/metadata-server/search
-        GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{videoid:int}/detections/{id:int}
         POST /api/ai-data/purge
         POST /api/apitokens
@@ -121,13 +120,9 @@ public static class EndpointCoverageProgress
         POST /api/tags/merge
         POST /api/tags/{id:int}/metadata-server/import
         POST /api/tags/{id:int}/metadata-server/submit-draft
-        POST /api/videos/metadata-server/find-by-ids
         POST /api/videos/{id:int}/activity/reset
         POST /api/videos/{id:int}/cover/from-frame
         POST /api/videos/{id:int}/generate-screenshot
-        POST /api/videos/{id:int}/metadata-server/import
-        POST /api/videos/{id:int}/metadata-server/submit-draft
-        POST /api/videos/{id:int}/metadata-server/submit-fingerprints
         POST /api/videos/{id:int}/play
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rescan
