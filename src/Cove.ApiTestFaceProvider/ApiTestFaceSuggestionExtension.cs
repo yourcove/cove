@@ -24,7 +24,10 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
             RecordParametersJobId,
             "Record API test parameters",
             "Records deterministic API-test parameters and progress in extension state.",
-            SupportsParameters: true),
+            SupportsParameters: true)
+        {
+            ShowInTaskList = true,
+        },
     ];
 
     private IExtensionStore? _store;
@@ -37,6 +40,12 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
     public override Task InitializeAsync(IServiceProvider services, CancellationToken ct = default)
     {
         PublishContributions<IFaceSuggester>(services);
+        return Task.CompletedTask;
+    }
+
+    public override Task ShutdownAsync(CancellationToken ct = default)
+    {
+        _store = null;
         return Task.CompletedTask;
     }
 

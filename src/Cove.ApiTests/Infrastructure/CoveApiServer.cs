@@ -377,6 +377,8 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         startInfo.Environment["COVE__CovePaths__0__Path"] = libraryPath;
         startInfo.Environment["COVE__ExtensionPaths__0"] = Path.Combine(dataRoot, "plugins");
         startInfo.Environment["COVE__ApiTestFaceSuggestions__PlanPath"] = faceSuggestionPlanPath;
+        startInfo.Environment[
+            "COVE__PluginConfigurations__com.cove.api-test-face-provider__apiTestBaseline"] = "preserved";
         startInfo.Environment["COVE__GeneratedPath"] = Path.Combine(dataRoot, "generated");
         startInfo.Environment["COVE__IntegrationTestResetToken"] = resetToken;
         startInfo.Environment["COVE__Postgres__ConnectionString"] = connectionString;

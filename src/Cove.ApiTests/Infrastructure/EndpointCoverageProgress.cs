@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 389;
+    public const int ExpectedMappedEndpoints = 395;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 115;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 109;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -41,8 +41,6 @@ public static class EndpointCoverageProgress
         GET /api/jobs/backup/latest
         GET /api/jobs/history
         GET /api/performers/{id:int}/metadata-server/search
-        GET /api/plugins/tasks
-        GET /api/plugins/{pluginid}/config
         GET /api/scrape-attempts/{id:guid}
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/image/{imageid:int}/thumbnail
@@ -97,10 +95,6 @@ public static class EndpointCoverageProgress
         POST /api/performers/{id:int}/scrape
         POST /api/performers/{id:int}/scrape-preview
         POST /api/performers/{id:int}/scrape-url
-        POST /api/plugins/reload
-        POST /api/plugins/run-task
-        POST /api/plugins/settings
-        POST /api/plugins/{pluginid}/config
         POST /api/scrape-attempts
         POST /api/scrape-attempts/resolve-relations
         POST /api/scrape-attempts/{id:guid}/apply
