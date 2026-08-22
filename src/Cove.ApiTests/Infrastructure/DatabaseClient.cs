@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Cove.Core.Entities;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
@@ -365,7 +366,7 @@ public sealed class DatabaseClient
         return appearance.Id;
     }
 
-    public async Task CreateCompletedAiRunAsync(
+    public async Task<int> CreateCompletedAiRunAsync(
         string runKey,
         AiRunTargetType targetType,
         int targetId,
@@ -380,7 +381,7 @@ public sealed class DatabaseClient
             .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
             .Options;
         await using var db = new CoveContext(options);
-        db.AiRuns.Add(new AiRun
+        var run = new AiRun
         {
             RunKey = runKey,
             SourceKey = "api-test",
@@ -389,15 +390,23 @@ public sealed class DatabaseClient
             Status = AiRunStatus.Completed,
             StartedAt = startedAt.ToUniversalTime(),
             CompletedAt = completedAt.ToUniversalTime(),
-        });
+        };
+        db.AiRuns.Add(run);
         await db.SaveChangesAsync(cancellationToken);
+        return run.Id;
     }
 
     public async Task<int> CreateFaceEmbeddingAsync(
         int faceId,
         IReadOnlyCollection<float> values,
         string kindFamily,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string sourceKey = "api-test",
+        string? sourceRunId = null,
+        int sectionIndex = 0,
+        double? startSec = null,
+        double? endSec = null,
+        string? metaJson = null)
     {
         if (values.Count == 0)
             throw new ArgumentException("A face embedding must contain at least one value.", nameof(values));
@@ -417,7 +426,12 @@ public sealed class DatabaseClient
             IsSemantic = true,
             Dim = vector.Length,
             Vector = new Vector(vector),
-            SourceKey = "api-test",
+            SectionIndex = sectionIndex,
+            StartSec = startSec,
+            EndSec = endSec,
+            SourceKey = sourceKey,
+            SourceRunId = sourceRunId,
+            Meta = metaJson is null ? null : JsonDocument.Parse(metaJson),
         };
         db.Embeddings.Add(embedding);
         await db.SaveChangesAsync(cancellationToken);

@@ -25,13 +25,15 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
     private readonly CoveConfiguration _config;
     private readonly IPermissionRegistry _registry;
     private readonly ILogger<TokenService> _log;
+    private readonly IAuditService? _audit;
 
-    public TokenService(CoveContext db, CoveConfiguration config, IPermissionRegistry registry, ILogger<TokenService> log)
+    public TokenService(CoveContext db, CoveConfiguration config, IPermissionRegistry registry, ILogger<TokenService> log, IAuditService? audit = null)
     {
         _db = db;
         _config = config;
         _registry = registry;
         _log = log;
+        _audit = audit;
     }
 
     public async Task<TokenPair> IssueForUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
@@ -604,9 +606,17 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
 
     public async Task RevokeApiTokenAsync(Guid id, CovePrincipal? actor, CancellationToken ct = default)
     {
-        await _db.ApiTokens
-            .Where(t => t.Id == id && t.RevokedAt == null)
+        if (actor?.UserId is not int userId)
+            return;
+
+        var affectedRows = await _db.ApiTokens
+            .Where(t => t.Id == id && t.UserId == userId && t.RevokedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, DateTime.UtcNow), ct);
+        if (affectedRows > 0 && _audit is not null)
+        {
+            await _audit.LogAsync(AuditActions.ApiTokenRevoke, AuditOutcomes.Success, actor,
+                "api_token", id.ToString(), null, ct);
+        }
     }
 
     public async Task<IReadOnlyList<ApiTokenDto>> ListApiTokensAsync(int userId, CancellationToken ct = default)

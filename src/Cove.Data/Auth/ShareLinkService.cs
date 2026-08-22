@@ -97,9 +97,15 @@ public sealed class ShareLinkService : IShareLinkService
 
     public async Task RevokeAsync(Guid id, CovePrincipal? actor, CancellationToken ct = default)
     {
+        if (actor?.UserId is not int userId)
+            return;
+
         var now = DateTime.UtcNow;
+        var canManageAll = actor.Has(Permissions.UsersRead);
         var affectedRows = await _db.ShareLinks
-            .Where(link => link.Id == id && link.RevokedAt == null)
+            .Where(link => link.Id == id
+                && link.RevokedAt == null
+                && (link.CreatedByUserId == userId || canManageAll))
             .ExecuteUpdateAsync(setters => setters.SetProperty(link => link.RevokedAt, now), ct);
 
         if (affectedRows > 0)
