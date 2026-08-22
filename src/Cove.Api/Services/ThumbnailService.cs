@@ -388,10 +388,12 @@ public class ThumbnailService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
-        return await db.ImageFiles
+        return await db.Images
+            .Where(image => image.Id == imageId)
+            .SelectMany(image => image.Files)
             .Include(f => f.ParentFolder)
             .AsNoTracking()
-            .FirstOrDefaultAsync(f => f.ImageId == imageId, ct);
+            .FirstOrDefaultAsync(ct);
     }
 
     private async Task<(Stream stream, string contentType, bool supportsRangeRequests)?> OpenImageSourceStreamAsync(ImageFile imageFile, CancellationToken ct)
