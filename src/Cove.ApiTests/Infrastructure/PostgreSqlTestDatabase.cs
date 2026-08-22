@@ -1,3 +1,5 @@
+using Cove.Data;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -5,6 +7,23 @@ namespace Cove.ApiTests.Infrastructure;
 internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
 {
     private const string ConnectionStringEnvironmentVariable = "COVE_API_TEST_PG_ADMIN_CONNECTION_STRING";
+
+    /// <summary>
+    /// Name of the database holding the migrated schema that every test database is cloned from.
+    /// </summary>
+    /// <remarks>
+    /// Fixed rather than unique per run so that at most one of these ever exists on the server: a
+    /// per-run name would leave one behind for every run that did not shut down cleanly.
+    /// </remarks>
+    private const string TemplateDatabaseName = "cove_api_test_template";
+
+    /// <summary>
+    /// Serializes template setup so the schema is built exactly once, since lanes start concurrently.
+    /// </summary>
+    private static readonly SemaphoreSlim TemplateGate = new(1, 1);
+
+    private static bool _templateReady;
+
     private readonly string _adminConnectionString;
     private bool _disposed;
 
@@ -28,19 +47,44 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
         var databaseName = $"cove_api_test_{Guid.NewGuid():N}";
         var admin = LoadAdminConnectionString();
 
+        // Clone the migrated template instead of handing the host an empty database to migrate. The
+        // schema is built once per run; every database after that is a copy.
+        await TemplateGate.WaitAsync(cancellationToken);
         try
         {
-            await using var connection = new NpgsqlConnection(admin);
-            await connection.OpenAsync(cancellationToken);
-            await using var command = connection.CreateCommand();
-            command.CommandText = $"CREATE DATABASE {QuoteIdentifier(databaseName)}";
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            if (!_templateReady)
+            {
+                try
+                {
+                    await BuildTemplateAsync(admin, cancellationToken);
+                }
+                catch (Exception exception)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not build the API-test schema template. Fluent API tests require a reachable PostgreSQL server and a test account that can create databases (configure {ConnectionStringEnvironmentVariable} or the COVE_API_TEST_PG_* variables), and the migrations must apply cleanly to an empty database.",
+                        exception);
+                }
+
+                _templateReady = true;
+            }
+
+            try
+            {
+                await ExecuteAdminAsync(
+                    admin,
+                    $"CREATE DATABASE {QuoteIdentifier(databaseName)} TEMPLATE {QuoteIdentifier(TemplateDatabaseName)}",
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException(
+                    $"Could not clone the API-test schema template {TemplateDatabaseName}. PostgreSQL refuses to copy a database while another session is connected to it, so this points at a session that outlived its test rather than at the server itself.",
+                    exception);
+            }
         }
-        catch (Exception exception)
+        finally
         {
-            throw new InvalidOperationException(
-                $"Fluent API tests require a reachable PostgreSQL server and a test account that can create databases. Configure {ConnectionStringEnvironmentVariable} or the COVE_API_TEST_PG_* variables.",
-                exception);
+            TemplateGate.Release();
         }
 
         var databaseBuilder = new NpgsqlConnectionStringBuilder(admin)
@@ -70,6 +114,71 @@ internal sealed class PostgreSqlTestDatabase : IAsyncDisposable
         await using var command = connection.CreateCommand();
         command.CommandText = $"DROP DATABASE IF EXISTS {QuoteIdentifier(DatabaseName)} WITH (FORCE)";
         await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// Applies the migrations to a fresh template database, then leaves no session connected to it.
+    /// </summary>
+    /// <remarks>
+    /// Migrating here rather than letting the host do it on startup is the whole point: the baseline
+    /// migration issues a great many statements, and it used to be paid once per test database.
+    /// The host still runs its own startup checks against each clone, finds the schema current, and
+    /// continues.
+    /// </remarks>
+    private static async Task BuildTemplateAsync(string admin, CancellationToken cancellationToken)
+    {
+        // Rebuilt every run, so a schema change can never be served from a stale template.
+        await ExecuteAdminAsync(
+            admin,
+            $"DROP DATABASE IF EXISTS {QuoteIdentifier(TemplateDatabaseName)} WITH (FORCE)",
+            cancellationToken);
+        await ExecuteAdminAsync(
+            admin,
+            $"CREATE DATABASE {QuoteIdentifier(TemplateDatabaseName)}",
+            cancellationToken);
+
+        // Pooling off so this connection cannot outlive the migration: a pooled one would still be
+        // attached to the template and CREATE DATABASE ... TEMPLATE would refuse to read it.
+        var templateConnectionString = new NpgsqlConnectionStringBuilder(admin)
+        {
+            Database = TemplateDatabaseName,
+            Pooling = false,
+            IncludeErrorDetail = true,
+            ApplicationName = "Cove.ApiTests.Template",
+            CommandTimeout = 600,
+            Timeout = 15,
+        }.ConnectionString;
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(templateConnectionString, npgsqlOptions => npgsqlOptions.UseVector())
+            .Options;
+
+        await using (var context = new CoveContext(options))
+            await context.Database.MigrateAsync(cancellationToken);
+
+        await using (var templateConnection = new NpgsqlConnection(templateConnectionString))
+            NpgsqlConnection.ClearPool(templateConnection);
+
+        // Refuse further connections, the way PostgreSQL keeps template0 safe to copy.
+        // CREATE DATABASE fails if any session is attached to the source, and this makes it
+        // impossible for one to attach once the schema is built. It does not evict a session that is
+        // already attached, which is why the migration connection is closed above rather than after.
+        await ExecuteAdminAsync(
+            admin,
+            $"ALTER DATABASE {QuoteIdentifier(TemplateDatabaseName)} WITH ALLOW_CONNECTIONS false",
+            cancellationToken);
+    }
+
+    private static async Task ExecuteAdminAsync(
+        string admin,
+        string commandText,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(admin);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = commandText;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static string LoadAdminConnectionString()
