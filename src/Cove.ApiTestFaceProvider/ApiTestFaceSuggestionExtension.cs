@@ -17,6 +17,10 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
     public const string RecordParametersJobId = "record-parameters";
     public const string JobParametersStoreKey = "api-test.job.parameters";
     public const string JobProgressStoreKey = "api-test.job.progress";
+    public const string FailInitializationStoreKey = "api-test.initialize.fail";
+    public const string CaptureInstallCountParameter = "capture-install-count";
+    public const string ExpectedInstallCountParameter = "expected-install-count";
+    public const string InstallCountStoreKey = "api-test.install-count";
 
     private static readonly IReadOnlyList<ExtensionJobDefinition> JobDefinitions =
     [
@@ -31,15 +35,30 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
     ];
 
     private IExtensionStore? _store;
+    private int _installCount;
 
     public IReadOnlyList<ExtensionJobDefinition> Jobs => JobDefinitions;
 
     public override void ConfigureServices(IServiceCollection services, Cove.Plugins.ExtensionContext context)
         => services.AddSingleton<IFaceSuggester, PlannedFaceSuggester>();
 
-    public override Task InitializeAsync(IServiceProvider services, CancellationToken ct = default)
+    public override async Task InitializeAsync(IServiceProvider services, CancellationToken ct = default)
     {
+        if (_store != null
+            && string.Equals(
+                await _store.GetAsync(FailInitializationStoreKey, ct),
+                "true",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("API-test extension initialization failure requested.");
+        }
+
         PublishContributions<IFaceSuggester>(services);
+    }
+
+    public override Task OnInstallAsync(IServiceProvider services, CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _installCount);
         return Task.CompletedTask;
     }
 
@@ -61,6 +80,14 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
         if (!string.Equals(jobId, RecordParametersJobId, StringComparison.Ordinal))
             throw new InvalidOperationException($"Unknown API-test extension job '{jobId}'.");
 
+        if (parameters?.TryGetValue(ExpectedInstallCountParameter, out var expectedInstallCountText) == true
+            && int.TryParse(expectedInstallCountText, out var expectedInstallCount)
+            && Volatile.Read(ref _installCount) != expectedInstallCount)
+        {
+            throw new InvalidOperationException(
+                $"Expected install count {expectedInstallCount}, but found {Volatile.Read(ref _installCount)}.");
+        }
+
         var store = _store ?? throw new InvalidOperationException("Extension store has not been initialized.");
         var orderedParameters = (parameters ?? new Dictionary<string, string>())
             .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
@@ -69,6 +96,8 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
         progress.Report(0.25, "Recording API test parameters");
         await store.SetAsync(JobParametersStoreKey, JsonSerializer.Serialize(orderedParameters), ct);
         await store.SetAsync(JobProgressStoreKey, "0.25|Recording API test parameters", ct);
+        if (parameters?.ContainsKey(CaptureInstallCountParameter) == true)
+            await store.SetAsync(InstallCountStoreKey, Volatile.Read(ref _installCount).ToString(), ct);
 
         progress.Report(1, "API test parameters recorded");
         await store.SetAsync(JobProgressStoreKey, "1|API test parameters recorded", ct);

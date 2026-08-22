@@ -17,6 +17,10 @@ public sealed class LegacyPluginsApiTests(
     private const string BaselineConfigKey = "apiTestBaseline";
     private const string JobParametersStoreKey = "api-test.job.parameters";
     private const string JobProgressStoreKey = "api-test.job.progress";
+    private const string FailInitializationStoreKey = "api-test.initialize.fail";
+    private const string CaptureInstallCountParameter = "capture-install-count";
+    private const string ExpectedInstallCountParameter = "expected-install-count";
+    private const string InstallCountStoreKey = "api-test.install-count";
 
     [Fact]
     [CoversEndpoint("GET", "/api/plugins/tasks")]
@@ -72,6 +76,7 @@ public sealed class LegacyPluginsApiTests(
                 {
                     ["beta"] = "two words",
                     ["alpha"] = "one",
+                    [CaptureInstallCountParameter] = "true",
                 }));
             var completed = await owner.WaitForTerminalJobAsync(started.JobId);
             completed.Status.Should().Be(JobStatus.Completed);
@@ -79,9 +84,10 @@ public sealed class LegacyPluginsApiTests(
             completed.Error.Should().BeNull();
             var stateAfterRun = await owner.GetExtensionDataAsync(ExtensionId);
             stateAfterRun.Should().ContainKey(JobParametersStoreKey)
-                .WhoseValue.Should().Be("{\"alpha\":\"one\",\"beta\":\"two words\"}");
+                .WhoseValue.Should().Be("{\"alpha\":\"one\",\"beta\":\"two words\",\"capture-install-count\":\"true\"}");
             stateAfterRun.Should().ContainKey(JobProgressStoreKey)
                 .WhoseValue.Should().Be("1|API test parameters recorded");
+            var installCount = stateAfterRun.Should().ContainKey(InstallCountStoreKey).WhoseValue;
 
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = false }));
             AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: false);
@@ -93,14 +99,18 @@ public sealed class LegacyPluginsApiTests(
             var postEnableRun = await owner.RunLegacyPluginTaskAsync(new RunPluginTaskDto(
                 ExtensionId,
                 TaskId,
-                new Dictionary<string, string> { ["phase"] = "after re-enable" }));
+                new Dictionary<string, string>
+                {
+                    ["phase"] = "after re-enable",
+                    [ExpectedInstallCountParameter] = installCount,
+                }));
             var postEnableJob = await owner.WaitForTerminalJobAsync(postEnableRun.JobId);
             postEnableJob.Status.Should().Be(JobStatus.Completed);
             postEnableJob.Type.Should().Be($"plugin:{ExtensionId}");
             postEnableJob.Error.Should().BeNull();
             var stateAfterEnable = await owner.GetExtensionDataAsync(ExtensionId);
             stateAfterEnable.Should().ContainKey(JobParametersStoreKey)
-                .WhoseValue.Should().Be("{\"phase\":\"after re-enable\"}");
+                .WhoseValue.Should().Be($"{{\"expected-install-count\":\"{installCount}\",\"phase\":\"after re-enable\"}}");
             stateAfterEnable.Should().ContainKey(JobProgressStoreKey)
                 .WhoseValue.Should().Be("1|API test parameters recorded");
 
@@ -236,6 +246,38 @@ public sealed class LegacyPluginsApiTests(
 
             if (cleanupErrors.Count > 0)
                 throw new AggregateException("Disabled legacy plugin test cleanup failed.", cleanupErrors);
+        }
+    }
+
+    [Fact]
+    public async Task GivenDisabledJobExtension_WhenReinitializationFails_ThenItRemainsDisabledAndNoTaskCanRun()
+    {
+        var owner = AsUser();
+
+        try
+        {
+            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "true");
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool> { [ExtensionId] = false }));
+
+            var reEnable = () => owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool> { [ExtensionId] = true }));
+
+            await reEnable.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*returned 409 (Conflict)*");
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: false);
+            (await owner.TryRunLegacyPluginTaskAsync(new RunPluginTaskDto(
+                    ExtensionId,
+                    TaskId,
+                    new Dictionary<string, string> { ["phase"] = "failed initialization" })))
+                .Should().Be(HttpStatusCode.Conflict);
+        }
+        finally
+        {
+            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "false");
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool> { [ExtensionId] = true }));
+            await owner.ReloadLegacyPluginsAsync();
         }
     }
 
