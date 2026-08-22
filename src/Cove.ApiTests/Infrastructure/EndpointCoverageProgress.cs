@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 451;
+    public const int ExpectedMappedEndpoints = 468;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 53;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 36;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -18,7 +18,6 @@ public static class EndpointCoverageProgress
 
     private const string TemporaryUnmappedEndpointText = """
         DELETE /api/auth/external/links/{linkid:int}
-        DELETE /api/jobs/{jobid}
         DELETE /api/tags/{id:int}
         DELETE /api/users/{id:int}/external-links/{linkid:int}
         DELETE /api/videos/{id:int}/play
@@ -29,37 +28,23 @@ public static class EndpointCoverageProgress
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/faces/capabilities
         GET /api/faces/{id:int}/host-tracks
-        GET /api/jobs/backup/latest
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
         GET /api/stream/video/{videoid:int}/transcode
-        GET /api/system/ffmpeg-capabilities
         POST /api/auth/bootstrap-owner
         POST /api/auth/external/links/cancel
         POST /api/auth/external/links/confirm
         POST /api/auth/external/links/preview
         POST /api/auth/external/redeem
         POST /api/auth/setup-token-redeem
-        POST /api/database/backup
-        POST /api/database/config/backup
-        POST /api/database/config/restore
-        POST /api/database/migrate
-        POST /api/database/optimize
-        POST /api/database/restore
         POST /api/database/wipe
         POST /api/extensions/registry/install
         POST /api/faces/{id:int}/not-present
         POST /api/faces/{id:int}/split
         POST /api/files/folders/{id:int}/reveal
         POST /api/files/{id:int}/reveal
-        POST /api/jobs/backup
-        POST /api/performers/{id:int}/scrape
-        POST /api/performers/{id:int}/scrape-preview
-        POST /api/performers/{id:int}/scrape-url
         POST /api/stash-migration/import
         POST /api/system/config/ui
-        POST /api/system/scrapers/scrape-fragment
-        POST /api/system/scrapers/scrape-name
         POST /api/system/shutdown
         POST /api/tags/merge
         POST /api/videos/{id:int}/cover/from-frame
@@ -67,8 +52,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/play
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rescan
-        PUT /api/jobs/{jobid}/reorder
-        PUT /api/system/config
         PUT /api/system/config/ui/{key}
         """;
 }

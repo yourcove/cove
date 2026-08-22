@@ -23,6 +23,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     private readonly ConcurrentDictionary<string, MetadataServiceScene> _scenes;
     private readonly ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> _fingerprintSyncVideos;
     private readonly MetadataServiceSubmissionLog _submissions;
+    private readonly MetadataServiceRequestBlocker _requestBlocker;
 
     private MetadataServiceSimulator(
         WebApplication application,
@@ -32,6 +33,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         ConcurrentDictionary<string, MetadataServiceScene> scenes,
         ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> fingerprintSyncVideos,
         MetadataServiceSubmissionLog submissions,
+        MetadataServiceRequestBlocker requestBlocker,
         Uri endpoint)
     {
         _application = application;
@@ -41,6 +43,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         _scenes = scenes;
         _fingerprintSyncVideos = fingerprintSyncVideos;
         _submissions = submissions;
+        _requestBlocker = requestBlocker;
         Endpoint = endpoint;
     }
 
@@ -70,6 +73,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         var scenes = new ConcurrentDictionary<string, MetadataServiceScene>(StringComparer.Ordinal);
         var fingerprintSyncVideos = new ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo>();
         var submissions = new MetadataServiceSubmissionLog();
+        var requestBlocker = new MetadataServiceRequestBlocker();
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
         {
             EnvironmentName = Environments.Development,
@@ -85,7 +89,8 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             tags,
             scenes,
             fingerprintSyncVideos,
-            submissions));
+            submissions,
+            requestBlocker));
 
         try
         {
@@ -106,6 +111,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
                 scenes,
                 fingerprintSyncVideos,
                 submissions,
+                requestBlocker,
                 new Uri(address));
         }
         catch
@@ -182,6 +188,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
 
     internal void Reset()
     {
+        _requestBlocker.Release();
         _performers.Clear();
         _studios.Clear();
         _tags.Clear();
@@ -190,8 +197,15 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         _submissions.Reset();
     }
 
+    internal MetadataServiceRequestGate HoldNextRequestContaining(string queryMarker)
+        => _requestBlocker.HoldNext(queryMarker);
+
+    internal void ReleaseBlockedRequests()
+        => _requestBlocker.Release();
+
     public async ValueTask DisposeAsync()
     {
+        _requestBlocker.Release();
         await _application.StopAsync();
         await _application.DisposeAsync();
     }
@@ -203,7 +217,8 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         ConcurrentDictionary<string, MetadataServiceRemoteTag> tags,
         ConcurrentDictionary<string, MetadataServiceScene> scenes,
         ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> fingerprintSyncVideos,
-        MetadataServiceSubmissionLog submissions)
+        MetadataServiceSubmissionLog submissions,
+        MetadataServiceRequestBlocker requestBlocker)
     {
         if (!string.Equals(context.Request.Headers["ApiKey"], ApiKey, StringComparison.Ordinal))
         {
@@ -220,6 +235,8 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             await WriteGraphQlErrorAsync(context, "The simulator requires a GraphQL request.");
             return;
         }
+
+        await requestBlocker.WaitIfMatchedAsync(request.Query, context.RequestAborted);
 
         if (request.Query.Contains("query Me", StringComparison.Ordinal)
             && request.Query.Contains("me", StringComparison.Ordinal)
@@ -805,7 +822,102 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         }
     }
 
+    private sealed class MetadataServiceRequestBlocker
+    {
+        private readonly object _lock = new();
+        private MetadataServiceRequestGate? _gate;
+
+        public MetadataServiceRequestGate HoldNext(string queryMarker)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(queryMarker);
+
+            lock (_lock)
+            {
+                if (_gate is { IsReleased: false })
+                    throw new InvalidOperationException("A metadata-service request gate is already active.");
+
+                _gate = new MetadataServiceRequestGate(queryMarker);
+                return _gate;
+            }
+        }
+
+        public async Task WaitIfMatchedAsync(string query, CancellationToken cancellationToken)
+        {
+            MetadataServiceRequestGate? gate;
+            lock (_lock)
+                gate = _gate;
+
+            if (gate?.TryConsume(query) == true)
+                await gate.WaitForReleaseAsync(cancellationToken);
+        }
+
+        public void Release()
+        {
+            MetadataServiceRequestGate? gate;
+            lock (_lock)
+            {
+                gate = _gate;
+                _gate = null;
+            }
+
+            gate?.Release();
+        }
+    }
+
     private sealed record GraphQlRequest(string Query, JsonElement Variables);
+}
+
+internal sealed class MetadataServiceRequestGate : IDisposable
+{
+    private readonly string _queryMarker;
+    private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _consumed;
+    private int _isReleased;
+
+    internal MetadataServiceRequestGate(string queryMarker)
+        => _queryMarker = queryMarker;
+
+    internal bool IsReleased => Volatile.Read(ref _isReleased) != 0;
+
+    public async Task WaitUntilBlockedAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            await _reached.Task.WaitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"No metadata-service GraphQL request containing '{_queryMarker}' arrived within 10 seconds.");
+        }
+    }
+
+    public void Release()
+    {
+        Interlocked.Exchange(ref _isReleased, 1);
+        _released.TrySetResult();
+    }
+
+    public void Dispose()
+        => Release();
+
+    internal bool TryConsume(string query)
+    {
+        if (!query.Contains(_queryMarker, StringComparison.Ordinal)
+            || Interlocked.CompareExchange(ref _consumed, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        _reached.TrySetResult();
+        return true;
+    }
+
+    internal Task WaitForReleaseAsync(CancellationToken cancellationToken)
+        => _released.Task.WaitAsync(cancellationToken);
 }
 
 public sealed record MetadataServiceScene(string Id, string Title, IReadOnlyList<MetadataServiceTag> Tags)

@@ -170,6 +170,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     public async Task<IReadOnlyDictionary<string, CoveClient>> ResetAsync(
         CancellationToken cancellationToken = default)
     {
+        _metadataService.ReleaseBlockedRequests();
         await ConfigureFaceSuggestionPlanAsync(
             new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>(),
             cancellationToken);
