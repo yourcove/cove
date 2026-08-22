@@ -37,6 +37,12 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
     private IExtensionStore? _store;
     private int _installCount;
 
+    public override IReadOnlyDictionary<string, string> Dependencies { get; } =
+        new Dictionary<string, string>
+        {
+            [ApiTestDependencyExtension.ExtensionId] = ">=1.0.0",
+        };
+
     public IReadOnlyList<ExtensionJobDefinition> Jobs => JobDefinitions;
 
     public override void ConfigureServices(IServiceCollection services, Cove.Plugins.ExtensionContext context)
@@ -101,6 +107,19 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
 
         progress.Report(1, "API test parameters recorded");
         await store.SetAsync(JobProgressStoreKey, "1|API test parameters recorded", ct);
+    }
+}
+
+public sealed class ApiTestDependencyExtension : CoveExtensionBase
+{
+    public const string ExtensionId = "com.cove.api-test-dependency";
+
+    public override string Id => ExtensionId;
+    public override string Name => "API Test Dependency";
+    public override string Version => "1.0.0";
+
+    public override void ConfigureServices(IServiceCollection services, Cove.Plugins.ExtensionContext context)
+    {
     }
 }
 

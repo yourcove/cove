@@ -13,6 +13,7 @@ public sealed class LegacyPluginsApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     private const string ExtensionId = "com.cove.api-test-face-provider";
+    private const string DependencyExtensionId = "com.cove.api-test-dependency";
     private const string TaskId = "record-parameters";
     private const string BaselineConfigKey = "apiTestBaseline";
     private const string JobParametersStoreKey = "api-test.job.parameters";
@@ -281,6 +282,49 @@ public sealed class LegacyPluginsApiTests(
         }
     }
 
+    [Fact]
+    public async Task GivenDependentLegacyPlugins_WhenEitherStateChanges_ThenTheWholeClosureIsReportedConsistently()
+    {
+        var owner = AsUser();
+
+        try
+        {
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool> { [DependencyExtensionId] = false }));
+
+            var disabledPlugins = await owner.GetLegacyPluginsAsync();
+            AssertPluginEnabled(disabledPlugins, ExtensionId, expected: false);
+            AssertPluginEnabled(disabledPlugins, DependencyExtensionId, expected: false);
+            (await owner.TryRunLegacyPluginTaskAsync(new RunPluginTaskDto(
+                    ExtensionId,
+                    TaskId,
+                    new Dictionary<string, string> { ["phase"] = "dependency disabled" })))
+                .Should().Be(HttpStatusCode.Conflict);
+
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool> { [ExtensionId] = true }));
+
+            var reEnabledPlugins = await owner.GetLegacyPluginsAsync();
+            AssertPluginEnabled(reEnabledPlugins, ExtensionId, expected: true);
+            AssertPluginEnabled(reEnabledPlugins, DependencyExtensionId, expected: true);
+            var reEnabledRun = await owner.RunLegacyPluginTaskAsync(new RunPluginTaskDto(
+                ExtensionId,
+                TaskId,
+                new Dictionary<string, string> { ["phase"] = "dependency re-enabled" }));
+            (await owner.WaitForTerminalJobAsync(reEnabledRun.JobId)).Status.Should().Be(JobStatus.Completed);
+        }
+        finally
+        {
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool>
+                {
+                    [DependencyExtensionId] = true,
+                    [ExtensionId] = true,
+                }));
+            await owner.ReloadLegacyPluginsAsync();
+        }
+    }
+
     private static Dictionary<string, object?> ToObjectDictionary(Dictionary<string, JsonElement> values)
         => values.ToDictionary(pair => pair.Key, pair => (object?)pair.Value.Clone());
 
@@ -312,4 +356,10 @@ public sealed class LegacyPluginsApiTests(
         plugin.Tasks.Single().Name.Should().Be(TaskId);
         plugin.Tasks.Single().Description.Should().Be("Record API test parameters");
     }
+
+    private static void AssertPluginEnabled(
+        IReadOnlyList<PluginDto> plugins,
+        string extensionId,
+        bool expected)
+        => plugins.Should().ContainSingle(item => item.Id == extensionId).Which.Enabled.Should().Be(expected);
 }
