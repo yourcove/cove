@@ -29,8 +29,7 @@ public sealed class StreamDeliveryApiTests(
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/hls/master.m3u8")]
     public async Task GivenVideoSourcesAndGeneratedAssets_WhenStreamRoutesAreRead_ThenBytesRangesCachesAndPlaylistAreExact()
     {
-        var owner = AsUser();
-        var video = await owner.CreateVideoAsync($"Stream delivery {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Stream delivery {Guid.NewGuid():N}");
         var sourceBytes = "api-test-video-source"u8.ToArray();
         var previewBytes = "api-test-preview"u8.ToArray();
         var screenshotBytes = await CreateImageAsync("jpeg", 12, 8);
@@ -46,9 +45,9 @@ public sealed class StreamDeliveryApiTests(
         fileSystem.CreateVideoSprite(video.Id, spriteBytes);
         fileSystem.CreateVideoSpriteVtt(video.Id, vtt);
         await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12);
-        await owner.UploadVideoImageAsync(video, customScreenshot);
+        await AsUser().UploadVideoImageAsync(video, customScreenshot);
 
-        using var client = owner.CreateHttpClient();
+        using var client = AsUser().CreateHttpClient();
         using var videoRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/video/{video.Id}");
         videoRequest.Headers.Range = new RangeHeaderValue(1, 4);
         using var videoResponse = await client.SendAsync(videoRequest);
@@ -111,7 +110,7 @@ public sealed class StreamDeliveryApiTests(
         vttResponse.Content.Headers.ContentType?.MediaType.Should().Be("text/vtt");
         vttResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
-        var propagatedQuery = $"access_token={Uri.EscapeDataString(owner.AccessToken)}";
+        var propagatedQuery = $"access_token={Uri.EscapeDataString(AsUser().AccessToken)}";
         using var hlsResponse = await client.GetAsync(
             $"/api/stream/video/{video.Id}/hls/master.m3u8?{propagatedQuery}&ignored=secret");
         var playlist = await hlsResponse.Content.ReadAsStringAsync();
@@ -131,9 +130,8 @@ public sealed class StreamDeliveryApiTests(
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/resolutions")]
     public async Task GivenVideoCaptionSidecarsAndCachedSegment_WhenEncoderFreeStreamRoutesAreRead_ThenVisibilityContentAndProfilesAreExact()
     {
-        var owner = AsUser();
-        var video = await owner.CreateVideoAsync($"Stream caption video {Guid.NewGuid():N}");
-        var otherVideo = await owner.CreateVideoAsync($"Other stream caption video {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Stream caption video {Guid.NewGuid():N}");
+        var otherVideo = await AsUser().CreateVideoAsync($"Other stream caption video {Guid.NewGuid():N}");
         var fileSystem = AsTestFileSystem();
         var sourcePath = fileSystem.CreateLibraryFile($"stream-caption-{video.Id}.mp4", "stream-caption-source"u8.ToArray());
         var vttFilename = $"stream-caption-{video.Id}.en.vtt";
@@ -151,15 +149,15 @@ public sealed class StreamDeliveryApiTests(
             Path.Combine("transcodes", "hls", video.Id.ToString(CultureInfo.InvariantCulture), segment),
             segmentBytes);
 
-        var memberRole = (await owner.GetRolesAsync())
+        var memberRole = (await AsUser().GetRolesAsync())
             .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
-        var readDeny = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+        var readDeny = await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.Video,
             video.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
             "read"));
-        using (var memberSession = await owner.CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
+        using (var memberSession = await AsUser().CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
         using (var memberClient = memberSession.Client.CreateHttpClient())
         {
             await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/captions", "application/json");
@@ -167,9 +165,9 @@ public sealed class StreamDeliveryApiTests(
             await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/hls/segment/{segment}", "video/mp2t");
             await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/resolutions", "application/json");
         }
-        await owner.DeleteEntityOverrideAsync(readDeny.Id);
+        await AsUser().DeleteEntityOverrideAsync(readDeny.Id);
 
-        using var client = owner.CreateHttpClient();
+        using var client = AsUser().CreateHttpClient();
         using var captionsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/captions");
         captionsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         captionsResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
@@ -229,8 +227,8 @@ public sealed class StreamDeliveryApiTests(
 
         var noPermissionUsername = $"stream-video-no-permission-{Guid.NewGuid():N}";
         const string noPermissionPassword = "Stream video password 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []));
-        using var noPermissionSession = await owner.CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword);
+        await AsUser().CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []));
+        using var noPermissionSession = await AsUser().CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword);
         using var noPermissionClient = noPermissionSession.Client.CreateHttpClient();
         using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/video/{video.Id}/captions");
         forbiddenResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -242,12 +240,11 @@ public sealed class StreamDeliveryApiTests(
     [CoversEndpoint("GET", "/api/stream/detection/{detectionid:int}/crop")]
     public async Task GivenImageSourceAndDetection_WhenStreamRoutesAreRead_ThenRangeAndDecodableCropAreReturned()
     {
-        var owner = AsUser();
-        var image = await owner.CreateImageAsync($"Stream image {Guid.NewGuid():N}");
+        var image = await AsUser().CreateImageAsync($"Stream image {Guid.NewGuid():N}");
         var imageBytes = await CreateImageAsync("png", 160, 120);
         var imagePath = AsTestFileSystem().CreateLibraryFile($"stream-{image.Id}.png", imageBytes);
         await AsDbUser().AttachStreamImageFileAsync(image.Id, imagePath, width: 160, height: 120);
-        var detection = await owner.CreateImageDetectionAsync(image, new DetectionCreateDto(
+        var detection = await AsUser().CreateImageDetectionAsync(image, new DetectionCreateDto(
             ObservedAtSec: null,
             FrameWidth: 160,
             FrameHeight: 120,
@@ -264,15 +261,15 @@ public sealed class StreamDeliveryApiTests(
             SourceKey: "api-test",
             SourceRunId: null));
 
-        var memberRole = (await owner.GetRolesAsync())
+        var memberRole = (await AsUser().GetRolesAsync())
             .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
-        var readDeny = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+        var readDeny = await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.Image,
             image.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
             "read"));
-        using (var memberSession = await owner.CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
+        using (var memberSession = await AsUser().CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
         using (var memberClient = memberSession.Client.CreateHttpClient())
         {
             using var deniedImageResponse = await memberClient.GetAsync($"/api/stream/image/{image.Id}");
@@ -284,9 +281,9 @@ public sealed class StreamDeliveryApiTests(
             deniedThumbnailResponse.Content.Headers.ContentType?.MediaType.Should().NotBe("image/png");
         }
         Directory.EnumerateFiles(AsTestFileSystem().GeneratedPath, "*", SearchOption.AllDirectories).Should().BeEmpty();
-        await owner.DeleteEntityOverrideAsync(readDeny.Id);
+        await AsUser().DeleteEntityOverrideAsync(readDeny.Id);
 
-        using var client = owner.CreateHttpClient();
+        using var client = AsUser().CreateHttpClient();
         using var imageRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/image/{image.Id}");
         imageRequest.Headers.Range = new RangeHeaderValue(0, 7);
         using var imageResponse = await client.SendAsync(imageRequest);
@@ -334,8 +331,8 @@ public sealed class StreamDeliveryApiTests(
 
         var noPermissionUsername = $"stream-no-permission-{Guid.NewGuid():N}";
         const string noPermissionPassword = "Stream password 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []));
-        using var noPermissionSession = await owner.CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword);
+        await AsUser().CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []));
+        using var noPermissionSession = await AsUser().CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword);
         using var noPermissionClient = noPermissionSession.Client.CreateHttpClient();
         using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/image/{image.Id}");
         forbiddenResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
