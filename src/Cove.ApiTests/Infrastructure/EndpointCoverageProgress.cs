@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 406;
+    public const int ExpectedMappedEndpoints = 411;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 98;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 93;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -48,7 +48,6 @@ public static class EndpointCoverageProgress
         GET /api/stream/video/{videoid:int}/transcode
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/ffmpeg-capabilities
-        GET /api/tags/{id:int}/metadata-server/search
         POST /api/ai-data/purge
         POST /api/apitokens
         POST /api/auth/bootstrap-owner
@@ -99,11 +98,7 @@ public static class EndpointCoverageProgress
         POST /api/system/scrapers/scrape-fragment
         POST /api/system/scrapers/scrape-name
         POST /api/system/shutdown
-        POST /api/tags/metadata-server/batch-tag
-        POST /api/tags/metadata-server/find-by-ids
         POST /api/tags/merge
-        POST /api/tags/{id:int}/metadata-server/import
-        POST /api/tags/{id:int}/metadata-server/submit-draft
         POST /api/videos/{id:int}/activity/reset
         POST /api/videos/{id:int}/cover/from-frame
         POST /api/videos/{id:int}/generate-screenshot

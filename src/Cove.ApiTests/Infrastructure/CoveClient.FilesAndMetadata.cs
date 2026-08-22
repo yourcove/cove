@@ -281,6 +281,65 @@ public sealed partial class CoveClient
             response.GetProperty("itemCount").GetInt32());
     }
 
+    public Task<IReadOnlyList<MetadataServerTagMatchDto>> SearchTagMetadataServiceAsync(
+        TagDetailDto tag,
+        string name,
+        MetadataServiceTagHandle metadataTag,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<MetadataServerTagMatchDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/tags/{tag.Id}/metadata-server/search?term={Uri.EscapeDataString(name)}&endpoint={Uri.EscapeDataString(metadataTag.Endpoint.AbsoluteUri)}"),
+            null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<MetadataServerTagMatchDto>> FindTagMetadataServiceByIdsAsync(
+        MetadataServiceTagHandle metadataTag,
+        IReadOnlyList<string> ids,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<MetadataServerTagMatchDto>>(
+            HttpMethod.Post,
+            "/api/tags/metadata-server/find-by-ids",
+            new MetadataServerFindByIdsRequestDto(metadataTag.Endpoint.AbsoluteUri, ids.ToList()),
+            cancellationToken);
+
+    public Task<TagDetailDto> ImportTagFromMetadataServiceAsync(
+        TagDetailDto tag,
+        MetadataServerTagMatchDto match,
+        CancellationToken cancellationToken = default)
+        => SendAsync<TagDetailDto>(
+            HttpMethod.Post,
+            $"/api/tags/{tag.Id}/metadata-server/import",
+            new MetadataServerTagImportRequestDto(match.Endpoint, match.Id),
+            cancellationToken);
+
+    public async Task<string?> SubmitTagDraftToMetadataServiceAsync(
+        TagDetailDto tag,
+        MetadataServiceTagHandle metadataTag,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/tags/{tag.Id}/metadata-server/submit-draft",
+            new MetadataServerEndpointDto(metadataTag.Endpoint.AbsoluteUri),
+            cancellationToken);
+        return response.GetProperty("draftId").GetString();
+    }
+
+    public async Task<MetadataServerBatchTagStartResult> StartTagMetadataBatchTagAsync(
+        MetadataServerTagBatchTagRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/tags/metadata-server/batch-tag",
+            request,
+            cancellationToken);
+        return new MetadataServerBatchTagStartResult(
+            response.GetProperty("jobId").GetString()
+                ?? throw new InvalidOperationException("POST /api/tags/metadata-server/batch-tag did not return a job id."),
+            response.GetProperty("itemCount").GetInt32());
+    }
+
     private async Task<string> StartMetadataJobAsync(
         string requestUri,
         object? payload,
