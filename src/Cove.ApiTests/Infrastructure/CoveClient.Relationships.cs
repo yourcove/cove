@@ -397,6 +397,37 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<DetectionDto> GetImageDetectionAsync(
+        ImageDto image,
+        int detectionId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/images/{image.Id}/detections/{detectionId}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<DetectionDto> UpdateImageDetectionAsync(
+        ImageDto image,
+        int detectionId,
+        DetectionUpdateDto detection,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Put,
+            $"/api/images/{image.Id}/detections/{detectionId}",
+            detection,
+            cancellationToken);
+
+    public Task DeleteImageDetectionAsync(
+        ImageDto image,
+        int detectionId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/images/{image.Id}/detections/{detectionId}",
+            new { },
+            cancellationToken);
+
     public Task<DetectionDto> CreateVideoDetectionAsync(
         VideoDto video,
         string classification,

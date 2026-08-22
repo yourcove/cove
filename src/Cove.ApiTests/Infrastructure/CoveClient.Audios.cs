@@ -105,6 +105,59 @@ public sealed partial class CoveClient
             request,
             cancellationToken);
 
+    public Task<VideoHistoryDto> GetAudioHistoryAsync(
+        AudioDto audio,
+        CancellationToken cancellationToken = default)
+        => SendAsync<VideoHistoryDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/audios/{audio.Id}/history"),
+            payload: null,
+            cancellationToken);
+
+    public Task<int> IncrementAudioLikeAsync(
+        AudioDto audio,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Post, $"/api/audios/{audio.Id}/like", payload: null, cancellationToken);
+
+    public Task<int> AddHistoricalAudioLikeAsync(
+        AudioDto audio,
+        DateTime at,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(
+            HttpMethod.Post,
+            $"/api/audios/{audio.Id}/like/historical",
+            new HistoricalLikeDto(at),
+            cancellationToken);
+
+    public Task DeleteHistoricalAudioLikeAsync(
+        AudioDto audio,
+        DateTime at,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/audios/{audio.Id}/like/history?at={Uri.EscapeDataString(at.ToUniversalTime().ToString("O"))}",
+            new { },
+            cancellationToken);
+
+    public Task<int> DecrementAudioLikeAsync(
+        AudioDto audio,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Delete, $"/api/audios/{audio.Id}/like", payload: null, cancellationToken);
+
+    public Task<int> ResetAudioLikeAsync(
+        AudioDto audio,
+        CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Post, $"/api/audios/{audio.Id}/like/reset", payload: null, cancellationToken);
+
+    public Task ResetAudioActivityAsync(
+        AudioDto audio,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Post,
+            $"/api/audios/{audio.Id}/activity/reset",
+            new { },
+            cancellationToken);
+
     public async Task<int> BulkUpdateAudiosAsync(
         BulkAudioUpdateDto request,
         CancellationToken cancellationToken = default)

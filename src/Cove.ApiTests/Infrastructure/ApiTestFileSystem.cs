@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -41,6 +42,56 @@ public sealed class ApiTestFileSystem
         File.WriteAllText(path, contents);
         return path;
     }
+
+    public string CreateLibraryFile(string fileName, byte[] contents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(contents);
+        if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "API test media files must use a leaf filename under the library root.");
+
+        var path = Path.Combine(LibraryPath, fileName);
+        File.WriteAllBytes(path, contents);
+        return path;
+    }
+
+    public void ReplaceLibraryFile(string path, byte[] contents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(contents);
+        var fullPath = Path.GetFullPath(path);
+        var libraryRoot = Path.GetFullPath(LibraryPath) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(libraryRoot, StringComparison.Ordinal)
+            || !string.Equals(Path.GetDirectoryName(fullPath), Path.GetFullPath(LibraryPath), StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(path), "API test media files must stay directly under the library root.");
+
+        File.WriteAllBytes(fullPath, contents);
+    }
+
+    public string CreateVideoScreenshot(int videoId, double seconds, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("screenshots", GetVideoBucket(videoId), $"{videoId}_t{(int)seconds}.jpg"),
+            contents);
+
+    public string CreateVideoSegmentPreview(int videoId, double seconds, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("segment-previews", GetVideoBucket(videoId), $"{videoId}_t{(int)seconds}.webp"),
+            contents);
+
+    public string CreateVideoPreview(int videoId, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("previews", GetVideoBucket(videoId), $"{videoId}.mp4"),
+            contents);
+
+    public string CreateVideoSprite(int videoId, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("vtt", GetVideoBucket(videoId), $"{videoId}_sprite.jpg"),
+            contents);
+
+    public string CreateVideoSpriteVtt(int videoId, string contents)
+        => CreateGeneratedFile(
+            Path.Combine("vtt", GetVideoBucket(videoId), $"{videoId}_thumbs.vtt"),
+            System.Text.Encoding.UTF8.GetBytes(contents));
 
     public string CreatePcmWaveFile(string fileName, int sampleFrames, int sampleRate = 8_000)
     {
@@ -102,6 +153,9 @@ public sealed class ApiTestFileSystem
         foreach (var directory in Directory.EnumerateDirectories(path))
             Directory.Delete(directory, recursive: true);
     }
+
+    private static string GetVideoBucket(int videoId)
+        => Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)))[..2];
 
     private static void WritePcmWaveFile(string path, int sampleFrames, int sampleRate)
     {

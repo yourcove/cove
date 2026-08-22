@@ -140,6 +140,25 @@ public sealed partial class CoveClient
                 Intervals: [new PlaybackIntervalInputDto(2, 8)]),
             cancellationToken);
 
+    public Task RecordAudioPlaybackAsync(
+        AudioDto audio,
+        Guid sessionId,
+        double startSec,
+        double endSec,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Post,
+            "/api/playback/intervals",
+            new PlaybackIntervalsRequestDto(
+                HostType: "audio",
+                HostId: audio.Id,
+                SessionId: sessionId,
+                MediaDurationSec: 20,
+                CurrentPositionSec: endSec,
+                State: "paused",
+                Intervals: [new PlaybackIntervalInputDto(startSec, endSec)]),
+            cancellationToken);
+
     public Task<VideoHistoryDto> GetVideoHistoryAsync(
         VideoDto video,
         CancellationToken cancellationToken = default)
