@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 419;
+    public const int ExpectedMappedEndpoints = 423;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 85;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 81;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -19,7 +19,6 @@ public static class EndpointCoverageProgress
     private const string TemporaryUnmappedEndpointText = """
         DELETE /api/apitokens/{id:guid}
         DELETE /api/auth/external/links/{linkid:int}
-        DELETE /api/custom-fields/{id:int}
         DELETE /api/embeddings
         DELETE /api/jobs/{jobid}
         DELETE /api/share-links/{id:guid}
@@ -55,7 +54,6 @@ public static class EndpointCoverageProgress
         POST /api/auth/external/links/preview
         POST /api/auth/external/redeem
         POST /api/auth/setup-token-redeem
-        POST /api/custom-fields
         POST /api/database/backup
         POST /api/database/config/backup
         POST /api/database/config/restore
@@ -97,8 +95,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/play
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rescan
-        PUT /api/custom-fields
-        PUT /api/custom-fields/{id:int}
         PUT /api/jobs/{jobid}/reorder
         PUT /api/system/config
         PUT /api/system/config/ui/{key}

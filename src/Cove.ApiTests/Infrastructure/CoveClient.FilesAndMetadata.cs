@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.Api.Services;
 using Cove.Core.DTOs;
@@ -62,10 +64,77 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => StartMetadataJobAsync("/api/metadata/sync-fingerprints", options, cancellationToken);
 
-    public Task<CustomFieldDefinitionDto> CreateCustomFieldDefinitionAsync(
+    public Task<IReadOnlyList<CustomFieldDefinitionDto>> GetCustomFieldDefinitionsAsync(
+        string? entityType = null,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<CustomFieldDefinitionDto>>(
+            HttpMethod.Get,
+            WithCacheNonce(entityType is null
+                ? "/api/custom-fields"
+                : $"/api/custom-fields?entityType={Uri.EscapeDataString(entityType)}"),
+            payload: null,
+            cancellationToken);
+
+    public async Task<CustomFieldDefinitionDto> CreateCustomFieldDefinitionAsync(
         CustomFieldDefinitionCreateDto definition,
         CancellationToken cancellationToken = default)
-        => SendAsync<CustomFieldDefinitionDto>(HttpMethod.Post, "/api/custom-fields", definition, cancellationToken);
+    {
+        const string requestUri = "/api/custom-fields";
+        using var response = await _client.PostAsJsonAsync(requestUri, definition, ApiJson.Options, cancellationToken);
+        if (response.StatusCode is not HttpStatusCode.Created)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"POST {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return await ApiResponse.ReadAsync<CustomFieldDefinitionDto>(response, $"POST {requestUri}", cancellationToken);
+    }
+
+    public async Task<CustomFieldDefinitionDto> UpdateCustomFieldDefinitionAsync(
+        int definitionId,
+        CustomFieldDefinitionUpdateDto definition,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/custom-fields/{definitionId}";
+        using var response = await _client.PutAsJsonAsync(requestUri, definition, ApiJson.Options, cancellationToken);
+        if (response.StatusCode is not HttpStatusCode.OK)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"PUT {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return await ApiResponse.ReadAsync<CustomFieldDefinitionDto>(response, $"PUT {requestUri}", cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CustomFieldDefinitionDto>> ReplaceCustomFieldDefinitionsAsync(
+        IReadOnlyList<CustomFieldDefinitionSyncDto> definitions,
+        CancellationToken cancellationToken = default)
+    {
+        const string requestUri = "/api/custom-fields";
+        using var response = await _client.PutAsJsonAsync(requestUri, definitions, ApiJson.Options, cancellationToken);
+        if (response.StatusCode is not HttpStatusCode.OK)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"PUT {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return await ApiResponse.ReadAsync<IReadOnlyList<CustomFieldDefinitionDto>>(
+            response,
+            $"PUT {requestUri}",
+            cancellationToken);
+    }
+
+    public Task DeleteCustomFieldDefinitionAsync(
+        int definitionId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/custom-fields/{definitionId}",
+            new { },
+            cancellationToken);
 
     public async Task<ApiBinaryContent> GetTextFileAsync(
         TextDocumentDto text,
