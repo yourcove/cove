@@ -1,10 +1,13 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
+using Cove.Core.Entities.Auth;
 using SixLabors.ImageSharp;
 using Xunit.Abstractions;
+using EntityKinds = Cove.Core.Entities.EntityKinds;
 
 namespace Cove.ApiTests.Tests.Stream;
 
@@ -121,6 +124,7 @@ public sealed class StreamDeliveryApiTests(
 
     [Fact]
     [CoversEndpoint("GET", "/api/stream/image/{imageid:int}")]
+    [CoversEndpoint("GET", "/api/stream/image/{imageid:int}/thumbnail")]
     [CoversEndpoint("GET", "/api/stream/detection/{detectionid:int}/crop")]
     public async Task GivenImageSourceAndDetection_WhenStreamRoutesAreRead_ThenRangeAndDecodableCropAreReturned()
     {
@@ -146,6 +150,28 @@ public sealed class StreamDeliveryApiTests(
             SourceKey: "api-test",
             SourceRunId: null));
 
+        var memberRole = (await owner.GetRolesAsync())
+            .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
+        var readDeny = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+            memberRole.Id,
+            EntityKinds.Image,
+            image.Id.ToString(CultureInfo.InvariantCulture),
+            "deny",
+            "read"));
+        using (var memberSession = await owner.CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
+        using (var memberClient = memberSession.Client.CreateHttpClient())
+        {
+            using var deniedImageResponse = await memberClient.GetAsync($"/api/stream/image/{image.Id}");
+            deniedImageResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            deniedImageResponse.Content.Headers.ContentType?.MediaType.Should().NotBe("image/png");
+
+            using var deniedThumbnailResponse = await memberClient.GetAsync($"/api/stream/image/{image.Id}/thumbnail?max=64");
+            deniedThumbnailResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            deniedThumbnailResponse.Content.Headers.ContentType?.MediaType.Should().NotBe("image/png");
+        }
+        Directory.EnumerateFiles(AsTestFileSystem().GeneratedPath, "*", SearchOption.AllDirectories).Should().BeEmpty();
+        await owner.DeleteEntityOverrideAsync(readDeny.Id);
+
         using var client = owner.CreateHttpClient();
         using var imageRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/image/{image.Id}");
         imageRequest.Headers.Range = new RangeHeaderValue(0, 7);
@@ -156,6 +182,28 @@ public sealed class StreamDeliveryApiTests(
         imageResponse.Content.Headers.ContentRange?.ToString().Should().Be($"bytes 0-7/{imageBytes.Length}");
         imageResponse.Headers.AcceptRanges.Should().Equal("bytes");
         imageResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
+
+        using var thumbnailResponse = await client.GetAsync($"/api/stream/image/{image.Id}/thumbnail?max=64");
+        var thumbnailBytes = await thumbnailResponse.Content.ReadAsByteArrayAsync();
+        thumbnailResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        thumbnailResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
+        thumbnailResponse.Headers.AcceptRanges.Should().Equal("bytes");
+        thumbnailResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
+        using (var thumbnail = Image.Load(thumbnailBytes))
+        {
+            thumbnail.Width.Should().Be(64);
+            thumbnail.Height.Should().Be(48);
+        }
+
+        using var thumbnailRangeRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/image/{image.Id}/thumbnail?max=64");
+        thumbnailRangeRequest.Headers.Range = new RangeHeaderValue(1, 4);
+        using var thumbnailRangeResponse = await client.SendAsync(thumbnailRangeRequest);
+        thumbnailRangeResponse.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        (await thumbnailRangeResponse.Content.ReadAsByteArrayAsync()).Should().Equal(thumbnailBytes[1..5]);
+        thumbnailRangeResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
+        thumbnailRangeResponse.Content.Headers.ContentRange?.ToString().Should().Be($"bytes 1-4/{thumbnailBytes.Length}");
+        thumbnailRangeResponse.Headers.AcceptRanges.Should().Equal("bytes");
+        thumbnailRangeResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
         using var cropResponse = await client.GetAsync($"/api/stream/detection/{detection.Id}/crop?max=64");
         var cropBytes = await cropResponse.Content.ReadAsByteArrayAsync();
