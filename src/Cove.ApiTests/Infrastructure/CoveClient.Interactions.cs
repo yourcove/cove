@@ -203,6 +203,15 @@ public sealed partial class CoveClient
                 Intervals: [new PlaybackIntervalInputDto(2, 8)]),
             cancellationToken);
 
+    public Task ResetVideoActivityAsync(
+        VideoDto video,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/activity/reset",
+            new { },
+            cancellationToken);
+
     public Task RecordAudioPlaybackAsync(
         AudioDto audio,
         Guid sessionId,

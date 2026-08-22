@@ -6,10 +6,65 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<PerformerDto> ApplyScrapedPerformerAsync(
+        int performerId,
+        PerformerApplyScrapedRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/apply-scraped",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<PerformerDto> ScrapePerformerUrlAsync(
+        int performerId,
+        PerformerScrapeUrlRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/scrape-url",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<PerformerDto> ScrapePerformerAsync(
+        int performerId,
+        PerformerScrapeRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/scrape",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<PerformerScrapePreviewDto> PreviewPerformerScrapeAsync(
+        int performerId,
+        PerformerScrapeRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerScrapePreviewDto>(
+            HttpMethod.Post,
+            $"/api/performers/{performerId}/scrape-preview",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<PerformerDto> CreatePerformerAsync(
         PerformerCreateDto performer,
         CancellationToken cancellationToken = default)
         => SendAsync<PerformerDto>(HttpMethod.Post, "/api/performers", performer, cancellationToken);
+
+    public Task<PerformerDto> MergePerformersAsync(
+        int targetId,
+        IReadOnlyCollection<int> sourceIds,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PerformerDto>(
+            HttpMethod.Post,
+            "/api/performers/merge",
+            new PerformerMergeDto(targetId, sourceIds.ToList()),
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
 
     public Task<PerformerDto> GetPerformerByIdAsync(
         int performerId,

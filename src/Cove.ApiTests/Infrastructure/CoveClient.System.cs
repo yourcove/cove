@@ -15,6 +15,22 @@ public sealed partial class CoveClient
     public Task<JsonElement> ScrapeUrlAutoAsync(ScraperMatchUrlRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-url-auto", request, cancellationToken);
     public Task<JsonElement> ScrapeNameAsync(ScrapeNameRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-name", request, cancellationToken);
     public Task<JsonElement> ScrapeFragmentAsync(ScrapeFragmentRequest request, CancellationToken cancellationToken = default) => SendAsync<JsonElement>(HttpMethod.Post, "/api/system/scrapers/scrape-fragment", request, cancellationToken);
+
+    public Task<IReadOnlyList<ScrapedPerformerDto>> ScrapePerformerNameAsync(ScrapeNameRequest request, CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<IReadOnlyList<ScrapedPerformerDto>>(
+            HttpMethod.Post,
+            "/api/system/scrapers/scrape-name",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<ScrapedPerformerDto> ScrapePerformerFragmentAsync(ScrapeFragmentRequest request, CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ScrapedPerformerDto>(
+            HttpMethod.Post,
+            "/api/system/scrapers/scrape-fragment",
+            request,
+            System.Net.HttpStatusCode.OK,
+            cancellationToken);
     public Task<MetadataServerValidationResultDto> ValidateMetadataServerAsync(MetadataServerDto metadataServer, CancellationToken cancellationToken = default) => SendAsync<MetadataServerValidationResultDto>(HttpMethod.Post, "/api/system/metadata-servers/validate", metadataServer, cancellationToken);
 
     public Task<CoveConfigDto> GetSystemConfigAsync(

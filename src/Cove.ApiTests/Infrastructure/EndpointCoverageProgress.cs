@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 433;
+    public const int ExpectedMappedEndpoints = 451;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 71;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 53;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -17,10 +17,8 @@ public static class EndpointCoverageProgress
     public static IReadOnlyList<EndpointCoverageException> Exceptions { get; } = [];
 
     private const string TemporaryUnmappedEndpointText = """
-        DELETE /api/apitokens/{id:guid}
         DELETE /api/auth/external/links/{linkid:int}
         DELETE /api/jobs/{jobid}
-        DELETE /api/share-links/{id:guid}
         DELETE /api/tags/{id:int}
         DELETE /api/users/{id:int}/external-links/{linkid:int}
         DELETE /api/videos/{id:int}/play
@@ -32,13 +30,10 @@ public static class EndpointCoverageProgress
         GET /api/faces/capabilities
         GET /api/faces/{id:int}/host-tracks
         GET /api/jobs/backup/latest
-        GET /api/jobs/history
-        GET /api/scrape-attempts/{id:guid}
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/video/{videoid:int}/hls/{profile}.m3u8
         GET /api/stream/video/{videoid:int}/transcode
         GET /api/system/ffmpeg-capabilities
-        POST /api/apitokens
         POST /api/auth/bootstrap-owner
         POST /api/auth/external/links/cancel
         POST /api/auth/external/links/confirm
@@ -57,29 +52,16 @@ public static class EndpointCoverageProgress
         POST /api/faces/{id:int}/split
         POST /api/files/folders/{id:int}/reveal
         POST /api/files/{id:int}/reveal
-        POST /api/galleries/{id:int}/rescan
         POST /api/jobs/backup
-        POST /api/jobs/clean
-        POST /api/jobs/generate-image-phashes
-        POST /api/jobs/generate-thumbnails
-        POST /api/jobs/generate-video-phashes
-        POST /api/jobs/scan
-        POST /api/performers/merge
-        POST /api/performers/{id:int}/apply-scraped
         POST /api/performers/{id:int}/scrape
         POST /api/performers/{id:int}/scrape-preview
         POST /api/performers/{id:int}/scrape-url
-        POST /api/scrape-attempts
-        POST /api/scrape-attempts/resolve-relations
-        POST /api/scrape-attempts/{id:guid}/apply
-        POST /api/share-links
         POST /api/stash-migration/import
         POST /api/system/config/ui
         POST /api/system/scrapers/scrape-fragment
         POST /api/system/scrapers/scrape-name
         POST /api/system/shutdown
         POST /api/tags/merge
-        POST /api/videos/{id:int}/activity/reset
         POST /api/videos/{id:int}/cover/from-frame
         POST /api/videos/{id:int}/generate-screenshot
         POST /api/videos/{id:int}/play

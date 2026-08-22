@@ -12,8 +12,9 @@ namespace Cove.ApiTestFaceProvider;
 /// A deliberately small runtime extension used only by API tests. Its plan is owned by the
 /// corresponding test host, rather than static state, so the two API-test lanes cannot affect each other.
 /// </summary>
-public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefulExtension, IJobExtension
+public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefulExtension, IJobExtension, IScraperProvider
 {
+    public const string PerformerScraperId = "api-test.performer";
     public const string RecordParametersJobId = "record-parameters";
     public const string JobParametersStoreKey = "api-test.job.parameters";
     public const string JobProgressStoreKey = "api-test.job.progress";
@@ -34,6 +35,17 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
         },
     ];
 
+    private static readonly IReadOnlyList<ScraperDescriptor> ScraperDefinitions =
+    [
+        new(
+            PerformerScraperId,
+            "API Test Performer",
+            ScraperEntity.Performer,
+            ScraperCapabilities.ByUrl | ScraperCapabilities.ByName | ScraperCapabilities.ByFragment,
+            ["https://api-test.invalid/performers/*"],
+            ScraperRiskLevel.None),
+    ];
+
     private IExtensionStore? _store;
     private int _installCount;
 
@@ -44,6 +56,33 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
         };
 
     public IReadOnlyList<ExtensionJobDefinition> Jobs => JobDefinitions;
+
+    public IReadOnlyList<ScraperDescriptor> GetScrapers()
+        => ScraperDefinitions;
+
+    public Task<ScrapedPerformerDto?> ScrapePerformerAsync(
+        ScraperRequest<PerformerScrapeInput> request,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var name = string.IsNullOrWhiteSpace(request.Input.Name)
+            ? "API Test URL Performer"
+            : request.Input.Name.Trim();
+        return Task.FromResult<ScrapedPerformerDto?>(BuildScrapedPerformer(name, request.Input.Url));
+    }
+
+    public Task<IReadOnlyList<ScrapedPerformerDto>> SearchPerformersAsync(
+        ScraperRequest<string> request,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(request.Input))
+            return Task.FromResult<IReadOnlyList<ScrapedPerformerDto>>([]);
+
+        var name = $"{request.Input.Trim()} Scraped";
+        return Task.FromResult<IReadOnlyList<ScrapedPerformerDto>>(
+            [BuildScrapedPerformer(name, "https://api-test.invalid/performers/search-result")]);
+    }
 
     public override void ConfigureServices(IServiceCollection services, Cove.Plugins.ExtensionContext context)
         => services.AddSingleton<IFaceSuggester, PlannedFaceSuggester>();
@@ -108,6 +147,29 @@ public sealed class ApiTestFaceSuggestionExtension : CoveExtensionBase, IStatefu
         progress.Report(1, "API test parameters recorded");
         await store.SetAsync(JobProgressStoreKey, "1|API test parameters recorded", ct);
     }
+
+    private static ScrapedPerformerDto BuildScrapedPerformer(string name, string? sourceUrl)
+        => new()
+        {
+            SourceScraperId = PerformerScraperId,
+            Name = name,
+            Disambiguation = "API test provider",
+            Gender = "Female",
+            Birthdate = "1990-02-03",
+            Country = "Canada",
+            Ethnicity = "API test ethnicity",
+            EyeColor = "Green",
+            HairColor = "Brown",
+            HeightCm = 172,
+            Weight = 63,
+            Measurements = "34-25-35",
+            Tattoos = "API test tattoo",
+            Piercings = "API test piercing",
+            Details = "Deterministic API test performer details",
+            Urls = string.IsNullOrWhiteSpace(sourceUrl) ? [] : [sourceUrl.Trim()],
+            Aliases = ["API Test Scraped Alias"],
+            TagNames = ["API Test Scraped Tag"],
+        };
 }
 
 public sealed class ApiTestDependencyExtension : CoveExtensionBase

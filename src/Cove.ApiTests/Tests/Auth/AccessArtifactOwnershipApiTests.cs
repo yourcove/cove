@@ -17,6 +17,8 @@ public sealed class AccessArtifactOwnershipApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("POST", "/api/apitokens")]
+    [CoversEndpoint("DELETE", "/api/apitokens/{id:guid}")]
     public async Task GivenScopedApiTokens_WhenCreatedDeniedAndRevoked_ThenSecretsPermissionsAuditsAndControlsAreExact()
     {
         var suffix = Guid.NewGuid().ToString("N");
@@ -141,6 +143,125 @@ public sealed class AccessArtifactOwnershipApiTests(
         using var assertions = new AssertionScope();
         inScopeStatus.Should().Be(HttpStatusCode.OK);
         outOfScopeStatus.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/share-links")]
+    [CoversEndpoint("DELETE", "/api/share-links/{id:guid}")]
+    public async Task GivenShareLinks_WhenCreatedDeniedAndRevoked_ThenScopePasswordAuditsAndControlsAreExact()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var targetVideo = await AsUser().CreateVideoAsync($"Share link target {suffix}");
+        var controlVideo = await AsUser().CreateVideoAsync($"Share link control {suffix}");
+        var hiddenVideo = await AsUser().CreateVideoAsync($"Share link hidden {suffix}");
+        var restrictedRole = await AsUser().CreateRoleAsync(new CreateRoleRequest(
+            $"Restricted share creator {suffix}",
+            "Creates share links only for readable videos.",
+            [Permissions.ShareLinksWrite, Permissions.VideosRead]));
+        await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+            restrictedRole.Id,
+            EntityKinds.Video,
+            hiddenVideo.Id.ToString(),
+            "deny",
+            "read"));
+        var restrictedUsername = $"restricted-share-creator-{suffix}";
+        const string restrictedPassword = "Restricted share creator password 123!";
+        await AsUser().CreateUserAsync(new CreateUserRequest(
+            restrictedUsername,
+            restrictedPassword,
+            Roles: [restrictedRole.Name]));
+        using var restrictedSession = await AsUser().CreateAuthSessionAsync(restrictedUsername, restrictedPassword);
+        using var restrictedClient = restrictedSession.Client.CreateHttpClient();
+        using var deniedByScope = await restrictedClient.PostAsJsonAsync(
+            "/api/share-links",
+            new CreateShareLinkRequest(EntityKinds.Video, [hiddenVideo.Id.ToString()]));
+
+        var expiresAt = DateTime.UtcNow.AddHours(1);
+        expiresAt = expiresAt.AddTicks(-(expiresAt.Ticks % TimeSpan.TicksPerSecond));
+        const string sharePassword = "Share link password 123!";
+        var target = await AsUser().CreateShareLinkAsync(new CreateShareLinkRequest(
+            " VIDEO ",
+            [$" {targetVideo.Id} ", targetVideo.Id.ToString(), " "],
+            expiresAt,
+            sharePassword));
+        var control = await AsUser().CreateShareLinkAsync(new CreateShareLinkRequest(
+            EntityKinds.Video,
+            [controlVideo.Id.ToString()]));
+        var listedBefore = await AsUser().GetShareLinksAsync();
+
+        using var memberClient = AsUser(ApiTestUsers.Eva).CreateHttpClient();
+        using var forbiddenCreate = await memberClient.PostAsJsonAsync(
+            "/api/share-links",
+            new CreateShareLinkRequest(EntityKinds.Video, [controlVideo.Id.ToString()]));
+        using var forbiddenRevoke = await memberClient.DeleteAsync($"/api/share-links/{target.Id:D}");
+
+        var missingPassword = await GetWithShareLinkAsync(target.PlaintextToken, targetVideo.Id);
+        var wrongPassword = await GetWithShareLinkAsync(target.PlaintextToken, targetVideo.Id, "wrong password");
+        var targetBefore = await GetWithShareLinkAsync(target.PlaintextToken, targetVideo.Id, sharePassword);
+        var unrelatedBefore = await GetWithShareLinkAsync(target.PlaintextToken, controlVideo.Id, sharePassword);
+        var controlBefore = await GetWithShareLinkAsync(control.PlaintextToken, controlVideo.Id);
+
+        await AsUser().RevokeShareLinkAsync(target.Id);
+        await AsUser().RevokeShareLinkAsync(target.Id);
+        await AsUser().RevokeShareLinkAsync(Guid.NewGuid());
+        await WaitForAuditAsync(AuditActions.ShareLinkCreate, target.Id);
+        await WaitForAuditAsync(AuditActions.ShareLinkCreate, control.Id);
+        await WaitForAuditAsync(AuditActions.ShareLinkRevoke, target.Id);
+
+        var listedAfter = await AsUser().GetShareLinksAsync();
+        var targetAfter = await GetWithShareLinkAsync(target.PlaintextToken, targetVideo.Id, sharePassword);
+        var controlAfter = await GetWithShareLinkAsync(control.PlaintextToken, controlVideo.Id);
+        var createAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ShareLinkCreate)).Items;
+        var revokeAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ShareLinkRevoke)).Items;
+
+        using var assertions = new AssertionScope();
+        deniedByScope.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await restrictedSession.Client.GetShareLinksAsync()).Should().BeEmpty();
+        target.Id.Should().NotBeEmpty();
+        Regex.IsMatch(target.PlaintextToken, $"^cove_share_{target.Id:N}_[A-Za-z0-9_-]+$").Should().BeTrue();
+        target.EntityKind.Should().Be(EntityKinds.Video);
+        target.EntityIds.Should().Equal(targetVideo.Id.ToString());
+        target.ExpiresAt.Should().Be(expiresAt);
+        target.HasPassword.Should().BeTrue();
+        control.HasPassword.Should().BeFalse();
+        listedBefore.Should().HaveCount(2);
+        var listedTarget = listedBefore.Should().ContainSingle(link => link.Id == target.Id).Which;
+        listedTarget.CreatedByUsername.Should().Be(ApiTestUsers.Owner);
+        listedTarget.EntityKind.Should().Be(EntityKinds.Video);
+        listedTarget.EntityIds.Should().Equal(targetVideo.Id.ToString());
+        listedTarget.ExpiresAt.Should().Be(expiresAt);
+        listedTarget.HasPassword.Should().BeTrue();
+        listedTarget.Revoked.Should().BeFalse();
+        listedBefore.Should().ContainSingle(link => link.Id == control.Id && !link.Revoked);
+        forbiddenCreate.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        forbiddenRevoke.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        missingPassword.Should().Be(HttpStatusCode.Unauthorized);
+        wrongPassword.Should().Be(HttpStatusCode.Unauthorized);
+        targetBefore.Should().Be(HttpStatusCode.OK);
+        unrelatedBefore.Should().Be(HttpStatusCode.NotFound);
+        controlBefore.Should().Be(HttpStatusCode.OK);
+        listedAfter.Should().HaveCount(2);
+        listedAfter.Should().ContainSingle(link => link.Id == target.Id && link.Revoked);
+        listedAfter.Should().ContainSingle(link => link.Id == control.Id && !link.Revoked);
+        targetAfter.Should().Be(HttpStatusCode.Unauthorized);
+        controlAfter.Should().Be(HttpStatusCode.OK);
+        createAudits.Should().HaveCount(2);
+        createAudits.Select(audit => audit.TargetId).Should().BeEquivalentTo(
+            target.Id.ToString(),
+            control.Id.ToString());
+        createAudits.Should().OnlyContain(audit =>
+            audit.ActorUsername == ApiTestUsers.Owner
+            && audit.ActorKind == "user"
+            && audit.TargetKind == "share_link"
+            && audit.Outcome == AuditOutcomes.Success);
+        createAudits.Any(audit =>
+            audit.Detail?.Contains(target.PlaintextToken, StringComparison.Ordinal) == true
+            || audit.Detail?.Contains(control.PlaintextToken, StringComparison.Ordinal) == true).Should().BeFalse();
+        revokeAudits.Should().ContainSingle();
+        revokeAudits[0].TargetId.Should().Be(target.Id.ToString());
+        revokeAudits[0].ActorUsername.Should().Be(ApiTestUsers.Owner);
+        revokeAudits[0].TargetKind.Should().Be("share_link");
+        revokeAudits[0].Outcome.Should().Be(AuditOutcomes.Success);
     }
 
     [Fact]
@@ -337,6 +458,18 @@ public sealed class AccessArtifactOwnershipApiTests(
         using var client = new HttpClient { BaseAddress = ApiUri };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var response = await client.GetAsync($"{requestUri}{(requestUri.Contains('?') ? '&' : '?')}apiTestNonce={Guid.NewGuid():N}");
+        return response.StatusCode;
+    }
+    private async Task<HttpStatusCode> GetWithShareLinkAsync(
+        string token,
+        int videoId,
+        string? password = null)
+    {
+        using var client = new HttpClient { BaseAddress = ApiUri };
+        client.DefaultRequestHeaders.Add("X-Share-Token", token);
+        if (password is not null)
+            client.DefaultRequestHeaders.Add("X-Share-Password", password);
+        using var response = await client.GetAsync($"/api/videos/{videoId}?apiTestNonce={Guid.NewGuid():N}");
         return response.StatusCode;
     }
 }

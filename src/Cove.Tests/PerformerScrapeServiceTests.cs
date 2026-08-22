@@ -6,6 +6,7 @@ using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace Cove.Tests;
 
@@ -167,6 +168,112 @@ public class PerformerScrapeServiceTests
         Assert.NotNull(scraped);
         Assert.Equal("https://example.com/images/jane.jpg", scraped!.ImageUrl);
         Assert.Contains("https://example.com/performer/jane-doe", scraped.Urls);
+    }
+
+    [Fact]
+    public void ConvertScrapeResult_PreservesJsonElementCollectionsFromExtensionDtos()
+    {
+        var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var extensionResult = JsonSerializer.Deserialize<Dictionary<string, object>>(
+            JsonSerializer.Serialize(
+                new ScrapedPerformerDto
+                {
+                    Name = "Extension Performer",
+                    Urls = ["https://example.com/performers/extension,Doe"],
+                    Aliases = ["Extension Alias, Preferred"],
+                    TagNames = ["Extension Tag, Featured"],
+                },
+                jsonOptions),
+            jsonOptions);
+
+        var scraped = PerformerScrapeService.ConvertScrapeResult(extensionResult!, string.Empty, "extension.scraper");
+
+        Assert.NotNull(scraped);
+        Assert.Equal(["https://example.com/performers/extension,Doe"], scraped!.Urls);
+        Assert.Equal(["Extension Alias, Preferred"], scraped.Aliases);
+        Assert.Equal(["Extension Tag, Featured"], scraped.TagNames);
+    }
+
+    [Fact]
+    public void ConvertScrapeResult_SelectsContextualValuesFromJsonAndClrCollectionObjects()
+    {
+        using var jsonDocument = JsonDocument.Parse("""
+            {
+              "aliases": [{ "name": "JSON Alias, Preferred", "url": "https://example.com/not-an-alias" }],
+              "tagNames": [{ "title": "JSON Tag, Featured", "url": "https://example.com/not-a-tag" }],
+              "urls": [{ "name": "Not a URL", "url": "https://example.com/json,Doe" }]
+            }
+            """);
+        var result = jsonDocument.RootElement.EnumerateObject()
+            .ToDictionary(property => property.Name, property => (object)property.Value.Clone());
+        result["aliases"] = new object[]
+        {
+            result["aliases"],
+            new Dictionary<string, string>
+            {
+                ["Name"] = "CLR Alias, Preferred",
+                ["Url"] = "https://example.com/not-a-clr-alias",
+            },
+        };
+
+        var scraped = PerformerScrapeService.ConvertScrapeResult(result, string.Empty, "extension.scraper");
+
+        Assert.NotNull(scraped);
+        Assert.Equal(["https://example.com/json,Doe"], scraped!.Urls);
+        Assert.Equal(["JSON Alias, Preferred", "CLR Alias, Preferred"], scraped.Aliases);
+        Assert.Equal(["JSON Tag, Featured"], scraped.TagNames);
+    }
+
+    [Fact]
+    public void ConvertScrapeResult_FallsBackFromBlankPreferredObjectValues()
+    {
+        using var jsonDocument = JsonDocument.Parse("""
+            {
+              "aliases": [{ "name": null, "title": "JSON title fallback" }]
+            }
+            """);
+        var result = jsonDocument.RootElement.EnumerateObject()
+            .ToDictionary(property => property.Name, property => (object)property.Value.Clone());
+        result["tagNames"] = new object[]
+        {
+            new Dictionary<string, string>
+            {
+                ["Name"] = "   ",
+                ["Title"] = "CLR title fallback",
+            },
+        };
+        result["name"] = "Fallback performer";
+
+        var scraped = PerformerScrapeService.ConvertScrapeResult(result, string.Empty, "extension.scraper");
+
+        Assert.NotNull(scraped);
+        Assert.Equal(["JSON title fallback"], scraped!.Aliases);
+        Assert.Equal(["CLR title fallback"], scraped.TagNames);
+    }
+
+    [Fact]
+    public void CandidateUrlExtraction_ProvidesBaseForRelativeStructuredValues()
+    {
+        using var jsonDocument = JsonDocument.Parse("""
+            {
+              "name": "Candidate performer",
+              "imageUrl": "../images/candidate.jpg",
+              "urls": [
+                { "name": "Not the candidate URL", "url": "https://example.com/performers/candidate" },
+                { "url": "related-profile" }
+              ]
+            }
+            """);
+        var result = jsonDocument.RootElement.EnumerateObject()
+            .ToDictionary(property => property.Name, property => (object)property.Value.Clone());
+
+        var candidateUrl = PerformerScrapeService.ExtractCandidateUrl(result);
+        var scraped = PerformerScrapeService.ConvertScrapeResult(result, candidateUrl!, "extension.scraper");
+
+        Assert.Equal("https://example.com/performers/candidate", candidateUrl);
+        Assert.NotNull(scraped);
+        Assert.Equal("https://example.com/images/candidate.jpg", scraped!.ImageUrl);
+        Assert.Contains("https://example.com/performers/related-profile", scraped.Urls);
     }
 
     private static CoveContext CreateContext()

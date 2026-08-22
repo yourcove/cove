@@ -270,6 +270,49 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task AttachGalleryArchiveAsync(
+        int galleryId,
+        string archivePath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        var fullPath = Path.GetFullPath(archivePath);
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException("The gallery archive fixture does not exist.", fullPath);
+        if (!string.Equals(Path.GetExtension(fullPath), ".zip", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentOutOfRangeException(nameof(archivePath), "Gallery archive fixtures must use the .zip extension.");
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        if (!await db.Galleries.AnyAsync(gallery => gallery.Id == galleryId, cancellationToken))
+            throw new InvalidOperationException($"Gallery {galleryId} does not exist.");
+
+        var folderPath = Path.GetDirectoryName(fullPath)
+            ?? throw new InvalidOperationException("The gallery archive fixture has no parent directory.");
+        var folder = await db.Folders.FirstOrDefaultAsync(item => item.Path == folderPath, cancellationToken);
+        if (folder == null)
+        {
+            folder = new Folder
+            {
+                Path = folderPath,
+                ModTime = Directory.GetLastWriteTimeUtc(folderPath),
+            };
+        }
+
+        var file = new FileInfo(fullPath);
+        db.GalleryFiles.Add(new GalleryFile
+        {
+            GalleryId = galleryId,
+            Basename = file.Name,
+            ParentFolder = folder,
+            Size = file.Length,
+            ModTime = file.LastWriteTimeUtc,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task AttachImageFileAsync(
         int imageId,
         long size,
