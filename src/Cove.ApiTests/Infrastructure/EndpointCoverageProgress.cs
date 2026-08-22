@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 364;
+    public const int ExpectedMappedEndpoints = 374;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 140;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 130;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -19,13 +19,10 @@ public static class EndpointCoverageProgress
     private const string TemporaryUnmappedEndpointText = """
         DELETE /api/apitokens/{id:guid}
         DELETE /api/auth/external/links/{linkid:int}
-        DELETE /api/content-rules/overrides/{id:int}
-        DELETE /api/content-rules/{id:int}
         DELETE /api/custom-fields/{id:int}
         DELETE /api/embeddings
         DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         DELETE /api/jobs/{jobid}
-        DELETE /api/roles/{id:int}
         DELETE /api/share-links/{id:guid}
         DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
         DELETE /api/tagapplications/{id:int}
@@ -34,7 +31,6 @@ public static class EndpointCoverageProgress
         DELETE /api/videos/{id:int}/play
         DELETE /api/videos/{videoid:int}/detections/{id:int}
         GET /api/ai-runs/{id:int}
-        GET /api/content-rules/overrides
         GET /api/embeddings/{id:int}
         GET /api/engagement/interactions
         GET /api/extensions/registry/categories
@@ -51,8 +47,6 @@ public static class EndpointCoverageProgress
         GET /api/performers/{id:int}/metadata-server/search
         GET /api/plugins/tasks
         GET /api/plugins/{pluginid}/config
-        GET /api/roles/permissions
-        GET /api/roles/{id:int}
         GET /api/scrape-attempts/{id:guid}
         GET /api/stash-migration/import/{jobid}
         GET /api/stream/image/{imageid:int}/thumbnail
@@ -75,7 +69,6 @@ public static class EndpointCoverageProgress
         POST /api/auth/external/links/preview
         POST /api/auth/external/redeem
         POST /api/auth/setup-token-redeem
-        POST /api/content-rules
         POST /api/custom-fields
         POST /api/database/backup
         POST /api/database/config/backup
@@ -118,7 +111,6 @@ public static class EndpointCoverageProgress
         POST /api/plugins/run-task
         POST /api/plugins/settings
         POST /api/plugins/{pluginid}/config
-        POST /api/roles
         POST /api/scrape-attempts
         POST /api/scrape-attempts/resolve-relations
         POST /api/scrape-attempts/{id:guid}/apply
@@ -148,12 +140,10 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/play
         POST /api/videos/{id:int}/play/reset
         POST /api/videos/{id:int}/rescan
-        PUT /api/content-rules/{id:int}
         PUT /api/custom-fields
         PUT /api/custom-fields/{id:int}
         PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/jobs/{jobid}/reorder
-        PUT /api/roles/{id:int}
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
         PUT /api/videos/{videoid:int}/detections/{id:int}
