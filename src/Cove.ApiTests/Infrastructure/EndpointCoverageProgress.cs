@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 357;
+    public const int ExpectedMappedEndpoints = 364;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 147;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 140;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -30,8 +30,6 @@ public static class EndpointCoverageProgress
         DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
         DELETE /api/tagapplications/{id:int}
         DELETE /api/tags/{id:int}
-        DELETE /api/texts/{id:int}/like
-        DELETE /api/texts/{id:int}/like/history
         DELETE /api/users/{id:int}/external-links/{linkid:int}
         DELETE /api/videos/{id:int}/play
         DELETE /api/videos/{videoid:int}/detections/{id:int}
@@ -67,7 +65,6 @@ public static class EndpointCoverageProgress
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/ffmpeg-capabilities
         GET /api/tags/{id:int}/metadata-server/search
-        GET /api/texts/{id:int}/history
         GET /api/videos/{id:int}/metadata-server/search
         GET /api/videos/{videoid:int}/detections/{id:int}
         POST /api/ai-data/purge
@@ -141,10 +138,6 @@ public static class EndpointCoverageProgress
         POST /api/tags/merge
         POST /api/tags/{id:int}/metadata-server/import
         POST /api/tags/{id:int}/metadata-server/submit-draft
-        POST /api/texts/{id:int}/like
-        POST /api/texts/{id:int}/like/historical
-        POST /api/texts/{id:int}/like/reset
-        POST /api/texts/{id:int}/rescan
         POST /api/videos/metadata-server/find-by-ids
         POST /api/videos/{id:int}/activity/reset
         POST /api/videos/{id:int}/cover/from-frame
