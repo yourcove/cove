@@ -21,6 +21,14 @@ public sealed class AiDataPurgeService(
     IExtensionServiceExchange? serviceExchange = null)
 {
     private const int PurgeBatchSize = 5_000;
+    private static readonly HashSet<string> SupportedAiDataKinds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "embedding",
+        "detection",
+        "segment",
+        "tagapplication",
+        "face",
+    };
 
     private readonly CoveContext _db = db;
     // Host registrations plus extension-published participants. Since the extensions-runtime redesign
@@ -34,6 +42,72 @@ public sealed class AiDataPurgeService(
     private readonly IBlobService _blobService = blobService;
     private readonly ILogger<AiDataPurgeService> _logger = logger;
     private readonly SegmentSpanResolver? _segmentSpanResolver = segmentSpanResolver;
+
+    public static bool TryValidateDestructiveSelector(
+        AiDataSelectorDto selectorDto,
+        out string? error,
+        IReadOnlyCollection<string>? scopeKinds = null)
+    {
+        foreach (var rawKind in selectorDto.Kinds ?? [])
+        {
+            var kind = Clean(rawKind);
+            if (kind is null || !SupportedAiDataKinds.Contains(kind))
+            {
+                error = $"Unsupported AI data kind '{kind ?? "<blank>"}'.";
+                return false;
+            }
+
+            if (scopeKinds is not null && !scopeKinds.Contains(kind, StringComparer.OrdinalIgnoreCase))
+            {
+                error = $"AI data kind '{kind}' is not supported by this operation.";
+                return false;
+            }
+        }
+
+        if (selectorDto.HostType is not null && Clean(selectorDto.HostType) is null)
+        {
+            error = "AI data host type cannot be blank.";
+            return false;
+        }
+
+        if (selectorDto.Modality is not null && Clean(selectorDto.Modality) is null)
+        {
+            error = "Embedding modality cannot be blank.";
+            return false;
+        }
+
+        var selector = Normalize(selectorDto);
+        if (!string.IsNullOrWhiteSpace(selector.HostType) && !IsRecognizedHostType(selector.HostType))
+        {
+            error = $"Unsupported AI data host type '{selector.HostType}'.";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(selector.Modality) && !TryParseEmbeddingModality(selector.Modality, out _))
+        {
+            error = $"Unsupported embedding modality '{selector.Modality}'.";
+            return false;
+        }
+
+        var kinds = scopeKinds ?? selector.Kinds;
+        foreach (var kind in kinds)
+        {
+            if (!IsHostTypeApplicableToKind(kind, selector.HostType))
+            {
+                error = $"Host type '{selector.HostType}' is not supported for AI data kind '{kind}'.";
+                return false;
+            }
+
+            if (!IsModalityApplicableToKind(kind, selector.Modality))
+            {
+                error = $"Modality selectors are only supported for embedding AI data.";
+                return false;
+            }
+        }
+
+        error = null;
+        return true;
+    }
 
     public async Task<AiDataSummaryDto> GetSummaryAsync(AiDataSelectorDto selectorDto, CancellationToken cancellationToken = default)
     {
@@ -90,6 +164,7 @@ public sealed class AiDataPurgeService(
 
     public async Task<int> DeleteEmbeddingsAsync(AiDataSelectorDto selectorDto, bool dryRun = false, CancellationToken cancellationToken = default)
     {
+        EnsureValidDestructiveSelector(selectorDto, ["embedding"]);
         var selector = Normalize(selectorDto);
         var runModels = await LoadAiRunModelLookupAsync(selector, cancellationToken);
         return await PurgeEmbeddingsCoreAsync(selector, runModels, dryRun, cancellationToken);
@@ -97,6 +172,7 @@ public sealed class AiDataPurgeService(
 
     public async Task<AiDataPurgeResultDto> PurgeAsync(AiDataSelectorDto selectorDto, bool dryRun = false, CancellationToken cancellationToken = default)
     {
+        EnsureValidDestructiveSelector(selectorDto);
         var selector = Normalize(selectorDto);
         var runModels = await LoadAiRunModelLookupAsync(selector, cancellationToken);
         var removed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -108,7 +184,8 @@ public sealed class AiDataPurgeService(
         var affectedVideoIds = dryRun
             ? []
             : await CollectAffectedVideoIdsAsync(selector, runModels, faceIds, cancellationToken);
-        affectedRunKeys.UnionWith(await CollectSelectedAiRunKeysAsync(selector, cancellationToken));
+        if (selector.IncludesAnyKind)
+            affectedRunKeys.UnionWith(await CollectSelectedAiRunKeysAsync(selector, cancellationToken));
 
         if (faceIds.Count > 0)
             MergeRemovedCounts(removed, await PurgeFacesByIdsAsync(faceIds, dryRun, cancellationToken));
@@ -284,7 +361,7 @@ public sealed class AiDataPurgeService(
     private async Task<HashSet<string>> CollectSelectedAiRunKeysAsync(AiDataSelector selector, CancellationToken cancellationToken)
     {
         var runKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!ShouldSelectAiRunsForSource(selector.SourceKey))
+        if (!ShouldSelectAiRunsForSource(selector.SourceKey) || !string.IsNullOrWhiteSpace(selector.Modality))
         {
             return runKeys;
         }
@@ -299,6 +376,8 @@ public sealed class AiDataPurgeService(
 
         if (TryParseAiRunTargetType(selector.HostType, out var targetType))
             query = query.Where(run => run.TargetType == targetType);
+        else if (!string.IsNullOrWhiteSpace(selector.HostType))
+            return runKeys;
 
         if (selector.HostId.HasValue)
             query = query.Where(run => run.TargetId == selector.HostId.Value);
@@ -934,6 +1013,11 @@ public sealed class AiDataPurgeService(
 
     private async Task<List<DetectionCandidate>> QueryDetectionCandidatesAsync(AiDataSelector selector, IReadOnlyDictionary<string, string?> runModels, CancellationToken cancellationToken, bool requireFaceReference = false, IReadOnlyCollection<int>? excludedFaceIds = null)
     {
+        if (!string.IsNullOrWhiteSpace(selector.HostType) && !TryParseDetectionHostType(selector.HostType, out _))
+        {
+            return [];
+        }
+
         var query = _db.ReadSet<Detection>().AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(selector.SourceKey))
@@ -1010,6 +1094,11 @@ public sealed class AiDataPurgeService(
 
     private async Task<List<FaceAppearanceCandidate>> QueryFaceAppearanceCandidatesAsync(AiDataSelector selector, IReadOnlyDictionary<string, string?> runModels, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(selector.HostType) && !TryParseFaceAppearanceHostType(selector.HostType, out _))
+        {
+            return [];
+        }
+
         var query = _db.ReadSet<FaceAppearance>().AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(selector.SourceKey))
@@ -1074,6 +1163,14 @@ public sealed class AiDataPurgeService(
             Clean(selector.HostType)?.ToLowerInvariant(),
             selector.HostId,
             kinds);
+    }
+
+    private static void EnsureValidDestructiveSelector(AiDataSelectorDto selectorDto, IReadOnlyCollection<string>? scopeKinds = null)
+    {
+        if (!TryValidateDestructiveSelector(selectorDto, out var error, scopeKinds))
+        {
+            throw new ArgumentException(error, nameof(selectorDto));
+        }
     }
 
     private static string? ExtractModelKey(JsonDocument? document)
@@ -1200,25 +1297,72 @@ public sealed class AiDataPurgeService(
     }
 
     private static bool TryParseEmbeddingModality(string? value, out EmbeddingModality modality)
-        => Enum.TryParse(value, true, out modality);
+        => TryParseDefinedEnum(value, out modality);
 
     private static bool TryParseEmbeddingHostType(string? value, out EmbeddingHostType hostType)
-        => Enum.TryParse(value, true, out hostType);
+        => TryParseDefinedEnum(value, out hostType);
 
     private static bool TryParseDetectionHostType(string? value, out DetectionHostType hostType)
-        => Enum.TryParse(value, true, out hostType);
+        => TryParseDefinedEnum(value, out hostType);
 
     private static bool TryParseSegmentHostType(string? value, out SegmentHostType hostType)
-        => Enum.TryParse(value, true, out hostType);
+        => TryParseDefinedEnum(value, out hostType);
 
     private static bool TryParseFaceAppearanceHostType(string? value, out FaceAppearanceHostType hostType)
-        => Enum.TryParse(value, true, out hostType);
+        => TryParseDefinedEnum(value, out hostType);
 
     private static bool TryParseAiRunTargetType(string? value, out AiRunTargetType targetType)
-        => Enum.TryParse(value, true, out targetType);
+        => TryParseDefinedEnum(value, out targetType);
 
     private static bool TryParseAffinityHostType(string? value, out AffinityHostType hostType)
-        => Enum.TryParse(value, true, out hostType);
+        => TryParseDefinedEnum(value, out hostType);
+
+    private static bool TryParseDefinedEnum<TEnum>(string? value, out TEnum result)
+        where TEnum : struct, Enum
+    {
+        var normalized = Clean(value);
+        if (normalized is not null
+            && Enum.TryParse(normalized, ignoreCase: true, out result)
+            && Enum.IsDefined(result)
+            && string.Equals(normalized, result.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    private static bool IsRecognizedHostType(string hostType)
+        => TryParseEmbeddingHostType(hostType, out _)
+           || TryParseDetectionHostType(hostType, out _)
+           || TryParseSegmentHostType(hostType, out _)
+           || TryParseFaceAppearanceHostType(hostType, out _)
+           || TryParseAiRunTargetType(hostType, out _)
+           || TryParseAffinityHostType(hostType, out _);
+
+    private static bool IsHostTypeApplicableToKind(string kind, string? hostType)
+    {
+        if (string.IsNullOrWhiteSpace(hostType))
+        {
+            return true;
+        }
+
+        return kind.ToLowerInvariant() switch
+        {
+            "embedding" => TryParseEmbeddingHostType(hostType, out _),
+            "detection" => TryParseDetectionHostType(hostType, out _),
+            "segment" => TryParseSegmentHostType(hostType, out _),
+            "tagapplication" => TryParseAffinityHostType(hostType, out _),
+            "face" => TryParseDetectionHostType(hostType, out _)
+                || TryParseSegmentHostType(hostType, out _)
+                || TryParseFaceAppearanceHostType(hostType, out _),
+            _ => false,
+        };
+    }
+
+    private static bool IsModalityApplicableToKind(string kind, string? modality)
+        => string.IsNullOrWhiteSpace(modality) || string.Equals(kind, "embedding", StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldSelectAiRunsForSource(string? sourceKey)
         => string.IsNullOrWhiteSpace(sourceKey)
@@ -1233,7 +1377,16 @@ public sealed class AiDataPurgeService(
         int? HostId,
         HashSet<string> Kinds)
     {
-        public bool IncludesKind(string kind) => Kinds.Count == 0 || Kinds.Contains(kind);
+        public bool IncludesKind(string kind)
+            => (Kinds.Count == 0 || Kinds.Contains(kind))
+               && IsHostTypeApplicableToKind(kind, HostType)
+               && IsModalityApplicableToKind(kind, Modality);
+
+        public bool IncludesAnyKind => IncludesKind("embedding")
+            || IncludesKind("detection")
+            || IncludesKind("segment")
+            || IncludesKind("tagapplication")
+            || IncludesKind("face");
 
         public bool HasHostFilter => !string.IsNullOrWhiteSpace(HostType) || HostId.HasValue;
 

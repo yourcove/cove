@@ -124,6 +124,50 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<int> AttachStreamVideoCaptionAsync(
+        int videoId,
+        string filename,
+        string languageCode,
+        string captionType,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filename);
+        ArgumentException.ThrowIfNullOrWhiteSpace(languageCode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(captionType);
+        if (!string.Equals(Path.GetFileName(filename), filename, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(filename), "API test caption sidecars must use a leaf filename beside their video source.");
+
+        var normalizedCaptionType = captionType.Trim().ToLowerInvariant();
+        if (normalizedCaptionType is not ("vtt" or "srt"))
+            throw new ArgumentOutOfRangeException(nameof(captionType), "API test caption sidecars must be VTT or SRT files.");
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Caption discovery is scanner-owned in production. Seed only a caption row for the single
+        // fixture video file after proving that the sidecar is colocated in the disposable library.
+        var file = await db.VideoFiles
+            .Include(candidate => candidate.ParentFolder)
+            .SingleOrDefaultAsync(candidate => candidate.VideoId == videoId, cancellationToken)
+            ?? throw new InvalidOperationException($"The API test video {videoId} has no stream file to attach a caption to.");
+        var directory = file.ParentFolder?.Path;
+        if (string.IsNullOrWhiteSpace(directory) || !File.Exists(Path.Combine(directory, filename)))
+            throw new FileNotFoundException("The API test caption sidecar does not exist beside the stream video source.", filename);
+
+        var caption = new VideoCaption
+        {
+            FileId = file.Id,
+            Filename = filename,
+            LanguageCode = languageCode.Trim().ToLowerInvariant(),
+            CaptionType = normalizedCaptionType,
+        };
+        db.VideoCaptions.Add(caption);
+        await db.SaveChangesAsync(cancellationToken);
+        return caption.Id;
+    }
+
     public async Task AttachStreamImageFileAsync(
         int imageId,
         string path,
