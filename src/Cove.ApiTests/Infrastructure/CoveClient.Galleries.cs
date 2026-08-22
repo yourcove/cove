@@ -7,6 +7,46 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<IReadOnlyList<GalleryChapterDto>> GetGalleryChaptersAsync(
+        GalleryDto gallery,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<GalleryChapterDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/galleries/{gallery.Id}/chapters"),
+            payload: null,
+            cancellationToken);
+
+    public Task<GalleryChapterDto> CreateGalleryChapterAsync(
+        GalleryDto gallery,
+        GalleryChapterCreateDto chapter,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GalleryChapterDto>(
+            HttpMethod.Post,
+            $"/api/galleries/{gallery.Id}/chapters",
+            chapter,
+            cancellationToken);
+
+    public Task<GalleryChapterDto> UpdateGalleryChapterAsync(
+        GalleryDto gallery,
+        GalleryChapterDto chapter,
+        GalleryChapterUpdateDto update,
+        CancellationToken cancellationToken = default)
+        => SendAsync<GalleryChapterDto>(
+            HttpMethod.Put,
+            $"/api/galleries/{gallery.Id}/chapters/{chapter.Id}",
+            update,
+            cancellationToken);
+
+    public Task DeleteGalleryChapterAsync(
+        GalleryDto gallery,
+        GalleryChapterDto chapter,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/galleries/{gallery.Id}/chapters/{chapter.Id}",
+            new { },
+            cancellationToken);
+
     public Task<EntityEngagementDto> SetGalleryRatingAsync(
         GalleryDto gallery,
         int rating,

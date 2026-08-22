@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 379;
+    public const int ExpectedMappedEndpoints = 384;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 125;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 120;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -21,7 +21,6 @@ public static class EndpointCoverageProgress
         DELETE /api/auth/external/links/{linkid:int}
         DELETE /api/custom-fields/{id:int}
         DELETE /api/embeddings
-        DELETE /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         DELETE /api/jobs/{jobid}
         DELETE /api/share-links/{id:guid}
         DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
@@ -39,8 +38,6 @@ public static class EndpointCoverageProgress
         GET /api/extensions/registry/{extensionid}/dependencies
         GET /api/faces/capabilities
         GET /api/faces/{id:int}/host-tracks
-        GET /api/galleries/{id:int}/chapters
-        GET /api/galleries/{id:int}/cover
         GET /api/jobs/backup/latest
         GET /api/jobs/history
         GET /api/performers/{id:int}/metadata-server/search
@@ -85,7 +82,6 @@ public static class EndpointCoverageProgress
         POST /api/files/folders/{id:int}/reveal
         POST /api/files/move
         POST /api/files/{id:int}/reveal
-        POST /api/galleries/{id:int}/chapters
         POST /api/galleries/{id:int}/rescan
         POST /api/jobs/backup
         POST /api/jobs/clean
@@ -137,7 +133,6 @@ public static class EndpointCoverageProgress
         POST /api/videos/{id:int}/rescan
         PUT /api/custom-fields
         PUT /api/custom-fields/{id:int}
-        PUT /api/galleries/{galleryid:int}/chapters/{chapterid:int}
         PUT /api/jobs/{jobid}/reorder
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
