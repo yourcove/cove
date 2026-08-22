@@ -66,6 +66,8 @@ public class PluginsController(
     {
         if (!IsSafePluginId(dto.PluginId))
             return BadRequest("Invalid plugin id.");
+        if (config.DisabledPlugins.Contains(dto.PluginId) || !extensionManager.IsEnabled(dto.PluginId))
+            return Conflict($"Plugin '{dto.PluginId}' is disabled.");
 
         // Check if it's a Python plugin
         foreach (var pluginDir in GetPluginDirectories())
@@ -132,18 +134,22 @@ public class PluginsController(
 
     [HttpPost("settings")]
     [RequiresPermission(Permissions.ExtensionsConfigure)]
-    public async Task<IActionResult> UpdateSettings([FromBody] PluginSettingsDto dto)
+    public async Task<IActionResult> UpdateSettings(
+        [FromBody] PluginSettingsDto dto,
+        CancellationToken ct)
     {
         foreach (var (pluginId, enabled) in dto.EnabledMap)
         {
             if (enabled)
             {
-                await extensionManager.EnableExtensionAsync(pluginId);
+                var enabledExtensions = await extensionManager.EnableExtensionAsync(pluginId, ct);
+                foreach (var extensionId in enabledExtensions)
+                    await extensionManager.InitializeExtensionAsync(extensionId, HttpContext.RequestServices, ct);
                 config.DisabledPlugins.Remove(pluginId);
             }
             else
             {
-                await extensionManager.DisableExtensionAsync(pluginId);
+                await extensionManager.DisableExtensionAsync(pluginId, ct);
                 config.DisabledPlugins.Add(pluginId);
             }
         }

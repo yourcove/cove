@@ -1182,12 +1182,13 @@ public class ExtensionManager : IExtensionContributionRuntime
     /// </summary>
     public async Task InitializeAllAsync(IServiceProvider services, CancellationToken ct = default)
     {
-        _rootServices = services;
-        CaptureScopeFactory(services);
-        _logger = services.GetService<ILogger<ExtensionManager>>();
+        _rootServices ??= services;
+        var runtimeServices = _rootServices;
+        CaptureScopeFactory(runtimeServices);
+        _logger = runtimeServices.GetService<ILogger<ExtensionManager>>();
 
         // Load installation state from DB
-        await LoadInstallationStateAsync(services, ct);
+        await LoadInstallationStateAsync(runtimeServices, ct);
 
         // Clean up stale installation records for extensions that no longer exist on disk.
         var staleIds = _installations.Keys
@@ -1246,7 +1247,7 @@ public class ExtensionManager : IExtensionContributionRuntime
 
                 if (ext is IStatefulExtension stateful)
                 {
-                    var factory = services.GetService<IExtensionStoreFactory>();
+                    var factory = runtimeServices.GetService<IExtensionStoreFactory>();
                     if (factory != null)
                         stateful.SetStore(factory.CreateStore(ext.Id));
                 }
@@ -1262,14 +1263,14 @@ public class ExtensionManager : IExtensionContributionRuntime
                 var extServices = extensionLease.Services;
 
                 if (ext is IDataExtension)
-                    await ApplyExtensionMigrationsAsync(services, ext.Id, ct);
+                    await ApplyExtensionMigrationsAsync(runtimeServices, ext.Id, ct);
 
                 // Check if this is a new installation
                 var install = GetInstallation(ext.Id);
                 if (install == null)
                 {
                     await ext.OnInstallAsync(extServices, ct);
-                    await SaveInstallationAsync(services, ext.Id, ct);
+                    await SaveInstallationAsync(runtimeServices, ext.Id, ct);
                     _logger?.LogInformation("Extension {Id} installed (v{Version})", ext.Id, ext.Version);
                 }
 
