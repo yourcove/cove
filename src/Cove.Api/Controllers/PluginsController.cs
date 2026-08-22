@@ -155,24 +155,42 @@ public class PluginsController(
 
                     if (!initialized)
                     {
-                        await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
-                        config.DisabledPlugins.Add(pluginId);
+                        var disabledExtensions = await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
+                        SynchronizeLegacyDisabledState(enabledExtensions.Concat(disabledExtensions).Append(pluginId));
                         await configService.SaveCurrentConfigAsync();
                         return Conflict($"Plugin '{pluginId}' could not be initialized and remains disabled.");
                     }
-                }
 
-                config.DisabledPlugins.Remove(pluginId);
+                    SynchronizeLegacyDisabledState(enabledExtensions);
+                }
+                else
+                {
+                    config.DisabledPlugins.Remove(pluginId);
+                }
             }
             else
             {
-                await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
-                config.DisabledPlugins.Add(pluginId);
+                var disabledExtensions = await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
+                if (disabledExtensions.Count > 0)
+                    SynchronizeLegacyDisabledState(disabledExtensions);
+                else
+                    config.DisabledPlugins.Add(pluginId);
             }
         }
 
         await configService.SaveCurrentConfigAsync();
         return Ok();
+    }
+
+    private void SynchronizeLegacyDisabledState(IEnumerable<string> extensionIds)
+    {
+        foreach (var extensionId in extensionIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (extensionManager.IsEnabled(extensionId))
+                config.DisabledPlugins.Remove(extensionId);
+            else
+                config.DisabledPlugins.Add(extensionId);
+        }
     }
 
     [HttpGet("{pluginId}/config")]
