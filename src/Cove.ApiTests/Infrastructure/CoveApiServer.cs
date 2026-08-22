@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using Cove.ApiTests.ExampleData;
 using System.Net.Http.Json;
@@ -17,6 +18,35 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private const string ResetTokenHeader = "X-Cove-Test-Reset-Token";
     private const string FaceSuggestionProviderDirectoryName = "com.cove.api-test-face-provider";
     private const string FaceSuggestionProviderBuildDirectoryName = "face-suggestion-provider";
+
+    /// <summary>
+    /// How long to wait for a started host to report itself ready.
+    /// </summary>
+    /// <remarks>
+    /// The host migrates an empty database on its way to ready, and that is by far the slowest thing
+    /// the harness waits for. On a Linux runner talking to a native PostgreSQL it finishes in seconds;
+    /// on a developer machine reaching PostgreSQL through a container port proxy the same work has been
+    /// measured in minutes, because the baseline migration issues a great many small statements and
+    /// each one pays the proxy's round-trip. One host serves a whole test collection, so this is paid
+    /// once per run rather than per test.
+    /// <para>
+    /// A generous budget costs nothing when startup succeeds, and a host that dies is still reported
+    /// immediately because the wait loop checks for process exit on every pass. Only a host that stays
+    /// alive without ever becoming ready waits this out.
+    /// </para>
+    /// </remarks>
+    private static readonly TimeSpan StartupReadyTimeout = ResolveStartupReadyTimeout();
+
+    private const string StartupReadyTimeoutVariable = "COVE_API_TEST_STARTUP_TIMEOUT_SECONDS";
+
+    private static TimeSpan ResolveStartupReadyTimeout()
+        => int.TryParse(
+            Environment.GetEnvironmentVariable(StartupReadyTimeoutVariable),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var seconds) && seconds > 0
+            ? TimeSpan.FromSeconds(seconds)
+            : TimeSpan.FromMinutes(10);
 
     private readonly PostgreSqlTestDatabase _database;
     private readonly MetadataServiceSimulator _metadataService;
@@ -465,7 +495,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         ConcurrentQueue<string> output,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(60);
+        var deadline = DateTime.UtcNow + StartupReadyTimeout;
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -485,7 +515,10 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             await Task.Delay(100, cancellationToken);
         }
 
-        throw new TimeoutException($"The Cove API process did not become ready. Output:{Environment.NewLine}{FormatOutput(output)}");
+        throw new TimeoutException(
+            $"The Cove API process did not become ready within {StartupReadyTimeout.TotalSeconds:N0}s. "
+            + $"If the database is simply slow to migrate, raise {StartupReadyTimeoutVariable}. "
+            + $"Output:{Environment.NewLine}{FormatOutput(output)}");
     }
 
     private static void ThrowIfExited(Process process, ConcurrentQueue<string> output)
