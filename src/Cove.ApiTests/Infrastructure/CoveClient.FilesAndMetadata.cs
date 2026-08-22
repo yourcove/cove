@@ -229,6 +229,16 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<IReadOnlyList<MetadataServerPerformerMatchDto>> FindPerformerMetadataServiceByIdsAsync(
+        MetadataServicePerformerHandle metadataPerformer,
+        IReadOnlyList<string> ids,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<MetadataServerPerformerMatchDto>>(
+            HttpMethod.Post,
+            "/api/performers/metadata-server/find-by-ids",
+            new MetadataServerFindByIdsRequestDto(metadataPerformer.Endpoint.AbsoluteUri, ids.ToList()),
+            cancellationToken);
+
     public Task<PerformerDto> ImportPerformerFromMetadataServiceAsync(
         PerformerDto performer,
         MetadataServerPerformerMatchDto match,
@@ -242,6 +252,34 @@ public sealed partial class CoveClient
                 PerformerId = match.Id,
             },
             cancellationToken);
+
+    public async Task<string?> SubmitPerformerDraftToMetadataServiceAsync(
+        PerformerDto performer,
+        MetadataServicePerformerHandle metadataPerformer,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/performers/{performer.Id}/metadata-server/submit-draft",
+            new MetadataServerEndpointDto(metadataPerformer.Endpoint.AbsoluteUri),
+            cancellationToken);
+        return response.GetProperty("draftId").GetString();
+    }
+
+    public async Task<MetadataServerBatchTagStartResult> StartPerformerMetadataBatchTagAsync(
+        MetadataServerPerformerBatchTagRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/performers/metadata-server/batch-tag",
+            request,
+            cancellationToken);
+        return new MetadataServerBatchTagStartResult(
+            response.GetProperty("jobId").GetString()
+                ?? throw new InvalidOperationException("POST /api/performers/metadata-server/batch-tag did not return a job id."),
+            response.GetProperty("itemCount").GetInt32());
+    }
 
     private async Task<string> StartMetadataJobAsync(
         string requestUri,
@@ -263,3 +301,5 @@ public sealed record ApiBinaryContent(
     string? MediaType,
     string? CacheControl = null,
     Uri? RedirectTarget = null);
+
+public sealed record MetadataServerBatchTagStartResult(string JobId, int ItemCount);

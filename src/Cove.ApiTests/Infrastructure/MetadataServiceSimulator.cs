@@ -46,6 +46,9 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     public IReadOnlyList<MetadataServiceSceneDraftSubmission> SceneDraftSubmissions
         => _submissions.SceneDraftSubmissions;
 
+    public IReadOnlyList<MetadataServicePerformerDraftSubmission> PerformerDraftSubmissions
+        => _submissions.PerformerDraftSubmissions;
+
     internal static async Task<MetadataServiceSimulator> StartAsync(
         CancellationToken cancellationToken = default)
     {
@@ -242,6 +245,13 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             return;
         }
 
+        if (request.Query.Contains("mutation SubmitPerformerDraft", StringComparison.Ordinal)
+            && request.Query.Contains("submitPerformerDraft(input: $input)", StringComparison.Ordinal))
+        {
+            await HandlePerformerDraftSubmissionAsync(context, request, submissions);
+            return;
+        }
+
         if (!request.Query.Contains("query FindVideoByID", StringComparison.Ordinal)
             || !request.Query.Contains("findVideo: findScene(id: $id)", StringComparison.Ordinal)
             || !request.Query.Contains("tags {", StringComparison.Ordinal))
@@ -327,6 +337,25 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         var submission = submissions.RecordSceneDraft(input);
         await context.Response.WriteAsJsonAsync(
             new { data = new { submitSceneDraft = new { id = submission.DraftId } } },
+            ApiJson.Options,
+            context.RequestAborted);
+    }
+
+    private static async Task HandlePerformerDraftSubmissionAsync(
+        HttpContext context,
+        GraphQlRequest request,
+        MetadataServiceSubmissionLog submissions)
+    {
+        if (!request.Variables.TryGetProperty("input", out var input)
+            || input.ValueKind != JsonValueKind.Object)
+        {
+            await WriteGraphQlErrorAsync(context, "SubmitPerformerDraft requires an input object.");
+            return;
+        }
+
+        var submission = submissions.RecordPerformerDraft(input);
+        await context.Response.WriteAsJsonAsync(
+            new { data = new { submitPerformerDraft = new { id = submission.DraftId } } },
             ApiJson.Options,
             context.RequestAborted);
     }
@@ -532,6 +561,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     {
         private readonly ConcurrentQueue<MetadataServiceFingerprintSubmission> _fingerprintSubmissions = new();
         private readonly ConcurrentQueue<MetadataServiceSceneDraftSubmission> _sceneDraftSubmissions = new();
+        private readonly ConcurrentQueue<MetadataServicePerformerDraftSubmission> _performerDraftSubmissions = new();
         private int _nextDraftNumber;
 
         public IReadOnlyList<MetadataServiceFingerprintSubmission> FingerprintSubmissions
@@ -539,6 +569,9 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
 
         public IReadOnlyList<MetadataServiceSceneDraftSubmission> SceneDraftSubmissions
             => _sceneDraftSubmissions.ToArray();
+
+        public IReadOnlyList<MetadataServicePerformerDraftSubmission> PerformerDraftSubmissions
+            => _performerDraftSubmissions.ToArray();
 
         public void RecordFingerprint(JsonElement input)
             => _fingerprintSubmissions.Enqueue(new MetadataServiceFingerprintSubmission(input.Clone()));
@@ -552,10 +585,20 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             return submission;
         }
 
+        public MetadataServicePerformerDraftSubmission RecordPerformerDraft(JsonElement input)
+        {
+            var submission = new MetadataServicePerformerDraftSubmission(
+                $"draft-{Interlocked.Increment(ref _nextDraftNumber)}",
+                input.Clone());
+            _performerDraftSubmissions.Enqueue(submission);
+            return submission;
+        }
+
         public void Reset()
         {
             _fingerprintSubmissions.Clear();
             _sceneDraftSubmissions.Clear();
+            _performerDraftSubmissions.Clear();
             Interlocked.Exchange(ref _nextDraftNumber, 0);
         }
     }
@@ -587,6 +630,8 @@ public sealed record MetadataServiceFingerprintSourceEntry(string Type, string V
 public sealed record MetadataServiceFingerprintSubmission(JsonElement Input);
 
 public sealed record MetadataServiceSceneDraftSubmission(string DraftId, JsonElement Input);
+
+public sealed record MetadataServicePerformerDraftSubmission(string DraftId, JsonElement Input);
 
 public sealed record MetadataServicePerformer(
     string Id,
