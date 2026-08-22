@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Xunit.Abstractions;
 
@@ -13,6 +15,73 @@ public sealed class GalleryLifecycleQueryAndRelationshipApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
+    [Fact]
+    [CoversEndpoint("GET", "/api/galleries/{id:int}/chapters")]
+    [CoversEndpoint("POST", "/api/galleries/{id:int}/chapters")]
+    [CoversEndpoint("PUT", "/api/galleries/{galleryid:int}/chapters/{chapterid:int}")]
+    [CoversEndpoint("DELETE", "/api/galleries/{galleryid:int}/chapters/{chapterid:int}")]
+    public async Task GivenGalleryChapters_WhenOwnerMaintainsOrderedChapters_ThenViewerMutationsAreDeniedAndOtherGalleryRemainsUnchanged()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var gallery = await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"Chapter gallery {suffix}").Build());
+        var controlGallery = await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"Control chapter gallery {suffix}").Build());
+        var viewerUsername = $"gallery-chapter-viewer-{suffix}";
+        const string viewerPassword = "Gallery chapter viewer 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Viewer]));
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword);
+        var viewer = viewerSession.Client;
+
+        var later = await owner.CreateGalleryChapterAsync(gallery, new GalleryChapterCreateDto("Later chapter", 30));
+        var earlier = await owner.CreateGalleryChapterAsync(gallery, new GalleryChapterCreateDto("Earlier chapter", 10));
+        var control = await owner.CreateGalleryChapterAsync(controlGallery, new GalleryChapterCreateDto("Control chapter", 20));
+        var initial = await owner.GetGalleryChaptersAsync(gallery);
+        var initialControl = await owner.GetGalleryChaptersAsync(controlGallery);
+
+        initial.Should().HaveCount(2);
+        AssertChapter(initial[0], earlier, "Earlier chapter", 10, gallery.Id);
+        AssertChapter(initial[1], later, "Later chapter", 30, gallery.Id);
+        (await viewer.GetGalleryChaptersAsync(gallery)).Select(chapter => chapter.Id).Should().Equal(initial.Select(chapter => chapter.Id));
+
+        var forbiddenMutations = new Func<Task>[]
+        {
+            async () => _ = await viewer.CreateGalleryChapterAsync(gallery, new GalleryChapterCreateDto("Forbidden chapter", 5)),
+            async () => _ = await viewer.UpdateGalleryChapterAsync(gallery, earlier, new GalleryChapterUpdateDto("Forbidden update", 1)),
+            () => viewer.DeleteGalleryChapterAsync(gallery, earlier),
+        };
+        foreach (var forbiddenMutation in forbiddenMutations)
+        {
+            await forbiddenMutation.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
+            AssertChapters(await owner.GetGalleryChaptersAsync(gallery), initial);
+        }
+
+        var mismatchedUpdate = () => owner.UpdateGalleryChapterAsync(controlGallery, earlier, new GalleryChapterUpdateDto("Mismatched update", 1));
+        var mismatchedDelete = () => owner.DeleteGalleryChapterAsync(controlGallery, earlier);
+        await mismatchedUpdate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
+        AssertChapters(await owner.GetGalleryChaptersAsync(gallery), initial);
+        AssertChapters(await owner.GetGalleryChaptersAsync(controlGallery), initialControl);
+        await mismatchedDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
+        AssertChapters(await owner.GetGalleryChaptersAsync(gallery), initial);
+        AssertChapters(await owner.GetGalleryChaptersAsync(controlGallery), initialControl);
+
+        var updated = await owner.UpdateGalleryChapterAsync(gallery, later, new GalleryChapterUpdateDto("Updated first chapter", 2));
+        AssertChapter(updated, later, "Updated first chapter", 2, gallery.Id);
+        updated.CreatedAt.Should().NotBeNullOrWhiteSpace();
+        updated.UpdatedAt.Should().NotBeNullOrWhiteSpace();
+        var afterUpdate = await owner.GetGalleryChaptersAsync(gallery);
+        afterUpdate.Should().HaveCount(2);
+        AssertChapter(afterUpdate[0], updated, "Updated first chapter", 2, gallery.Id);
+        AssertChapter(afterUpdate[1], earlier, "Earlier chapter", 10, gallery.Id);
+
+        await owner.DeleteGalleryChapterAsync(gallery, earlier);
+        var afterDelete = await owner.GetGalleryChaptersAsync(gallery);
+        afterDelete.Should().ContainSingle();
+        AssertChapter(afterDelete.Single(), updated, "Updated first chapter", 2, gallery.Id);
+        var controlChapters = await owner.GetGalleryChaptersAsync(controlGallery);
+        controlChapters.Should().ContainSingle();
+        AssertChapter(controlChapters.Single(), control, "Control chapter", 20, controlGallery.Id);
+    }
+
     [Fact]
     [CoversEndpoint("POST", "/api/galleries")]
     [CoversEndpoint("GET", "/api/galleries/{id:int}")]
@@ -323,5 +392,29 @@ public sealed class GalleryLifecycleQueryAndRelationshipApiTests(
                 .WithMessage("*returned 404 (NotFound)*");
         }
         (await owner.GetGalleryByIdAsync(retained.Id)).Id.Should().Be(retained.Id);
+    }
+
+    private static void AssertChapters(IReadOnlyList<GalleryChapterDto> actual, IReadOnlyList<GalleryChapterDto> expected)
+    {
+        actual.Select(chapter => chapter.Id).Should().Equal(expected.Select(chapter => chapter.Id));
+        foreach (var expectedChapter in expected)
+        {
+            var actualChapter = actual.Single(chapter => chapter.Id == expectedChapter.Id);
+            AssertChapter(actualChapter, expectedChapter, expectedChapter.Title, expectedChapter.ImageIndex, expectedChapter.GalleryId);
+            actualChapter.UpdatedAt.Should().Be(expectedChapter.UpdatedAt);
+        }
+    }
+
+    private static void AssertChapter(
+        GalleryChapterDto actual,
+        GalleryChapterDto expected,
+        string title,
+        int imageIndex,
+        int galleryId)
+    {
+        actual.Id.Should().Be(expected.Id);
+        actual.Title.Should().Be(title);
+        actual.ImageIndex.Should().Be(imageIndex);
+        actual.GalleryId.Should().Be(galleryId);
     }
 }

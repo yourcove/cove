@@ -69,6 +69,7 @@ public sealed class SourceEntityImageApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("GET", "/api/galleries/{id:int}/cover")]
     [CoversEndpoint("PUT", "/api/galleries/{id:int}/cover")]
     [CoversEndpoint("DELETE", "/api/galleries/{id:int}/cover")]
     public async Task GivenGalleryImageSources_WhenSourceAndCoverAreSelected_ThenReferencesAndFallbackReadsStayCurrent()

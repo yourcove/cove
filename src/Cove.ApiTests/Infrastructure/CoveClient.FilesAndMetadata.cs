@@ -174,6 +174,50 @@ public sealed partial class CoveClient
             },
             cancellationToken);
 
+    public Task<IReadOnlyList<MetadataServerVideoMatchDto>> SearchVideoMetadataServiceAsync(
+        VideoDto video,
+        string term,
+        MetadataServiceSceneHandle metadataScene,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<MetadataServerVideoMatchDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/{video.Id}/metadata-server/search?term={Uri.EscapeDataString(term)}&endpoint={Uri.EscapeDataString(metadataScene.Endpoint.AbsoluteUri)}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<IReadOnlyList<MetadataServerVideoMatchDto>> FindVideoMetadataServiceByIdsAsync(
+        MetadataServiceSceneHandle metadataScene,
+        IReadOnlyList<string> ids,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<MetadataServerVideoMatchDto>>(
+            HttpMethod.Post,
+            "/api/videos/metadata-server/find-by-ids",
+            new MetadataServerFindByIdsRequestDto(metadataScene.Endpoint.AbsoluteUri, ids.ToList()),
+            cancellationToken);
+
+    public Task SubmitVideoFingerprintsToMetadataServiceAsync(
+        VideoDto video,
+        MetadataServiceSceneHandle metadataScene,
+        CancellationToken cancellationToken = default)
+        => SendForOkAsync(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/metadata-server/submit-fingerprints",
+            new MetadataServerEndpointDto(metadataScene.Endpoint.AbsoluteUri),
+            cancellationToken);
+
+    public async Task<string?> SubmitVideoDraftToMetadataServiceAsync(
+        VideoDto video,
+        MetadataServiceSceneHandle metadataScene,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/videos/{video.Id}/metadata-server/submit-draft",
+            new MetadataServerEndpointDto(metadataScene.Endpoint.AbsoluteUri),
+            cancellationToken);
+        return response.GetProperty("draftId").GetString();
+    }
+
     public Task<IReadOnlyList<MetadataServerPerformerMatchDto>> SearchPerformerMetadataServiceAsync(
         PerformerDto performer,
         string name,
