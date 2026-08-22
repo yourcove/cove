@@ -219,3 +219,30 @@ jobs:
       - name: Test
         working-directory: ui
         run: npx vitest run --passWithNoTests
+
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+
+      - name: Install
+        working-directory: cli
+        run: bun install --frozen-lockfile
+
+      - name: Type check and test
+        working-directory: cli
+        run: |
+          bun run typecheck
+          bun test
+
+      - name: Build standalone executable
+        working-directory: cli
+        run: bun run build
+
+      - name: Smoke test standalone executable
+        working-directory: cli
+        run: bun run test:compiled

@@ -157,6 +157,88 @@ jobs:
             ${{ matrix.artifact }}${{ matrix.ext }}.sha256
           retention-days: 1
 
+  # ── Verify and build standalone CLI executables ─────────────────
+  verify-cli:
+    needs: check-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+
+      - name: Install CLI dependencies
+        working-directory: cli
+        run: bun install --frozen-lockfile
+
+      - name: Verify CLI
+        working-directory: cli
+        run: |
+          bun run typecheck
+          bun test
+          bun build src/index.ts --compile --target=bun-linux-x64-baseline --outfile=dist/cove-cli
+          bun run test:compiled
+
+  build-cli:
+    needs: [check-version, verify-cli]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: bun-linux-x64-baseline
+            artifact: cove-cli-linux-x64
+            executable: cove-cli
+            archive: cove-cli-linux-x64.tar.gz
+          - target: bun-linux-arm64
+            artifact: cove-cli-linux-arm64
+            executable: cove-cli
+            archive: cove-cli-linux-arm64.tar.gz
+          - target: bun-darwin-x64-baseline
+            artifact: cove-cli-macos-x64
+            executable: cove-cli
+            archive: cove-cli-macos-x64.tar.gz
+          - target: bun-darwin-arm64
+            artifact: cove-cli-macos-arm64
+            executable: cove-cli
+            archive: cove-cli-macos-arm64.tar.gz
+          - target: bun-windows-x64-baseline
+            artifact: cove-cli-windows-x64
+            executable: cove-cli.exe
+            archive: cove-cli-windows-x64.zip
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+
+      - name: Install CLI dependencies
+        working-directory: cli
+        run: bun install --frozen-lockfile
+
+      - name: Build executable
+        working-directory: cli
+        run: bun build src/index.ts --compile --target=${{ matrix.target }} --outfile=dist/${{ matrix.executable }}
+
+      - name: Package executable
+        working-directory: cli/dist
+        run: |
+          if [[ "${{ matrix.archive }}" == *.zip ]]; then
+            zip "${{ matrix.archive }}" "${{ matrix.executable }}"
+          else
+            tar -czf "${{ matrix.archive }}" "${{ matrix.executable }}"
+          fi
+          sha256sum "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            cli/dist/${{ matrix.archive }}
+            cli/dist/${{ matrix.archive }}.sha256
+          retention-days: 1
+
   # ── Determine release type ────────────────────────────────────────
   check-version:
     runs-on: ubuntu-latest
@@ -268,11 +350,12 @@ jobs:
 
   # ── Create GitHub Release ───────────────────────────────────────
   release:
-    needs: [build-native, build-docker, check-version]
+    needs: [build-native, build-cli, build-docker, check-version]
     # Publish the release only after all native packages and container images succeed.
     if: >-
       always()
       && needs.build-native.result == 'success'
+      && needs.build-cli.result == 'success'
       && needs.build-docker.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -325,7 +408,7 @@ jobs:
 
             ## Downloads
 
-            Standalone executables for Windows, Linux, and macOS are attached below.
+            Standalone Cove and Cove CLI executables for Windows, Linux, and macOS are attached below.
 
             ${{ needs.check-version.outputs.is_stable != 'true' && '> **Pre-release:** These container tags are isolated and do not update the stable or nightly aliases.' || '' }}
 
