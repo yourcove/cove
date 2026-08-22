@@ -39,7 +39,7 @@ public sealed class LegacyPluginsApiTests(
             var memberTasks = await member.GetLegacyPluginTasksAsync();
             AssertOnlyApiTestTask(memberTasks);
             AssertApiTestPluginEnabled(await member.GetLegacyPluginsAsync(), expected: true);
-            (await member.GetLegacyPluginConfigAsync(ExtensionId)).Should().BeEquivalentTo(originalConfig);
+            AssertConfigurationEquals(await member.GetLegacyPluginConfigAsync(ExtensionId), originalConfig);
 
             var stateBeforeForbiddenMutations = await owner.GetExtensionDataAsync(ExtensionId);
             var forbiddenConfig = () => member.SetLegacyPluginConfigAsync(ExtensionId, new Dictionary<string, object?> { ["member"] = "blocked" });
@@ -51,7 +51,7 @@ public sealed class LegacyPluginsApiTests(
             await forbiddenRun.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
             await forbiddenSettings.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
             await forbiddenReload.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            (await owner.GetLegacyPluginConfigAsync(ExtensionId)).Should().BeEquivalentTo(originalConfig);
+            AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId), originalConfig);
             (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(stateBeforeForbiddenMutations);
             AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync());
             AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: true);
@@ -119,6 +119,33 @@ public sealed class LegacyPluginsApiTests(
                 .WhoseValue.Should().Be("{\"phase\":\"after reload\"}");
             stateAfterReload.Should().ContainKey(JobProgressStoreKey)
                 .WhoseValue.Should().Be("1|API test parameters recorded");
+
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool> { [ExtensionId] = false }));
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: false);
+            (await owner.TryRunLegacyPluginTaskAsync(new RunPluginTaskDto(
+                    ExtensionId,
+                    TaskId,
+                    new Dictionary<string, string> { ["phase"] = "disabled after reload" })))
+                .Should().Be(HttpStatusCode.Conflict);
+            (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(stateAfterReload);
+
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
+                new Dictionary<string, bool> { [ExtensionId] = true }));
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: true);
+            var postReloadEnableRun = await owner.RunLegacyPluginTaskAsync(new RunPluginTaskDto(
+                ExtensionId,
+                TaskId,
+                new Dictionary<string, string> { ["phase"] = "re-enabled after reload" }));
+            var postReloadEnableJob = await owner.WaitForTerminalJobAsync(postReloadEnableRun.JobId);
+            postReloadEnableJob.Status.Should().Be(JobStatus.Completed);
+            postReloadEnableJob.Type.Should().Be($"plugin:{ExtensionId}");
+            postReloadEnableJob.Error.Should().BeNull();
+            var finalState = await owner.GetExtensionDataAsync(ExtensionId);
+            finalState.Should().ContainKey(JobParametersStoreKey)
+                .WhoseValue.Should().Be("{\"phase\":\"re-enabled after reload\"}");
+            finalState.Should().ContainKey(JobProgressStoreKey)
+                .WhoseValue.Should().Be("1|API test parameters recorded");
         }
         finally
         {
@@ -152,7 +179,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                (await owner.GetLegacyPluginConfigAsync(ExtensionId)).Should().BeEquivalentTo(originalConfig);
+                AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId), originalConfig);
             }
             catch (Exception exception)
             {
@@ -214,6 +241,19 @@ public sealed class LegacyPluginsApiTests(
 
     private static Dictionary<string, object?> ToObjectDictionary(Dictionary<string, JsonElement> values)
         => values.ToDictionary(pair => pair.Key, pair => (object?)pair.Value.Clone());
+
+    private static void AssertConfigurationEquals(
+        IReadOnlyDictionary<string, JsonElement> actual,
+        IReadOnlyDictionary<string, JsonElement> expected)
+    {
+        actual.Keys.Should().BeEquivalentTo(expected.Keys);
+        foreach (var (key, expectedValue) in expected)
+        {
+            actual.Should().ContainKey(key);
+            JsonElement.DeepEquals(actual[key], expectedValue).Should().BeTrue(
+                because: $"plugin configuration value '{key}' should be restored exactly");
+        }
+    }
 
     private static void AssertOnlyApiTestTask(IReadOnlyList<PluginTaskDto> tasks)
     {
