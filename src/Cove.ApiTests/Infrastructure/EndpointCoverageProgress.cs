@@ -4,9 +4,9 @@ public sealed record EndpointCoverageException(ApiEndpointId Endpoint, string Re
 
 public static class EndpointCoverageProgress
 {
-    public const int ExpectedMappedEndpoints = 400;
+    public const int ExpectedMappedEndpoints = 406;
 
-    public const int ExpectedTemporarilyUnmappedEndpoints = 104;
+    public const int ExpectedTemporarilyUnmappedEndpoints = 98;
 
     public static IReadOnlySet<ApiEndpointId> TemporarilyUnmapped { get; } =
         TemporaryUnmappedEndpointText
@@ -23,12 +23,9 @@ public static class EndpointCoverageProgress
         DELETE /api/embeddings
         DELETE /api/jobs/{jobid}
         DELETE /api/share-links/{id:guid}
-        DELETE /api/tagapplications/host/{hosttype}/{hostid:int}/tag/{tagid:int}
-        DELETE /api/tagapplications/{id:int}
         DELETE /api/tags/{id:int}
         DELETE /api/users/{id:int}/external-links/{linkid:int}
         DELETE /api/videos/{id:int}/play
-        DELETE /api/videos/{videoid:int}/detections/{id:int}
         GET /api/ai-runs/{id:int}
         GET /api/embeddings/{id:int}
         GET /api/extensions/registry/categories
@@ -52,7 +49,6 @@ public static class EndpointCoverageProgress
         GET /api/studios/{id:int}/metadata-server/search
         GET /api/system/ffmpeg-capabilities
         GET /api/tags/{id:int}/metadata-server/search
-        GET /api/videos/{videoid:int}/detections/{id:int}
         POST /api/ai-data/purge
         POST /api/apitokens
         POST /api/auth/bootstrap-owner
@@ -103,7 +99,6 @@ public static class EndpointCoverageProgress
         POST /api/system/scrapers/scrape-fragment
         POST /api/system/scrapers/scrape-name
         POST /api/system/shutdown
-        POST /api/tagapplications
         POST /api/tags/metadata-server/batch-tag
         POST /api/tags/metadata-server/find-by-ids
         POST /api/tags/merge
@@ -120,6 +115,5 @@ public static class EndpointCoverageProgress
         PUT /api/jobs/{jobid}/reorder
         PUT /api/system/config
         PUT /api/system/config/ui/{key}
-        PUT /api/videos/{videoid:int}/detections/{id:int}
         """;
 }
