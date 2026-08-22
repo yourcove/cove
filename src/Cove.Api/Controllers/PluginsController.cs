@@ -138,18 +138,35 @@ public class PluginsController(
         [FromBody] PluginSettingsDto dto,
         CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         foreach (var (pluginId, enabled) in dto.EnabledMap)
         {
             if (enabled)
             {
-                var enabledExtensions = await extensionManager.EnableExtensionAsync(pluginId, ct);
-                foreach (var extensionId in enabledExtensions)
-                    await extensionManager.InitializeExtensionAsync(extensionId, HttpContext.RequestServices, ct);
+                var extension = extensionManager.GetExtension(pluginId);
+                if (extension != null)
+                {
+                    var enabledExtensions = await extensionManager.EnableExtensionAsync(pluginId, CancellationToken.None);
+                    var requestedExtensionEnabled = enabledExtensions.Contains(pluginId, StringComparer.OrdinalIgnoreCase);
+                    var initialized = requestedExtensionEnabled;
+                    foreach (var extensionId in enabledExtensions)
+                        initialized &= await extensionManager.EnsureExtensionInitializedAsync(extensionId, CancellationToken.None);
+
+                    if (!initialized)
+                    {
+                        await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
+                        config.DisabledPlugins.Add(pluginId);
+                        await configService.SaveCurrentConfigAsync();
+                        return Conflict($"Plugin '{pluginId}' could not be initialized and remains disabled.");
+                    }
+                }
+
                 config.DisabledPlugins.Remove(pluginId);
             }
             else
             {
-                await extensionManager.DisableExtensionAsync(pluginId, ct);
+                await extensionManager.DisableExtensionAsync(pluginId, CancellationToken.None);
                 config.DisabledPlugins.Add(pluginId);
             }
         }

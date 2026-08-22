@@ -1488,6 +1488,7 @@ public class ExtensionManager : IExtensionContributionRuntime
             await ext.InitializeAsync(extServices, ct);
             MarkExtensionInitialized(ext.Id);
             StartBackgroundWorker(ext.Id);
+            _startupDisabledExtensions.TryRemove(ext.Id, out _);
             _extensionFailureReasons.TryRemove(ext.Id, out _);
             var manifest = GetManifestFile(ext.Id);
             TryUpdateInstallation(ext.Id, install =>
@@ -1573,6 +1574,8 @@ public class ExtensionManager : IExtensionContributionRuntime
             await ext.InitializeAsync(extServices, ct);
             MarkExtensionInitialized(ext.Id);
             StartBackgroundWorker(ext.Id);
+            _startupDisabledExtensions.TryRemove(ext.Id, out _);
+            _extensionFailureReasons.TryRemove(ext.Id, out _);
             PublishExtensionEndpoints(ext.Id);
             _logger?.LogInformation("Extension {Id} initialized on demand", ext.Id);
             return true;
