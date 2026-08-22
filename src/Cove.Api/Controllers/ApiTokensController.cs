@@ -48,8 +48,6 @@ public class ApiTokensController : ControllerBase
         var p = _principalAccessor.Current;
         if (p?.UserId is not int) return Unauthorized();
         await _tokens.RevokeApiTokenAsync(id, p, ct);
-        await _audit.LogAsync(AuditActions.ApiTokenRevoke, AuditOutcomes.Success, p,
-            "api_token", id.ToString(), null, ct);
         return NoContent();
     }
 }
