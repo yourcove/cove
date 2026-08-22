@@ -55,6 +55,28 @@ public sealed class ApiTestFileSystem
         return path;
     }
 
+    public string CreateLibraryDirectory(string relativePath)
+    {
+        var path = ResolveLibraryChildPath(relativePath, nameof(relativePath));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    public string CreateLibraryNestedFile(string relativePath, byte[] contents)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
+        var path = ResolveLibraryChildPath(relativePath, nameof(relativePath));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, contents);
+        return path;
+    }
+
+    public void DeleteLibraryFile(string path)
+        => File.Delete(ResolveLibraryExistingPath(path, nameof(path)));
+
+    public bool LibraryFileExists(string path)
+        => File.Exists(ResolveLibraryExistingPath(path, nameof(path)));
+
     public void ReplaceLibraryFile(string path, byte[] contents)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -156,6 +178,37 @@ public sealed class ApiTestFileSystem
 
     private static string GetVideoBucket(int videoId)
         => Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)))[..2];
+
+    private string ResolveLibraryChildPath(string relativePath, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath, parameterName);
+        if (Path.IsPathFullyQualified(relativePath))
+            throw new ArgumentOutOfRangeException(parameterName, "API test library paths must be relative to the disposable library root.");
+
+        return ResolveLibraryPath(Path.Combine(LibraryPath, relativePath), parameterName);
+    }
+
+    private string ResolveLibraryExistingPath(string path, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path, parameterName);
+        return ResolveLibraryPath(path, parameterName);
+    }
+
+    private string ResolveLibraryPath(string path, string parameterName)
+    {
+        var root = Path.GetFullPath(LibraryPath);
+        var fullPath = Path.GetFullPath(path);
+        var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!fullPath.StartsWith(rootWithSeparator, comparison))
+            throw new ArgumentOutOfRangeException(parameterName, "API test filesystem paths must stay under the disposable library root.");
+
+        return fullPath;
+    }
 
     private static void WritePcmWaveFile(string path, int sampleFrames, int sampleRate)
     {
