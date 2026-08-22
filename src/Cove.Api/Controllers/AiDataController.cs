@@ -34,6 +34,11 @@ public class AiDataController(
     public async Task<ActionResult<AiDataPurgeResultDto>> Purge([FromBody] AiDataPurgeRequestDto request, CancellationToken cancellationToken)
     {
         var selector = request.ToSelectorDto();
+        if (!AiDataPurgeService.TryValidateDestructiveSelector(selector, out var error))
+        {
+            return BadRequest(new { error });
+        }
+
         var result = await aiDataPurgeService.PurgeAsync(selector, request.DryRun, cancellationToken);
 
         if (!request.DryRun)

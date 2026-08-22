@@ -76,6 +76,11 @@ public class EmbeddingsController(CoveContext db, IEmbeddingService embeddingSer
             return Problem("AI data purge service is unavailable.", statusCode: StatusCodes.Status500InternalServerError);
         }
 
+        if (!AiDataPurgeService.TryValidateDestructiveSelector(selector, out var error, scopeKinds: ["embedding"]))
+        {
+            return BadRequest(new { error });
+        }
+
         var removedCount = await aiDataPurgeService.DeleteEmbeddingsAsync(selector, dryRun: false, cancellationToken);
         return Ok(new AiDataPurgeResultDto(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
