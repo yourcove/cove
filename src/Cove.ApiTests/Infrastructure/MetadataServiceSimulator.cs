@@ -18,6 +18,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
 
     private readonly WebApplication _application;
     private readonly ConcurrentDictionary<string, MetadataServicePerformer> _performers;
+    private readonly ConcurrentDictionary<string, MetadataServiceRemoteStudio> _studios;
     private readonly ConcurrentDictionary<string, MetadataServiceRemoteTag> _tags;
     private readonly ConcurrentDictionary<string, MetadataServiceScene> _scenes;
     private readonly ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> _fingerprintSyncVideos;
@@ -26,6 +27,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     private MetadataServiceSimulator(
         WebApplication application,
         ConcurrentDictionary<string, MetadataServicePerformer> performers,
+        ConcurrentDictionary<string, MetadataServiceRemoteStudio> studios,
         ConcurrentDictionary<string, MetadataServiceRemoteTag> tags,
         ConcurrentDictionary<string, MetadataServiceScene> scenes,
         ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> fingerprintSyncVideos,
@@ -34,6 +36,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     {
         _application = application;
         _performers = performers;
+        _studios = studios;
         _tags = tags;
         _scenes = scenes;
         _fingerprintSyncVideos = fingerprintSyncVideos;
@@ -55,10 +58,14 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     public IReadOnlyList<MetadataServiceTagDraftSubmission> TagDraftSubmissions
         => _submissions.TagDraftSubmissions;
 
+    public IReadOnlyList<MetadataServiceStudioDraftSubmission> StudioDraftSubmissions
+        => _submissions.StudioDraftSubmissions;
+
     internal static async Task<MetadataServiceSimulator> StartAsync(
         CancellationToken cancellationToken = default)
     {
         var performers = new ConcurrentDictionary<string, MetadataServicePerformer>(StringComparer.Ordinal);
+        var studios = new ConcurrentDictionary<string, MetadataServiceRemoteStudio>(StringComparer.OrdinalIgnoreCase);
         var tags = new ConcurrentDictionary<string, MetadataServiceRemoteTag>(StringComparer.OrdinalIgnoreCase);
         var scenes = new ConcurrentDictionary<string, MetadataServiceScene>(StringComparer.Ordinal);
         var fingerprintSyncVideos = new ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo>();
@@ -71,7 +78,14 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
 
         var application = builder.Build();
-        application.MapPost("/", context => HandleRequestAsync(context, performers, tags, scenes, fingerprintSyncVideos, submissions));
+        application.MapPost("/", context => HandleRequestAsync(
+            context,
+            performers,
+            studios,
+            tags,
+            scenes,
+            fingerprintSyncVideos,
+            submissions));
 
         try
         {
@@ -84,7 +98,15 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             var address = addresses?.SingleOrDefault()
                 ?? throw new InvalidOperationException("The metadata-service simulator did not publish a listening address.");
 
-            return new MetadataServiceSimulator(application, performers, tags, scenes, fingerprintSyncVideos, submissions, new Uri(address));
+            return new MetadataServiceSimulator(
+                application,
+                performers,
+                studios,
+                tags,
+                scenes,
+                fingerprintSyncVideos,
+                submissions,
+                new Uri(address));
         }
         catch
         {
@@ -134,6 +156,16 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         return new MetadataServiceTagHandle(Endpoint, tag);
     }
 
+    public MetadataServiceStudioHandle CreateStudio(MetadataServiceRemoteStudio studio)
+    {
+        ArgumentNullException.ThrowIfNull(studio);
+        if (string.IsNullOrWhiteSpace(studio.Id) || string.IsNullOrWhiteSpace(studio.Name))
+            throw new ArgumentException("A metadata studio id and name are required.", nameof(studio));
+        if (!_studios.TryAdd(studio.Id, studio))
+            throw new InvalidOperationException($"Metadata studio '{studio.Id}' is already registered.");
+        return new MetadataServiceStudioHandle(Endpoint, studio);
+    }
+
     public void SetFingerprintSyncSource(IReadOnlyList<MetadataServiceFingerprintSourceVideo> videos)
     {
         ArgumentNullException.ThrowIfNull(videos);
@@ -151,6 +183,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     internal void Reset()
     {
         _performers.Clear();
+        _studios.Clear();
         _tags.Clear();
         _scenes.Clear();
         _fingerprintSyncVideos.Clear();
@@ -166,6 +199,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
     private static async Task HandleRequestAsync(
         HttpContext context,
         ConcurrentDictionary<string, MetadataServicePerformer> performers,
+        ConcurrentDictionary<string, MetadataServiceRemoteStudio> studios,
         ConcurrentDictionary<string, MetadataServiceRemoteTag> tags,
         ConcurrentDictionary<string, MetadataServiceScene> scenes,
         ConcurrentDictionary<int, MetadataServiceFingerprintSourceVideo> fingerprintSyncVideos,
@@ -216,6 +250,20 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             && request.Query.Contains("findTag(id: $id, name: $name)", StringComparison.Ordinal))
         {
             await HandleTagFindAsync(context, request, tags);
+            return;
+        }
+
+        if (request.Query.Contains("query SearchStudio", StringComparison.Ordinal)
+            && request.Query.Contains("searchStudio(term: $term)", StringComparison.Ordinal))
+        {
+            await HandleStudioSearchAsync(context, request, studios);
+            return;
+        }
+
+        if (request.Query.Contains("query FindStudio", StringComparison.Ordinal)
+            && request.Query.Contains("findStudio(id: $id, name: $name)", StringComparison.Ordinal))
+        {
+            await HandleStudioFindAsync(context, request, studios);
             return;
         }
 
@@ -282,6 +330,13 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             && request.Query.Contains("submitTagDraft(input: $input)", StringComparison.Ordinal))
         {
             await HandleTagDraftSubmissionAsync(context, request, submissions);
+            return;
+        }
+
+        if (request.Query.Contains("mutation SubmitStudioDraft", StringComparison.Ordinal)
+            && request.Query.Contains("submitStudioDraft(input: $input)", StringComparison.Ordinal))
+        {
+            await HandleStudioDraftSubmissionAsync(context, request, submissions);
             return;
         }
 
@@ -580,6 +635,74 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
 
     private static object ToRemoteTag(MetadataServiceRemoteTag tag) => new { id = tag.Id, name = tag.Name, description = tag.Description, aliases = tag.Aliases };
 
+    private static async Task HandleStudioSearchAsync(
+        HttpContext context,
+        GraphQlRequest request,
+        ConcurrentDictionary<string, MetadataServiceRemoteStudio> studios)
+    {
+        if (!request.Variables.TryGetProperty("term", out var term) || string.IsNullOrWhiteSpace(term.GetString()))
+        {
+            await WriteGraphQlErrorAsync(context, "SearchStudio requires a term variable.");
+            return;
+        }
+        var matches = studios.Values
+            .Where(studio => studio.Name.Contains(term.GetString()!, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(studio => studio.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(ToRemoteStudio)
+            .ToArray();
+        await context.Response.WriteAsJsonAsync(
+            new { data = new { searchStudio = matches } },
+            ApiJson.Options,
+            context.RequestAborted);
+    }
+
+    private static async Task HandleStudioFindAsync(
+        HttpContext context,
+        GraphQlRequest request,
+        ConcurrentDictionary<string, MetadataServiceRemoteStudio> studios)
+    {
+        MetadataServiceRemoteStudio? studio = null;
+        if (request.Variables.TryGetProperty("id", out var id) && !string.IsNullOrWhiteSpace(id.GetString()))
+            studios.TryGetValue(id.GetString()!, out studio);
+        else if (request.Variables.TryGetProperty("name", out var name)
+            && !string.IsNullOrWhiteSpace(name.GetString()))
+        {
+            studio = studios.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.Name, name.GetString(), StringComparison.OrdinalIgnoreCase));
+        }
+        await context.Response.WriteAsJsonAsync(
+            new { data = new { findStudio = studio is null ? null : ToRemoteStudio(studio) } },
+            ApiJson.Options,
+            context.RequestAborted);
+    }
+
+    private static async Task HandleStudioDraftSubmissionAsync(
+        HttpContext context,
+        GraphQlRequest request,
+        MetadataServiceSubmissionLog submissions)
+    {
+        if (!request.Variables.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object)
+        {
+            await WriteGraphQlErrorAsync(context, "SubmitStudioDraft requires an input object.");
+            return;
+        }
+        var submission = submissions.RecordStudioDraft(input);
+        await context.Response.WriteAsJsonAsync(
+            new { data = new { submitStudioDraft = new { id = submission.DraftId } } },
+            ApiJson.Options,
+            context.RequestAborted);
+    }
+
+    private static object ToRemoteStudio(MetadataServiceRemoteStudio studio) => new
+    {
+        id = studio.Id,
+        name = studio.Name,
+        aliases = studio.Aliases,
+        urls = studio.Urls.Select(url => new { url }),
+        images = Array.Empty<object>(),
+        parent = studio.Parent is null ? null : new { id = studio.Parent.Id, name = studio.Parent.Name },
+    };
+
     private static object ToRemotePerformer(MetadataServicePerformer performer)
         => new
         {
@@ -619,6 +742,7 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         private readonly ConcurrentQueue<MetadataServiceSceneDraftSubmission> _sceneDraftSubmissions = new();
         private readonly ConcurrentQueue<MetadataServicePerformerDraftSubmission> _performerDraftSubmissions = new();
         private readonly ConcurrentQueue<MetadataServiceTagDraftSubmission> _tagDraftSubmissions = new();
+        private readonly ConcurrentQueue<MetadataServiceStudioDraftSubmission> _studioDraftSubmissions = new();
         private int _nextDraftNumber;
 
         public IReadOnlyList<MetadataServiceFingerprintSubmission> FingerprintSubmissions
@@ -630,6 +754,8 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
         public IReadOnlyList<MetadataServicePerformerDraftSubmission> PerformerDraftSubmissions
             => _performerDraftSubmissions.ToArray();
         public IReadOnlyList<MetadataServiceTagDraftSubmission> TagDraftSubmissions => _tagDraftSubmissions.ToArray();
+        public IReadOnlyList<MetadataServiceStudioDraftSubmission> StudioDraftSubmissions
+            => _studioDraftSubmissions.ToArray();
 
         public void RecordFingerprint(JsonElement input)
             => _fingerprintSubmissions.Enqueue(new MetadataServiceFingerprintSubmission(input.Clone()));
@@ -659,12 +785,22 @@ public sealed class MetadataServiceSimulator : IAsyncDisposable
             return submission;
         }
 
+        public MetadataServiceStudioDraftSubmission RecordStudioDraft(JsonElement input)
+        {
+            var submission = new MetadataServiceStudioDraftSubmission(
+                $"draft-{Interlocked.Increment(ref _nextDraftNumber)}",
+                input.Clone());
+            _studioDraftSubmissions.Enqueue(submission);
+            return submission;
+        }
+
         public void Reset()
         {
             _fingerprintSubmissions.Clear();
             _sceneDraftSubmissions.Clear();
             _performerDraftSubmissions.Clear();
             _tagDraftSubmissions.Clear();
+            _studioDraftSubmissions.Clear();
             Interlocked.Exchange(ref _nextDraftNumber, 0);
         }
     }
@@ -701,7 +837,18 @@ public sealed record MetadataServicePerformerDraftSubmission(string DraftId, Jso
 
 public sealed record MetadataServiceTagDraftSubmission(string DraftId, JsonElement Input);
 
+public sealed record MetadataServiceStudioDraftSubmission(string DraftId, JsonElement Input);
+
 public sealed record MetadataServiceRemoteTag(string Id, string Name, string? Description, IReadOnlyList<string> Aliases);
+
+public sealed record MetadataServiceRemoteStudio(
+    string Id,
+    string Name,
+    IReadOnlyList<string> Aliases,
+    IReadOnlyList<string> Urls,
+    MetadataServiceStudioParent? Parent = null);
+
+public sealed record MetadataServiceStudioParent(string Id, string Name);
 
 public sealed record MetadataServicePerformer(
     string Id,
@@ -735,4 +882,9 @@ public sealed record MetadataServicePerformerHandle(
 public sealed record MetadataServiceTagHandle(Uri Endpoint, MetadataServiceRemoteTag Tag)
 {
     public string Id => Tag.Id;
+}
+
+public sealed record MetadataServiceStudioHandle(Uri Endpoint, MetadataServiceRemoteStudio Studio)
+{
+    public string Id => Studio.Id;
 }

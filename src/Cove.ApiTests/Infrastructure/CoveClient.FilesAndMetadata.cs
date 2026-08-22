@@ -340,6 +340,71 @@ public sealed partial class CoveClient
             response.GetProperty("itemCount").GetInt32());
     }
 
+    public Task<IReadOnlyList<MetadataServerStudioMatchDto>> SearchStudioMetadataServiceAsync(
+        StudioDto studio,
+        string name,
+        MetadataServiceStudioHandle metadataStudio,
+        CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"/api/studios/{studio.Id}/metadata-server/search"
+            + $"?term={Uri.EscapeDataString(name)}"
+            + $"&endpoint={Uri.EscapeDataString(metadataStudio.Endpoint.AbsoluteUri)}";
+        return SendAsync<IReadOnlyList<MetadataServerStudioMatchDto>>(
+            HttpMethod.Get,
+            WithCacheNonce(requestUri),
+            null,
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<MetadataServerStudioMatchDto>> FindStudioMetadataServiceByIdsAsync(
+        MetadataServiceStudioHandle metadataStudio,
+        IReadOnlyList<string> ids,
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<MetadataServerStudioMatchDto>>(
+            HttpMethod.Post,
+            "/api/studios/metadata-server/find-by-ids",
+            new MetadataServerFindByIdsRequestDto(metadataStudio.Endpoint.AbsoluteUri, ids.ToList()),
+            cancellationToken);
+
+    public Task<StudioDto> ImportStudioFromMetadataServiceAsync(
+        StudioDto studio,
+        MetadataServerStudioMatchDto match,
+        CancellationToken cancellationToken = default)
+        => SendAsync<StudioDto>(
+            HttpMethod.Post,
+            $"/api/studios/{studio.Id}/metadata-server/import",
+            new MetadataServerStudioImportRequestDto { Endpoint = match.Endpoint, StudioId = match.Id },
+            cancellationToken);
+
+    public async Task<string?> SubmitStudioDraftToMetadataServiceAsync(
+        StudioDto studio,
+        MetadataServiceStudioHandle metadataStudio,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/studios/{studio.Id}/metadata-server/submit-draft",
+            new MetadataServerEndpointDto(metadataStudio.Endpoint.AbsoluteUri),
+            cancellationToken);
+        return response.GetProperty("draftId").GetString();
+    }
+
+    public async Task<MetadataServerBatchTagStartResult> StartStudioMetadataBatchTagAsync(
+        MetadataServerStudioBatchTagRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(
+            HttpMethod.Post,
+            "/api/studios/metadata-server/batch-tag",
+            request,
+            cancellationToken);
+        return new MetadataServerBatchTagStartResult(
+            response.GetProperty("jobId").GetString()
+                ?? throw new InvalidOperationException(
+                    "POST /api/studios/metadata-server/batch-tag did not return a job id."),
+            response.GetProperty("itemCount").GetInt32());
+    }
+
     private async Task<string> StartMetadataJobAsync(
         string requestUri,
         object? payload,
