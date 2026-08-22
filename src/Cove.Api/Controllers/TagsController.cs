@@ -753,6 +753,8 @@ public class TagsController(
                 usageCounts.GroupCount,
                 usageCounts.PerformerCount,
                 usageCounts.StudioCount,
+                usageCounts.AudioCount,
+                usageCounts.TextCount,
                 EntityImageUrls.TagOrNull(ControllerContext.HttpContext, t),
                 t.ShowAsSegment,
                 t.SegmentColorOverride,

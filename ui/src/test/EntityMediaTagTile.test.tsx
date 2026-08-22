@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -93,5 +94,33 @@ describe("TagTile entity media integration", () => {
     expect(overrideRendererCalls[0]?.componentProps.imageUrl == null).toBe(true);
     expect(screen.queryByRole("img", { name: "Animated Tag" })).not.toBeInTheDocument();
     expect(container.querySelector(".card-media svg")).toBeInTheDocument();
+  });
+
+  it("shows audio and text usage in the card footer", () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], totalCount: 0, page: 1, perPage: 10 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagTile
+          tag={{ ...baseTag, audioCount: 3, textCount: 2 } as any}
+          onClick={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTitle("Audios")).toHaveTextContent("3");
+    expect(screen.getByTitle("Texts")).toHaveTextContent("2");
+
+    fireEvent.mouseEnter(screen.getByTitle("Audios"));
+
+    return waitFor(() => {
+      const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("/api/audios/find");
+      expect(options.method).toBe("POST");
+      expect(JSON.parse(String(options.body))).toMatchObject({
+        objectFilter: { tagsCriterion: { modifier: "includes", value: [17] } },
+      });
+    });
   });
 });
