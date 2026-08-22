@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -123,6 +125,118 @@ public sealed class StreamDeliveryApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/caption/{captionid:int}")]
+    [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/captions")]
+    [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/hls/segment/{segment}")]
+    [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/resolutions")]
+    public async Task GivenVideoCaptionSidecarsAndCachedSegment_WhenEncoderFreeStreamRoutesAreRead_ThenVisibilityContentAndProfilesAreExact()
+    {
+        var owner = AsUser();
+        var video = await owner.CreateVideoAsync($"Stream caption video {Guid.NewGuid():N}");
+        var otherVideo = await owner.CreateVideoAsync($"Other stream caption video {Guid.NewGuid():N}");
+        var fileSystem = AsTestFileSystem();
+        var sourcePath = fileSystem.CreateLibraryFile($"stream-caption-{video.Id}.mp4", "stream-caption-source"u8.ToArray());
+        var vttFilename = $"stream-caption-{video.Id}.en.vtt";
+        var srtFilename = $"stream-caption-{video.Id}.es.srt";
+        const string vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nEnglish fixture caption\n";
+        const string srt = "1\n00:00:00,000 --> 00:00:01,000\nSpanish fixture caption\n";
+        fileSystem.CreateLibraryFile(vttFilename, Encoding.UTF8.GetBytes(vtt));
+        var srtPath = fileSystem.CreateLibraryFile(srtFilename, Encoding.UTF8.GetBytes(srt));
+        await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12);
+        var vttCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, vttFilename, "en", "vtt");
+        var srtCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, srtFilename, "es", "srt");
+        const string segment = "720p_0000.ts";
+        var segmentBytes = "api-test-hls-segment"u8.ToArray();
+        fileSystem.CreateGeneratedFile(
+            Path.Combine("transcodes", "hls", video.Id.ToString(CultureInfo.InvariantCulture), segment),
+            segmentBytes);
+
+        var memberRole = (await owner.GetRolesAsync())
+            .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
+        var readDeny = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+            memberRole.Id,
+            EntityKinds.Video,
+            video.Id.ToString(CultureInfo.InvariantCulture),
+            "deny",
+            "read"));
+        using (var memberSession = await owner.CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
+        using (var memberClient = memberSession.Client.CreateHttpClient())
+        {
+            await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/captions", "application/json");
+            await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/caption/{vttCaptionId}", "text/vtt");
+            await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/hls/segment/{segment}", "video/mp2t");
+            await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/resolutions", "application/json");
+        }
+        await owner.DeleteEntityOverrideAsync(readDeny.Id);
+
+        using var client = owner.CreateHttpClient();
+        using var captionsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/captions");
+        captionsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        captionsResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
+        var captions = await captionsResponse.Content.ReadFromJsonAsync<List<StreamCaptionResponse>>();
+        captions.Should().NotBeNull();
+        captions.Should().BeEquivalentTo(
+        [
+            new StreamCaptionResponse(vttCaptionId, "en", "vtt", vttFilename),
+            new StreamCaptionResponse(srtCaptionId, "es", "srt", srtFilename),
+        ]);
+
+        using var vttResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{vttCaptionId}");
+        vttResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await vttResponse.Content.ReadAsStringAsync()).Should().Be(vtt);
+        vttResponse.Content.Headers.ContentType?.MediaType.Should().Be("text/vtt");
+        vttResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=3600");
+
+        using (var srtResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{srtCaptionId}"))
+        {
+            srtResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await srtResponse.Content.ReadAsStringAsync()).Should().Be(srt);
+            srtResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/x-subrip");
+            srtResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=3600");
+        }
+        fileSystem.DeleteLibraryFile(srtPath);
+        using var missingSidecarResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{srtCaptionId}");
+        missingSidecarResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        using var segmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/segment/{segment}");
+        segmentResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await segmentResponse.Content.ReadAsByteArrayAsync()).Should().Equal(segmentBytes);
+        segmentResponse.Content.Headers.ContentType?.MediaType.Should().Be("video/mp2t");
+        segmentResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
+
+        using var resolutionsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/resolutions");
+        resolutionsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        resolutionsResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
+        (await resolutionsResponse.Content.ReadFromJsonAsync<string[]>()).Should().Equal("240p", "360p", "480p", "720p");
+
+        using var wrongParentCaptionResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/caption/{vttCaptionId}");
+        wrongParentCaptionResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var missingCaptionResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{int.MaxValue}");
+        missingCaptionResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var otherCaptionsResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/captions");
+        otherCaptionsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await otherCaptionsResponse.Content.ReadFromJsonAsync<List<StreamCaptionResponse>>()).Should().BeEmpty();
+        using var missingCaptionsResponse = await client.GetAsync($"/api/stream/video/{int.MaxValue}/captions");
+        missingCaptionsResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var missingSegmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/segment/missing.ts");
+        missingSegmentResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var otherSegmentResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/hls/segment/{segment}");
+        otherSegmentResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var missingResolutionsResponse = await client.GetAsync($"/api/stream/video/{int.MaxValue}/resolutions");
+        missingResolutionsResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var filelessResolutionsResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/resolutions");
+        filelessResolutionsResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var noPermissionUsername = $"stream-video-no-permission-{Guid.NewGuid():N}";
+        const string noPermissionPassword = "Stream video password 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []));
+        using var noPermissionSession = await owner.CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword);
+        using var noPermissionClient = noPermissionSession.Client.CreateHttpClient();
+        using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/video/{video.Id}/captions");
+        forbiddenResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     [CoversEndpoint("GET", "/api/stream/image/{imageid:int}")]
     [CoversEndpoint("GET", "/api/stream/image/{imageid:int}/thumbnail")]
     [CoversEndpoint("GET", "/api/stream/detection/{detectionid:int}/crop")]
@@ -226,6 +340,15 @@ public sealed class StreamDeliveryApiTests(
         using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/image/{image.Id}");
         forbiddenResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
+
+    private static async Task AssertHiddenAsync(HttpClient client, string requestUri, string mediaType)
+    {
+        using var response = await client.GetAsync(requestUri);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Content.Headers.ContentType?.MediaType.Should().NotBe(mediaType);
+    }
+
+    private sealed record StreamCaptionResponse(int Id, string LanguageCode, string CaptionType, string Filename);
 
     private static async Task<byte[]> CreateImageAsync(string format, int width, int height)
     {
