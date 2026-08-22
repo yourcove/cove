@@ -436,6 +436,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             .ToList();
         var expanded = _registry.Expand(basePermissions);
         var (readRestrictedEntityKinds, readGrantedEntityKinds) = await GetReadAccessProfileAsync(roleIds, ct);
+        HashSet<string>? scopeSet = null;
 
         // Token scope is intersected with user permissions — never expansive.
         if (!string.IsNullOrEmpty(record.ScopePermissions))
@@ -445,14 +446,23 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
                 var scope = JsonSerializer.Deserialize<List<string>>(record.ScopePermissions);
                 if (scope is { Count: > 0 })
                 {
-                    var scopeSet = _registry.Expand(scope);
-                    expanded.IntersectWith(scopeSet);
+                    scopeSet = _registry.Expand(scope);
+                    expanded = PermissionSet.Intersect(expanded, scopeSet);
                 }
             }
             catch (JsonException ex)
             {
                 _log.LogWarning(ex, "Ignoring malformed scope permissions for API token {TokenId}", record.Id);
             }
+        }
+
+        if (scopeSet is not null)
+        {
+            readGrantedEntityKinds = readGrantedEntityKinds
+                .Where(entityKind =>
+                    CovePrincipal.TryGetReadGrantPermission(entityKind, out var readPermission)
+                    && PermissionSet.Grants(scopeSet, readPermission))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
         // Best-effort last-used update. This must complete before the request pipeline
