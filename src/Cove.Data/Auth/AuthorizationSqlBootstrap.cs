@@ -40,6 +40,12 @@ public static class AuthorizationSqlDefinitions
                               OR (f."FileType" = 'Gallery' AND EXISTS (
                                   SELECT 1 FROM gallery_tags gt WHERE gt."TagId" = p_tag_id AND gt."GalleryId" = f."GalleryId"
                               ))
+                              OR (f."FileType" = 'Audio' AND EXISTS (
+                                  SELECT 1 FROM audio_tags at WHERE at."TagId" = p_tag_id AND at."AudioId" = f."AudioId"
+                              ))
+                              OR (f."FileType" = 'Text' AND EXISTS (
+                                  SELECT 1 FROM text_tags tt WHERE tt."TagId" = p_tag_id AND tt."TextDocumentId" = f."TextDocumentId"
+                              ))
                           )
                     )
                     WHEN 'segment' THEN EXISTS (SELECT 1 FROM segments seg WHERE seg."Id" = p_entity_id AND seg."TagId" = p_tag_id)
@@ -76,6 +82,12 @@ public static class AuthorizationSqlDefinitions
                               ))
                               OR (f."FileType" = 'Gallery' AND EXISTS (
                                   SELECT 1 FROM galleries g WHERE g."Id" = f."GalleryId" AND g."StudioId" = p_studio_id
+                              ))
+                              OR (f."FileType" = 'Audio' AND EXISTS (
+                                  SELECT 1 FROM audios a WHERE a."Id" = f."AudioId" AND a."StudioId" = p_studio_id
+                              ))
+                              OR (f."FileType" = 'Text' AND EXISTS (
+                                  SELECT 1 FROM text_documents t WHERE t."Id" = f."TextDocumentId" AND t."StudioId" = p_studio_id
                               ))
                           )
                     )

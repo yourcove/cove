@@ -66,7 +66,7 @@ public sealed class FileRevealApiTests(
         {
             var entityForbidden = () => AsUser(ApiTestUsers.Eva).RevealFileInManagerAsync(file.Id);
             await entityForbidden.Should().ThrowAsync<InvalidOperationException>()
-                .WithMessage("*returned 404 (NotFound)*");
+                .WithMessage("*returned 403 (Forbidden)*");
         }
         finally
         {

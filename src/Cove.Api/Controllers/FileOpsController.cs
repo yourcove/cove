@@ -23,6 +23,7 @@ public class FileOpsController(
 
     [HttpPost("move")]
     [RequiresPermission(Permissions.FilesWrite)]
+    [RequiresUnscopedEntityAccess("read")]
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesWrite, ActionArgumentName = "dto", PropertyName = "FileIds")]
     public async Task<IActionResult> MoveFiles([FromBody] MoveFilesDto dto, CancellationToken ct)
     {
@@ -129,6 +130,7 @@ public class FileOpsController(
     }
 
     [HttpGet("browse")]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<List<DirectoryEntryDto>> Browse([FromQuery] string? path)
     {
         var targetPath = path ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -153,6 +155,7 @@ public class FileOpsController(
 
     [HttpPost("{id:int}/reveal")]
     [RequiresPermission(Permissions.FilesRead)]
+    [RequiresUnscopedEntityAccess("read")]
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesRead)]
     public async Task<IActionResult> RevealInFileManager(int id, CancellationToken ct)
     {
@@ -181,6 +184,7 @@ public class FileOpsController(
 
     [HttpPost("folders/{id:int}/reveal")]
     [RequiresPermission(Permissions.FilesRead)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<IActionResult> RevealFolderInFileManager(int id, CancellationToken ct)
     {
         var folder = await db.Folders.FirstOrDefaultAsync(f => f.Id == id, ct);

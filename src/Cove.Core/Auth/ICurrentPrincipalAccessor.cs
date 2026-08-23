@@ -130,6 +130,9 @@ public sealed class CovePrincipal
             case PermissionKeys.SegmentsRead:
                 entityKind = EntityKinds.Segment;
                 return true;
+            case PermissionKeys.FilesRead:
+                entityKind = EntityKinds.File;
+                return true;
             default:
                 entityKind = string.Empty;
                 return false;

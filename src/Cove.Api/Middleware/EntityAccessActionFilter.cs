@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
+using Cove.Core.Entities;
 using Cove.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -112,10 +113,10 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
             var ids = ResolveIds(requirement, context);
             foreach (var id in ids)
             {
-                var result = await _authz.AuthorizeAsync(
+                var result = await AuthorizeEntityAsync(
                     principal,
-                    requirement.Permission,
-                    new EntityRef(requirement.EntityKind, id),
+                    requirement,
+                    id,
                     context.HttpContext.RequestAborted);
 
                 if (result.Allowed)
@@ -155,6 +156,56 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
         }
 
         await next();
+    }
+
+    private async Task<AuthorizationResult> AuthorizeEntityAsync(
+        CovePrincipal principal,
+        RequiresEntityAccessAttribute requirement,
+        string id,
+        CancellationToken cancellationToken)
+    {
+        var direct = await _authz.AuthorizeAsync(
+            principal,
+            requirement.Permission,
+            new EntityRef(requirement.EntityKind, id),
+            cancellationToken);
+        if (!direct.Allowed || !string.Equals(requirement.EntityKind, EntityKinds.File, StringComparison.OrdinalIgnoreCase))
+            return direct;
+
+        if (!int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fileId))
+            return direct;
+
+        var file = await _db.Set<BaseFileEntity>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == fileId, cancellationToken);
+        if (file is null)
+            return direct;
+
+        var owner = file switch
+        {
+            VideoFile { VideoId: int ownerId } => (new EntityRef(EntityKinds.Video, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.VideosRead),
+            ImageFile { ImageId: int ownerId } => (new EntityRef(EntityKinds.Image, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.ImagesRead),
+            GalleryFile { GalleryId: int ownerId } => (new EntityRef(EntityKinds.Gallery, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.GalleriesRead),
+            AudioFile { AudioId: int ownerId } => (new EntityRef(EntityKinds.Audio, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.AudiosRead),
+            TextFile { TextDocumentId: int ownerId } => (new EntityRef(EntityKinds.Text, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.TextsRead),
+            _ => ((EntityRef Entity, string ReadPermission)?)null,
+        };
+        if (owner is null)
+            return AuthorizationResult.Deny($"File {id} has no authorizable media owner.", requirement.Permission);
+
+        var ownerRead = await _authz.AuthorizeAsync(
+            principal,
+            owner.Value.ReadPermission,
+            owner.Value.Entity,
+            cancellationToken);
+        if (!ownerRead.Allowed || requirement.Permission.EndsWith(".read", StringComparison.OrdinalIgnoreCase))
+            return ownerRead;
+
+        return await _authz.AuthorizeAsync(
+            principal,
+            requirement.Permission,
+            owner.Value.Entity,
+            cancellationToken);
     }
 
     private static IReadOnlyList<string> ResolveIds(RequiresEntityAccessAttribute requirement, ActionExecutingContext context)
