@@ -493,6 +493,8 @@ public class SystemController(
     // bulk-imported before the import recompute step existed — which otherwise breaks filters and sorts.
     [HttpPost("maintenance/recompute-derived-counts")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
     public async Task<ActionResult<RecomputeDerivedCountsResult>> RecomputeDerivedCounts(CancellationToken ct)
     {
         var recomputed = await db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);

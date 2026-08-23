@@ -69,6 +69,8 @@ public class EmbeddingsController(CoveContext db, IEmbeddingService embeddingSer
 
     [HttpDelete]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<AiDataPurgeResultDto>> Delete([FromBody] AiDataSelectorDto selector, CancellationToken cancellationToken)
     {
         if (aiDataPurgeService is null)

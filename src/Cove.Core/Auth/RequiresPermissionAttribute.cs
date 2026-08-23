@@ -66,4 +66,5 @@ public sealed class RequiresUnscopedEntityAccessAttribute(string appliesTo) : At
     public string AppliesTo { get; } = appliesTo;
     public string? ActionArgumentName { get; init; }
     public string? PropertyName { get; init; }
+    public string? SkipWhenPropertyTrue { get; init; }
 }
