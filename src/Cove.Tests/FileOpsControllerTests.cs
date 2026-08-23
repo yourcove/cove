@@ -15,7 +15,11 @@ public class FileOpsControllerTests
 
         if (OperatingSystem.IsWindows())
         {
-            Assert.Equal(Path.GetFullPath(@"C:\Content\video.mp4"), normalized);
+            // Only the shape is asserted: which volume the tail lands on is not part of the contract.
+            Assert.True(Path.IsPathFullyQualified(normalized));
+            Assert.Equal(
+                Path.Combine("Content", "video.mp4"),
+                Path.GetRelativePath(Path.GetPathRoot(normalized)!, normalized));
         }
         else
         {

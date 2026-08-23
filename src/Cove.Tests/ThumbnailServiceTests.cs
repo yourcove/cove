@@ -179,7 +179,9 @@ public class ThumbnailServiceTests
             var source = await service.GetVideoFileInfoAsync(videoId, selectedFileId, CancellationToken.None);
             var missingSource = await service.GetVideoFileInfoAsync(videoId, int.MaxValue, CancellationToken.None);
 
-            Assert.Equal(selectedPath, source.FilePath);
+            // Canonical paths: Folder.Path is stored forward-slashed, so this mixes separators on Windows.
+            Assert.NotNull(source.FilePath);
+            Assert.Equal(Path.GetFullPath(selectedPath), Path.GetFullPath(source.FilePath));
             Assert.Equal(20, source.Duration);
             Assert.Null(missingSource.FilePath);
             Assert.Equal(0, missingSource.Duration);
