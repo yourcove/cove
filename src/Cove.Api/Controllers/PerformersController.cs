@@ -65,6 +65,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<PerformerDto>> GetById(int id, CancellationToken ct)
     {

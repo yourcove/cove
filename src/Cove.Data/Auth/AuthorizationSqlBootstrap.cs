@@ -2,6 +2,11 @@ namespace Cove.Data.Auth;
 
 public static class AuthorizationSqlDefinitions
 {
+    public static readonly string CreateFunctionsWithoutShareContainmentSql = CreateFunctionsSql.Replace(
+        "OR sl.\"ContainedEntityIds\" @> to_jsonb(ARRAY[lower(p_kind) || ':' || p_entity_id::text])",
+        string.Empty,
+        StringComparison.Ordinal);
+
     public const string CreateFunctionsSql = """
             CREATE OR REPLACE FUNCTION public.cove_authz_entity_has_tag(
                 p_kind text,
@@ -13,6 +18,8 @@ public static class AuthorizationSqlDefinitions
             AS $$
                 SELECT CASE lower(p_kind)
                     WHEN 'video' THEN EXISTS (SELECT 1 FROM video_tags st WHERE st."TagId" = p_tag_id AND st."VideoId" = p_entity_id)
+                    WHEN 'audio' THEN EXISTS (SELECT 1 FROM audio_tags at WHERE at."TagId" = p_tag_id AND at."AudioId" = p_entity_id)
+                    WHEN 'text' THEN EXISTS (SELECT 1 FROM text_tags tt WHERE tt."TagId" = p_tag_id AND tt."TextDocumentId" = p_entity_id)
                     WHEN 'performer' THEN EXISTS (SELECT 1 FROM performer_tags pt WHERE pt."TagId" = p_tag_id AND pt."PerformerId" = p_entity_id)
                     WHEN 'tag' THEN p_entity_id = p_tag_id
                     WHEN 'studio' THEN EXISTS (SELECT 1 FROM studio_tags st WHERE st."TagId" = p_tag_id AND st."StudioId" = p_entity_id)
@@ -50,6 +57,8 @@ public static class AuthorizationSqlDefinitions
             AS $$
                 SELECT CASE lower(p_kind)
                     WHEN 'video' THEN EXISTS (SELECT 1 FROM videos s WHERE s."Id" = p_entity_id AND s."StudioId" = p_studio_id)
+                    WHEN 'audio' THEN EXISTS (SELECT 1 FROM audios a WHERE a."Id" = p_entity_id AND a."StudioId" = p_studio_id)
+                    WHEN 'text' THEN EXISTS (SELECT 1 FROM text_documents t WHERE t."Id" = p_entity_id AND t."StudioId" = p_studio_id)
                     WHEN 'studio' THEN p_entity_id = p_studio_id
                     WHEN 'gallery' THEN EXISTS (SELECT 1 FROM galleries g WHERE g."Id" = p_entity_id AND g."StudioId" = p_studio_id)
                     WHEN 'image' THEN EXISTS (SELECT 1 FROM images i WHERE i."Id" = p_entity_id AND i."StudioId" = p_studio_id)
@@ -87,6 +96,18 @@ public static class AuthorizationSqlDefinitions
                         WHEN 'video' THEN (
                             SELECT jsonb_object_agg(lower(entry.key), entry.value)
                             FROM videos entity
+                            CROSS JOIN LATERAL jsonb_each(to_jsonb(entity)) AS entry
+                            WHERE entity."Id" = p_entity_id
+                        )
+                        WHEN 'audio' THEN (
+                            SELECT jsonb_object_agg(lower(entry.key), entry.value)
+                            FROM audios entity
+                            CROSS JOIN LATERAL jsonb_each(to_jsonb(entity)) AS entry
+                            WHERE entity."Id" = p_entity_id
+                        )
+                        WHEN 'text' THEN (
+                            SELECT jsonb_object_agg(lower(entry.key), entry.value)
+                            FROM text_documents entity
                             CROSS JOIN LATERAL jsonb_each(to_jsonb(entity)) AS entry
                             WHERE entity."Id" = p_entity_id
                         )
@@ -405,8 +426,7 @@ public static class AuthorizationSqlDefinitions
                     WHEN NOT p_has_permission THEN false
                     WHEN EXISTS (SELECT 1 FROM override_denies) THEN false
                     WHEN EXISTS (SELECT 1 FROM override_allows) THEN true
-                    WHEN EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'deny')
-                         AND NOT EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'allow') THEN false
+                    WHEN EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'deny') THEN false
                     ELSE true
                 END;
             $$;
@@ -429,8 +449,11 @@ public static class AuthorizationSqlDefinitions
                     WHERE sl."Id" = p_share_link_id
                       AND sl."RevokedAt" IS NULL
                       AND (sl."ExpiresAt" IS NULL OR sl."ExpiresAt" >= now())
-                      AND lower(sl."EntityKind") = lower(p_kind)
-                      AND sl."EntityIds" @> to_jsonb(ARRAY[p_entity_id::text])
+                      AND (
+                          (lower(sl."EntityKind") = lower(p_kind)
+                              AND sl."EntityIds" @> to_jsonb(ARRAY[p_entity_id::text]))
+                          OR sl."ContainedEntityIds" @> to_jsonb(ARRAY[lower(p_kind) || ':' || p_entity_id::text])
+                      )
                 ),
                 role_ids AS (
                     SELECT r."Id"
@@ -470,13 +493,11 @@ public static class AuthorizationSqlDefinitions
                     WHEN EXISTS (SELECT 1 FROM override_denies) THEN false
                     WHEN EXISTS (SELECT 1 FROM override_allows) THEN true
                     WHEN p_has_read_permission THEN CASE
-                        WHEN EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'deny')
-                             AND NOT EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'allow') THEN false
+                        WHEN EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'deny') THEN false
                         ELSE true
                     END
+                    WHEN EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'deny') THEN false
                     WHEN EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'allow') THEN true
-                    WHEN EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'deny')
-                         AND NOT EXISTS (SELECT 1 FROM matching_rules WHERE effect = 'allow') THEN false
                     ELSE false
                 END;
             $$;

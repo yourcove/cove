@@ -1,4 +1,5 @@
 using Cove.Core.DTOs;
+using Cove.Core.Auth;
 using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -8,6 +9,7 @@ public abstract class ApiTest : IAsyncLifetime
     private readonly ITestOutputHelper _output;
     private readonly CoveApiTestFixture _fixture;
     private IReadOnlyDictionary<string, CoveClient>? _users;
+    private readonly List<CoveClient> _credentialClients = [];
 
     protected ApiTest(
         ITestOutputHelper output,
@@ -30,6 +32,28 @@ public abstract class ApiTest : IAsyncLifetime
                 $"API test user '{username}' is not provisioned. Available users: {string.Join(", ", _users.Keys)}.");
     }
 
+    protected CoveClient AsUser(ApiTokenIssued token)
+    {
+        var client = new CoveClient($"api-token:{token.Id:N}", ApiUri, token.PlaintextToken);
+        _credentialClients.Add(client);
+        return client;
+    }
+
+    protected CoveClient AsShareLink(ShareLinkIssued link, string? password = null)
+    {
+        var client = new CoveClient(
+            $"share-link:{link.Id:N}",
+            ApiUri,
+            headers =>
+            {
+                headers.Add("X-Share-Token", link.PlaintextToken);
+                if (password is not null)
+                    headers.Add("X-Share-Password", password);
+            });
+        _credentialClients.Add(client);
+        return client;
+    }
+
     protected DatabaseClient AsDbUser()
         => _fixture.DbUser;
 
@@ -38,6 +62,12 @@ public abstract class ApiTest : IAsyncLifetime
 
     protected DownloadSourceSimulator AsDownloadSource()
         => _fixture.DownloadSource;
+
+    protected ExtensionRegistrySimulator AsExtensionRegistry()
+        => _fixture.ExtensionRegistry;
+
+    protected ApiTestFileManagerRecorder AsFileManagerRecorder()
+        => _fixture.FileManagerRecorder;
 
     protected ApiTestFileSystem AsTestFileSystem()
         => _fixture.FileSystem;
@@ -67,6 +97,9 @@ public abstract class ApiTest : IAsyncLifetime
         if (_users != null)
             foreach (var user in _users.Values)
                 user.Dispose();
+        foreach (var client in _credentialClients)
+            client.Dispose();
+        _credentialClients.Clear();
         _users = null;
         return Task.CompletedTask;
     }

@@ -67,6 +67,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<GroupDto>> GetById(int id, CancellationToken ct)
     {

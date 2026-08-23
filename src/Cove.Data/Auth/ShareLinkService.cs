@@ -14,13 +14,14 @@ public sealed class ShareLinkService : IShareLinkService
     private static readonly HashSet<string> ValidEntityKinds = new(StringComparer.OrdinalIgnoreCase)
     {
         EntityKinds.Video,
+        EntityKinds.Audio,
+        EntityKinds.Text,
         EntityKinds.Performer,
         EntityKinds.Tag,
         EntityKinds.Studio,
         EntityKinds.Gallery,
         EntityKinds.Image,
         EntityKinds.Group,
-        EntityKinds.Segment,
     };
 
     private readonly CoveContext _db;
@@ -50,7 +51,7 @@ public sealed class ShareLinkService : IShareLinkService
     {
         var entityKind = NormalizeEntityKind(req.EntityKind);
         if (!ValidEntityKinds.Contains(entityKind))
-            throw new InvalidOperationException("Invalid entity kind.");
+            throw new ForbiddenException("This entity kind cannot be shared.");
 
         var entityIds = req.EntityIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -62,6 +63,13 @@ public sealed class ShareLinkService : IShareLinkService
             throw new InvalidOperationException("At least one entity id is required.");
 
         await EnsureActorCanReadEntitiesAsync(entityKind, entityIds, ct);
+        var parsedEntityIds = entityIds.Select(int.Parse).ToArray();
+        if (entityKind == EntityKinds.Group
+            && await _db.ReadSet<Group>().AnyAsync(group => parsedEntityIds.Contains(group.Id) && group.Kind == GroupKind.Dynamic, ct))
+        {
+            throw new ForbiddenException("Dynamic groups cannot be shared until their visible contents can be snapshotted safely.");
+        }
+        var containedEntityIds = await SnapshotReadableChildrenAsync(entityKind, entityIds, ct);
 
         var id = Guid.NewGuid();
         var (plainToken, tokenHash) = NewOpaqueToken();
@@ -74,6 +82,7 @@ public sealed class ShareLinkService : IShareLinkService
             TokenHash = tokenHash,
             EntityKind = entityKind,
             EntityIds = JsonSerializer.Serialize(entityIds),
+            ContainedEntityIds = JsonSerializer.Serialize(containedEntityIds),
             ExpiresAt = req.ExpiresAt,
             PasswordHash = string.IsNullOrEmpty(req.Password)
                 ? null
@@ -212,19 +221,66 @@ public sealed class ShareLinkService : IShareLinkService
 
         var readableCount = entityKind switch
         {
-            EntityKinds.Video => await _db.ReadSet<Video>().CountAsync(video => parsedIds.Contains(video.Id), ct),
+            EntityKinds.Video => await _db.ReadSet<Video>().CountAsync(video => parsedIds.Contains(video.Id) && video.ParentVideoId == null, ct),
+            EntityKinds.Audio => await _db.ReadSet<Audio>().CountAsync(audio => parsedIds.Contains(audio.Id), ct),
+            EntityKinds.Text => await _db.ReadSet<TextDocument>().CountAsync(text => parsedIds.Contains(text.Id), ct),
             EntityKinds.Performer => await _db.ReadSet<Performer>().CountAsync(performer => parsedIds.Contains(performer.Id), ct),
             EntityKinds.Tag => await _db.ReadSet<Tag>().CountAsync(tag => parsedIds.Contains(tag.Id), ct),
             EntityKinds.Studio => await _db.ReadSet<Studio>().CountAsync(studio => parsedIds.Contains(studio.Id), ct),
             EntityKinds.Gallery => await _db.ReadSet<Gallery>().CountAsync(gallery => parsedIds.Contains(gallery.Id), ct),
             EntityKinds.Image => await _db.ReadSet<Image>().CountAsync(image => parsedIds.Contains(image.Id), ct),
             EntityKinds.Group => await _db.ReadSet<Group>().CountAsync(group => parsedIds.Contains(group.Id), ct),
-            EntityKinds.Segment => await _db.ReadSet<Segment>().CountAsync(segment => parsedIds.Contains(segment.Id), ct),
             _ => 0,
         };
 
         if (readableCount != parsedIds.Count)
             throw new ForbiddenException("Share links can only include content the current user can already access.");
+    }
+
+    private async Task<string[]> SnapshotReadableChildrenAsync(
+        string entityKind,
+        IReadOnlyCollection<string> entityIds,
+        CancellationToken ct)
+    {
+        var ids = entityIds.Select(int.Parse).ToArray();
+        var children = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (entityKind == EntityKinds.Group)
+        {
+            var items = await _db.GroupItems.AsNoTracking()
+                .Where(item => ids.Contains(item.GroupId))
+                .Select(item => new { item.Kind, item.HostType, item.HostId, item.StartSec, item.EndSec })
+                .ToListAsync(ct);
+            var candidateVideoIds = items
+                .Where(item => item.HostType == EntityKinds.Video && item.Kind != GroupItemKind.VideoRange)
+                .Where(item => item.StartSec == null && item.EndSec == null)
+                .Select(item => item.HostId)
+                .ToArray();
+            var shareableVideoIds = (await _db.ReadSet<Video>().AsNoTracking()
+                    .Where(video => candidateVideoIds.Contains(video.Id) && video.ParentVideoId == null)
+                    .Select(video => video.Id)
+                    .ToListAsync(ct))
+                .ToHashSet();
+            foreach (var item in items.Where(item => item.HostType != EntityKinds.Segment
+                         && item.Kind != GroupItemKind.VideoRange
+                         && item.StartSec == null
+                         && item.EndSec == null
+                         && (item.HostType != EntityKinds.Video || shareableVideoIds.Contains(item.HostId))))
+                children.Add($"{item.HostType.ToLowerInvariant()}:{item.HostId}");
+
+        }
+        else if (entityKind == EntityKinds.Gallery)
+        {
+            foreach (var imageId in await _db.Set<ImageGallery>().AsNoTracking()
+                         .Where(link => ids.Contains(link.GalleryId)).Select(link => link.ImageId).ToListAsync(ct))
+                children.Add($"{EntityKinds.Image}:{imageId}");
+            foreach (var videoId in await _db.Set<VideoGallery>().AsNoTracking()
+                         .Where(link => ids.Contains(link.GalleryId)
+                             && _db.ReadSet<Video>().Any(video => video.Id == link.VideoId && video.ParentVideoId == null))
+                         .Select(link => link.VideoId).ToListAsync(ct))
+                children.Add($"{EntityKinds.Video}:{videoId}");
+        }
+        return children.ToArray();
     }
 
     private static ShareLinkDto ToDto(ShareLink shareLink)

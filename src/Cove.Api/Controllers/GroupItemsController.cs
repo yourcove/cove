@@ -20,6 +20,7 @@ namespace Cove.Api.Controllers;
 public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolver, DynamicGroupResolver? dynamicGroups = null, IEventBus? eventBus = null) : ControllerBase
 {
     [HttpGet("items")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<IReadOnlyList<GroupItemDto>>> List(int groupId, CancellationToken ct)
     {
         var group = await db.Groups.AsNoTracking().FirstOrDefaultAsync(item => item.Id == groupId, ct);
@@ -42,6 +43,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
     }
 
     [HttpGet("items/page")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<PaginatedResponse<GroupItemDto>>> ListPage(
         int groupId,
         [FromQuery] int page = 1,
@@ -460,6 +462,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         => eventBus?.Publish(new EntityEvent(EventType.GroupUpdated, "Group", groupId));
 
     [HttpGet("playback-manifest")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.StreamRead)]
     public async Task<ActionResult<GroupPlaybackManifestDto>> GetPlaybackManifest(int groupId, CancellationToken ct)
     {

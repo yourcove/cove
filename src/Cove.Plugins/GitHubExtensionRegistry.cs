@@ -28,6 +28,7 @@ public class GitHubExtensionRegistry : IExtensionRegistry
     private readonly string _registryRepo;
     private readonly string _branch;
     private readonly string? _coveVersion;
+    private readonly Uri? _registryBaseUri;
 
     // Cache the index for 5 minutes to avoid hammering GitHub
     private RegistryIndex? _cachedIndex;
@@ -50,17 +51,35 @@ public class GitHubExtensionRegistry : IExtensionRegistry
         string registryOwner = "yourcove",
         string registryRepo = "officialextensionregistry",
         string branch = "main",
-        string? coveVersion = null)
+        string? coveVersion = null,
+        string? registryBaseUrl = null)
     {
         _http = http;
         _registryOwner = registryOwner;
         _registryRepo = registryRepo;
         _branch = branch;
         _coveVersion = coveVersion;
+        if (!string.IsNullOrWhiteSpace(registryBaseUrl))
+        {
+            var normalizedBaseUrl = registryBaseUrl.Trim().TrimEnd('/') + "/";
+            if (!Uri.TryCreate(normalizedBaseUrl, UriKind.Absolute, out var registryBaseUri)
+                || (!string.Equals(registryBaseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                    && !(string.Equals(registryBaseUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                        && registryBaseUri.IsLoopback)))
+            {
+                throw new ArgumentException(
+                    "The extension registry base URL must use HTTPS, except for loopback HTTP test servers.",
+                    nameof(registryBaseUrl));
+            }
+
+            _registryBaseUri = registryBaseUri;
+        }
     }
 
     private string RawUrl(string path) =>
-        $"https://raw.githubusercontent.com/{_registryOwner}/{_registryRepo}/{_branch}/{path}";
+        _registryBaseUri is null
+            ? $"https://raw.githubusercontent.com/{_registryOwner}/{_registryRepo}/{_branch}/{path}"
+            : new Uri(_registryBaseUri, path).AbsoluteUri;
 
     private async Task<RegistryIndex> GetIndexAsync(CancellationToken ct)
     {

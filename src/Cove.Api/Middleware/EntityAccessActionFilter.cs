@@ -71,15 +71,17 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
                 if (result.Allowed)
                     continue;
 
-                context.Result = new ObjectResult(new
-                {
-                    code = "FORBIDDEN",
-                    entityKind = requirement.EntityKind,
-                    entityId = id,
-                    permission = requirement.Permission,
-                    message = result.Reason ?? "Forbidden.",
-                })
-                { StatusCode = StatusCodes.Status403Forbidden };
+                context.Result = requirement.Permission.EndsWith(".read", StringComparison.OrdinalIgnoreCase)
+                    ? new NotFoundResult()
+                    : new ObjectResult(new
+                    {
+                        code = "FORBIDDEN",
+                        entityKind = requirement.EntityKind,
+                        entityId = id,
+                        permission = requirement.Permission,
+                        message = result.Reason ?? "Forbidden.",
+                    })
+                    { StatusCode = StatusCodes.Status403Forbidden };
 
                 await _audit.LogAsync(
                     AuditActions.PermissionDeny,

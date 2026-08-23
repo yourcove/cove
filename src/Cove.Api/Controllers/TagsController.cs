@@ -299,6 +299,7 @@ public class TagsController(
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<TagDetailDto>> GetById(int id, CancellationToken ct, [FromQuery] int? depth = null)
     {

@@ -30,6 +30,12 @@ public sealed class AllowWithoutPermissionAttribute : Attribute
 {
 }
 
+/// <summary>Allows a resolved share-link principal to invoke this viewing endpoint.</summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+public sealed class AllowShareLinkAccessAttribute : Attribute
+{
+}
+
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = true)]
 public sealed class RequiresEntityAccessAttribute : Attribute
 {

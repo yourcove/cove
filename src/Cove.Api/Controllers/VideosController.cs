@@ -256,6 +256,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         => Ok(await videoRepo.AggregateAsync(req.ObjectFilter, req.FindFilter, ct));
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<VideoDto>> GetById(int id, CancellationToken ct)
     {

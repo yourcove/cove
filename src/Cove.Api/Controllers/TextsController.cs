@@ -222,6 +222,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<TextDocumentDto>> GetById(int id, CancellationToken ct)
     {
         var text = await db.TextDocuments.AsNoTracking()
@@ -240,6 +241,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}/content")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<TextContentDto>> GetContent(int id, CancellationToken ct)
     {
         var text = await db.TextDocuments.AsNoTracking()
@@ -259,6 +261,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}/file")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.StreamRead)]
     public async Task<IActionResult> GetFile(int id, CancellationToken ct)
     {

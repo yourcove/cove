@@ -5,7 +5,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Data;
-using System.Diagnostics;
+using Cove.Api.Services;
 using System.Runtime.InteropServices;
 
 namespace Cove.Api.Controllers;
@@ -13,8 +13,14 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/files")]
 [RequiresPermission(Permissions.FilesRead)]
-public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileOpsController> logger) : ControllerBase
+public class FileOpsController(
+    CoveContext db,
+    IEventBus eventBus,
+    ILogger<FileOpsController> logger,
+    IFileManagerLauncher? fileManagerLauncher = null) : ControllerBase
 {
+    private static readonly IFileManagerLauncher DefaultFileManagerLauncher = new FileManagerLauncher();
+
     [HttpPost("move")]
     [RequiresPermission(Permissions.FilesWrite)]
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesWrite, ActionArgumentName = "dto", PropertyName = "FileIds")]
@@ -163,25 +169,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var startInfo = new ProcessStartInfo("explorer.exe");
-                startInfo.ArgumentList.Add("/select,");
-                startInfo.ArgumentList.Add(filePath);
-                Process.Start(startInfo);
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                var startInfo = new ProcessStartInfo("open");
-                startInfo.ArgumentList.Add("-R");
-                startInfo.ArgumentList.Add(filePath);
-                Process.Start(startInfo);
-            }
-            else
-            {
-                Process.Start("xdg-open", Path.GetDirectoryName(filePath) ?? filePath);
-            }
-
+            (fileManagerLauncher ?? DefaultFileManagerLauncher).RevealFile(filePath);
             return Ok();
         }
         catch (Exception ex)
@@ -204,23 +192,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var startInfo = new ProcessStartInfo("explorer.exe");
-                startInfo.ArgumentList.Add(folderPath);
-                Process.Start(startInfo);
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                var startInfo = new ProcessStartInfo("open");
-                startInfo.ArgumentList.Add(folderPath);
-                Process.Start(startInfo);
-            }
-            else
-            {
-                Process.Start("xdg-open", folderPath);
-            }
-
+            (fileManagerLauncher ?? DefaultFileManagerLauncher).RevealFolder(folderPath);
             return Ok();
         }
         catch (Exception ex)

@@ -14,6 +14,9 @@ public sealed class VideoGenerationAndRescanApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/generate-screenshot")]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/cover/from-frame")]
+    [CoversEndpoint("POST", "/api/videos/{id:int}/rescan")]
     public async Task GivenDecodableVideo_WhenFramesAndRescanAreRequested_ThenGeneratedCoverAndFileMetricsPersist()
     {
         var ffmpegCapabilities = await AsUser().GetFfmpegCapabilitiesAsync();
@@ -119,4 +122,90 @@ public sealed class VideoGenerationAndRescanApiTests(
         rescannedFile.Size.Should().Be(new FileInfo(sourcePath).Length).And.NotBe(originalFile.Size);
         rescanned.ImagePath.Should().Be(covered.ImagePath);
     }
+
+    [Fact]
+    [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/transcode")]
+    [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/hls/{profile}.m3u8")]
+    public async Task GivenDecodableVideo_WhenLiveTranscodeAndHlsAreRead_ThenEncodedMediaAndSegmentsAreReturned()
+    {
+        var ffmpegCapabilities = await AsUser().GetFfmpegCapabilitiesAsync();
+        ffmpegCapabilities.FfmpegFound.Should().BeTrue();
+        ffmpegCapabilities.FfmpegPath.Should().NotBeNullOrWhiteSpace();
+        var sourcePath = await AsTestFileSystem().CreateSyntheticVideoAsync(
+            ffmpegCapabilities.FfmpegPath!,
+            $"stream-transcode-{Guid.NewGuid():N}.mp4",
+            width: 160,
+            height: 120,
+            durationSeconds: 2,
+            color: "green");
+        var video = await AsUser(ApiTestUsers.Eva).CreateVideoFromFileAsync(sourcePath);
+        var metadataOnly = await AsUser().CreateVideoAsync($"Transcode no-file {Guid.NewGuid():N}");
+        var missingId = int.MaxValue - video.Id;
+
+        var noRoleUsername = $"stream-transcode-no-role-{Guid.NewGuid():N}";
+        await AsUser().CreateUserAsync(new CreateUserRequest(
+            noRoleUsername,
+            ApiTestUsers.Password,
+            Roles: []));
+        using var noRoleSession = await AsUser().CreateAuthSessionAsync(
+            noRoleUsername,
+            ApiTestUsers.Password);
+        var forbiddenTranscode = () => noRoleSession.Client.TranscodeVideoAsync(video.Id, resolution: null, start: null);
+        var forbiddenHls = () => noRoleSession.Client.GetHlsProfileAsync(video.Id, "original", propagateAccessToken: false);
+        await forbiddenTranscode.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 403 (Forbidden)*");
+        await forbiddenHls.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 403 (Forbidden)*");
+
+        var missingTranscode = () => AsUser().TranscodeVideoAsync(missingId, resolution: null, start: null);
+        var noFileHls = () => AsUser().GetHlsProfileAsync(metadataOnly.Id, "original", propagateAccessToken: false);
+        await missingTranscode.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 404 (NotFound)*");
+        await noFileHls.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 404 (NotFound)*");
+
+        var transcoded = await AsUser(ApiTestUsers.Eva).TranscodeVideoAsync(
+            video.Id,
+            resolution: "240p",
+            start: 0.25);
+        transcoded.MediaType.Should().Be("video/mp4");
+        transcoded.CacheControl.Should().BeNull();
+        transcoded.AcceptRanges.Should().Equal("none");
+        transcoded.Bytes.Should().HaveCountGreaterThan(1_024);
+        global::System.Text.Encoding.ASCII.GetString(transcoded.Bytes, 4, 4).Should().Be("ftyp");
+        ContainsAscii(transcoded.Bytes, "moov").Should().BeTrue();
+        ContainsAscii(transcoded.Bytes, "moof").Should().BeTrue();
+        ContainsAscii(transcoded.Bytes, "mdat").Should().BeTrue();
+
+        var hls = await AsUser(ApiTestUsers.Eva).GetHlsProfileAsync(
+            video.Id,
+            "original",
+            propagateAccessToken: true);
+        hls.MediaType.Should().Be("application/vnd.apple.mpegurl");
+        hls.CacheControl.Should().Be("no-cache");
+        hls.Text.Contains(Uri.EscapeDataString(AsUser(ApiTestUsers.Eva).AccessToken), StringComparison.Ordinal)
+            .Should().BeTrue();
+        var sanitizedPlaylist = hls.Text.Replace(
+            Uri.EscapeDataString(AsUser(ApiTestUsers.Eva).AccessToken),
+            "<access-token>");
+        sanitizedPlaylist.Should().StartWith("#EXTM3U\n");
+        sanitizedPlaylist.Should().Contain("#EXT-X-ENDLIST");
+        sanitizedPlaylist.Should().NotContain("ignored=");
+        var segmentUrl = sanitizedPlaylist
+            .Replace("\r\n", "\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Single(line => line.StartsWith($"/api/stream/video/{video.Id}/hls/segment/", StringComparison.Ordinal));
+        segmentUrl.Should().EndWith("?access_token=<access-token>");
+        var segmentName = segmentUrl.Split('?', 2)[0].Split('/').Last();
+        segmentName.Should().Be("original_0000.ts");
+
+        var segment = await AsUser().GetHlsSegmentAsync(video.Id, segmentName);
+        segment.MediaType.Should().Be("video/mp2t");
+        segment.CacheControl.Should().Be("public, max-age=86400");
+        segment.Bytes.Should().NotBeEmpty();
+        segment.Bytes[0].Should().Be(0x47);
+    }
+
+    private static bool ContainsAscii(byte[] bytes, string value)
+        => bytes.AsSpan().IndexOf(global::System.Text.Encoding.ASCII.GetBytes(value)) >= 0;
 }
