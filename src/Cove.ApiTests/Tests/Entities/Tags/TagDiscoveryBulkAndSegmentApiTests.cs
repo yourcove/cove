@@ -13,6 +13,29 @@ public sealed class TagDiscoveryBulkAndSegmentApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("GET", "/api/tags")]
+    public async Task GivenTaggedAudioAndText_WhenMemberListsTags_ThenUsageCountsAreSerialized()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var tag = await owner.CreateTagAsync($"Media usage tag {suffix}");
+        await owner.CreateAudioAsync(new AudioBuilder()
+            .WithTitle($"Tagged audio {suffix}")
+            .WithTag(tag)
+            .Build());
+        await owner.CreateTextAsync(new TextDocumentBuilder()
+            .WithTitle($"Tagged text {suffix}")
+            .WithTag(tag)
+            .Build());
+
+        var tags = await AsUser(ApiTestUsers.Eva).GetTagsAsync();
+
+        var listed = tags.Should().ContainSingle(candidate => candidate.Id == tag.Id).Which;
+        listed.AudioCount.Should().Be(1);
+        listed.TextCount.Should().Be(1);
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/tags/find")]
     public async Task GivenFavoriteTags_WhenMemberFiltersSortsAndPages_ThenOnlyRequestedPageIsReturned()
     {

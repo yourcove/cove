@@ -255,6 +255,8 @@ export interface Tag {
   groupCount?: number;
   performerCount?: number;
   studioCount?: number;
+  audioCount?: number;
+  textCount?: number;
   provenance?: TagProvenance[];
 }
 

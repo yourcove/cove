@@ -219,6 +219,15 @@ describe("entity card media contexts", () => {
   });
 });
 
+describe("studio usage counts", () => {
+  it("shows audio and text usage in the card footer", () => {
+    render(<StudioTile studio={{ ...studio, audioCount: 4, textCount: 2 } as any} onClick={vi.fn()} />);
+
+    expect(screen.getByTitle("Audios")).toHaveTextContent("4");
+    expect(screen.getByTitle("Texts")).toHaveTextContent("2");
+  });
+});
+
 describe("entity card host boundaries", () => {
   it("replaces both VideoCard visuals while preserving navigation, selection, and overlays", () => {
     const { container } = render(<VideoCard video={video as any} onClick={vi.fn()} selected onSelect={vi.fn()} />);

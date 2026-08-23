@@ -159,6 +159,8 @@ public record TagListDto(
     int GroupCount,
     int PerformerCount,
     int StudioCount,
+    int AudioCount,
+    int TextCount,
     string? ImagePath,
     bool? ShowAsSegment = null,
     string? SegmentColorOverride = null,

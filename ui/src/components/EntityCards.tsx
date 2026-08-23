@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ImgHTMLAttributes, type 
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { videos, images, performers, galleries, studios, groups, audios, texts, entityImages, faces as facesApi } from "../api/client";
-import type { AffinityHostType, Audio, EntityEngagement, Face, FaceAppearance, FieldProvenance, Gallery, Group, GroupItem, GroupSummary, Image, PerformerSummary, Video, SegmentRecord, Studio, Tag as TagType, TextDocument } from "../api/types";
+import type { AffinityHostType, Audio, AudioFilterCriteria, EntityEngagement, Face, FaceAppearance, FieldProvenance, Gallery, Group, GroupItem, GroupSummary, Image, PerformerSummary, Video, SegmentRecord, Studio, Tag as TagType, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, FieldProvenanceHover, formatDuration, formatFileSize, getResolutionLabel } from "./shared";
 import { RatingBanner, RatingBadge } from "./Rating";
 import { BookOpenText, Building2, FileText, Fingerprint, FolderOpen, GripVertical, Headphones, Layers, Link2, Tag, User, Film, Box, Images as ImagesIcon, Heart, Eye, ThumbsUp, Mic2, MonitorPlay, PlayCircle, Merge } from "lucide-react";
@@ -513,10 +513,10 @@ export function ImagesPopoverContent({ filter }: { filter: Record<string, string
 
 // ===== Lazy audio list popover content =====
 
-export function AudiosPopoverContent({ filter }: { filter: Record<string, string | number> }) {
+export function AudiosPopoverContent({ filter }: { filter: AudioFilterCriteria }) {
   const { data, isLoading } = useQuery({
     queryKey: ["audios-popover", filter],
-    queryFn: () => audios.find({ perPage: 10, sort: "created_at", direction: "desc" }, filter),
+    queryFn: () => audios.findFiltered({ findFilter: { perPage: 10, sort: "created_at", direction: "desc" }, objectFilter: filter }),
   });
   if (isLoading) return <p className="text-[11px] text-muted px-1">Loading...</p>;
   const items = data?.items ?? [];
@@ -538,10 +538,10 @@ export function AudiosPopoverContent({ filter }: { filter: Record<string, string
 
 // ===== Lazy text list popover content =====
 
-export function TextsPopoverContent({ filter }: { filter: Record<string, string | number> }) {
+export function TextsPopoverContent({ filter }: { filter: TextFilterCriteria }) {
   const { data, isLoading } = useQuery({
     queryKey: ["texts-popover", filter],
-    queryFn: () => texts.find({ perPage: 10, sort: "created_at", direction: "desc" }, filter),
+    queryFn: () => texts.findFiltered({ findFilter: { perPage: 10, sort: "created_at", direction: "desc" }, objectFilter: filter }),
   });
   if (isLoading) return <p className="text-[11px] text-muted px-1">Loading...</p>;
   const items = data?.items ?? [];
@@ -1111,12 +1111,12 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
             )}
             {audioCount > 0 && (
               <PopoverButton icon={<Headphones className="w-3.5 h-3.5" />} count={audioCount} title="Audio" wide preferBelow>
-                <AudiosPopoverContent filter={{ performerIds: String(performer.id) }} />
+                <AudiosPopoverContent filter={{ performersCriterion: { modifier: "INCLUDES", value: [performer.id] } }} />
               </PopoverButton>
             )}
             {textCount > 0 && (
               <PopoverButton icon={<FileText className="w-3.5 h-3.5" />} count={textCount} title="Texts" wide preferBelow>
-                <TextsPopoverContent filter={{ performerIds: String(performer.id) }} />
+                <TextsPopoverContent filter={{ performersCriterion: { modifier: "INCLUDES", value: [performer.id] } }} />
               </PopoverButton>
             )}
             {groupCount > 0 ? <span className="flex items-center gap-0.5 text-xs text-muted px-1" title="Groups"><Layers className="w-3 h-3" /> {groupCount}</span> : null}
@@ -1143,7 +1143,7 @@ interface StudioTileProps {
 }
 
 export function StudioTile({ studio, engagement, onClick, onNavigate, children, selected, onSelect, selecting }: StudioTileProps & { engagement?: EntityEngagement }) {
-  const hasFooter = studio.tags.length > 0 || studio.videoCount > 0 || studio.performerCount > 0 || studio.imageCount > 0 || studio.galleryCount > 0 || studio.groupCount > 0 || studio.childStudioCount > 0;
+  const hasFooter = studio.tags.length > 0 || studio.videoCount > 0 || studio.performerCount > 0 || studio.imageCount > 0 || studio.galleryCount > 0 || studio.groupCount > 0 || studio.childStudioCount > 0 || studio.audioCount > 0 || studio.textCount > 0;
 
   return (
     <EntityTileFrame
@@ -1231,6 +1231,16 @@ export function StudioTile({ studio, engagement, onClick, onNavigate, children, 
             {studio.childStudioCount > 0 && (
               <PopoverButton icon={<Building2 className="w-3.5 h-3.5" />} count={studio.childStudioCount} title="Sub-studios" wide preferBelow>
                 <StudiosPopoverContent filter={{ parentId: studio.id }} />
+              </PopoverButton>
+            )}
+            {studio.audioCount > 0 && (
+              <PopoverButton icon={<Headphones className="w-3.5 h-3.5" />} count={studio.audioCount} title="Audios" wide preferBelow>
+                <AudiosPopoverContent filter={{ studiosCriterion: { modifier: "INCLUDES", value: [studio.id] } }} />
+              </PopoverButton>
+            )}
+            {studio.textCount > 0 && (
+              <PopoverButton icon={<FileText className="w-3.5 h-3.5" />} count={studio.textCount} title="Texts" wide preferBelow>
+                <TextsPopoverContent filter={{ studiosCriterion: { modifier: "INCLUDES", value: [studio.id] } }} />
               </PopoverButton>
             )}
         </>
@@ -1863,7 +1873,7 @@ export function TextTile({ text, engagement, selected, onSelect, selecting, onCl
 export function TagTile({ tag, engagement, onClick, onNavigate, children, selected, onSelect, selecting }: { tag: TagType; engagement?: EntityEngagement; onClick: (options?: MultiSelectToggleOptions) => void; onNavigate?: (r: any) => void; children?: ReactNode; selected?: boolean; onSelect?: (options?: MultiSelectToggleOptions) => void; selecting?: boolean }) {
   const imageFit = useConfiguredImageFit();
   const favorite = engagement?.isFavorite ?? tag.favorite;
-  const hasFooter = Boolean(tag.videoCount || tag.segmentCount || tag.imageCount || tag.galleryCount || tag.groupCount || tag.performerCount || tag.studioCount);
+  const hasFooter = Boolean(tag.videoCount || tag.segmentCount || tag.imageCount || tag.galleryCount || tag.groupCount || tag.performerCount || tag.studioCount || tag.audioCount || tag.textCount);
 
   return (
     <EntityTileFrame
@@ -1908,6 +1918,8 @@ export function TagTile({ tag, engagement, onClick, onNavigate, children, select
         <>
           {tag.videoCount != null && tag.videoCount > 0 ? <PopoverButton icon={<Film className="w-3 h-3" />} count={tag.videoCount} title="Videos" wide preferBelow><VideosPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
           {tag.imageCount != null && tag.imageCount > 0 ? <PopoverButton icon={<ImagesIcon className="w-3.5 h-3.5" />} count={tag.imageCount} title="Images" wide preferBelow><ImagesPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
+          {tag.audioCount != null && tag.audioCount > 0 ? <PopoverButton icon={<Headphones className="w-3.5 h-3.5" />} count={tag.audioCount} title="Audios" wide preferBelow><AudiosPopoverContent filter={{ tagsCriterion: { modifier: "INCLUDES", value: [tag.id] } }} /></PopoverButton> : null}
+          {tag.textCount != null && tag.textCount > 0 ? <PopoverButton icon={<FileText className="w-3.5 h-3.5" />} count={tag.textCount} title="Texts" wide preferBelow><TextsPopoverContent filter={{ tagsCriterion: { modifier: "INCLUDES", value: [tag.id] } }} /></PopoverButton> : null}
           {tag.galleryCount != null && tag.galleryCount > 0 ? <PopoverButton icon={<FolderOpen className="w-3 h-3" />} count={tag.galleryCount} title="Galleries" wide preferBelow><GalleriesPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
           {tag.groupCount != null && tag.groupCount > 0 ? <PopoverButton icon={<Layers className="w-3 h-3" />} count={tag.groupCount} title="Groups" wide preferBelow><GroupsPopoverContent filter={{ tagIds: String(tag.id) }} /></PopoverButton> : null}
           {tag.segmentCount != null && tag.segmentCount > 0 ? <span className="flex items-center gap-0.5 text-xs text-muted" title="Segments"><Layers className="w-3 h-3" /> {tag.segmentCount}</span> : null}
