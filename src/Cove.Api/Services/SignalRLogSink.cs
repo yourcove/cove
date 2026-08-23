@@ -28,8 +28,8 @@ public class SignalRLogSink : ILogEventSink
         {
             Timestamp = logEvent.Timestamp.UtcDateTime.ToString("o"),
             Level = logEvent.Level.ToString(),
-            Message = logEvent.RenderMessage(),
-            Exception = logEvent.Exception?.ToString(),
+            Message = ObservabilityRedactor.RedactText(logEvent.RenderMessage()) ?? string.Empty,
+            Exception = ObservabilityRedactor.RedactText(logEvent.Exception?.ToString()),
             Category = ReadScalarString(logEvent, "SourceContext"),
             JobId = ReadScalarString(logEvent, "JobId"),
             JobType = ReadScalarString(logEvent, "JobType"),
