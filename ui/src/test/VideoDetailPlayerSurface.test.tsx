@@ -193,6 +193,37 @@ describe("VideoDetailPage media-player extension surface", () => {
     }));
   });
 
+  it("constrains sub-video playback to its parent clip range", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 15,
+      title: "Sub-video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      parentVideoId: 14,
+      clipStartSec: 30,
+      clipEndSec: 60,
+      files: [{
+        format: "mp4",
+        duration: 120,
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        captions: [],
+      }],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail(15);
+
+    expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
+    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
+      videoId: 15,
+      clip: { start: 30, end: 60, loop: false },
+    }));
+  });
+
   it("passes an explicit route timestamp separately from saved resume state", async () => {
     mockVideos.get.mockResolvedValue({
       id: 14,

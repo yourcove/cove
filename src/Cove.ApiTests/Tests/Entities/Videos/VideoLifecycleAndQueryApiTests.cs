@@ -12,6 +12,40 @@ public sealed class VideoLifecycleAndQueryApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    public async Task GivenSubVideo_WhenReadByIdAndListed_ThenParentFileMetadataIsReturned()
+    {
+        // Arrange
+        var parent = await AsUser().CreateVideoAsync($"Parent video {Guid.NewGuid():N}");
+        await AsDbUser().AttachVideoFileAsync(parent.Id, duration: 120, size: 1_000);
+        var child = await AsUser().CreateVideoAsync(
+            new VideoBuilder()
+                .WithTitle($"Sub-video {Guid.NewGuid():N}")
+                .Build() with
+            {
+                ParentVideoId = parent.Id,
+                ClipStartSec = 30,
+                ClipEndSec = 60,
+            });
+        var request = new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter { Ids = [child.Id] },
+        };
+
+        // Act
+        var retrieved = await AsUser().GetVideoByIdAsync(child.Id);
+        var listed = await AsUser().FindVideosAsync(request);
+
+        // Assert
+        retrieved.ParentVideoId.Should().Be(parent.Id);
+        retrieved.ParentVideoTitle.Should().Be(parent.Title);
+        retrieved.ClipStartSec.Should().Be(30);
+        retrieved.ClipEndSec.Should().Be(60);
+        retrieved.Files.Should().ContainSingle().Which.Basename.Should().Be("aggregate-source.mp4");
+        listed.Items.Should().ContainSingle().Which.Files.Should().ContainSingle()
+            .Which.Basename.Should().Be("aggregate-source.mp4");
+    }
+
+    [Fact]
     public async Task GivenVideoMetadata_WhenPartiallyUpdatedAndCleared_ThenUnspecifiedValuesArePreserved()
     {
         // Arrange

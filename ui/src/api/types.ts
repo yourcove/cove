@@ -923,7 +923,7 @@ export interface GroupPlaybackManifestItem {
   videoTitle?: string;
   src: string;
   startSec: number;
-  endSec?: number;
+  endSec?: number | null;
   durationSec?: number;
   displayDurationSec?: number | null;
   posterPath?: string;

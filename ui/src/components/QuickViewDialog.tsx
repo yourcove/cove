@@ -91,6 +91,7 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
             format={file.format}
             audioCodec={file.audioCodec}
             duration={duration}
+            clip={video.parentVideoId != null ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false } : undefined}
             videoId={video.id}
             extensionSurface="quick-view"
             playbackTracking={{

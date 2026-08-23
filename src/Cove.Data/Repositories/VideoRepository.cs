@@ -29,6 +29,9 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
             .Include(s => s.Files).ThenInclude(f => f.Captions)
             .Include(s => s.Files).ThenInclude(f => f.ParentFolder)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.Fingerprints)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.Captions)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.ParentFolder)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.Id == id, ct);
@@ -155,6 +158,7 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.VideoGalleries).ThenInclude(sg => sg.Gallery)
             .Include(s => s.GroupItems).ThenInclude(item => item.Group)
             .Include(s => s.Files)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .Where(s => pagedIds.Contains(s.Id))
