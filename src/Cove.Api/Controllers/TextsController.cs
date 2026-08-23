@@ -288,6 +288,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
     [HttpPost]
     [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<TextDocumentDto>> Create([FromBody] TextDocumentCreateDto dto, CancellationToken ct)
     {
         var tagIds = dto.TagIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
@@ -373,6 +375,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.TextsWrite)]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<TextDocumentDto>> Update(int id, [FromBody] TextDocumentUpdateDto dto, CancellationToken ct)
     {
         var text = await db.TextDocuments

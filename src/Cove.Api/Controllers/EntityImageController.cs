@@ -730,6 +730,8 @@ public class EntityImageController(
     [HttpPut("galleries/{id:int}/image/source")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "VideoId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> SetGalleryImageFromSource(int id, [FromBody] EntityImageCoverSourceDto dto, CancellationToken ct)
     {
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
@@ -813,6 +815,8 @@ public class EntityImageController(
     [HttpPut("galleries/{id:int}/image/back/source")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "VideoId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> SetGalleryBackImageFromSource(int id, [FromBody] EntityImageCoverSourceDto dto, CancellationToken ct)
     {
         var entity = await db.Galleries.FirstOrDefaultAsync(gallery => gallery.Id == id, ct);
@@ -834,6 +838,7 @@ public class EntityImageController(
     [HttpPut("galleries/{id:int}/cover")]
     [RequiresPermission(Permissions.GalleriesWrite)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesWrite)]
+    [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "ImageId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> SetGalleryCover(int id, [FromBody] GallerySetCoverDto dto, CancellationToken ct)
     {
         var gallery = await db.Galleries.FirstOrDefaultAsync(entity => entity.Id == id, ct);

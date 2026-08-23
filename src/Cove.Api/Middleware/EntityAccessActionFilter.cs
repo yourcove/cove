@@ -71,7 +71,10 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
                 if (result.Allowed)
                     continue;
 
-                context.Result = requirement.Permission.EndsWith(".read", StringComparison.OrdinalIgnoreCase)
+                var concealDenied = requirement.DeniedBehavior == EntityAccessDeniedBehavior.NotFound
+                    || (requirement.DeniedBehavior == EntityAccessDeniedBehavior.Default
+                        && requirement.Permission.EndsWith(".read", StringComparison.OrdinalIgnoreCase));
+                context.Result = concealDenied
                     ? new NotFoundResult()
                     : new ObjectResult(new
                     {

@@ -17,7 +17,13 @@ namespace Cove.Api.Controllers;
 [Route("api/groups/{groupId:int}")]
 [RequiresPermission(Permissions.GroupsRead)]
 [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = "groupId")]
-public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolver, DynamicGroupResolver? dynamicGroups = null, IEventBus? eventBus = null) : ControllerBase
+public class GroupItemsController(
+    CoveContext db,
+    SegmentSpanResolver spanResolver,
+    Cove.Core.Auth.IAuthorizationService authorizationService,
+    ICurrentPrincipalAccessor principalAccessor,
+    DynamicGroupResolver? dynamicGroups = null,
+    IEventBus? eventBus = null) : ControllerBase
 {
     [HttpGet("items")]
     [AllowShareLinkAccess]
@@ -125,6 +131,9 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite, RouteValueName = "groupId")]
     public async Task<ActionResult<GroupItemDto>> Create(int groupId, [FromBody] GroupItemCreateDto dto, CancellationToken ct)
     {
+        var requestedHostId = dto.HostId ?? dto.VideoId;
+        if (requestedHostId.HasValue)
+            await EnsureHostReadableAsync(NormalizeHostType(dto.HostType, dto.Kind), requestedHostId.Value, ct);
         var group = await GetGroupForStaticItemWriteAsync(groupId, ct);
         if (group is null)
             return NotFound();
@@ -141,7 +150,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         if (validationError is not null)
             return BadRequest(validationError);
 
-        var siblings = await db.GroupItems
+        var siblings = await db.GroupItems.IgnoreQueryFilters()
             .Where(item => item.GroupId == groupId)
             .OrderBy(item => item.OrderIndex)
             .ThenBy(item => item.Id)
@@ -177,6 +186,48 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         return CreatedAtAction(nameof(List), new { groupId }, MapItem(item));
     }
 
+    private async Task EnsureHostReadableAsync(string hostType, int hostId, CancellationToken ct)
+    {
+        var normalizedHostType = hostType.Trim().ToLowerInvariant();
+        var permission = normalizedHostType switch
+        {
+            EntityKinds.Video => Permissions.VideosRead,
+            EntityKinds.Audio => Permissions.AudiosRead,
+            EntityKinds.Text => Permissions.TextsRead,
+            EntityKinds.Image => Permissions.ImagesRead,
+            EntityKinds.Performer => Permissions.PerformersRead,
+            EntityKinds.Group => Permissions.GroupsRead,
+            EntityKinds.Studio => Permissions.StudiosRead,
+            EntityKinds.Tag => Permissions.TagsRead,
+            EntityKinds.Gallery => Permissions.GalleriesRead,
+            EntityKinds.Face => Permissions.FacesRead,
+            EntityKinds.Segment => Permissions.SegmentsRead,
+            _ => null,
+        };
+        if (permission is null)
+            return;
+
+        var principal = principalAccessor.Current
+            ?? throw new UnauthorizedException();
+        var result = await authorizationService.AuthorizeAsync(
+            principal,
+            permission,
+            EntityRef.Of(normalizedHostType, hostId),
+            ct);
+        if (!result.Allowed)
+            throw new ForbiddenException(
+                result.Reason ?? "The group item host is not accessible.",
+                permission,
+                EntityRef.Of(normalizedHostType, hostId));
+
+        if (normalizedHostType == EntityKinds.Segment
+            && !await db.VisibleSegments().AnyAsync(segment => segment.Id == hostId, ct))
+            throw new ForbiddenException(
+                "The group item segment host is not accessible through its parent media.",
+                permission,
+                EntityRef.Of(normalizedHostType, hostId));
+    }
+
     [HttpPut("items/{id:int}")]
     [RequiresPermission(Permissions.GroupsWrite)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite, RouteValueName = "groupId")]
@@ -198,7 +249,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         if (validationError is not null)
             return BadRequest(validationError);
 
-        var siblings = await db.GroupItems
+        var siblings = await db.GroupItems.IgnoreQueryFilters()
             .Where(entry => entry.GroupId == groupId && entry.Id != id)
             .OrderBy(entry => entry.OrderIndex)
             .ThenBy(entry => entry.Id)
@@ -254,7 +305,9 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
             return Ok(new { removed = 0 });
 
         var hostType = NormalizeHostType(null, dto.Kind);
-        var items = await db.GroupItems
+        foreach (var hostId in hostIds)
+            await EnsureHostReadableAsync(hostType, hostId, ct);
+        var items = await db.GroupItems.IgnoreQueryFilters()
             .Where(item => item.GroupId == groupId && item.Kind == dto.Kind && item.HostType.ToLower() == hostType && hostIds.Contains(item.HostId))
             .ToListAsync(ct);
 
@@ -280,7 +333,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         if (group.Kind == GroupKind.Dynamic)
             return BadRequest("Dynamic groups resolve their items from a query. Snapshot the group before editing items.");
 
-        var items = await db.GroupItems
+        var items = await db.GroupItems.IgnoreQueryFilters()
             .Where(item => item.GroupId == groupId)
             .OrderBy(item => item.OrderIndex)
             .ThenBy(item => item.Id)
@@ -296,6 +349,8 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
         var actualIds = dto.Ids.OrderBy(id => id).ToList();
         if (actualIds.Any(id => !expectedIds.Contains(id)))
             return BadRequest("Reorder payload contains a group item that is not in this group.");
+        foreach (var item in items.Where(item => dto.Ids.Contains(item.Id)))
+            await EnsureHostReadableAsync(item.HostType, item.HostId, ct);
 
         var orderedItems = items.ToList();
         if (dto.Ids.Count != items.Count)
@@ -325,6 +380,8 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite, RouteValueName = "groupId")]
     public async Task<ActionResult<IReadOnlyList<GroupItemDto>>> CreateFromSpans(int groupId, [FromBody] GroupItemsFromSpansDto dto, CancellationToken ct)
     {
+        foreach (var videoId in dto.Spans.Where(span => span.VideoId.HasValue).Select(span => span.VideoId!.Value).Distinct())
+            await EnsureHostReadableAsync(EntityKinds.Video, videoId, ct);
         var group = await GetGroupForStaticItemWriteAsync(groupId, ct);
         if (group is null)
             return NotFound();
@@ -1093,7 +1150,7 @@ public class GroupItemsController(CoveContext db, SegmentSpanResolver spanResolv
 
     private async Task ReindexItemsAsync(int groupId, int[] excludedItemIds, CancellationToken ct)
     {
-        var query = db.GroupItems.Where(item => item.GroupId == groupId);
+        var query = db.GroupItems.IgnoreQueryFilters().Where(item => item.GroupId == groupId);
         if (excludedItemIds.Length > 0)
             query = query.Where(item => !excludedItemIds.Contains(item.Id));
 

@@ -78,6 +78,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
 
     [HttpPost]
     [RequiresPermission(Permissions.GroupsWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GroupDto>> Create([FromBody] GroupCreateDto dto, CancellationToken ct)
     {
         var group = new Group
@@ -107,6 +109,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.GroupsWrite)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GroupDto>> Update(int id, [FromBody] GroupUpdateDto dto, CancellationToken ct)
     {
         var group = await groupRepo.GetByIdWithRelationsAsync(id, ct);
@@ -182,6 +186,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.GroupsWrite)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkGroupUpdateDto dto, CancellationToken ct)
     {
         var groups = await db.Groups
