@@ -11,14 +11,17 @@ namespace Cove.Api.Controllers;
 public class JobsController(IJobService jobService, IScanService scanService, IThumbnailService thumbnailService, IFingerprintService fingerprintService, ICleanService cleanService, IBackupService backupService) : ControllerBase
 {
     [HttpGet]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<IReadOnlyList<JobInfo>> GetJobs()
         => Ok(jobService.GetAllJobs());
 
     [HttpGet("history")]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<IReadOnlyList<JobInfo>> GetHistory()
         => Ok(jobService.GetJobHistory());
 
     [HttpGet("{jobId}")]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<JobInfo> GetJob(string jobId)
     {
         var job = jobService.GetJob(jobId);
@@ -27,6 +30,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpDelete("{jobId}")]
     [RequiresPermission(Permissions.JobsCancel)]
+    [RequiresUnscopedEntityAccess("read")]
     public IActionResult CancelJob(string jobId)
     {
         return jobService.Cancel(jobId) ? Ok() : NotFound();
@@ -34,6 +38,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpPut("{jobId}/reorder")]
     [RequiresPermission(Permissions.JobsCancel)]
+    [RequiresUnscopedEntityAccess("read")]
     public IActionResult ReorderJob(string jobId, [FromBody] ReorderJobRequest request)
     {
         return jobService.ReorderQueued(jobId, request.BeforeJobId) ? Ok() : NotFound();

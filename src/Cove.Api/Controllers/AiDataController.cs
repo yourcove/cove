@@ -15,6 +15,7 @@ public class AiDataController(
     ICurrentPrincipalAccessor principalAccessor) : ControllerBase
 {
     [HttpGet("summary")]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<ActionResult<AiDataSummaryDto>> Summary(
         [FromQuery] string? sourceKey,
         [FromQuery] string? sourceRunId,

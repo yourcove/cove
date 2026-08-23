@@ -1,10 +1,29 @@
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Infrastructure;
 
 public sealed partial class CoveClient
 {
+    public Task<PaginatedResponse<AiRunDto>> GetAiRunsAsync(
+        AiRunTargetType? targetType = null,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<AiRunDto>>(
+            HttpMethod.Get,
+            WithCacheNonce(targetType is null ? "/api/ai-runs" : $"/api/ai-runs?targetType={targetType}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<PaginatedResponse<EmbeddingDto>> GetEmbeddingsAsync(
+        EmbeddingHostType? hostType = null,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<EmbeddingDto>>(
+            HttpMethod.Get,
+            WithCacheNonce(hostType is null ? "/api/embeddings" : $"/api/embeddings?hostType={hostType}"),
+            payload: null,
+            cancellationToken);
+
     public Task<AiRunDto> GetAiRunAsync(
         int id,
         CancellationToken cancellationToken = default)

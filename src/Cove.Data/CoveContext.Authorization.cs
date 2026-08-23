@@ -24,6 +24,36 @@ public partial class CoveContext
         _embeddingReadAuthorizationFilterSuppressionDepth > 0;
 
     internal bool AuthorizationBypassedForReadOptimization => AuthorizationFiltersBypassed;
+    internal bool CanUseUnfilteredEmbeddingAnn(EmbeddingHostType? hostType)
+    {
+        if (EmbeddingReadAuthorizationFilterBypassed)
+            return true;
+
+        var principal = CurrentPrincipal;
+        if (principal?.Has(PermissionKeys.EmbeddingsRead) != true)
+            return false;
+
+        bool Unrestricted(string entityKind, string permission)
+            => principal.Has(permission) && !principal.ReadRestrictedEntityKinds.Contains(entityKind);
+
+        return hostType switch
+        {
+            EmbeddingHostType.Video => Unrestricted(EntityKinds.Video, PermissionKeys.VideosRead),
+            EmbeddingHostType.Image => Unrestricted(EntityKinds.Image, PermissionKeys.ImagesRead),
+            EmbeddingHostType.Performer => Unrestricted(EntityKinds.Performer, PermissionKeys.PerformersRead),
+            EmbeddingHostType.Face => principal.Has(PermissionKeys.FacesRead),
+            EmbeddingHostType.Segment => Unrestricted(EntityKinds.Segment, PermissionKeys.SegmentsRead)
+                && Unrestricted(EntityKinds.Video, PermissionKeys.VideosRead)
+                && Unrestricted(EntityKinds.Audio, PermissionKeys.AudiosRead)
+                && Unrestricted(EntityKinds.Image, PermissionKeys.ImagesRead),
+            _ => Unrestricted(EntityKinds.Video, PermissionKeys.VideosRead)
+                && Unrestricted(EntityKinds.Image, PermissionKeys.ImagesRead)
+                && Unrestricted(EntityKinds.Performer, PermissionKeys.PerformersRead)
+                && principal.Has(PermissionKeys.FacesRead)
+                && Unrestricted(EntityKinds.Segment, PermissionKeys.SegmentsRead)
+                && Unrestricted(EntityKinds.Audio, PermissionKeys.AudiosRead),
+        };
+    }
 
     private string[] CurrentRoleNames => CurrentPrincipal?.Roles.ToArray() ?? [];
 
@@ -150,10 +180,41 @@ public partial class CoveContext
             AuthorizationFiltersBypassed || CanReadFaces);
 
         modelBuilder.Entity<Embedding>().HasQueryFilter(embedding =>
-            EmbeddingReadAuthorizationFilterBypassed || CanReadEmbeddings);
+            EmbeddingReadAuthorizationFilterBypassed
+            || CanReadEmbeddings
+            && (embedding.HostType == EmbeddingHostType.Video
+                ? Videos.Any(video => video.Id == embedding.HostId)
+                : embedding.HostType == EmbeddingHostType.Image
+                    ? Images.Any(image => image.Id == embedding.HostId)
+                    : embedding.HostType == EmbeddingHostType.Performer
+                        ? Performers.Any(performer => performer.Id == embedding.HostId)
+                        : embedding.HostType == EmbeddingHostType.Face
+                            ? Faces.Any(face => face.Id == embedding.HostId)
+                            : embedding.HostType == EmbeddingHostType.Segment
+                              && Segments.Any(segment =>
+                                  segment.Id == embedding.HostId
+                                  && (!RequiresSegmentReadScopeEvaluation
+                                      ? CanReadSegments
+                                      : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadSegments, CanReadSegmentsByRule,
+                                          CurrentRoleNames, CurrentShareLinkId, EntityKinds.Segment, segment.Id))
+                                  && (segment.HostType == SegmentHostType.Video
+                                      ? Videos.Any(video => video.Id == segment.HostId)
+                                      : segment.HostType == SegmentHostType.Audio
+                                          ? Audios.Any(audio => audio.Id == segment.HostId)
+                                          : segment.HostType == SegmentHostType.Image
+                                              && Images.Any(image => image.Id == segment.HostId)))));
 
         modelBuilder.Entity<AiRun>().HasQueryFilter(run =>
-            AuthorizationFiltersBypassed || CanReadAiRuns);
+            AuthorizationFiltersBypassed
+            || CanReadAiRuns
+            && (run.TargetType == AiRunTargetType.Video
+                ? Videos.Any(video => video.Id == run.TargetId)
+                : run.TargetType == AiRunTargetType.Image
+                    ? Images.Any(image => image.Id == run.TargetId)
+                    : run.TargetType == AiRunTargetType.Performer
+                        ? Performers.Any(performer => performer.Id == run.TargetId)
+                        : run.TargetType == AiRunTargetType.Face
+                          && Faces.Any(face => face.Id == run.TargetId)));
 
         modelBuilder.Entity<UserEntityAffinity>().HasQueryFilter(affinity =>
             AuthorizationFiltersBypassed || (CurrentUserId != null && affinity.UserId == CurrentUserId));

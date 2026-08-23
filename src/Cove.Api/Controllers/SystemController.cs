@@ -121,8 +121,8 @@ public class SystemController(
     }
 
     [HttpGet("stats")]
-    [OutputCache(PolicyName = "ShortCache")]
     [RequiresPermission(Permissions.SystemRead)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<ActionResult<StatsDto>> GetStats(CancellationToken ct)
     {
         var videoCt = await db.Videos.CountAsync(ct);

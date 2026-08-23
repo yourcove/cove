@@ -1257,7 +1257,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     {
         var files = await db.VideoFiles
             .Include(file => file.Fingerprints)
-            .Where(file => file.VideoId.HasValue)
+            .Where(file => file.VideoId.HasValue && db.Videos.Any(video => video.Id == file.VideoId.Value))
             .AsNoTracking()
             .ToListAsync(ct);
 
