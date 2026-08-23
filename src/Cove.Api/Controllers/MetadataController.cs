@@ -228,6 +228,7 @@ public class MetadataController(
 
     [HttpPost("export")]
     [RequiresPermission(Permissions.SystemBackup)]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<object> StartExport([FromBody] ExportOptionsDto? opts)
     {
         var jobId = jobService.Enqueue("export", "Exporting metadata", async (progress, ct) =>
@@ -296,6 +297,8 @@ public class MetadataController(
 
     [HttpPost("import")]
     [RequiresPermission(Permissions.SystemRestore)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
     public ActionResult<object> StartImport([FromBody] ImportOptionsDto? opts)
     {
         var filePath = opts?.FilePath;

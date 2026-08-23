@@ -94,6 +94,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpPost("backup")]
     [RequiresPermission(Permissions.SystemBackup)]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<object> StartBackup()
     {
         var jobId = backupService.StartBackup();
@@ -102,6 +103,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpGet("backup/latest")]
     [RequiresPermission(Permissions.SystemBackup)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<ActionResult<object>> GetLatestBackup()
     {
         var path = await backupService.GetLatestBackupPathAsync();
