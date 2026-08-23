@@ -78,7 +78,9 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
                     continue;
 
                 var roleNames = principal.Roles.ToArray();
-                var hasDenies = await _db.RoleContentRules.AsNoTracking().AnyAsync(rule =>
+                var hasDenies = string.Equals(requirement.AppliesTo, "read", StringComparison.OrdinalIgnoreCase)
+                    && principal.ReadRestrictedEntityKinds.Count > 0
+                    || await _db.RoleContentRules.AsNoTracking().AnyAsync(rule =>
                         rule.Role != null && roleNames.Contains(rule.Role.Name)
                         && rule.Effect == "deny"
                         && (rule.AppliesTo == requirement.AppliesTo || rule.AppliesTo == "all"),
@@ -94,7 +96,7 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
                 context.Result = new ObjectResult(new
                 {
                     code = "FORBIDDEN",
-                    message = $"Global library mutations require unrestricted {requirement.AppliesTo} access.",
+                    message = $"This operation requires unrestricted {requirement.AppliesTo} access.",
                 })
                 { StatusCode = StatusCodes.Status403Forbidden };
                 await _audit.LogAsync(AuditActions.PermissionDeny, AuditOutcomes.Deny, principal,

@@ -494,9 +494,26 @@ public sealed class DatabaseClient
         double? startSec = null,
         double? endSec = null,
         string? metaJson = null)
+        => await CreateEmbeddingAsync(
+            EmbeddingHostType.Face, faceId, values, kindFamily, EmbeddingModality.Face,
+            cancellationToken, sourceKey, sourceRunId, sectionIndex, startSec, endSec, metaJson);
+
+    public async Task<int> CreateEmbeddingAsync(
+        EmbeddingHostType hostType,
+        int hostId,
+        IReadOnlyCollection<float> values,
+        string kindFamily,
+        EmbeddingModality modality = EmbeddingModality.Visual,
+        CancellationToken cancellationToken = default,
+        string sourceKey = "api-test",
+        string? sourceRunId = null,
+        int sectionIndex = 0,
+        double? startSec = null,
+        double? endSec = null,
+        string? metaJson = null)
     {
         if (values.Count == 0)
-            throw new ArgumentException("A face embedding must contain at least one value.", nameof(values));
+            throw new ArgumentException("An embedding must contain at least one value.", nameof(values));
 
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
@@ -505,11 +522,11 @@ public sealed class DatabaseClient
         var vector = values.ToArray();
         var embedding = new Embedding
         {
-            HostType = EmbeddingHostType.Face,
-            HostId = faceId,
+            HostType = hostType,
+            HostId = hostId,
             Kind = kindFamily,
             KindFamily = kindFamily,
-            Modality = EmbeddingModality.Face,
+            Modality = modality,
             IsSemantic = true,
             Dim = vector.Length,
             Vector = new Vector(vector),

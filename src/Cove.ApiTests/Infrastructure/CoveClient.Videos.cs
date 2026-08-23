@@ -91,10 +91,11 @@ public sealed partial class CoveClient
 
     public Task<IReadOnlyList<IReadOnlyList<VideoDto>>> FindDuplicateVideosAsync(
         string matchType,
+        int distance = 0,
         CancellationToken cancellationToken = default)
         => SendAsync<IReadOnlyList<IReadOnlyList<VideoDto>>>(
             HttpMethod.Get,
-            WithCacheNonce($"/api/videos/duplicates?matchType={Uri.EscapeDataString(matchType)}"),
+            WithCacheNonce($"/api/videos/duplicates?matchType={Uri.EscapeDataString(matchType)}&distance={distance}"),
             payload: null,
             cancellationToken);
 

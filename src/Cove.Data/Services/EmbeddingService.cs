@@ -60,7 +60,8 @@ public sealed class EmbeddingService(
         var embeddings = ApplyFilters(db.Embeddings.AsNoTracking(), options)
             .Where(embedding => embedding.Dim == dimensions);
 
-        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
+        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true
+            && db.CanUseUnfilteredEmbeddingAnn(options.HostType))
         {
             try
             {
