@@ -58,6 +58,7 @@ public sealed class ApiTestFileSystem
     }
 
     public async Task<string> CreateSyntheticVideoAsync(
+        string ffmpegPath,
         string fileName,
         int width,
         int height,
@@ -65,6 +66,7 @@ public sealed class ApiTestFileSystem
         string color,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ffmpegPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         ArgumentException.ThrowIfNullOrWhiteSpace(color);
         if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal)
@@ -77,15 +79,12 @@ public sealed class ApiTestFileSystem
         if (color.Any(character => !char.IsAsciiLetter(character)))
             throw new ArgumentOutOfRangeException(nameof(color), "Synthetic video colors must use a named ASCII color.");
 
-        var ffmpeg = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(directory => Path.Combine(directory, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg"))
-            .FirstOrDefault(File.Exists)
-            ?? throw new InvalidOperationException("FFmpeg is required for synthetic API-test video fixtures.");
+        if (!File.Exists(ffmpegPath))
+            throw new FileNotFoundException("The Cove host's resolved FFmpeg executable was not found.", ffmpegPath);
         var path = Path.Combine(LibraryPath, fileName);
         var startInfo = new ProcessStartInfo
         {
-            FileName = ffmpeg,
+            FileName = ffmpegPath,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,

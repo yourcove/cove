@@ -16,8 +16,13 @@ public sealed class VideoGenerationAndRescanApiTests(
     [Fact]
     public async Task GivenDecodableVideo_WhenFramesAndRescanAreRequested_ThenGeneratedCoverAndFileMetricsPersist()
     {
+        var ffmpegCapabilities = await AsUser().GetFfmpegCapabilitiesAsync();
+        ffmpegCapabilities.FfmpegFound.Should().BeTrue();
+        ffmpegCapabilities.FfmpegPath.Should().NotBeNullOrWhiteSpace();
+        var ffmpegPath = ffmpegCapabilities.FfmpegPath!;
         var fileName = $"generated-video-{Guid.NewGuid():N}.mp4";
         var sourcePath = await AsTestFileSystem().CreateSyntheticVideoAsync(
+            ffmpegPath,
             fileName,
             width: 160,
             height: 120,
@@ -90,6 +95,7 @@ public sealed class VideoGenerationAndRescanApiTests(
 
         var originalSize = new FileInfo(sourcePath).Length;
         await AsTestFileSystem().CreateSyntheticVideoAsync(
+            ffmpegPath,
             fileName,
             width: 320,
             height: 180,
