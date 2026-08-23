@@ -18,6 +18,42 @@ public sealed class DatabaseClient
     internal DatabaseClient(string connectionString)
         => _connectionString = connectionString;
 
+    public async Task<int> CreateOwnedFileAsync(
+        string ownerKind,
+        int? ownerId,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var info = new FileInfo(fullPath);
+        if (!info.Exists || info.DirectoryName is null)
+            throw new FileNotFoundException("The API test owned-file source does not exist.", path);
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var folder = await db.Folders.FirstOrDefaultAsync(
+            candidate => candidate.Path == info.DirectoryName,
+            cancellationToken) ?? new Folder { Path = info.DirectoryName, ModTime = info.LastWriteTimeUtc };
+        BaseFileEntity file = ownerKind.ToLowerInvariant() switch
+        {
+            EntityKinds.Video => new VideoFile { VideoId = ownerId },
+            EntityKinds.Image => new ImageFile { ImageId = ownerId },
+            EntityKinds.Gallery => new GalleryFile { GalleryId = ownerId },
+            EntityKinds.Audio => new AudioFile { AudioId = ownerId },
+            EntityKinds.Text => new TextFile { TextDocumentId = ownerId },
+            _ => throw new ArgumentOutOfRangeException(nameof(ownerKind), ownerKind, "Unsupported owned-file kind."),
+        };
+        file.Basename = info.Name;
+        file.ParentFolder = folder;
+        file.Size = info.Length;
+        file.ModTime = info.LastWriteTimeUtc;
+        db.Set<BaseFileEntity>().Add(file);
+        await db.SaveChangesAsync(cancellationToken);
+        return file.Id;
+    }
+
     public async Task CreateAuditEventAsync(
         string action,
         string detail,
