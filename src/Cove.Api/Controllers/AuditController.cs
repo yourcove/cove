@@ -1,4 +1,5 @@
 using Cove.Core.Auth;
+using Cove.Api.Services;
 using Cove.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,7 @@ public class AuditController : ControllerBase
 
     [HttpGet]
     [RequiresPermission(Permissions.AuditRead)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<IActionResult> List(
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 50,
@@ -57,6 +59,14 @@ public class AuditController : ControllerBase
                 e.Detail))
             .ToListAsync(ct);
 
-        return Ok(new { items = rows, totalCount = total, page, perPage });
+        var redactedRows = rows.Select(row => row with
+        {
+            ActorUsername = ObservabilityRedactor.RedactText(row.ActorUsername),
+            UserAgent = ObservabilityRedactor.RedactText(row.UserAgent),
+            TargetId = ObservabilityRedactor.RedactText(row.TargetId),
+            Detail = ObservabilityRedactor.RedactJson(row.Detail),
+        }).ToList();
+
+        return Ok(new { items = redactedRows, totalCount = total, page, perPage });
     }
 }

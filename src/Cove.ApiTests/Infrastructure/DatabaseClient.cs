@@ -18,6 +18,27 @@ public sealed class DatabaseClient
     internal DatabaseClient(string connectionString)
         => _connectionString = connectionString;
 
+    public async Task CreateAuditEventAsync(
+        string action,
+        string detail,
+        string? targetId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        db.AuditEvents.Add(new AuditEvent
+        {
+            ActorKind = "system",
+            Action = action,
+            Outcome = "success",
+            TargetId = targetId,
+            Detail = detail,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     internal async Task<string> CreateSetupTokenAsync(
         CancellationToken cancellationToken = default)
     {
