@@ -1,6 +1,5 @@
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 

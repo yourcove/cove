@@ -4,7 +4,6 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using SixLabors.ImageSharp;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 

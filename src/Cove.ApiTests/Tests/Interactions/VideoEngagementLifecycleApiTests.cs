@@ -1,6 +1,5 @@
 using System.Globalization;
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Interactions;
 

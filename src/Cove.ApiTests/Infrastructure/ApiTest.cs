@@ -1,6 +1,5 @@
 using Cove.Core.DTOs;
 using Cove.Core.Auth;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -84,11 +83,11 @@ public abstract class ApiTest : IAsyncLifetime
         CancellationToken cancellationToken = default)
         => _fixture.ConfigureFaceSuggestionPlanAsync(plan, cancellationToken);
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         try
         {
-            _users = await _fixture.ResetAsync();
+            _users = await _fixture.ResetAsync(TestContext.Current.CancellationToken);
             _output.WriteLine($"Cove API listening at {ApiUri}");
             _output.WriteLine($"Pause at a breakpoint to call: curl {new Uri(ApiUri, "/health")}");
         }
@@ -99,7 +98,7 @@ public abstract class ApiTest : IAsyncLifetime
         }
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         if (_users != null)
             foreach (var user in _users.Values)
@@ -108,6 +107,6 @@ public abstract class ApiTest : IAsyncLifetime
             client.Dispose();
         _credentialClients.Clear();
         _users = null;
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 }

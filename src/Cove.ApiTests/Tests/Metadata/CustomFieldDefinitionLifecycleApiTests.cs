@@ -2,7 +2,6 @@ using System.Text.Json;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Metadata;
 

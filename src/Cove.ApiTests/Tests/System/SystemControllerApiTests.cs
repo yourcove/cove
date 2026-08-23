@@ -3,7 +3,6 @@ using System.Text;
 using Cove.ApiTests.Infrastructure;
 using Cove.ApiTests.Builders;
 using Cove.Core.DTOs;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.System;
 

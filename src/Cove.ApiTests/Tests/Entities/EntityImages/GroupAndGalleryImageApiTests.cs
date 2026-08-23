@@ -2,7 +2,6 @@ using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using System.Net;
 using System.Net.Http.Headers;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.EntityImages;
 

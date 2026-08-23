@@ -2,11 +2,10 @@ using System.Globalization;
 using System.Text;
 using Cove.ApiTests.Infrastructure;
 using AwesomeAssertions.Execution;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane1Collection.Name)]
+[Collection(DatabaseWipeApiTestCollection.Name)]
 public sealed class DatabaseWipeApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

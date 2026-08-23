@@ -5,7 +5,6 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Faces;
 

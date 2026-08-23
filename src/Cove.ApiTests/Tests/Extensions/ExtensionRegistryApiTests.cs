@@ -1,6 +1,5 @@
 using Cove.ApiTests.Infrastructure;
 using Cove.Plugins;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Extensions;
 

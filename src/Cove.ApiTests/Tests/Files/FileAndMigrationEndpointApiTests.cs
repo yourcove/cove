@@ -2,7 +2,6 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Files;
 

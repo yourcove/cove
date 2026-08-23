@@ -1,6 +1,5 @@
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.System;
 

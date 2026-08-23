@@ -1,9 +1,8 @@
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane1Collection.Name)]
+[Collection(DatabaseRestoreApiTestCollection.Name)]
 public sealed class DatabaseRestoreApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

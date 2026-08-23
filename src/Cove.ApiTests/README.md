@@ -1,8 +1,8 @@
 # Fluent API tests
 
-These tests launch the real Cove application as a Kestrel process and exercise it over HTTP with real access tokens. Two parallel test lanes each own an isolated process, data root, PostgreSQL database, metadata-service simulator, download-source simulator, and temporary library folder. Tests within a lane are serialized; before each test, the fixture drains background work, resets public database state and caches, restores required built-in state, and creates the standard owner and member personas.
+These tests launch the real Cove application as a Kestrel process and exercise it over HTTP with real access tokens. Two parallel test lanes each own an isolated process, data root, PostgreSQL database, metadata-service simulator, download-source simulator, and temporary library folder. Database restore and wipe tests use dedicated fixture collections so their destructive lifecycle operations cannot contaminate a shared lane. Tests within a collection are serialized; before each test, the fixture drains background work, resets public database state and caches, restores required built-in state, and creates the standard owner and member personas.
 
-Put every behavior test class in `ApiTestLane1Collection` or `ApiTestLane2Collection`, derive it from `ApiTest`, and distribute classes roughly evenly between lanes. Use:
+Put ordinary behavior test classes in `ApiTestLane1Collection` or `ApiTestLane2Collection`, derive them from `ApiTest`, and distribute classes roughly evenly between lanes. Tests that restore, wipe, or otherwise replace the shared database must use a dedicated `ICollectionFixture<CoveApiTestFixture>` collection. Use:
 
 - `AsUser()` for the owner-authenticated `CoveClient`.
 - `AsUser(ApiTestUsers.Eva)` or `AsUser(ApiTestUsers.Anthony)` for standard members.

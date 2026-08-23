@@ -11,7 +11,6 @@ using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Images;
 

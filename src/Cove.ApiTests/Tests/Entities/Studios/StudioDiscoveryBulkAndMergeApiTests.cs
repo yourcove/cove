@@ -7,7 +7,6 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Studios;
 

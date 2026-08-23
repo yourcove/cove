@@ -47,8 +47,8 @@ public sealed class CoveApiTestFixture : IAsyncLifetime
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
             .ConfigureFaceSuggestionPlanAsync(plan, cancellationToken);
 
-    public async Task InitializeAsync()
-        => _server = await CoveApiServer.StartAsync();
+    public async ValueTask InitializeAsync()
+        => _server = await CoveApiServer.StartAsync(TestContext.Current.CancellationToken);
 
     internal Task<IReadOnlyDictionary<string, CoveClient>> ResetAsync(
         CancellationToken cancellationToken = default)
@@ -56,7 +56,7 @@ public sealed class CoveApiTestFixture : IAsyncLifetime
             ?? throw new InvalidOperationException("The fluent API-test server has not been initialized."))
             .ResetAsync(cancellationToken);
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_server is not null)
         {

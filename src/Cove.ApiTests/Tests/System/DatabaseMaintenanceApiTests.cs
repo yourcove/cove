@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Http.Json;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.System;
 

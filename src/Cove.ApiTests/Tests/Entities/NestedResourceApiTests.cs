@@ -1,7 +1,6 @@
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Entities;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities;
 

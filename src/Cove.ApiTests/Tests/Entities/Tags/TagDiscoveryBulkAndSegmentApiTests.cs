@@ -3,7 +3,6 @@ using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Tags;
 

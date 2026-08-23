@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Contracts;
 

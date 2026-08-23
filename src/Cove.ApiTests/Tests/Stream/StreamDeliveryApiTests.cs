@@ -8,7 +8,6 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities.Auth;
 using SixLabors.ImageSharp;
-using Xunit.Abstractions;
 using EntityKinds = Cove.Core.Entities.EntityKinds;
 
 namespace Cove.ApiTests.Tests.Stream;

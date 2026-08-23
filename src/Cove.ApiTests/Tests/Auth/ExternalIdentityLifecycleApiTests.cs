@@ -2,7 +2,6 @@ using System.Net;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
 using Cove.Plugins;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Auth;
 
