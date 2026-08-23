@@ -89,6 +89,14 @@ public sealed class ApiTestFileSystem
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        if (OperatingSystem.IsLinux())
+        {
+            var ffmpegDirectory = Path.GetDirectoryName(ffmpegPath)!;
+            startInfo.Environment.TryGetValue("LD_LIBRARY_PATH", out var inheritedLibraryPath);
+            startInfo.Environment["LD_LIBRARY_PATH"] = string.IsNullOrWhiteSpace(inheritedLibraryPath)
+                ? ffmpegDirectory
+                : $"{ffmpegDirectory}{Path.PathSeparator}{inheritedLibraryPath}";
+        }
         foreach (var argument in new[]
         {
             "-nostdin",
