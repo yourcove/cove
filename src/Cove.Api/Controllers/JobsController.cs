@@ -41,6 +41,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpPost("scan")]
     [RequiresPermission(Permissions.LibraryScan)]
+    [RequiresUnscopedEntityAccess("write")]
     public ActionResult<object> StartScan([FromQuery] bool generatePreviews = false)
     {
         var jobId = scanService.StartScan(new ScanOperationOptions
@@ -52,6 +53,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpPost("generate-thumbnails")]
     [RequiresPermission(Permissions.LibraryScan)]
+    [RequiresUnscopedEntityAccess("write")]
     public ActionResult<object> GenerateThumbnails()
     {
         var jobId = thumbnailService.StartGenerateAllThumbnails();
@@ -60,6 +62,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpPost("generate-video-phashes")]
     [RequiresPermission(Permissions.LibraryScan)]
+    [RequiresUnscopedEntityAccess("write")]
     public ActionResult<object> GenerateVideoPhashes()
     {
         var jobId = fingerprintService.StartGenerateVideoPhashes();
@@ -68,6 +71,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpPost("generate-image-phashes")]
     [RequiresPermission(Permissions.LibraryScan)]
+    [RequiresUnscopedEntityAccess("write")]
     public ActionResult<object> GenerateImagePhashes()
     {
         var jobId = fingerprintService.StartGenerateImagePhashes();
@@ -76,6 +80,7 @@ public class JobsController(IJobService jobService, IScanService scanService, IT
 
     [HttpPost("clean")]
     [RequiresPermission(Permissions.LibraryClean)]
+    [RequiresUnscopedEntityAccess("delete")]
     public ActionResult<object> StartClean([FromQuery] bool dryRun = false)
     {
         var jobId = cleanService.StartClean(dryRun);
@@ -103,4 +108,3 @@ public class ReorderJobRequest
 {
     public string? BeforeJobId { get; set; }
 }
-
