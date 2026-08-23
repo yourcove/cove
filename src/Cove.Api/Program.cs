@@ -700,7 +700,11 @@ try
                 return Results.NotFound();
             }
 
-            lifetime.StopApplication();
+            httpContext.Response.OnCompleted(() =>
+            {
+                lifetime.StopApplication();
+                return Task.CompletedTask;
+            });
             return Results.Accepted();
         }).AllowAnonymous();
     }

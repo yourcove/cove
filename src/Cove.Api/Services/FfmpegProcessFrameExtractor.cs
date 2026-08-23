@@ -45,6 +45,7 @@ internal static class FfmpegProcessFrameExtractor
                     RedirectStandardError = true,
                     CreateNoWindow = true,
                 };
+                FfmpegProcessEnvironment.Apply(psi, ffmpegPath);
 
                 using var proc = System.Diagnostics.Process.Start(psi)!;
                 var stderrTask = proc.StandardError.ReadToEndAsync(ct);

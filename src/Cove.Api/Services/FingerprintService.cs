@@ -760,18 +760,17 @@ public class FingerprintService(
     {
         // 'using' so the Process handle is always released — the old code never disposed it, leaking a
         // handle per pHash extraction across a large scan.
-        using var process = new System.Diagnostics.Process
+        var startInfo = new System.Diagnostics.ProcessStartInfo
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            }
+            FileName = ffmpegPath,
+            Arguments = args,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
         };
+        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
+        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
 
         process.Start();
         var stderrTask = process.StandardError.ReadToEndAsync(ct);

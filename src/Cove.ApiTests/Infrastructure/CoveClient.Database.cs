@@ -61,6 +61,15 @@ public sealed partial class CoveClient
             HttpStatusCode.OK,
             cancellationToken);
 
+    public Task<WipeResultDto> WipeDatabaseAsync(
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<WipeResultDto>(
+            HttpMethod.Post,
+            "/api/database/wipe",
+            payload: null,
+            HttpStatusCode.OK,
+            cancellationToken);
+
     public Task<string> StartDatabaseBackupJobAsync(
         CancellationToken cancellationToken = default)
         => StartJobAsync("/api/jobs/backup", cancellationToken);

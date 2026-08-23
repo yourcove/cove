@@ -1,5 +1,6 @@
-using System.Text.Json;
+using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 
@@ -41,6 +42,42 @@ public sealed partial class CoveClient
             "/api/videos/from-file",
             new FileBackedCreateDto(filePath),
             cancellationToken);
+
+    public Task<VideoGenerationResult> GenerateVideoScreenshotAsync(
+        int videoId,
+        double? atSeconds,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<VideoGenerationResult>(
+            HttpMethod.Post,
+            $"/api/videos/{videoId}/generate-screenshot",
+            new { atSeconds },
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<VideoGenerationResult> SetVideoCoverFromFrameAsync(
+        int videoId,
+        double? atSeconds,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<VideoGenerationResult>(
+            HttpMethod.Post,
+            $"/api/videos/{videoId}/cover/from-frame",
+            new { atSeconds },
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    public async Task<string> RescanVideoAsync(
+        int videoId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendForExpectedStatusAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/videos/{videoId}/rescan",
+            payload: null,
+            HttpStatusCode.OK,
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException($"POST /api/videos/{videoId}/rescan did not return a job id.");
+    }
 
     public Task<IReadOnlyList<VideoDto>> GetVideoWallAsync(
         string query,
@@ -296,3 +333,5 @@ public sealed partial class CoveClient
             },
             cancellationToken);
 }
+
+public sealed record VideoGenerationResult(bool Success);

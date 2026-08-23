@@ -219,6 +219,9 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         CancellationToken cancellationToken = default)
         => WriteFaceSuggestionPlanAsync(_faceSuggestionPlanPath, plan, cancellationToken);
 
+    internal Task WaitForExitAsync(CancellationToken cancellationToken = default)
+        => _process.WaitForExitAsync(cancellationToken);
+
     private async Task<CoveClient> CreateOwnerAsync(CancellationToken cancellationToken)
     {
         using var client = new HttpClient { BaseAddress = BaseAddress };

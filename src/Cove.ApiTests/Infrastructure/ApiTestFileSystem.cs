@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
@@ -53,6 +54,91 @@ public sealed class ApiTestFileSystem
 
         var path = Path.Combine(LibraryPath, fileName);
         File.WriteAllBytes(path, contents);
+        return path;
+    }
+
+    public async Task<string> CreateSyntheticVideoAsync(
+        string ffmpegPath,
+        string fileName,
+        int width,
+        int height,
+        double durationSeconds,
+        string color,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ffmpegPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(color);
+        if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal)
+            || !string.Equals(Path.GetExtension(fileName), ".mp4", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "Synthetic videos must use a leaf .mp4 filename under the library root.");
+        if (width <= 0 || height <= 0 || width % 2 != 0 || height % 2 != 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Synthetic video dimensions must be positive even numbers.");
+        if (!double.IsFinite(durationSeconds) || durationSeconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(durationSeconds), "Synthetic video duration must be finite and positive.");
+        if (color.Any(character => !char.IsAsciiLetter(character)))
+            throw new ArgumentOutOfRangeException(nameof(color), "Synthetic video colors must use a named ASCII color.");
+
+        if (!File.Exists(ffmpegPath))
+            throw new FileNotFoundException("The Cove host's resolved FFmpeg executable was not found.", ffmpegPath);
+        var path = Path.Combine(LibraryPath, fileName);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        if (OperatingSystem.IsLinux())
+        {
+            var ffmpegDirectory = Path.GetDirectoryName(ffmpegPath)!;
+            startInfo.Environment.TryGetValue("LD_LIBRARY_PATH", out var inheritedLibraryPath);
+            startInfo.Environment["LD_LIBRARY_PATH"] = string.IsNullOrWhiteSpace(inheritedLibraryPath)
+                ? ffmpegDirectory
+                : $"{ffmpegDirectory}{Path.PathSeparator}{inheritedLibraryPath}";
+        }
+        foreach (var argument in new[]
+        {
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-f", "lavfi",
+            "-i", $"color=c={color}:s={width}x{height}:r=10:d={durationSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}",
+            "-threads", "1",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-an",
+            path,
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("FFmpeg could not be started for the synthetic API-test video fixture.");
+        var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            throw new TimeoutException("FFmpeg did not create the synthetic API-test video within 20 seconds.");
+        }
+
+        var error = await standardError;
+        if (process.ExitCode != 0 || !File.Exists(path) || new FileInfo(path).Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"FFmpeg failed to create the synthetic API-test video (exit {process.ExitCode}): {error}");
+        }
+
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-1));
         return path;
     }
 
