@@ -278,6 +278,27 @@ public sealed class CustomFieldService(CoveContext db)
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Stages custom-field values for multiple entities for deletion. The caller owns the
+    /// surrounding unit of work and must save the context after staging all related changes.
+    /// </summary>
+    public async Task StageDeleteValuesForEntitiesAsync(
+        string entityType,
+        IReadOnlyCollection<int> entityIds,
+        CancellationToken ct = default)
+    {
+        var normalizedEntityType = RequireEntityType(entityType);
+        var ids = entityIds.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return;
+
+        var values = await _db.CustomFieldValues
+            .Where(value => value.EntityType == normalizedEntityType && ids.Contains(value.EntityId))
+            .ToListAsync(ct);
+        if (values.Count > 0)
+            _db.CustomFieldValues.RemoveRange(values);
+    }
+
     private async Task<bool> KeyExistsAsync(string key, int? exceptId, CancellationToken ct)
         => await _db.CustomFieldDefinitions.AnyAsync(definition => definition.Key == key && (!exceptId.HasValue || definition.Id != exceptId.Value), ct);
 

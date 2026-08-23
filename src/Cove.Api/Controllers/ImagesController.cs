@@ -197,7 +197,28 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         var image = await imageRepo.GetByIdWithRelationsAsync(id, ct);
         if (image == null) return NotFound();
 
-        await DeleteImageArtifactsAsync(image, new HashSet<int> { id }, new HashSet<string>(StringComparer.OrdinalIgnoreCase), deleteFile, deleteGenerated, ct);
+        var retainedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (deleteFile)
+        {
+            var candidatePaths = image.Files
+                .Select(file => file.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (candidatePaths.Length > 0)
+            {
+                retainedPaths.UnionWith(await db.ImageFiles
+                    .AsNoTracking()
+                    .Where(imageFile => candidatePaths.Contains(imageFile.Path)
+                        && imageFile.ImageId.HasValue
+                        && imageFile.ImageId.Value != id)
+                    .Select(imageFile => imageFile.Path)
+                    .Distinct()
+                    .ToListAsync(ct));
+            }
+        }
+
+        await DeleteImageArtifactsAsync(image, retainedPaths, new HashSet<string>(StringComparer.OrdinalIgnoreCase), deleteFile, deleteGenerated, ct);
         if (tagProvenanceService != null)
             await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Image, id, ct);
         await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Image, id, ct);
@@ -411,17 +432,46 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             .Include(image => image.Files)
             .Where(image => ids.Contains(image.Id))
             .ToListAsync(ct);
+        var persistedIds = images.Select(image => image.Id).ToArray();
+
+        var retainedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (dto.DeleteFiles)
+        {
+            var candidatePaths = images
+                .SelectMany(image => image.Files)
+                .Select(file => file.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (candidatePaths.Length > 0)
+            {
+                var referencedPaths = await db.ImageFiles
+                    .AsNoTracking()
+                    .Where(imageFile => candidatePaths.Contains(imageFile.Path)
+                        && imageFile.ImageId.HasValue
+                        && !idsToDelete.Contains(imageFile.ImageId.Value))
+                    .Select(imageFile => imageFile.Path)
+                    .Distinct()
+                    .ToListAsync(ct);
+                retainedPaths.UnionWith(referencedPaths);
+            }
+        }
 
         foreach (var image in images)
         {
-            await DeleteImageArtifactsAsync(image, idsToDelete, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
-
-            if (tagProvenanceService != null)
-                await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Image, image.Id, ct);
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Image, image.Id, ct);
+            await DeleteImageArtifactsAsync(image, retainedPaths, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
         }
 
-        await RemoveImageGroupItemsAsync(idsToDelete, ct);
+        if (tagProvenanceService != null)
+        {
+            var provenance = await db.TagApplications
+                .Where(application => application.HostType == AffinityHostType.Image && persistedIds.Contains(application.HostId))
+                .ToListAsync(ct);
+            if (provenance.Count > 0)
+                db.TagApplications.RemoveRange(provenance);
+        }
+        await customFields.StageDeleteValuesForEntitiesAsync(CustomFieldEntityTypes.Image, persistedIds, ct);
+        await RemoveImageGroupItemsAsync(persistedIds, ct);
         db.Images.RemoveRange(images);
         await db.SaveChangesAsync(ct);
         return new EntityMutationNoContentResult(images.Select(image => image.Id).ToList());
@@ -525,7 +575,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return Ok(new BulkUpdateResult(images.Select(image => image.Id).ToList()));
     }
 
-    private async Task DeleteImageArtifactsAsync(Image image, IReadOnlySet<int> idsToDelete, HashSet<string> deletedPaths, bool deleteFiles, bool deleteGenerated, CancellationToken ct)
+    private async Task DeleteImageArtifactsAsync(Image image, IReadOnlySet<string> retainedPaths, HashSet<string> deletedPaths, bool deleteFiles, bool deleteGenerated, CancellationToken ct)
     {
         if (deleteFiles)
         {
@@ -535,9 +585,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
                 if (string.IsNullOrWhiteSpace(path) || !deletedPaths.Add(path))
                     continue;
 
-                var referencedByKeptImage = await db.ImageFiles
-                    .AnyAsync(imageFile => imageFile.Path == path && imageFile.ImageId.HasValue && !idsToDelete.Contains(imageFile.ImageId.Value), ct);
-                if (!referencedByKeptImage && System.IO.File.Exists(path))
+                if (!retainedPaths.Contains(path) && System.IO.File.Exists(path))
                     System.IO.File.Delete(path);
             }
         }

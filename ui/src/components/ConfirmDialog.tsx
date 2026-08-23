@@ -13,12 +13,14 @@ interface Props {
   destructive?: boolean;
   isPending?: boolean;
   errorMessage?: string | null;
+  progress?: { completed: number; total: number } | null;
+  lockOptions?: boolean;
   /** Show a "Also delete file from disk" checkbox */
   showDeleteFile?: boolean;
   showDeleteGenerated?: boolean;
 }
 
-export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", onConfirm, onCancel, destructive = true, isPending = false, errorMessage = null, showDeleteFile, showDeleteGenerated }: Props) {
+export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", onConfirm, onCancel, destructive = true, isPending = false, errorMessage = null, progress = null, lockOptions = false, showDeleteFile, showDeleteGenerated }: Props) {
   const appConfig = useOptionalAppConfig();
   const [deleteFile, setDeleteFile] = useState(false);
   const [deleteGenerated, setDeleteGenerated] = useState(false);
@@ -95,15 +97,29 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Delete", o
       >
         <h3 id={titleId} className="text-lg font-semibold mb-2">{title}</h3>
         <p className="text-sm text-secondary mb-4">{message}</p>
+        {progress ? (
+          <div className="mb-4" role="status" aria-live="polite">
+            <div className="mb-1 flex items-center justify-between text-sm text-secondary">
+              <span>Deleting images</span>
+              <span>{progress.completed}/{progress.total} deleted</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-border">
+              <div
+                className="h-full bg-accent transition-[width] duration-200"
+                style={{ width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
         {showDeleteFile && (
           <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer mb-4">
-            <input type="checkbox" checked={deleteFile} onChange={(e) => setDeleteFile(e.target.checked)} className="rounded border-border bg-surface accent-accent" />
+            <input type="checkbox" checked={deleteFile} disabled={isPending || lockOptions} onChange={(e) => setDeleteFile(e.target.checked)} className="rounded border-border bg-surface accent-accent disabled:cursor-not-allowed disabled:opacity-60" />
             Also delete file from disk
           </label>
         )}
         {showDeleteGenerated && (
           <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer mb-4">
-            <input type="checkbox" checked={deleteGenerated} onChange={(e) => setDeleteGenerated(e.target.checked)} className="rounded border-border bg-surface accent-accent" />
+            <input type="checkbox" checked={deleteGenerated} disabled={isPending || lockOptions} onChange={(e) => setDeleteGenerated(e.target.checked)} className="rounded border-border bg-surface accent-accent disabled:cursor-not-allowed disabled:opacity-60" />
             Also delete generated files
           </label>
         )}
