@@ -27,7 +27,7 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
     public string DatabaseConnectionString => _databaseConnectionString
         ?? throw new InvalidOperationException("The performance database has not been initialized.");
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         CoveContext.SetDataExtensions([]);
 
@@ -51,7 +51,7 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
         await context.Database.ExecuteSqlRawAsync("ANALYZE");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_settings is null)
         {

@@ -416,9 +416,9 @@ public sealed class Phase12SchemaParityTests
             {
                 var errors = await Task.WhenAll(
                     Record.ExceptionAsync(() => new TagRepository(first)
-                        .AddAsync(new Tag { Name = "Concurrent tag" })),
+                        .AddAsync(new Tag { Name = "Concurrent tag" })).AsTask(),
                     Record.ExceptionAsync(() => new TagRepository(second)
-                        .AddAsync(new Tag { Name = " concurrent TAG " })));
+                        .AddAsync(new Tag { Name = " concurrent TAG " })).AsTask());
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<TagNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(
@@ -439,8 +439,8 @@ public sealed class Phase12SchemaParityTests
                 first.Performers.Add(new Performer { Name = "Concurrent performer", Disambiguation = "Role" });
                 second.Performers.Add(new Performer { Name = " concurrent PERFORMER ", Disambiguation = " role " });
                 var errors = await Task.WhenAll(
-                    Record.ExceptionAsync(() => first.SaveChangesAsync()),
-                    Record.ExceptionAsync(() => second.SaveChangesAsync()));
+                    Record.ExceptionAsync(() => first.SaveChangesAsync()).AsTask(),
+                    Record.ExceptionAsync(() => second.SaveChangesAsync()).AsTask());
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<EntityNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(NameConflictEntityTypes.Performer, conflict.EntityType);
@@ -462,8 +462,8 @@ public sealed class Phase12SchemaParityTests
                 first.Studios.Add(new Studio { Name = "Concurrent studio" });
                 second.Studios.Add(new Studio { Name = " concurrent STUDIO " });
                 var errors = await Task.WhenAll(
-                    Record.ExceptionAsync(() => first.SaveChangesAsync()),
-                    Record.ExceptionAsync(() => second.SaveChangesAsync()));
+                    Record.ExceptionAsync(() => first.SaveChangesAsync()).AsTask(),
+                    Record.ExceptionAsync(() => second.SaveChangesAsync()).AsTask());
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<EntityNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(NameConflictEntityTypes.Studio, conflict.EntityType);
