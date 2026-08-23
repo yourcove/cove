@@ -32,6 +32,8 @@ public class AiDataController(
 
     [HttpPost("purge")]
     [RequiresPermission(Permissions.AiDataClear)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("delete", ActionArgumentName = "request", SkipWhenPropertyTrue = "DryRun")]
     public async Task<ActionResult<AiDataPurgeResultDto>> Purge([FromBody] AiDataPurgeRequestDto request, CancellationToken cancellationToken)
     {
         var selector = request.ToSelectorDto();

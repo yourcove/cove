@@ -71,12 +71,21 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
         {
             foreach (var requirement in unscopedRequirements)
             {
-                var selection = !string.IsNullOrWhiteSpace(requirement.ActionArgumentName)
-                    && context.ActionArguments.TryGetValue(requirement.ActionArgumentName, out var argument)
-                        ? ExtractValues(argument, requirement.PropertyName).ToList()
-                        : [];
-                if (!string.IsNullOrWhiteSpace(requirement.ActionArgumentName) && selection.Count > 0)
-                    continue;
+                if (!string.IsNullOrWhiteSpace(requirement.ActionArgumentName)
+                    && context.ActionArguments.TryGetValue(requirement.ActionArgumentName, out var argument))
+                {
+                    if (!string.IsNullOrWhiteSpace(requirement.SkipWhenPropertyTrue))
+                    {
+                        var skip = ExtractValues(argument, requirement.SkipWhenPropertyTrue)
+                            .Any(value => value is true || bool.TryParse(value?.ToString(), out var parsed) && parsed);
+                        if (skip)
+                            continue;
+                    }
+                    else if (ExtractValues(argument, requirement.PropertyName).Any())
+                    {
+                        continue;
+                    }
+                }
 
                 var roleNames = principal.Roles.ToArray();
                 var hasDenies = string.Equals(requirement.AppliesTo, "read", StringComparison.OrdinalIgnoreCase)

@@ -536,6 +536,8 @@ public class MetadataController(
 
     [HttpPost("clean-generated")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("delete")]
     public ActionResult<object> CleanGenerated()
     {
         var jobId = jobService.Enqueue("clean-generated", "Cleaning generated files", async (progress, ct) =>
