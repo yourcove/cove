@@ -23,6 +23,8 @@ public class StashMigrationController(StashMigrationService migrationService) : 
     }
 
     [HttpPost("import")]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
     public async Task<ActionResult<object>> Import([FromBody] ImportRequest req, CancellationToken ct)
     {
         try
