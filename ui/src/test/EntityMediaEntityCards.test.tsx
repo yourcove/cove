@@ -292,6 +292,47 @@ describe("entity card host boundaries", () => {
 });
 
 describe("entity list media contexts", () => {
+  it("uses the embedded zoom level to size wall columns", () => {
+    vi.stubGlobal("innerWidth", 1440);
+    const items = Array.from({ length: 8 }, (_, index) => ({
+      ...video,
+      id: index + 1,
+      title: `Wall Video ${index + 1}`,
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["engagement", "video", "batch", items.map((item) => item.id)], []);
+
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <RelatedEntityListView
+          entityType="videos"
+          items={items as any}
+          displayMode="wall"
+          zoomLevel={2}
+          infinitePageSize={false}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(view.container.firstElementChild?.children).toHaveLength(8);
+
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <RelatedEntityListView
+          entityType="videos"
+          items={items as any}
+          displayMode="wall"
+          zoomLevel={8}
+          infinitePageSize={false}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(view.container.firstElementChild?.children).toHaveLength(2);
+  });
+
   it("routes tag list thumbnails through entity.media without changing the row chrome", () => {
     overrideRenderState.replace = false;
     const { container } = render(
