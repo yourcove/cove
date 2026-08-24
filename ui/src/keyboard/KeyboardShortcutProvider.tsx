@@ -45,6 +45,12 @@ const SURFACE_PRIORITY: Record<KeyboardShortcutSurface, number> = {
   overlay: 60,
 };
 
+function hasDocumentKeyboardOverlay(target: EventTarget | null) {
+  return isOverlayOpen() || document.querySelector(
+    "[role='dialog'], [aria-modal='true']",
+  ) != null || (target instanceof Element && target.closest("[role='listbox'], [role='menu']") != null);
+}
+
 /** Host-owned dispatch context supplied after Cove resolves and claims a shortcut. */
 export interface KeyboardActionInvocation {
   /** The normalized one- or multi-stroke sequence that resolved this action. */
@@ -340,7 +346,7 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
           && (definition.source === "extension" || definition.scopes?.length)
           && !definition.scopes?.some((scope) => scope.surface === registration.surface)) return [];
         const surface = registration.surface ?? definition?.scopes?.[0]?.surface ?? "page";
-        if (isOverlayOpen() && SURFACE_PRIORITY[surface] < SURFACE_PRIORITY.viewer) return [];
+        if (hasDocumentKeyboardOverlay(event.target) && SURFACE_PRIORITY[surface] < SURFACE_PRIORITY.viewer) return [];
         const alternatives = registration.bindings ?? effectiveBindings[registration.id] ?? definition?.defaultBindings ?? [];
         return alternatives.map((keys) => ({
           registration,

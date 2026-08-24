@@ -140,6 +140,31 @@ describe("extension keyboard runtime", () => {
     expect(action).not.toHaveBeenCalled();
   });
 
+  it("suppresses local extension actions behind extension-owned ARIA dialogs", () => {
+    render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness />
+        <section role="dialog" aria-modal="true"><button type="button">Dialog action</button></section>
+      </KeyboardShortcutProvider>,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Dialog action" }), { key: "r" });
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("does not treat an unrelated inline listbox as a document overlay", () => {
+    render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness />
+        <div role="listbox"><button type="button" role="option">Inline option</button></div>
+      </KeyboardShortcutProvider>,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Target" }), { key: "r" });
+    expect(action).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(screen.getByRole("option", { name: "Inline option" }), { key: "r" });
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+
   it("dispatches the latest callback without re-registering the action", () => {
     const first = vi.fn();
     const second = vi.fn();
