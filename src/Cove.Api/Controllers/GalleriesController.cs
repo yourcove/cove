@@ -17,7 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.GalleriesRead)]
-public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContext db, IUserEngagementService engagementService, IScanService scanService, ITagProvenanceService? tagProvenanceService = null, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
+public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContext db, IUserEngagementService engagementService, IScanService scanService, ITagProvenanceService? tagProvenanceService = null, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, ICurrentPrincipalAccessor? principalAccessor = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
     private sealed record GalleryRelationshipCounts(IReadOnlyDictionary<int, int> ImageCounts, IReadOnlyDictionary<int, int> VideoCounts);
@@ -228,6 +228,19 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Gallery,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
+
         var g = await galleryRepo.GetByIdAsync(id, ct);
         if (g == null) return NotFound();
         if (tagProvenanceService != null)
@@ -640,20 +653,15 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.GalleriesDelete)]
     [RequiresEntityAccess(EntityKinds.Gallery, Permissions.GalleriesDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new BulkDeleteResult([]));
+        if (ids.Length == 0)
+            return BadRequest("Select at least one gallery to delete.");
 
-        var galleries = await db.Galleries.Where(g => ids.Contains(g.Id)).ToListAsync(ct);
-        foreach (var gallery in galleries)
-        {
-            if (tagProvenanceService != null)
-                await tagProvenanceService.RemoveForHostAsync(AffinityHostType.Gallery, gallery.Id, ct);
-            await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Gallery, gallery.Id, ct);
-        }
-        db.Galleries.RemoveRange(galleries);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteResult(galleries.Select(gallery => gallery.Id).ToList()));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Gallery,
+            ids));
     }
 }

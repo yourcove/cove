@@ -18,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.AudiosRead)]
-public class AudiosController(CoveContext db, CustomFieldService customFields, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null) : ControllerBase
+public class AudiosController(CoveContext db, CustomFieldService customFields, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -515,40 +515,52 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.AudiosDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "dto", PropertyName = "DeleteFiles")]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return new EntityMutationNoContentResult([]);
+        if (dto.DeleteFiles && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
 
-        var idsToDelete = ids.ToHashSet();
-        var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var items = await db.Audios.Include(item => item.Files).Where(item => ids.Contains(item.Id)).ToListAsync(ct);
-        var groupItems = await db.GroupItems.Where(item => item.HostType == "audio" && ids.Contains(item.HostId)).ToListAsync(ct);
-        db.GroupItems.RemoveRange(groupItems);
-        try
-        {
-            foreach (var item in items)
-                await DeleteAudioArtifactsAsync(item, idsToDelete, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
-        }
-        catch (AudioFileDeleteException ex)
-        {
-            return Conflict(new { error = ex.Message });
-        }
-        foreach (var id in ids)
-        {
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Audio, id, ct);
-        }
-        db.Audios.RemoveRange(items);
-        await db.SaveChangesAsync(ct);
-        return new EntityMutationNoContentResult(items.Select(item => item.Id).ToList());
+        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one audio item to delete.");
+
+        var queued = bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Audio,
+            ids,
+            dto.DeleteFiles,
+            dto.DeleteGenerated);
+        return Accepted(queued);
     }
 
     [HttpDelete("{id:int}")]
     [RequiresPermission(Permissions.AudiosDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "deleteFile")]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosDelete)]
     public async Task<IActionResult> Delete(int id, [FromQuery] bool deleteFile = false, [FromQuery] bool deleteGenerated = false, CancellationToken ct = default)
     {
+        if (deleteFile && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
+
+        if (bulkEntityDeletionService is not null)
+        {
+            var executionContext = new BulkDeletionExecutionContext();
+            if (!await bulkEntityDeletionService.DeleteAsync(
+                    BulkDeletionEntityKind.Audio,
+                    id,
+                    executionContext,
+                    deleteFile,
+                    deleteGenerated,
+                    ct,
+                    publishEvent: false))
+                return NotFound();
+            if (deleteFile)
+                physicalFileDeletionRecoverySignal?.Notify();
+            return NoContent();
+        }
+
         var audio = await db.Audios.Include(item => item.Files).FirstOrDefaultAsync(item => item.Id == id, ct);
         if (audio == null) return NotFound();
 

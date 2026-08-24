@@ -18,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.StudiosRead)]
-public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, StudioMergeService? studioMergeService = null) : ControllerBase
+public class StudiosController(IStudioRepository studioRepo, MetadataServerService metadataServerService, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, StudioMergeService? studioMergeService = null, ICurrentPrincipalAccessor? principalAccessor = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private sealed record StudioUsageCounts(int VideoCount, int ImageCount, int GalleryCount, int GroupCount, int PerformerCount, int ChildStudioCount, int AudioCount, int TextCount);
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -161,6 +161,19 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Studio,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
+
         var s = await studioRepo.GetByIdAsync(id, ct);
         if (s == null) return NotFound();
         await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Studio, id, ct);
@@ -218,17 +231,16 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.StudiosDelete)]
     [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new BulkDeleteResult([]));
+        if (ids.Length == 0)
+            return BadRequest("Select at least one studio to delete.");
 
-        var studios = await db.Studios.Where(s => ids.Contains(s.Id)).ToListAsync(ct);
-        foreach (var studio in studios)
-            await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Studio, studio.Id, ct);
-        db.Studios.RemoveRange(studios);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteResult(studios.Select(studio => studio.Id).ToList()));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Studio,
+            ids));
     }
 
     // ===== Merge =====
@@ -555,7 +567,8 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
                 return Forbid();
         }
 
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principal),
             "metadata-server:studios",
             $"Tagging {ids.Count} studios from {dto.Endpoint}",
             async (progress, jobCt) =>
