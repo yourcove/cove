@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Linq.Expressions;
+using System.Text.RegularExpressions;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -531,9 +532,11 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         if (normalized is "IS_NULL" or "NOT_NULL")
         {
             var param = selector.Parameters[0];
-            var nullCheck = normalized == "IS_NULL"
-                ? Expression.Equal(selector.Body, Expression.Constant(null, typeof(string)))
-                : Expression.NotEqual(selector.Body, Expression.Constant(null, typeof(string)));
+            var valueOrEmpty = Expression.Coalesce(selector.Body, Expression.Constant(string.Empty));
+            var hasValue = Expression.NotEqual(valueOrEmpty, Expression.Constant(string.Empty));
+            Expression nullCheck = normalized == "IS_NULL"
+                ? Expression.Not(hasValue)
+                : hasValue;
             return query.Where(Expression.Lambda<Func<TRow, bool>>(nullCheck, param));
         }
 
@@ -548,14 +551,27 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         var contains = Expression.Call(lowered, typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!, constant);
         var equals = Expression.Equal(lowered, constant);
 
-        Expression predicate = normalized switch
+        Expression? predicate = normalized switch
         {
             "EQUALS" => equals,
             "NOT_EQUALS" => Expression.Not(equals),
+            "INCLUDES" => contains,
             "EXCLUDES" => Expression.Not(contains),
-            _ => contains,
+            "MATCHES_REGEX" => Expression.Call(
+                typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!,
+                body,
+                Expression.Constant(value.Trim()),
+                Expression.Constant(RegexOptions.IgnoreCase)),
+            "NOT_MATCHES_REGEX" => Expression.Not(Expression.Call(
+                typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!,
+                body,
+                Expression.Constant(value.Trim()),
+                Expression.Constant(RegexOptions.IgnoreCase))),
+            _ => null,
         };
 
+        if (predicate == null)
+            return query;
         return query.Where(Expression.Lambda<Func<TRow, bool>>(predicate, parameter));
     }
 
@@ -1220,8 +1236,11 @@ public class SegmentsController(CoveContext db, SegmentSpanResolver spanResolver
         {
             "EQUALS" => values.Any(value => EqualsIgnoreCase(value, text)),
             "NOT_EQUALS" => !values.Any(value => EqualsIgnoreCase(value, text)),
+            "INCLUDES" => values.Any(value => ContainsIgnoreCase(value, text)),
             "EXCLUDES" => !values.Any(value => ContainsIgnoreCase(value, text)),
-            _ => values.Any(value => ContainsIgnoreCase(value, text)),
+            "MATCHES_REGEX" => values.Any(value => Regex.IsMatch(value ?? string.Empty, text, RegexOptions.IgnoreCase)),
+            "NOT_MATCHES_REGEX" => !values.Any(value => Regex.IsMatch(value ?? string.Empty, text, RegexOptions.IgnoreCase)),
+            _ => true,
         };
     }
 

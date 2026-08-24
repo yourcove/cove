@@ -592,6 +592,16 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<PaginatedResponse<SegmentRecordDto>> FindSegmentsByTitleAsync(
+        string? title,
+        string titleModifier,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<SegmentRecordDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/segments?perPage=250&title={Uri.EscapeDataString(title ?? string.Empty)}&titleModifier={Uri.EscapeDataString(titleModifier)}"),
+            payload: null,
+            cancellationToken);
+
     public async Task<int> RemoveTagFromSegmentsAsync(
         int tagId,
         IReadOnlyList<int>? segmentIds,

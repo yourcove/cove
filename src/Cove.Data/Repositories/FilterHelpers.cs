@@ -425,6 +425,61 @@ public static class FilterHelpers
         return query.Where(Expression.Lambda<Func<T, bool>>(predicate, param));
     }
 
+    /// <summary>Apply a StringCriterion to a queryable using a collection of string values.</summary>
+    public static IQueryable<T> ApplyStringCollection<T>(
+        IQueryable<T> query,
+        StringCriterion? criterion,
+        Expression<Func<T, IEnumerable<string?>>> valuesSelector)
+    {
+        if (criterion == null) return query;
+
+        var entityParam = valuesSelector.Parameters[0];
+        var valueParam = Expression.Parameter(typeof(string), "value");
+        var valueOrEmpty = Expression.Coalesce(valueParam, Expression.Constant(string.Empty));
+        var hasMeaningfulValue = Any(
+            valuesSelector.Body,
+            valueParam,
+            Expression.NotEqual(valueOrEmpty, Expression.Constant(string.Empty)));
+
+        Expression? predicate;
+        if (criterion.Modifier is CriterionModifier.IsNull or CriterionModifier.NotNull)
+        {
+            predicate = criterion.Modifier == CriterionModifier.IsNull
+                ? Expression.Not(hasMeaningfulValue)
+                : hasMeaningfulValue;
+        }
+        else
+        {
+            Expression? elementMatches = criterion.Modifier switch
+            {
+                CriterionModifier.Equals or CriterionModifier.NotEquals =>
+                    Expression.Equal(valueParam, Expression.Constant(criterion.Value, typeof(string))),
+                CriterionModifier.Includes or CriterionModifier.Excludes =>
+                    Expression.Call(
+                        Expression.Call(valueOrEmpty, typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!),
+                        typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!,
+                        Expression.Constant(criterion.Value.ToLower())),
+                CriterionModifier.MatchesRegex or CriterionModifier.NotMatchesRegex =>
+                    Expression.Call(
+                        typeof(Regex).GetMethod(nameof(Regex.IsMatch), [typeof(string), typeof(string), typeof(RegexOptions)])!,
+                        valueOrEmpty,
+                        Expression.Constant(criterion.Value),
+                        Expression.Constant(RegexOptions.IgnoreCase)),
+                _ => null,
+            };
+            if (elementMatches == null) return query;
+
+            var anyMatch = Any(valuesSelector.Body, valueParam, elementMatches);
+            predicate = criterion.Modifier is CriterionModifier.NotEquals
+                or CriterionModifier.Excludes
+                or CriterionModifier.NotMatchesRegex
+                ? Expression.Not(anyMatch)
+                : anyMatch;
+        }
+
+        return query.Where(Expression.Lambda<Func<T, bool>>(predicate, entityParam));
+    }
+
     /// <summary>Apply a StringCriterion to a queryable using a string property selector.</summary>
     public static IQueryable<T> ApplyString<T>(IQueryable<T> query, StringCriterion? criterion, Expression<Func<T, string?>> selector)
     {

@@ -18,6 +18,52 @@ public sealed class DatabaseClient
     internal DatabaseClient(string connectionString)
         => _connectionString = connectionString;
 
+    public async Task<StringCollectionOperatorFixture> SeedStringCollectionOperatorFixtureAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var now = DateTime.UtcNow;
+        var folder = new Folder { Path = $"/api-tests/string-operators/{Guid.NewGuid():N}", ModTime = now };
+        var matchingAudio = new Audio
+        {
+            Title = "Matching collection audio",
+            Files = [new AudioFile { Basename = "match.flac", ParentFolder = folder, Format = "flac", AudioCodec = "flac", ModTime = now }],
+            Tracks = [new AudioTrack { OrderIndex = 1, Title = "Opening" }, new AudioTrack { OrderIndex = 2, Title = "Needle track" }],
+        };
+        var otherAudio = new Audio
+        {
+            Title = "Other collection audio",
+            Files = [new AudioFile { Basename = "other.mp3", ParentFolder = folder, Format = "mp3", AudioCodec = "mp3", ModTime = now }],
+        };
+        var matchingText = new TextDocument
+        {
+            Title = "Matching collection text",
+            Files = [new TextFile { Basename = "match.epub", ParentFolder = folder, Format = "epub", ModTime = now }],
+        };
+        var otherText = new TextDocument
+        {
+            Title = "Other collection text",
+            Files = [new TextFile { Basename = "other.pdf", ParentFolder = folder, Format = "pdf", ModTime = now }],
+        };
+        var aliasStudio = new Studio { Name = "Alias collection studio", Aliases = [new StudioAlias { Alias = "Needle alias" }] };
+        var otherStudio = new Studio { Name = "Alias collection studio control", Aliases = [new StudioAlias { Alias = "Other alias" }] };
+        var hostTypeGroup = new Group { Name = "Host type collection group", AllowedHostTypes = ["video", "gallery"] };
+        var otherHostTypeGroup = new Group { Name = "Host type collection group control", AllowedHostTypes = ["video"] };
+        var video = new Video { Title = "Segment collection host" };
+        db.AddRange(folder, matchingAudio, otherAudio, matchingText, otherText, aliasStudio, otherStudio, hostTypeGroup, otherHostTypeGroup, video);
+        await db.SaveChangesAsync(cancellationToken);
+        var matchingSegment = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 1, EndSec = 2, SourceKey = "user", Title = "Needle segment" };
+        var emptySegment = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 3, EndSec = 4, SourceKey = "user", Title = "" };
+        db.Segments.AddRange(matchingSegment, emptySegment);
+        await db.SaveChangesAsync(cancellationToken);
+        return new StringCollectionOperatorFixture(
+            matchingAudio.Id, otherAudio.Id, matchingText.Id, otherText.Id,
+            aliasStudio.Id, hostTypeGroup.Id, matchingSegment.Id, emptySegment.Id);
+    }
+
     public async Task<int> CreateOwnedFileAsync(
         string ownerKind,
         int? ownerId,
@@ -600,3 +646,13 @@ public sealed class DatabaseClient
     }
 
 }
+
+public sealed record StringCollectionOperatorFixture(
+    int MatchingAudioId,
+    int OtherAudioId,
+    int MatchingTextId,
+    int OtherTextId,
+    int AliasStudioId,
+    int HostTypeGroupId,
+    int MatchingSegmentId,
+    int EmptySegmentId);
