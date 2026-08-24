@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { jobs } from "../api/client";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import type { JobInfo } from "../api/types";
@@ -13,10 +13,45 @@ interface Props {
   onNavigate?: (r: any) => void;
 }
 
+export function isTerminalJob(job: JobInfo): boolean {
+  return job.status === "completed" || job.status === "failed" || job.status === "cancelled";
+}
+
+export function collectUnseenTerminalJobs(jobsToInspect: readonly JobInfo[], seen: Set<string>): JobInfo[] {
+  const unseen: JobInfo[] = [];
+  for (const job of jobsToInspect) {
+    if (!isTerminalJob(job) || seen.has(job.id)) continue;
+    seen.add(job.id);
+    unseen.push(job);
+  }
+  return unseen;
+}
+
+export function invalidateContentForTerminalJob(queryClient: QueryClient, job: JobInfo): boolean {
+  if (!isTerminalJob(job)) return false;
+  if (job.type.endsWith("-bulk-delete")) {
+    void queryClient.invalidateQueries();
+    return true;
+  }
+  if (job.status !== "completed") return false;
+
+  void queryClient.invalidateQueries({ queryKey: ["videos"] });
+  void queryClient.invalidateQueries({ queryKey: ["images"] });
+  void queryClient.invalidateQueries({ queryKey: ["galleries"] });
+  void queryClient.invalidateQueries({ queryKey: ["performers"] });
+  void queryClient.invalidateQueries({ queryKey: ["stats"] });
+  return true;
+}
+
+export function jobHistoryPollingInterval(drawerOpen: boolean): number {
+  return drawerOpen ? 3000 : 15000;
+}
+
 export function JobDrawer({ open, onClose }: Props) {
   const queryClient = useQueryClient();
   const [realtimeJobs, setRealtimeJobs] = useState<Map<string, JobInfo>>(new Map());
   const connectionRef = useRef<ReturnType<typeof HubConnectionBuilder.prototype.build> | null>(null);
+  const observedTerminalJobsRef = useRef(new Set<string>());
 
   const { data: activeJobs } = useQuery({
     queryKey: ["jobs-active"],
@@ -27,8 +62,16 @@ export function JobDrawer({ open, onClose }: Props) {
   const { data: jobHistory } = useQuery({
     queryKey: ["jobs-history"],
     queryFn: jobs.history,
-    enabled: open,
+    // The drawer stays mounted while closed. Keep a low-frequency fallback running so a terminal
+    // SignalR update missed during reconnect or browser suspension cannot leave deleted content cached.
+    refetchInterval: jobHistoryPollingInterval(open),
   });
+
+  const observeTerminalJob = useCallback((job: JobInfo) => {
+    for (const unseen of collectUnseenTerminalJobs([job], observedTerminalJobsRef.current)) {
+      invalidateContentForTerminalJob(queryClient, unseen);
+    }
+  }, [queryClient]);
 
   // SignalR real-time updates
   useEffect(() => {
@@ -47,14 +90,7 @@ export function JobDrawer({ open, onClose }: Props) {
       // Invalidate queries to stay in sync
       queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
       queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
-      // When a job completes, invalidate content queries
-      if (job.status === "completed") {
-        queryClient.invalidateQueries({ queryKey: ["videos"] });
-        queryClient.invalidateQueries({ queryKey: ["images"] });
-        queryClient.invalidateQueries({ queryKey: ["galleries"] });
-        queryClient.invalidateQueries({ queryKey: ["performers"] });
-        queryClient.invalidateQueries({ queryKey: ["stats"] });
-      }
+      observeTerminalJob(job);
     });
 
     connection.start().catch(() => {});
@@ -63,7 +99,15 @@ export function JobDrawer({ open, onClose }: Props) {
     return () => {
       connection.stop();
     };
-  }, [queryClient]);
+  }, [observeTerminalJob, queryClient]);
+
+  // Poll history as a fallback for terminal SignalR messages missed during a reconnect. Bulk jobs can
+  // commit some units before failing or being cancelled, so every terminal outcome invalidates content.
+  useEffect(() => {
+    for (const job of collectUnseenTerminalJobs(jobHistory ?? [], observedTerminalJobsRef.current)) {
+      invalidateContentForTerminalJob(queryClient, job);
+    }
+  }, [jobHistory, queryClient]);
 
   const handleCancel = useCallback(async (id: string) => {
     await jobs.cancel(id);
@@ -198,4 +242,3 @@ export function useJobCount() {
 
   return count;
 }
-
