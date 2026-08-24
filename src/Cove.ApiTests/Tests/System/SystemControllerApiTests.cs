@@ -171,7 +171,7 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
         }
         finally
         {
-            await owner.SetSystemLogLevelAsync(restorationLevel, TestContext.Current.CancellationToken);
+            await owner.SetSystemLogLevelAsync(restorationLevel, CancellationToken.None);
         }
     }
 

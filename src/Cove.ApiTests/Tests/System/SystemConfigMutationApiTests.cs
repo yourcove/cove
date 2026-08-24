@@ -66,13 +66,13 @@ public sealed class SystemConfigMutationApiTests(
         {
             try
             {
-                await AsUser().SaveSystemConfigAsync(original, TestContext.Current.CancellationToken);
-                AssertSafeFields(await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken), original);
+                await AsUser().SaveSystemConfigAsync(original, CancellationToken.None);
+                AssertSafeFields(await AsUser().GetSystemConfigAsync(CancellationToken.None), original);
             }
             finally
             {
                 if (configExisted)
-                    await File.WriteAllBytesAsync(configPath, priorBytes!, TestContext.Current.CancellationToken);
+                    await File.WriteAllBytesAsync(configPath, priorBytes!, CancellationToken.None);
                 else if (File.Exists(configPath))
                     File.Delete(configPath);
             }

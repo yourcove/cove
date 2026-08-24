@@ -69,7 +69,7 @@ public sealed class FileRevealApiTests(
         }
         finally
         {
-            await AsUser().DeleteEntityOverrideAsync(readDeny.Id, TestContext.Current.CancellationToken);
+            await AsUser().DeleteEntityOverrideAsync(readDeny.Id, CancellationToken.None);
         }
 
         var missingFileId = () => AsUser(ApiTestUsers.Eva).RevealFileInManagerAsync(int.MaxValue);

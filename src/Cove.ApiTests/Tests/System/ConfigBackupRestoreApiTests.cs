@@ -63,7 +63,7 @@ public sealed class ConfigBackupRestoreApiTests(
         finally
         {
             if (configExisted)
-                await File.WriteAllBytesAsync(configPath, priorConfig!, TestContext.Current.CancellationToken);
+                await File.WriteAllBytesAsync(configPath, priorConfig!, CancellationToken.None);
             else if (File.Exists(configPath))
                 File.Delete(configPath);
         }

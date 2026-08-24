@@ -162,7 +162,7 @@ public sealed class LegacyPluginsApiTests(
             var cleanupErrors = new List<Exception>();
             try
             {
-                await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
+                await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = true }), CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -171,7 +171,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
+                await owner.ReloadLegacyPluginsAsync(CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -180,7 +180,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                await owner.SetLegacyPluginConfigAsync(ExtensionId, originalConfigValues, TestContext.Current.CancellationToken);
+                await owner.SetLegacyPluginConfigAsync(ExtensionId, originalConfigValues, CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -189,7 +189,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId, TestContext.Current.CancellationToken), originalConfig);
+                AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId, CancellationToken.None), originalConfig);
             }
             catch (Exception exception)
             {
@@ -228,7 +228,7 @@ public sealed class LegacyPluginsApiTests(
             try
             {
                 await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                    new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
+                    new Dictionary<string, bool> { [ExtensionId] = true }), CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -237,7 +237,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
+                await owner.ReloadLegacyPluginsAsync(CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -274,10 +274,10 @@ public sealed class LegacyPluginsApiTests(
         }
         finally
         {
-            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "false", TestContext.Current.CancellationToken);
+            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "false", CancellationToken.None);
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
-            await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
+                new Dictionary<string, bool> { [ExtensionId] = true }), CancellationToken.None);
+            await owner.ReloadLegacyPluginsAsync(CancellationToken.None);
         }
     }
 
@@ -319,8 +319,8 @@ public sealed class LegacyPluginsApiTests(
                 {
                     [DependencyExtensionId] = true,
                     [ExtensionId] = true,
-                }), TestContext.Current.CancellationToken);
-            await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
+                }), CancellationToken.None);
+            await owner.ReloadLegacyPluginsAsync(CancellationToken.None);
         }
     }
 

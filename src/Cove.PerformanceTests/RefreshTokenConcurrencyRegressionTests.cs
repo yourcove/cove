@@ -118,10 +118,10 @@ public sealed class RefreshTokenConcurrencyRegressionTests(PostgresPerformanceFi
         }
         catch
         {
-            await blockerTransaction.RollbackAsync(cancellationToken);
-            await refreshTask.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            await blockerTransaction.RollbackAsync(CancellationToken.None);
+            await refreshTask.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
             if (replayTask is not null)
-                await replayTask.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+                await replayTask.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
             throw;
         }
 
