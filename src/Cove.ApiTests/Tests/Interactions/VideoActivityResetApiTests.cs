@@ -15,25 +15,25 @@ public sealed class VideoActivityResetApiTests(
     [CoversEndpoint("POST", "/api/videos/{id:int}/activity/reset")]
     public async Task GivenUserScopedPlayback_WhenVideoActivityIsReset_ThenLikesAndOtherActivityRemainExact()
     {
-        var primary = await AsUser().CreateVideoAsync($"Activity reset {Guid.NewGuid():N}");
-        var control = await AsUser().CreateVideoAsync($"Activity reset control {Guid.NewGuid():N}");
+        var primary = await AsUser().CreateVideoAsync($"Activity reset {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var control = await AsUser().CreateVideoAsync($"Activity reset control {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var viewerUsername = $"activity-reset-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "Activity reset viewer password 123!";
         await AsUser().CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
 
-        await AsUser(ApiTestUsers.Eva).RecordVideoPlaybackAsync(primary, Guid.NewGuid());
-        await AsUser(ApiTestUsers.Anthony).RecordVideoPlaybackAsync(primary, Guid.NewGuid());
-        await AsUser(ApiTestUsers.Eva).RecordVideoPlaybackAsync(control, Guid.NewGuid());
-        await viewerSession.Client.RecordVideoPlaybackAsync(primary, Guid.NewGuid());
-        await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(primary);
+        await AsUser(ApiTestUsers.Eva).RecordVideoPlaybackAsync(primary, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Anthony).RecordVideoPlaybackAsync(primary, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Eva).RecordVideoPlaybackAsync(control, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        await viewerSession.Client.RecordVideoPlaybackAsync(primary, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Eva).IncrementVideoLikeAsync(primary, TestContext.Current.CancellationToken);
 
-        var evaBefore = await AsUser(ApiTestUsers.Eva).GetVideoHistoryAsync(primary);
-        var anthonyBefore = await AsUser(ApiTestUsers.Anthony).GetVideoHistoryAsync(primary);
-        var viewerBefore = await viewerSession.Client.GetVideoHistoryAsync(primary);
+        var evaBefore = await AsUser(ApiTestUsers.Eva).GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken);
+        var anthonyBefore = await AsUser(ApiTestUsers.Anthony).GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken);
+        var viewerBefore = await viewerSession.Client.GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken);
         evaBefore.Sessions.Should().ContainSingle();
         anthonyBefore.Sessions.Should().ContainSingle();
         viewerBefore.Sessions.Should().ContainSingle();
@@ -41,16 +41,16 @@ public sealed class VideoActivityResetApiTests(
         await viewerSession.Client.Invoking(client => client.ResetVideoActivityAsync(primary))
             .Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await viewerSession.Client.GetVideoHistoryAsync(primary)).Sessions.Should().ContainSingle();
+        (await viewerSession.Client.GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken)).Sessions.Should().ContainSingle();
 
-        await AsUser(ApiTestUsers.Eva).ResetVideoActivityAsync(primary);
+        await AsUser(ApiTestUsers.Eva).ResetVideoActivityAsync(primary, TestContext.Current.CancellationToken);
 
-        var evaAfter = await AsUser(ApiTestUsers.Eva).GetVideoHistoryAsync(primary);
-        var anthonyAfter = await AsUser(ApiTestUsers.Anthony).GetVideoHistoryAsync(primary);
-        var viewerAfter = await viewerSession.Client.GetVideoHistoryAsync(primary);
-        var controlAfter = await AsUser(ApiTestUsers.Eva).GetVideoHistoryAsync(control);
-        var evaEngagement = await AsUser(ApiTestUsers.Eva).GetVideoEngagementAsync(primary);
-        var anthonyEngagement = await AsUser(ApiTestUsers.Anthony).GetVideoEngagementAsync(primary);
+        var evaAfter = await AsUser(ApiTestUsers.Eva).GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken);
+        var anthonyAfter = await AsUser(ApiTestUsers.Anthony).GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken);
+        var viewerAfter = await viewerSession.Client.GetVideoHistoryAsync(primary, TestContext.Current.CancellationToken);
+        var controlAfter = await AsUser(ApiTestUsers.Eva).GetVideoHistoryAsync(control, TestContext.Current.CancellationToken);
+        var evaEngagement = await AsUser(ApiTestUsers.Eva).GetVideoEngagementAsync(primary, TestContext.Current.CancellationToken);
+        var anthonyEngagement = await AsUser(ApiTestUsers.Anthony).GetVideoEngagementAsync(primary, TestContext.Current.CancellationToken);
 
         evaAfter.Sessions.Should().BeEmpty();
         evaAfter.TotalDistinctWatchedSec.Should().Be(0);
@@ -67,9 +67,7 @@ public sealed class VideoActivityResetApiTests(
         controlAfter.TotalDistinctWatchedSec.Should().Be(6);
 
         using var httpClient = AsUser(ApiTestUsers.Eva).CreateHttpClient();
-        using var missing = await httpClient.PostAsync(
-            "/api/videos/2147483647/activity/reset",
-            content: null);
+        using var missing = await httpClient.PostAsync("/api/videos/2147483647/activity/reset", content: null, cancellationToken: TestContext.Current.CancellationToken);
         missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

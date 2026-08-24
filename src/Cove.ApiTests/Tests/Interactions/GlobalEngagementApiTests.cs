@@ -21,34 +21,34 @@ public sealed class GlobalEngagementApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var primaryVideo = await owner.CreateVideoAsync($"Primary engagement video {suffix}");
-        var secondaryVideo = await owner.CreateVideoAsync($"Secondary engagement video {suffix}");
+        var primaryVideo = await owner.CreateVideoAsync($"Primary engagement video {suffix}", TestContext.Current.CancellationToken);
+        var secondaryVideo = await owner.CreateVideoAsync($"Secondary engagement video {suffix}", TestContext.Current.CancellationToken);
         var scopedRole = await owner.CreateRoleAsync(new CreateRoleRequest(
             $"Engagement reader {suffix}",
             "API-test role for entity-scoped engagement reads",
-            [Permissions.VideosRead]));
+            [Permissions.VideosRead]), TestContext.Current.CancellationToken);
 
         var primaryUsername = $"engagement-primary-{suffix}";
         var controlUsername = $"engagement-control-{suffix}";
         var noRoleUsername = $"engagement-no-role-{suffix}";
         const string password = "Global engagement 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(primaryUsername, password, Roles: [scopedRole.Name]));
-        await owner.CreateUserAsync(new CreateUserRequest(controlUsername, password, Roles: [BuiltinRoles.Member]));
-        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []));
-        using var primarySession = await owner.CreateAuthSessionAsync(primaryUsername, password);
-        using var controlSession = await owner.CreateAuthSessionAsync(controlUsername, password);
-        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password);
+        await owner.CreateUserAsync(new CreateUserRequest(primaryUsername, password, Roles: [scopedRole.Name]), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(controlUsername, password, Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []), TestContext.Current.CancellationToken);
+        using var primarySession = await owner.CreateAuthSessionAsync(primaryUsername, password, TestContext.Current.CancellationToken);
+        using var controlSession = await owner.CreateAuthSessionAsync(controlUsername, password, TestContext.Current.CancellationToken);
+        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password, TestContext.Current.CancellationToken);
         var primary = primarySession.Client;
         var control = controlSession.Client;
         var noRole = noRoleSession.Client;
 
-        _ = await primary.SetVideoFavoriteAsync(primaryVideo, isFavorite: true);
-        _ = await primary.SetVideoRatingAsync(primaryVideo, 81);
-        (await primary.IncrementVideoLikeAsync(primaryVideo)).Should().Be(1);
-        _ = await primary.SetVideoRatingAsync(secondaryVideo, 42);
-        _ = await control.SetVideoRatingAsync(primaryVideo, 17);
-        (await control.IncrementVideoLikeAsync(primaryVideo)).Should().Be(1);
-        (await control.IncrementVideoLikeAsync(primaryVideo)).Should().Be(2);
+        _ = await primary.SetVideoFavoriteAsync(primaryVideo, isFavorite: true, cancellationToken: TestContext.Current.CancellationToken);
+        _ = await primary.SetVideoRatingAsync(primaryVideo, 81, cancellationToken: TestContext.Current.CancellationToken);
+        (await primary.IncrementVideoLikeAsync(primaryVideo, TestContext.Current.CancellationToken)).Should().Be(1);
+        _ = await primary.SetVideoRatingAsync(secondaryVideo, 42, cancellationToken: TestContext.Current.CancellationToken);
+        _ = await control.SetVideoRatingAsync(primaryVideo, 17, cancellationToken: TestContext.Current.CancellationToken);
+        (await control.IncrementVideoLikeAsync(primaryVideo, TestContext.Current.CancellationToken)).Should().Be(1);
+        (await control.IncrementVideoLikeAsync(primaryVideo, TestContext.Current.CancellationToken)).Should().Be(2);
 
         var detailMeta = JsonSerializer.SerializeToElement(new { source = "detail" });
         var wallMeta = JsonSerializer.SerializeToElement(new { source = "wall" });
@@ -56,18 +56,18 @@ public sealed class GlobalEngagementApiTests(
             "video",
             primaryVideo.Id,
             "openDetail",
-            detailMeta));
+            detailMeta), TestContext.Current.CancellationToken);
         await primary.RecordEngagementInteractionAsync(new EngagementInteractionWriteDto(
             "video",
             secondaryVideo.Id,
             "pageVisit",
-            wallMeta));
+            wallMeta), TestContext.Current.CancellationToken);
         await control.RecordEngagementInteractionAsync(new EngagementInteractionWriteDto(
             "video",
             primaryVideo.Id,
-            "navigate"));
+            "navigate"), TestContext.Current.CancellationToken);
 
-        var primaryInteractions = await primary.GetEngagementInteractionsAsync();
+        var primaryInteractions = await primary.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken);
         primaryInteractions.Select(interaction => interaction.Kind).Should().Equal("pageVisit", "openDetail", "likeCount");
         primaryInteractions.Select(interaction => interaction.HostId).Should().Equal(secondaryVideo.Id, primaryVideo.Id, primaryVideo.Id);
         primaryInteractions.Select(interaction => interaction.Id).Should().Equal(primaryInteractions
@@ -78,35 +78,33 @@ public sealed class GlobalEngagementApiTests(
         primaryInteractions[1].Meta!.Value.GetProperty("source").GetString().Should().Be("detail");
         primaryInteractions[2].Meta.Should().BeNull();
 
-        var primaryVideoInteractions = await primary.GetEngagementInteractionsAsync("video", primaryVideo.Id);
+        var primaryVideoInteractions = await primary.GetEngagementInteractionsAsync("video", primaryVideo.Id, cancellationToken: TestContext.Current.CancellationToken);
         primaryVideoInteractions.Select(interaction => interaction.Id).Should().Equal(primaryInteractions[1].Id, primaryInteractions[2].Id);
-        (await primary.GetEngagementInteractionsAsync(limit: 1)).Should().ContainSingle().Which.Id.Should().Be(primaryInteractions[0].Id);
-        var controlInteractions = await control.GetEngagementInteractionsAsync();
+        (await primary.GetEngagementInteractionsAsync(limit: 1, cancellationToken: TestContext.Current.CancellationToken)).Should().ContainSingle().Which.Id.Should().Be(primaryInteractions[0].Id);
+        var controlInteractions = await control.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken);
         controlInteractions.Select(interaction => interaction.Kind).Should().Equal("navigate", "likeCount", "likeCount");
         controlInteractions.Should().OnlyContain(interaction => interaction.HostId == primaryVideo.Id);
-        (await noRole.GetEngagementInteractionsAsync()).Should().BeEmpty();
+        (await noRole.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Should().BeEmpty();
 
         var secondaryOverride = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             scopedRole.Id,
             EntityKinds.Video,
             secondaryVideo.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
-            "read"));
-        using var restrictedPrimarySession = await owner.CreateAuthSessionAsync(primaryUsername, password);
+            "read"), TestContext.Current.CancellationToken);
+        using var restrictedPrimarySession = await owner.CreateAuthSessionAsync(primaryUsername, password, TestContext.Current.CancellationToken);
         var missingId = int.MaxValue;
-        var batch = await restrictedPrimarySession.Client.GetEngagementBatchAsync(
-            AffinityHostType.Video,
-            [primaryVideo.Id, primaryVideo.Id, missingId, secondaryVideo.Id]);
+        var batch = await restrictedPrimarySession.Client.GetEngagementBatchAsync(AffinityHostType.Video, [primaryVideo.Id, primaryVideo.Id, missingId, secondaryVideo.Id], TestContext.Current.CancellationToken);
         batch.Select(item => item.HostId).Should().Equal(primaryVideo.Id, missingId, secondaryVideo.Id);
         AssertSnapshot(batch[0], isFavorite: true, rating: 81, likeCount: 1, pageVisitCount: 0);
         AssertSnapshot(batch[1], isFavorite: false, rating: null, likeCount: 0, pageVisitCount: 0);
         AssertSnapshot(batch[2], isFavorite: false, rating: null, likeCount: 0, pageVisitCount: 0);
-        var controlBatch = await control.GetEngagementBatchAsync(AffinityHostType.Video, [primaryVideo.Id, secondaryVideo.Id]);
+        var controlBatch = await control.GetEngagementBatchAsync(AffinityHostType.Video, [primaryVideo.Id, secondaryVideo.Id], TestContext.Current.CancellationToken);
         AssertSnapshot(controlBatch[0], isFavorite: false, rating: 17, likeCount: 2, pageVisitCount: 0);
         AssertSnapshot(controlBatch[1], isFavorite: false, rating: null, likeCount: 0, pageVisitCount: 0);
-        await owner.DeleteEntityOverrideAsync(secondaryOverride.Id);
-        using var restoredPrimarySession = await owner.CreateAuthSessionAsync(primaryUsername, password);
-        var restoredBatch = await restoredPrimarySession.Client.GetEngagementBatchAsync(AffinityHostType.Video, [secondaryVideo.Id]);
+        await owner.DeleteEntityOverrideAsync(secondaryOverride.Id, TestContext.Current.CancellationToken);
+        using var restoredPrimarySession = await owner.CreateAuthSessionAsync(primaryUsername, password, TestContext.Current.CancellationToken);
+        var restoredBatch = await restoredPrimarySession.Client.GetEngagementBatchAsync(AffinityHostType.Video, [secondaryVideo.Id], TestContext.Current.CancellationToken);
         AssertSnapshot(restoredBatch.Should().ContainSingle().Which, isFavorite: false, rating: 42, likeCount: 0, pageVisitCount: 1);
 
         var forbiddenBatch = () => noRole.GetEngagementBatchAsync(AffinityHostType.Video, [primaryVideo.Id]);
@@ -116,7 +114,7 @@ public sealed class GlobalEngagementApiTests(
             primaryVideo.Id,
             "openDetail"));
         await forbiddenInteraction.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await noRole.GetEngagementInteractionsAsync()).Should().BeEmpty();
+        (await noRole.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Should().BeEmpty();
 
         var missingInteraction = () => primary.RecordEngagementInteractionAsync(new EngagementInteractionWriteDto(
             "video",
@@ -130,7 +128,7 @@ public sealed class GlobalEngagementApiTests(
         await directLikeInteraction.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
         var invalidInteractionRead = () => primary.GetEngagementInteractionsAsync("unsupported", primaryVideo.Id);
         await invalidInteractionRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-        (await primary.GetEngagementInteractionsAsync()).Select(interaction => interaction.Id)
+        (await primary.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(interaction => interaction.Id)
             .Should().Equal(primaryInteractions.Select(interaction => interaction.Id));
     }
 
@@ -141,14 +139,14 @@ public sealed class GlobalEngagementApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var video = await owner.CreateVideoAsync($"Engagement reset video {suffix}");
+        var video = await owner.CreateVideoAsync($"Engagement reset video {suffix}", TestContext.Current.CancellationToken);
         var primaryUsername = $"engagement-reset-primary-{suffix}";
         var controlUsername = $"engagement-reset-control-{suffix}";
         const string password = "Engagement reset 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(primaryUsername, password, Roles: [BuiltinRoles.Member]));
-        await owner.CreateUserAsync(new CreateUserRequest(controlUsername, password, Roles: [BuiltinRoles.Member]));
-        using var primarySession = await owner.CreateAuthSessionAsync(primaryUsername, password);
-        using var controlSession = await owner.CreateAuthSessionAsync(controlUsername, password);
+        await owner.CreateUserAsync(new CreateUserRequest(primaryUsername, password, Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(controlUsername, password, Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
+        using var primarySession = await owner.CreateAuthSessionAsync(primaryUsername, password, TestContext.Current.CancellationToken);
+        using var controlSession = await owner.CreateAuthSessionAsync(controlUsername, password, TestContext.Current.CancellationToken);
         var primary = primarySession.Client;
         var control = controlSession.Client;
         var primaryPlaybackSession = Guid.NewGuid();
@@ -165,17 +163,17 @@ public sealed class GlobalEngagementApiTests(
                 MinDerivedLikeSessionSeconds: 0,
                 SessionIdleTimeoutSec: 10),
             Videos: null,
-            KeybindingOverrides: null));
+            KeybindingOverrides: null), TestContext.Current.CancellationToken);
         await SeedSignalsAsync(primary, video, primaryPlaybackSession, rating: 88, source: "primary");
         await SeedSignalsAsync(control, video, controlPlaybackSession, rating: 33, source: "control");
-        await Task.Delay(TimeSpan.FromSeconds(11));
+        await Task.Delay(TimeSpan.FromSeconds(11), TestContext.Current.CancellationToken);
         await primary.RecordEngagementInteractionAsync(new EngagementInteractionWriteDto(
             "video",
             video.Id,
             "pageVisit",
-            JsonSerializer.SerializeToElement(new { source = "session-rollover" })));
-        var primaryBefore = await primary.GetVideoEngagementAsync(video);
-        var controlBefore = await control.GetVideoEngagementAsync(video);
+            JsonSerializer.SerializeToElement(new { source = "session-rollover" })), TestContext.Current.CancellationToken);
+        var primaryBefore = await primary.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken);
+        var controlBefore = await control.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken);
         primaryBefore.IsFavorite.Should().BeTrue();
         primaryBefore.Rating.Should().Be(88);
         primaryBefore.LikeCount.Should().Be(1);
@@ -183,49 +181,49 @@ public sealed class GlobalEngagementApiTests(
         primaryBefore.ResumeTime.Should().Be(8);
         primaryBefore.PageVisitCount.Should().Be(2);
         primaryBefore.DerivedLikeCount.Should().Be(1);
-        (await primary.GetVideoHistoryAsync(video)).Sessions.Should().ContainSingle(session => session.SessionId == primaryPlaybackSession);
-        (await control.GetVideoHistoryAsync(video)).Sessions.Should().ContainSingle(session => session.SessionId == controlPlaybackSession);
-        (await primary.GetEngagementInteractionsAsync()).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "derivedLike", "pageVisit", "likeCount");
-        (await control.GetEngagementInteractionsAsync()).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "likeCount");
+        (await primary.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).Sessions.Should().ContainSingle(session => session.SessionId == primaryPlaybackSession);
+        (await control.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).Sessions.Should().ContainSingle(session => session.SessionId == controlPlaybackSession);
+        (await primary.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "derivedLike", "pageVisit", "likeCount");
+        (await control.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "likeCount");
 
-        (await primary.ResetAllEngagementActivityAsync()).Should().Be(1);
-        var afterReset = await primary.GetVideoEngagementAsync(video);
+        (await primary.ResetAllEngagementActivityAsync(TestContext.Current.CancellationToken)).Should().Be(1);
+        var afterReset = await primary.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken);
         AssertExplicitSignals(afterReset, rating: 88);
         AssertClearedActivity(afterReset);
         afterReset.PageVisitCount.Should().Be(2);
         afterReset.DerivedLikeCount.Should().Be(1);
-        (await primary.GetVideoHistoryAsync(video)).Sessions.Should().BeEmpty();
-        (await primary.GetEngagementInteractionsAsync()).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "derivedLike", "pageVisit", "likeCount");
-        (await primary.GetVideoBookmarkAsync(video)).Saved.Should().BeTrue();
-        AssertControlUnchanged(await control.GetVideoEngagementAsync(video), controlBefore);
-        (await control.GetVideoHistoryAsync(video)).Sessions.Should().ContainSingle(session => session.SessionId == controlPlaybackSession);
+        (await primary.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).Sessions.Should().BeEmpty();
+        (await primary.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "derivedLike", "pageVisit", "likeCount");
+        (await primary.GetVideoBookmarkAsync(video, TestContext.Current.CancellationToken)).Saved.Should().BeTrue();
+        AssertControlUnchanged(await control.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken), controlBefore);
+        (await control.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).Sessions.Should().ContainSingle(session => session.SessionId == controlPlaybackSession);
 
         var replacementPlaybackSession = Guid.NewGuid();
-        await primary.RecordVideoPlaybackAsync(video, replacementPlaybackSession);
+        await primary.RecordVideoPlaybackAsync(video, replacementPlaybackSession, TestContext.Current.CancellationToken);
         await primary.RecordEngagementInteractionAsync(new EngagementInteractionWriteDto(
             "video",
             video.Id,
             "openDetail",
-            JsonSerializer.SerializeToElement(new { source = "after-reset" })));
-        (await primary.GetEngagementInteractionsAsync()).Select(interaction => interaction.Kind).Should().Equal("openDetail", "pageVisit", "derivedLike", "pageVisit", "likeCount");
+            JsonSerializer.SerializeToElement(new { source = "after-reset" })), TestContext.Current.CancellationToken);
+        (await primary.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(interaction => interaction.Kind).Should().Equal("openDetail", "pageVisit", "derivedLike", "pageVisit", "likeCount");
 
-        (await primary.WipeAllEngagementAsync()).Should().Be(1);
-        var afterWipe = await primary.GetVideoEngagementAsync(video);
+        (await primary.WipeAllEngagementAsync(TestContext.Current.CancellationToken)).Should().Be(1);
+        var afterWipe = await primary.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken);
         AssertExplicitSignals(afterWipe, rating: 88);
         AssertClearedActivity(afterWipe);
         afterWipe.PageVisitCount.Should().Be(0);
         afterWipe.DerivedLikeCount.Should().Be(0);
-        (await primary.GetVideoHistoryAsync(video)).Sessions.Should().BeEmpty();
-        var afterWipeInteractions = await primary.GetEngagementInteractionsAsync();
+        (await primary.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).Sessions.Should().BeEmpty();
+        var afterWipeInteractions = await primary.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken);
         afterWipeInteractions.Should().ContainSingle();
         afterWipeInteractions.Single().Kind.Should().Be("likeCount");
         afterWipeInteractions.Single().HostId.Should().Be(video.Id);
-        (await primary.GetVideoBookmarkAsync(video)).Saved.Should().BeTrue();
+        (await primary.GetVideoBookmarkAsync(video, TestContext.Current.CancellationToken)).Saved.Should().BeTrue();
 
-        AssertControlUnchanged(await control.GetVideoEngagementAsync(video), controlBefore);
-        (await control.GetVideoHistoryAsync(video)).Sessions.Should().ContainSingle(session => session.SessionId == controlPlaybackSession);
-        (await control.GetEngagementInteractionsAsync()).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "likeCount");
-        (await control.GetVideoBookmarkAsync(video)).Saved.Should().BeTrue();
+        AssertControlUnchanged(await control.GetVideoEngagementAsync(video, TestContext.Current.CancellationToken), controlBefore);
+        (await control.GetVideoHistoryAsync(video, TestContext.Current.CancellationToken)).Sessions.Should().ContainSingle(session => session.SessionId == controlPlaybackSession);
+        (await control.GetEngagementInteractionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(interaction => interaction.Kind).Should().Equal("pageVisit", "likeCount");
+        (await control.GetVideoBookmarkAsync(video, TestContext.Current.CancellationToken)).Saved.Should().BeTrue();
     }
 
     private static async Task SeedSignalsAsync(CoveClient client, VideoDto video, Guid sessionId, int rating, string source)
