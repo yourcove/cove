@@ -5,6 +5,7 @@ using System.Text.Json;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,9 +16,11 @@ using Pgvector;
 namespace Cove.Data.Migrations
 {
     [DbContext(typeof(CoveContext))]
-    partial class CoveContextModelSnapshot : ModelSnapshot
+    [Migration("20260824154058_AddDurableDeletionOutbox")]
+    partial class AddDurableDeletionOutbox
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -424,58 +427,6 @@ namespace Cove.Data.Migrations
                     b.HasIndex("ActorUserId", "OccurredAt");
 
                     b.ToTable("audit_events", (string)null);
-                });
-
-            modelBuilder.Entity("Cove.Core.Entities.Auth.Dashboard", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("NormalizedName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.Property<JsonDocument>("WidgetsJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId")
-                        .IsUnique()
-                        .HasFilter("\"IsDefault\" = TRUE");
-
-                    b.HasIndex("UserId", "NormalizedName")
-                        .IsUnique();
-
-                    b.ToTable("dashboards", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Auth.ExternalIdentityLink", b =>
@@ -2597,21 +2548,6 @@ namespace Cove.Data.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<long?>("ExpectedCreationTimeUtcTicks")
-                        .HasColumnType("bigint");
-
-                    b.Property<bool>("ExpectedExists")
-                        .HasColumnType("boolean");
-
-                    b.Property<long?>("ExpectedLastWriteTimeUtcTicks")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("ExpectedLength")
-                        .HasColumnType("bigint");
-
-                    b.Property<bool>("IdentityCaptured")
-                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("LastAttemptAt")
                         .HasColumnType("timestamp with time zone");
@@ -4899,17 +4835,6 @@ namespace Cove.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Cove.Core.Entities.Auth.Dashboard", b =>
-                {
-                    b.HasOne("Cove.Core.Entities.Auth.User", "User")
-                        .WithMany("Dashboards")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Cove.Core.Entities.Auth.ExternalIdentityLink", b =>
                 {
                     b.HasOne("Cove.Core.Entities.Auth.User", "User")
@@ -5897,8 +5822,6 @@ namespace Cove.Data.Migrations
             modelBuilder.Entity("Cove.Core.Entities.Auth.User", b =>
                 {
                     b.Navigation("ApiTokens");
-
-                    b.Navigation("Dashboards");
 
                     b.Navigation("ExternalIdentities");
 
