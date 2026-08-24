@@ -16,10 +16,10 @@ public sealed class GalleryCreationApiTests(
     public async Task GivenGallery_WhenMemberReadsGalleries_ThenGalleryIsReturned()
     {
         // Arrange
-        var gallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle("Wardrobe Vault Stills").Build());
+        var gallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle("Wardrobe Vault Stills").Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var galleries = await AsUser(ApiTestUsers.Eva).GetGalleriesAsync();
+        var galleries = await AsUser(ApiTestUsers.Eva).GetGalleriesAsync(TestContext.Current.CancellationToken);
 
         // Assert
         galleries.Should().ContainSingle(candidate => candidate.Id == gallery.Id);
@@ -30,17 +30,17 @@ public sealed class GalleryCreationApiTests(
     {
         // Arrange
         const string customFieldKey = "contact_sheet";
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
-        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build());
-        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.PeriodCostume.Name);
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build(), TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.PeriodCostume.Name, TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title, TestContext.Current.CancellationToken);
         await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = customFieldKey,
             Label = "Contact sheet",
             Type = "text",
             EntityTypes = ["gallery"]
-        });
+        }, TestContext.Current.CancellationToken);
         var request = new GalleryBuilder()
             .WithTitle("Wardrobe Vault Stills")
             .WithCode("BDP-GALLERY-007")
@@ -58,11 +58,11 @@ public sealed class GalleryCreationApiTests(
             .Build();
 
         // Act
-        var gallery = await AsUser().CreateGalleryAsync(request);
+        var gallery = await AsUser().CreateGalleryAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
-        var galleryAfter = await AsUser().GetGalleryByIdAsync(gallery.Id);
-        var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Gallery, gallery.Id);
+        var galleryAfter = await AsUser().GetGalleryByIdAsync(gallery.Id, TestContext.Current.CancellationToken);
+        var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Gallery, gallery.Id, TestContext.Current.CancellationToken);
         galleryAfter.Title.Should().Be(request.Title);
         galleryAfter.Code.Should().Be(request.Code);
         galleryAfter.Date.Should().Be(request.Date);

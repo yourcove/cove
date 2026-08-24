@@ -15,15 +15,15 @@ public sealed class VideoPerformerRelationshipApiTests(
     {
         // Arrange
         var performer = await CreatePerformerAsync(TestCatalog.Performers.CherryPoppins.Name);
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title, TestContext.Current.CancellationToken);
 
         // Act & Assert
         await AssertRelationshipAsync(video, performer, isLinked: false);
-        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id } });
+        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id } }, TestContext.Current.CancellationToken);
         await AssertRelationshipAsync(video, performer, isLinked: true);
-        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = Array.Empty<int>() });
+        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = Array.Empty<int>() }, TestContext.Current.CancellationToken);
         await AssertRelationshipAsync(video, performer, isLinked: false);
-        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id } });
+        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id } }, TestContext.Current.CancellationToken);
         await AssertRelationshipAsync(video, performer, isLinked: true);
     }
 
@@ -38,7 +38,7 @@ public sealed class VideoPerformerRelationshipApiTests(
             .Build();
 
         // Act
-        var video = await AsUser().CreateVideoAsync(request);
+        var video = await AsUser().CreateVideoAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         await AssertRelationshipAsync(video, performer, isLinked: true);
@@ -49,14 +49,13 @@ public sealed class VideoPerformerRelationshipApiTests(
     {
         // Arrange
         var performer = await CreatePerformerAsync(TestCatalog.Performers.VelvetThunder.Name);
-        var video = await AsUser().CreateVideoAsync(
-            new VideoBuilder()
+        var video = await AsUser().CreateVideoAsync(new VideoBuilder()
                 .WithTitle(TestCatalog.Movies.TheFastAndTheFlirtatious.Title)
                 .WithPerformers([performer])
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id, performer.Id } });
+        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id, performer.Id } }, TestContext.Current.CancellationToken);
 
         // Assert
         await AssertRelationshipAsync(video, performer, isLinked: true);
@@ -70,7 +69,7 @@ public sealed class VideoPerformerRelationshipApiTests(
     {
         // Arrange
         var performer = await CreatePerformerAsync(TestCatalog.Performers.BeaHaven.Name);
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title, TestContext.Current.CancellationToken);
 
         // Act
         await AsUser().BulkUpdateVideosAsync(new BulkVideoUpdateDto
@@ -78,7 +77,7 @@ public sealed class VideoPerformerRelationshipApiTests(
             Ids = [video.Id],
             PerformerIds = [performer.Id, performer.Id],
             PerformerMode = mode,
-        });
+        }, TestContext.Current.CancellationToken);
 
         // Assert
         await AssertRelationshipAsync(video, performer, isLinked: true);
@@ -91,14 +90,13 @@ public sealed class VideoPerformerRelationshipApiTests(
         var removed = await CreatePerformerAsync(TestCatalog.Performers.CherryPoppins.Name);
         var retained = await CreatePerformerAsync(TestCatalog.Performers.VelvetThunder.Name);
         var added = await CreatePerformerAsync(TestCatalog.Performers.BeaHaven.Name);
-        var video = await AsUser().CreateVideoAsync(
-            new VideoBuilder()
+        var video = await AsUser().CreateVideoAsync(new VideoBuilder()
                 .WithTitle(TestCatalog.Movies.RaidersOfTheLostCorset.Title)
                 .WithPerformers([removed, retained])
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { retained.Id, added.Id } });
+        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { retained.Id, added.Id } }, TestContext.Current.CancellationToken);
 
         // Assert
         await AssertRelationshipAsync(video, removed, isLinked: false);
@@ -113,19 +111,19 @@ public sealed class VideoPerformerRelationshipApiTests(
         const int performerCount = 30;
         var performers = await Task.WhenAll(Enumerable.Range(1, performerCount)
             .Select(index => CreatePerformerAsync($"API test performer {index} {Guid.NewGuid():N}")));
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title, TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = performers.Select(performer => performer.Id).ToArray() });
+        await AsUser().UpdateVideoAsync(video.Id, new { performerIds = performers.Select(performer => performer.Id).ToArray() }, TestContext.Current.CancellationToken);
 
         // Assert
-        var videoAfter = await AsUser().GetVideoByIdAsync(video.Id);
+        var videoAfter = await AsUser().GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
         videoAfter.Performers.Select(performer => performer.Id).Should().BeEquivalentTo(performers.Select(performer => performer.Id));
         foreach (var performer in performers)
         {
-            var videosForPerformer = await AsUser().GetVideosByPerformerAsync(performer.Id);
+            var videosForPerformer = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
             videosForPerformer.Count(candidate => candidate.Id == video.Id).Should().Be(1);
-            (await AsUser().GetPerformerByIdAsync(performer.Id)).VideoCount.Should().Be(1);
+            (await AsUser().GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken)).VideoCount.Should().Be(1);
         }
     }
 
@@ -140,12 +138,12 @@ public sealed class VideoPerformerRelationshipApiTests(
 
         // Act
         foreach (var video in videos)
-            await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id } });
+            await AsUser().UpdateVideoAsync(video.Id, new { performerIds = new[] { performer.Id } }, TestContext.Current.CancellationToken);
 
         // Assert
-        var videosForPerformer = await AsUser().GetVideosByPerformerAsync(performer.Id);
+        var videosForPerformer = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
         videosForPerformer.Select(video => video.Id).Should().BeEquivalentTo(videos.Select(video => video.Id));
-        (await AsUser().GetPerformerByIdAsync(performer.Id)).VideoCount.Should().Be(videoCount);
+        (await AsUser().GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken)).VideoCount.Should().Be(videoCount);
     }
 
     private Task<PerformerDto> CreatePerformerAsync(string name)

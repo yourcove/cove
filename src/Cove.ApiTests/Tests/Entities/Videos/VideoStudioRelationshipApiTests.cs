@@ -15,16 +15,16 @@ public sealed class VideoStudioRelationshipApiTests(
     public async Task GivenUnlinkedStudio_WhenLinkedRemovedAndRelinked_ThenVideoVisibilityTracksRelationship()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studios.BarelyDressedPictures.Name);
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studios.BarelyDressedPictures.Name, TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title, TestContext.Current.CancellationToken);
 
         // Act & Assert
         await AssertRelationshipAsync(video, studio, isLinked: false);
-        await AsUser().UpdateVideoAsync(video.Id, new { studioId = studio.Id });
+        await AsUser().UpdateVideoAsync(video.Id, new { studioId = studio.Id }, TestContext.Current.CancellationToken);
         await AssertRelationshipAsync(video, studio, isLinked: true);
-        await AsUser().UpdateVideoAsync(video.Id, new { clearFields = new[] { "studioId" } });
+        await AsUser().UpdateVideoAsync(video.Id, new { clearFields = new[] { "studioId" } }, TestContext.Current.CancellationToken);
         await AssertRelationshipAsync(video, studio, isLinked: false);
-        await AsUser().UpdateVideoAsync(video.Id, new { studioId = studio.Id });
+        await AsUser().UpdateVideoAsync(video.Id, new { studioId = studio.Id }, TestContext.Current.CancellationToken);
         await AssertRelationshipAsync(video, studio, isLinked: true);
     }
 
@@ -32,16 +32,15 @@ public sealed class VideoStudioRelationshipApiTests(
     public async Task GivenLinkedStudio_WhenDifferentStudioIsAssigned_ThenExistingRelationshipIsReplaced()
     {
         // Arrange
-        var removed = await AsUser().CreateStudioAsync(TestCatalog.Studios.BarelyDressedPictures.Name);
-        var added = await AsUser().CreateStudioAsync(TestCatalog.Studios.SecondTakeFeatures.Name);
-        var video = await AsUser().CreateVideoAsync(
-            new VideoBuilder()
+        var removed = await AsUser().CreateStudioAsync(TestCatalog.Studios.BarelyDressedPictures.Name, TestContext.Current.CancellationToken);
+        var added = await AsUser().CreateStudioAsync(TestCatalog.Studios.SecondTakeFeatures.Name, TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync(new VideoBuilder()
                 .WithTitle(TestCatalog.Movies.TheFastAndTheFlirtatious.Title)
                 .WithStudio(removed)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().UpdateVideoAsync(video.Id, new { studioId = added.Id });
+        await AsUser().UpdateVideoAsync(video.Id, new { studioId = added.Id }, TestContext.Current.CancellationToken);
 
         // Assert
         await AssertRelationshipAsync(video, removed, isLinked: false);
@@ -53,18 +52,18 @@ public sealed class VideoStudioRelationshipApiTests(
     {
         // Arrange
         const int videoCount = 20;
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studios.ElectricMarquee.Name);
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studios.ElectricMarquee.Name, TestContext.Current.CancellationToken);
         var videos = await Task.WhenAll(Enumerable.Range(1, videoCount)
             .Select(index => AsUser().CreateVideoAsync($"API test video {index} {Guid.NewGuid():N}")));
 
         // Act
         foreach (var video in videos)
-            await AsUser().UpdateVideoAsync(video.Id, new { studioId = studio.Id });
+            await AsUser().UpdateVideoAsync(video.Id, new { studioId = studio.Id }, TestContext.Current.CancellationToken);
 
         // Assert
-        var videosForStudio = await AsUser().GetVideosByStudioAsync(studio.Id);
+        var videosForStudio = await AsUser().GetVideosByStudioAsync(studio.Id, TestContext.Current.CancellationToken);
         videosForStudio.Select(video => video.Id).Should().BeEquivalentTo(videos.Select(video => video.Id));
-        (await AsUser().GetStudioByIdAsync(studio.Id)).VideoCount.Should().Be(videoCount);
+        (await AsUser().GetStudioByIdAsync(studio.Id, TestContext.Current.CancellationToken)).VideoCount.Should().Be(videoCount);
     }
 
     private async Task AssertRelationshipAsync(VideoDto video, StudioDto studio, bool isLinked)

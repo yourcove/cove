@@ -28,9 +28,9 @@ public sealed class AudioEngagementLifecycleApiTests(
         var eva = AsUser(ApiTestUsers.Eva);
         var anthony = AsUser(ApiTestUsers.Anthony);
         var suffix = Guid.NewGuid().ToString("N");
-        var primary = await owner.CreateAudioAsync($"Primary like audio {suffix}");
-        var secondary = await owner.CreateAudioAsync($"Secondary like audio {suffix}");
-        var control = await owner.CreateAudioAsync($"Control like audio {suffix}");
+        var primary = await owner.CreateAudioAsync($"Primary like audio {suffix}", TestContext.Current.CancellationToken);
+        var secondary = await owner.CreateAudioAsync($"Secondary like audio {suffix}", TestContext.Current.CancellationToken);
+        var control = await owner.CreateAudioAsync($"Control like audio {suffix}", TestContext.Current.CancellationToken);
         var now = DateTime.UtcNow;
         var historicalAt = new DateTime(
             now.Year,
@@ -41,25 +41,25 @@ public sealed class AudioEngagementLifecycleApiTests(
             now.Second,
             DateTimeKind.Utc).AddDays(-1);
 
-        (await eva.AddHistoricalAudioLikeAsync(primary, historicalAt)).Should().Be(1);
-        var historical = await eva.GetAudioHistoryAsync(primary);
-        (await anthony.IncrementAudioLikeAsync(primary)).Should().Be(1);
+        (await eva.AddHistoricalAudioLikeAsync(primary, historicalAt, TestContext.Current.CancellationToken)).Should().Be(1);
+        var historical = await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
+        (await anthony.IncrementAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(1);
 
         var viewerUsername = $"audio-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "Audio viewer password 123!";
         var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Member]));
+            Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
         var viewerHistoricalAt = historicalAt.AddHours(1);
         var viewerSessionId = Guid.NewGuid();
-        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword))
+        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
         {
-            (await memberSession.Client.AddHistoricalAudioLikeAsync(primary, viewerHistoricalAt)).Should().Be(1);
-            await memberSession.Client.RecordAudioPlaybackAsync(primary, viewerSessionId, startSec: 1, endSec: 3);
+            (await memberSession.Client.AddHistoricalAudioLikeAsync(primary, viewerHistoricalAt, TestContext.Current.CancellationToken)).Should().Be(1);
+            await memberSession.Client.RecordAudioPlaybackAsync(primary, viewerSessionId, startSec: 1, endSec: 3, cancellationToken: TestContext.Current.CancellationToken);
         }
-        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer]);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword);
+        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer], TestContext.Current.CancellationToken);
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
         var viewer = viewerSession.Client;
         var forbiddenViewerWrites = new Func<Task>[]
         {
@@ -73,7 +73,7 @@ public sealed class AudioEngagementLifecycleApiTests(
         foreach (var forbiddenViewerWrite in forbiddenViewerWrites)
         {
             await forbiddenViewerWrite.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            var viewerAfterForbiddenWrite = await viewer.GetAudioHistoryAsync(primary);
+            var viewerAfterForbiddenWrite = await viewer.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
             viewerAfterForbiddenWrite.LikeHistory.Should().ContainSingle();
             DateTime.Parse(
                     viewerAfterForbiddenWrite.LikeHistory.Single(),
@@ -81,27 +81,27 @@ public sealed class AudioEngagementLifecycleApiTests(
                     DateTimeStyles.RoundtripKind)
                 .Should().Be(viewerHistoricalAt);
             viewerAfterForbiddenWrite.Sessions.Should().ContainSingle(session => session.SessionId == viewerSessionId);
-            var viewerEngagement = await viewer.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id);
+            var viewerEngagement = await viewer.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id, TestContext.Current.CancellationToken);
             viewerEngagement.LikeCount.Should().Be(1);
             viewerEngagement.PlayDuration.Should().Be(2);
         }
-        (await eva.GetAudioHistoryAsync(primary)).LikeHistory.Should().ContainSingle();
-        (await anthony.GetAudioHistoryAsync(primary)).LikeHistory.Should().ContainSingle();
-        (await owner.GetAudioHistoryAsync(primary)).LikeHistory.Should().BeEmpty();
+        (await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
+        (await anthony.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
+        (await owner.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
 
-        await eva.DeleteHistoricalAudioLikeAsync(primary, historicalAt);
-        (await eva.GetAudioHistoryAsync(primary)).LikeHistory.Should().BeEmpty();
-        (await eva.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id)).LikeCount.Should().Be(0);
-        (await anthony.GetAudioHistoryAsync(primary)).LikeHistory.Should().ContainSingle();
+        await eva.DeleteHistoricalAudioLikeAsync(primary, historicalAt, TestContext.Current.CancellationToken);
+        (await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
+        (await eva.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id, TestContext.Current.CancellationToken)).LikeCount.Should().Be(0);
+        (await anthony.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
         var futureHistoricalLike = () => eva.AddHistoricalAudioLikeAsync(primary, DateTime.UtcNow.AddDays(1));
         await futureHistoricalLike.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-        (await eva.GetAudioHistoryAsync(primary)).LikeHistory.Should().BeEmpty();
+        (await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().BeEmpty();
 
-        (await eva.IncrementAudioLikeAsync(primary)).Should().Be(1);
-        (await eva.IncrementAudioLikeAsync(primary)).Should().Be(2);
-        (await eva.IncrementAudioLikeAsync(secondary)).Should().Be(1);
-        (await anthony.IncrementAudioLikeAsync(secondary)).Should().Be(1);
-        (await anthony.IncrementAudioLikeAsync(secondary)).Should().Be(2);
+        (await eva.IncrementAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(1);
+        (await eva.IncrementAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(2);
+        (await eva.IncrementAudioLikeAsync(secondary, TestContext.Current.CancellationToken)).Should().Be(1);
+        (await anthony.IncrementAudioLikeAsync(secondary, TestContext.Current.CancellationToken)).Should().Be(1);
+        (await anthony.IncrementAudioLikeAsync(secondary, TestContext.Current.CancellationToken)).Should().Be(2);
         var sortedByLikes = await eva.FindAudiosAsync(new FilteredQueryRequest<AudioFilter>
         {
             Ids = [primary.Id, secondary.Id, control.Id],
@@ -112,24 +112,24 @@ public sealed class AudioEngagementLifecycleApiTests(
                 Sort = "like_counter",
                 Direction = SortDirection.Desc,
             },
-        });
+        }, TestContext.Current.CancellationToken);
         sortedByLikes.Items.Select(audio => audio.Id).Should().Equal(primary.Id, secondary.Id, control.Id);
-        var anthonySortedByLikes = await anthony.FindAudiosAsync(SortRequest([primary.Id, secondary.Id, control.Id], "like_counter"));
+        var anthonySortedByLikes = await anthony.FindAudiosAsync(SortRequest([primary.Id, secondary.Id, control.Id], "like_counter"), TestContext.Current.CancellationToken);
         anthonySortedByLikes.Items.Select(audio => audio.Id).Should().Equal(secondary.Id, primary.Id, control.Id);
 
-        (await eva.DecrementAudioLikeAsync(primary)).Should().Be(1);
-        (await eva.GetAudioHistoryAsync(primary)).LikeHistory.Should().ContainSingle();
-        (await eva.ResetAudioLikeAsync(primary)).Should().Be(0);
+        (await eva.DecrementAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(1);
+        (await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken)).LikeHistory.Should().ContainSingle();
+        (await eva.ResetAudioLikeAsync(primary, TestContext.Current.CancellationToken)).Should().Be(0);
 
-        var evaHistory = await eva.GetAudioHistoryAsync(primary);
-        var anthonyHistory = await anthony.GetAudioHistoryAsync(primary);
-        var ownerHistory = await owner.GetAudioHistoryAsync(primary);
+        var evaHistory = await eva.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
+        var anthonyHistory = await anthony.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
+        var ownerHistory = await owner.GetAudioHistoryAsync(primary, TestContext.Current.CancellationToken);
         evaHistory.LikeHistory.Should().BeEmpty();
         anthonyHistory.LikeHistory.Should().ContainSingle();
         ownerHistory.LikeHistory.Should().BeEmpty();
-        (await eva.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id)).LikeCount.Should().Be(0);
-        (await anthony.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id)).LikeCount.Should().Be(1);
-        (await owner.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id)).LikeCount.Should().Be(0);
+        (await eva.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id, TestContext.Current.CancellationToken)).LikeCount.Should().Be(0);
+        (await anthony.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id, TestContext.Current.CancellationToken)).LikeCount.Should().Be(1);
+        (await owner.GetEntityEngagementAsync(AffinityHostType.Audio, primary.Id, TestContext.Current.CancellationToken)).LikeCount.Should().Be(0);
 
         historical.LikeHistory.Should().ContainSingle();
         DateTime.Parse(
@@ -139,9 +139,9 @@ public sealed class AudioEngagementLifecycleApiTests(
             .Should().Be(historicalAt);
 
         using var client = owner.CreateHttpClient();
-        using var missingHistory = await client.GetAsync("/api/audios/2147483647/history");
+        using var missingHistory = await client.GetAsync("/api/audios/2147483647/history", TestContext.Current.CancellationToken);
         missingHistory.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var missingLike = await client.PostAsync("/api/audios/2147483647/like", content: null);
+        using var missingLike = await client.PostAsync("/api/audios/2147483647/like", content: null, cancellationToken: TestContext.Current.CancellationToken);
         missingLike.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -153,39 +153,39 @@ public sealed class AudioEngagementLifecycleApiTests(
         var eva = AsUser(ApiTestUsers.Eva);
         var anthony = AsUser(ApiTestUsers.Anthony);
         var suffix = Guid.NewGuid().ToString("N");
-        var longest = await owner.CreateAudioAsync($"Longest played audio {suffix}");
-        var recent = await owner.CreateAudioAsync($"Recent played audio {suffix}");
-        var control = await owner.CreateAudioAsync($"Unplayed audio {suffix}");
+        var longest = await owner.CreateAudioAsync($"Longest played audio {suffix}", TestContext.Current.CancellationToken);
+        var recent = await owner.CreateAudioAsync($"Recent played audio {suffix}", TestContext.Current.CancellationToken);
+        var control = await owner.CreateAudioAsync($"Unplayed audio {suffix}", TestContext.Current.CancellationToken);
 
-        await eva.RecordAudioPlaybackAsync(longest, Guid.NewGuid(), startSec: 1, endSec: 8);
-        await eva.RecordAudioPlaybackAsync(recent, Guid.NewGuid(), startSec: 1, endSec: 4);
-        await anthony.RecordAudioPlaybackAsync(recent, Guid.NewGuid(), startSec: 1, endSec: 9);
-        await anthony.RecordAudioPlaybackAsync(longest, Guid.NewGuid(), startSec: 2, endSec: 6);
-        (await eva.IncrementAudioLikeAsync(longest)).Should().Be(1);
+        await eva.RecordAudioPlaybackAsync(longest, Guid.NewGuid(), startSec: 1, endSec: 8, cancellationToken: TestContext.Current.CancellationToken);
+        await eva.RecordAudioPlaybackAsync(recent, Guid.NewGuid(), startSec: 1, endSec: 4, cancellationToken: TestContext.Current.CancellationToken);
+        await anthony.RecordAudioPlaybackAsync(recent, Guid.NewGuid(), startSec: 1, endSec: 9, cancellationToken: TestContext.Current.CancellationToken);
+        await anthony.RecordAudioPlaybackAsync(longest, Guid.NewGuid(), startSec: 2, endSec: 6, cancellationToken: TestContext.Current.CancellationToken);
+        (await eva.IncrementAudioLikeAsync(longest, TestContext.Current.CancellationToken)).Should().Be(1);
 
-        var byDuration = await eva.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "play_duration"));
+        var byDuration = await eva.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "play_duration"), TestContext.Current.CancellationToken);
         byDuration.Items.Select(audio => audio.Id).Should().Equal(longest.Id, recent.Id, control.Id);
-        var anthonyByDuration = await anthony.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "play_duration"));
+        var anthonyByDuration = await anthony.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "play_duration"), TestContext.Current.CancellationToken);
         anthonyByDuration.Items.Select(audio => audio.Id).Should().Equal(recent.Id, longest.Id, control.Id);
-        var byLastPlayed = await eva.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "last_played_at"));
+        var byLastPlayed = await eva.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "last_played_at"), TestContext.Current.CancellationToken);
         byLastPlayed.Items.Take(2).Select(audio => audio.Id).Should().Equal(recent.Id, longest.Id);
-        var anthonyByLastPlayed = await anthony.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "last_played_at"));
+        var anthonyByLastPlayed = await anthony.FindAudiosAsync(SortRequest([longest.Id, recent.Id, control.Id], "last_played_at"), TestContext.Current.CancellationToken);
         anthonyByLastPlayed.Items.Take(2).Select(audio => audio.Id).Should().Equal(longest.Id, recent.Id);
 
-        var evaBefore = await eva.GetAudioHistoryAsync(longest);
-        var anthonyBefore = await anthony.GetAudioHistoryAsync(longest);
+        var evaBefore = await eva.GetAudioHistoryAsync(longest, TestContext.Current.CancellationToken);
+        var anthonyBefore = await anthony.GetAudioHistoryAsync(longest, TestContext.Current.CancellationToken);
         evaBefore.Sessions.Should().ContainSingle();
         evaBefore.TotalDistinctWatchedSec.Should().Be(7);
         anthonyBefore.Sessions.Should().ContainSingle();
         anthonyBefore.TotalDistinctWatchedSec.Should().Be(4);
 
-        await eva.ResetAudioActivityAsync(longest);
+        await eva.ResetAudioActivityAsync(longest, TestContext.Current.CancellationToken);
 
-        var evaAfter = await eva.GetAudioHistoryAsync(longest);
-        var anthonyAfter = await anthony.GetAudioHistoryAsync(longest);
-        var recentAfter = await eva.GetAudioHistoryAsync(recent);
-        var evaEngagement = await eva.GetEntityEngagementAsync(AffinityHostType.Audio, longest.Id);
-        var anthonyEngagement = await anthony.GetEntityEngagementAsync(AffinityHostType.Audio, longest.Id);
+        var evaAfter = await eva.GetAudioHistoryAsync(longest, TestContext.Current.CancellationToken);
+        var anthonyAfter = await anthony.GetAudioHistoryAsync(longest, TestContext.Current.CancellationToken);
+        var recentAfter = await eva.GetAudioHistoryAsync(recent, TestContext.Current.CancellationToken);
+        var evaEngagement = await eva.GetEntityEngagementAsync(AffinityHostType.Audio, longest.Id, TestContext.Current.CancellationToken);
+        var anthonyEngagement = await anthony.GetEntityEngagementAsync(AffinityHostType.Audio, longest.Id, TestContext.Current.CancellationToken);
         evaAfter.Sessions.Should().BeEmpty();
         evaAfter.TotalDistinctWatchedSec.Should().Be(0);
         evaAfter.LikeHistory.Should().ContainSingle("activity reset must preserve explicit likes");

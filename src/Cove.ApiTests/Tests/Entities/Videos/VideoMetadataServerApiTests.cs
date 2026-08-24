@@ -31,21 +31,17 @@ public sealed class VideoMetadataServerApiTests(
                 .WithFingerprint("MD5", matchingMd5, durationSeconds)
                 .Build());
         var metadataTag = metadataScene.Scene.Tags.Should().ContainSingle().Which;
-        var video = await owner.CreateVideoAsync($"Local metadata video {suffix}");
-        await AsDbUser().AttachVideoFileAsync(
-            video.Id,
-            duration: durationSeconds,
-            size: 1_024,
-            fingerprints: new Dictionary<string, string> { ["md5"] = matchingMd5 });
-        var beforeWrites = await owner.GetVideoByIdAsync(video.Id);
+        var video = await owner.CreateVideoAsync($"Local metadata video {suffix}", TestContext.Current.CancellationToken);
+        await AsDbUser().AttachVideoFileAsync(video.Id, duration: durationSeconds, size: 1_024, fingerprints: new Dictionary<string, string> { ["md5"] = matchingMd5 }, cancellationToken: TestContext.Current.CancellationToken);
+        var beforeWrites = await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
 
         var noRoleUsername = $"video-metadata-no-role-{suffix}";
         var viewerUsername = $"video-metadata-viewer-{suffix}";
         const string password = "Video metadata permissions 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []));
-        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]));
-        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password);
+        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password, TestContext.Current.CancellationToken);
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password, TestContext.Current.CancellationToken);
         var noRole = noRoleSession.Client;
         var viewer = viewerSession.Client;
 
@@ -54,11 +50,9 @@ public sealed class VideoMetadataServerApiTests(
         await forbiddenSearch.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         await forbiddenFindByIds.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
 
-        var searchMatches = await viewer.SearchVideoMetadataServiceAsync(video, metadataScene.Scene.Title, metadataScene);
+        var searchMatches = await viewer.SearchVideoMetadataServiceAsync(video, metadataScene.Scene.Title, metadataScene, TestContext.Current.CancellationToken);
         AssertVideoMatch(searchMatches.Should().ContainSingle().Which, metadataScene, metadataTag.Name, matchingMd5, expectFingerprintMatch: true);
-        var foundByIds = await viewer.FindVideoMetadataServiceByIdsAsync(
-            metadataScene,
-            [metadataScene.Id, $"missing-{suffix}", metadataScene.Id]);
+        var foundByIds = await viewer.FindVideoMetadataServiceByIdsAsync(metadataScene, [metadataScene.Id, $"missing-{suffix}", metadataScene.Id], TestContext.Current.CancellationToken);
         AssertVideoMatch(foundByIds.Should().ContainSingle().Which, metadataScene, metadataTag.Name, matchingMd5, expectFingerprintMatch: false);
 
         var forbiddenWrites = new Func<Task>[]
@@ -72,14 +66,14 @@ public sealed class VideoMetadataServerApiTests(
 
         AsMetadataService().FingerprintSubmissions.Should().BeEmpty();
         AsMetadataService().SceneDraftSubmissions.Should().BeEmpty();
-        AssertUnchangedBeforeImport(await owner.GetVideoByIdAsync(video.Id), beforeWrites);
+        AssertUnchangedBeforeImport(await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken), beforeWrites);
 
-        var imported = await owner.ImportVideoFromMetadataServiceAsync(video, metadataScene);
+        var imported = await owner.ImportVideoFromMetadataServiceAsync(video, metadataScene, TestContext.Current.CancellationToken);
         AssertImportedVideo(imported, metadataScene, metadataTag.Name);
-        var afterImport = await owner.GetVideoByIdAsync(video.Id);
+        var afterImport = await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
         AssertImportedVideo(afterImport, metadataScene, metadataTag.Name);
 
-        await owner.SubmitVideoFingerprintsToMetadataServiceAsync(video, metadataScene);
+        await owner.SubmitVideoFingerprintsToMetadataServiceAsync(video, metadataScene, TestContext.Current.CancellationToken);
         var fingerprintSubmission = AsMetadataService().FingerprintSubmissions.Should().ContainSingle().Which.Input;
         fingerprintSubmission.GetProperty("scene_id").GetString().Should().Be(metadataScene.Id);
         var submittedFingerprint = fingerprintSubmission.GetProperty("fingerprint");
@@ -87,7 +81,7 @@ public sealed class VideoMetadataServerApiTests(
         submittedFingerprint.GetProperty("algorithm").GetString().Should().Be("MD5");
         submittedFingerprint.GetProperty("duration").GetInt32().Should().Be(durationSeconds);
 
-        var draftId = await owner.SubmitVideoDraftToMetadataServiceAsync(video, metadataScene);
+        var draftId = await owner.SubmitVideoDraftToMetadataServiceAsync(video, metadataScene, TestContext.Current.CancellationToken);
         draftId.Should().Be("draft-1");
         var draftSubmission = AsMetadataService().SceneDraftSubmissions.Should().ContainSingle().Which;
         draftSubmission.DraftId.Should().Be(draftId);

@@ -23,8 +23,8 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var video = await owner.CreateVideoAsync($"Detection host {suffix}");
-        var otherVideo = await owner.CreateVideoAsync($"Other detection host {suffix}");
+        var video = await owner.CreateVideoAsync($"Detection host {suffix}", TestContext.Current.CancellationToken);
+        var otherVideo = await owner.CreateVideoAsync($"Other detection host {suffix}", TestContext.Current.CancellationToken);
         var initial = new DetectionCreateDto(
             ObservedAtSec: 1.25,
             FrameWidth: 320,
@@ -41,9 +41,9 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             GroupKey: "initial-group",
             SourceKey: " \t ",
             SourceRunId: "run-1");
-        var created = await owner.CreateVideoDetectionAsync(video, initial);
+        var created = await owner.CreateVideoDetectionAsync(video, initial, TestContext.Current.CancellationToken);
         AssertDetection(created, video.Id, ToUpdate(initial, "user"));
-        AssertDetectionEquivalent(created, await member.GetVideoDetectionAsync(video, created.Id));
+        AssertDetectionEquivalent(created, await member.GetVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken));
 
         var replacement = new DetectionUpdateDto(
             ObservedAtSec: 3.5,
@@ -61,16 +61,16 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             GroupKey: "updated-group",
             SourceKey: "updated-source",
             SourceRunId: "run-2");
-        var updated = await member.UpdateVideoDetectionAsync(video, created.Id, replacement);
+        var updated = await member.UpdateVideoDetectionAsync(video, created.Id, replacement, TestContext.Current.CancellationToken);
         AssertDetection(updated, video.Id, replacement);
         PostgreSqlTimestamp(updated.CreatedAt).Should().Be(PostgreSqlTimestamp(created.CreatedAt));
-        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id));
-        AssertDetectionEquivalent(updated, (await owner.GetVideoDetectionsAsync(video)).Should().ContainSingle().Which);
+        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken));
+        AssertDetectionEquivalent(updated, (await owner.GetVideoDetectionsAsync(video, TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
 
         await AssertNotFoundAsync(() => member.GetVideoDetectionAsync(otherVideo, created.Id));
         await AssertNotFoundAsync(() => member.UpdateVideoDetectionAsync(otherVideo, created.Id, replacement));
         await AssertNotFoundAsync(() => member.DeleteVideoDetectionAsync(otherVideo, created.Id));
-        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id));
+        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken));
 
         var invalidCreates = new[]
         {
@@ -83,7 +83,7 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
         {
             var create = () => member.CreateVideoDetectionAsync(video, invalidCreate);
             await create.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-            AssertDetectionEquivalent(updated, (await owner.GetVideoDetectionsAsync(video)).Should().ContainSingle().Which);
+            AssertDetectionEquivalent(updated, (await owner.GetVideoDetectionsAsync(video, TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
         }
 
         var invalidUpdates = new[]
@@ -97,29 +97,29 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
         {
             var update = () => member.UpdateVideoDetectionAsync(video, created.Id, invalidUpdate);
             await update.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-            AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id));
+            AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken));
         }
 
         var noRoleUsername = $"detection-no-role-{suffix}";
         var viewerUsername = $"detection-viewer-{suffix}";
         const string password = "Detection permissions 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []));
-        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]));
-        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password);
+        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password, TestContext.Current.CancellationToken);
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password, TestContext.Current.CancellationToken);
         var noRoleRead = () => noRoleSession.Client.GetVideoDetectionAsync(video, created.Id);
         await noRoleRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertDetectionEquivalent(updated, await viewerSession.Client.GetVideoDetectionAsync(video, created.Id));
+        AssertDetectionEquivalent(updated, await viewerSession.Client.GetVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken));
         var viewerUpdate = () => viewerSession.Client.UpdateVideoDetectionAsync(video, created.Id, replacement with { Class = "forbidden" });
         await viewerUpdate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id));
+        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken));
         var viewerDelete = () => viewerSession.Client.DeleteVideoDetectionAsync(video, created.Id);
         await viewerDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id));
+        AssertDetectionEquivalent(updated, await owner.GetVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken));
 
-        await member.DeleteVideoDetectionAsync(video, created.Id);
+        await member.DeleteVideoDetectionAsync(video, created.Id, TestContext.Current.CancellationToken);
         await AssertNotFoundAsync(() => owner.GetVideoDetectionAsync(video, created.Id));
-        (await owner.GetVideoDetectionsAsync(video)).Should().BeEmpty();
+        (await owner.GetVideoDetectionsAsync(video, TestContext.Current.CancellationToken)).Should().BeEmpty();
     }
 
     [Fact]
@@ -130,23 +130,20 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var tagGroup = await owner.CreateTagGroupAsync(new TagGroupCreateDto($"Application group {suffix}", Color: "#2563eb"));
-        var tag = await owner.CreateTagAsync(
-            new TagBuilder()
+        var tagGroup = await owner.CreateTagGroupAsync(new TagGroupCreateDto($"Application group {suffix}", Color: "#2563eb"), TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync(new TagBuilder()
                 .WithName($"Derived application tag {suffix}")
                 .WithAlias($"Application alias {suffix}")
                 .WithDescription("Tag derived from host-level applications.")
                 .WithColor("#f97316")
                 .WithTagGroup(tagGroup)
                 .WithMinimumOccurrence(10, 20)
-                .Build());
-        var otherTag = await owner.CreateTagAsync($"Other application tag {suffix}");
-        var video = await owner.CreateVideoAsync($"Application host {suffix}");
-        var controlVideo = await owner.CreateVideoAsync($"Application control host {suffix}");
-        var detection = await owner.CreateVideoDetectionAsync(video, "application-context");
-        var segment = await owner.CreateVideoSegmentAsync(
-            video,
-            new SegmentCreateDto(
+                .Build(), TestContext.Current.CancellationToken);
+        var otherTag = await owner.CreateTagAsync($"Other application tag {suffix}", TestContext.Current.CancellationToken);
+        var video = await owner.CreateVideoAsync($"Application host {suffix}", TestContext.Current.CancellationToken);
+        var controlVideo = await owner.CreateVideoAsync($"Application control host {suffix}", TestContext.Current.CancellationToken);
+        var detection = await owner.CreateVideoDetectionAsync(video, "application-context", TestContext.Current.CancellationToken);
+        var segment = await owner.CreateVideoSegmentAsync(video, new SegmentCreateDto(
                 StartSec: 4,
                 EndSec: 9,
                 TagId: tag.Id,
@@ -157,7 +154,7 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
                 SourceRunId: "segment-run",
                 Confidence: 0.8f,
                 Title: "Preserved timeline segment",
-                ColorHint: null));
+                ColorHint: null), TestContext.Current.CancellationToken);
 
         var hostRequest = new TagApplicationCreateDto(
             HostType: "ViDeO",
@@ -171,7 +168,7 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             Confidence: 0.91f,
             TotalDurationSec: 12,
             HostDurationSec: 40);
-        var created = await owner.CreateTagApplicationAsync(hostRequest);
+        var created = await owner.CreateTagApplicationAsync(hostRequest, TestContext.Current.CancellationToken);
         AssertTagApplication(created, video.Id, tag, tagGroup, "scraper:local", "run-1", "model-1", 0.91f, 12, 40, null, null);
 
         var upserted = await owner.CreateTagApplicationAsync(hostRequest with
@@ -182,7 +179,7 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             Confidence = 0.73f,
             TotalDurationSec = null,
             HostDurationSec = 50,
-        });
+        }, TestContext.Current.CancellationToken);
         upserted.Id.Should().Be(created.Id);
         PostgreSqlTimestamp(upserted.AppliedAt).Should().Be(PostgreSqlTimestamp(created.AppliedAt));
         AssertTagApplication(upserted, video.Id, tag, tagGroup, "scraper:local", "run-1", "model-1", 0.73f, 12, 50, null, null);
@@ -195,7 +192,7 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             Confidence = null,
             TotalDurationSec = 1,
             HostDurationSec = 50,
-        });
+        }, TestContext.Current.CancellationToken);
         AssertTagApplication(secondary, video.Id, tag, tagGroup, "metadata:default", null, null, null, 1, 50, null, null);
         var contextual = await owner.CreateTagApplicationAsync(hostRequest with
         {
@@ -207,7 +204,7 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             Confidence = 0.88f,
             TotalDurationSec = 3,
             HostDurationSec = 50,
-        });
+        }, TestContext.Current.CancellationToken);
         AssertTagApplication(contextual, video.Id, tag, tagGroup, "context-source", "context-run", "context-model", 0.88f, 3, 50, "detection", detection.Id);
         var otherTagApplication = await owner.CreateTagApplicationAsync(hostRequest with
         {
@@ -218,7 +215,7 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             Confidence = null,
             TotalDurationSec = null,
             HostDurationSec = null,
-        });
+        }, TestContext.Current.CancellationToken);
         var control = await owner.CreateTagApplicationAsync(hostRequest with
         {
             HostId = controlVideo.Id,
@@ -228,12 +225,12 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             Confidence = null,
             TotalDurationSec = 12,
             HostDurationSec = 40,
-        });
+        }, TestContext.Current.CancellationToken);
 
-        var hostBeforePermissions = await owner.GetTagApplicationsAsync("video", video.Id);
+        var hostBeforePermissions = await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken);
         hostBeforePermissions.Select(application => application.Id).Should().BeEquivalentTo(
             [created.Id, secondary.Id, contextual.Id, otherTagApplication.Id]);
-        var videoBeforeDelete = await owner.GetVideoByIdAsync(video.Id);
+        var videoBeforeDelete = await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
         videoBeforeDelete.Tags.Select(item => item.Id).Should().Contain([tag.Id, otherTag.Id]);
         videoBeforeDelete.ContextTagApplications.Should().ContainSingle(application => application.Id == contextual.Id);
 
@@ -245,54 +242,54 @@ public sealed class VideoDetectionAndTagApplicationApiTests(
             SourceKey = "invalid-context",
         });
         await invalidContext.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-        (await owner.GetTagApplicationsAsync("video", controlVideo.Id)).Select(application => application.Id).Should().Equal(control.Id);
+        (await owner.GetTagApplicationsAsync("video", controlVideo.Id, cancellationToken: TestContext.Current.CancellationToken)).Select(application => application.Id).Should().Equal(control.Id);
         var invalidHostDelete = () => owner.DeleteHostTagApplicationsAsync("invalid-host", video.Id, tag.Id);
         await invalidHostDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-        (await owner.GetTagApplicationsAsync("video", video.Id)).Should().BeEquivalentTo(hostBeforePermissions);
+        (await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(hostBeforePermissions);
 
         var noRoleUsername = $"tag-application-no-role-{suffix}";
         var viewerUsername = $"tag-application-viewer-{suffix}";
         const string password = "Tag application permissions 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []));
-        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]));
-        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password);
+        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password, TestContext.Current.CancellationToken);
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password, TestContext.Current.CancellationToken);
         var noRoleRead = () => noRoleSession.Client.GetTagApplicationsAsync("video", video.Id);
         await noRoleRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await viewerSession.Client.GetTagApplicationsAsync("video", video.Id)).Should().BeEquivalentTo(hostBeforePermissions);
+        (await viewerSession.Client.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(hostBeforePermissions);
         var forbiddenCreate = () => viewerSession.Client.CreateTagApplicationAsync(hostRequest with { SourceKey = "forbidden" });
         await forbiddenCreate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetTagApplicationsAsync("video", video.Id)).Should().BeEquivalentTo(hostBeforePermissions);
+        (await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(hostBeforePermissions);
         var forbiddenIdDelete = () => viewerSession.Client.DeleteTagApplicationAsync(contextual.Id);
         await forbiddenIdDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetTagApplicationsAsync("video", video.Id)).Should().BeEquivalentTo(hostBeforePermissions);
+        (await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(hostBeforePermissions);
         var forbiddenHostDelete = () => viewerSession.Client.DeleteHostTagApplicationsAsync("video", video.Id, tag.Id);
         await forbiddenHostDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetTagApplicationsAsync("video", video.Id)).Should().BeEquivalentTo(hostBeforePermissions);
+        (await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(hostBeforePermissions);
 
-        await owner.DeleteHostTagApplicationsAsync("VIDEO", video.Id, tag.Id);
-        var afterHostDelete = await owner.GetTagApplicationsAsync("video", video.Id);
+        await owner.DeleteHostTagApplicationsAsync("VIDEO", video.Id, tag.Id, TestContext.Current.CancellationToken);
+        var afterHostDelete = await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken);
         afterHostDelete.Should().ContainSingle(application => application.Id == contextual.Id);
         afterHostDelete.Should().ContainSingle(application => application.Id == otherTagApplication.Id);
         afterHostDelete.Should().NotContain(application => application.Id == created.Id || application.Id == secondary.Id);
-        (await owner.GetTagApplicationsAsync("video", controlVideo.Id)).Should().ContainSingle(application => application.Id == control.Id);
-        AssertDetectionEquivalent(detection, await owner.GetVideoDetectionAsync(video, detection.Id));
-        (await owner.GetVideoSegmentsAsync(video)).Should().ContainSingle(item => item.Id == segment.Id);
-        var videoAfterHostDelete = await owner.GetVideoByIdAsync(video.Id);
+        (await owner.GetTagApplicationsAsync("video", controlVideo.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().ContainSingle(application => application.Id == control.Id);
+        AssertDetectionEquivalent(detection, await owner.GetVideoDetectionAsync(video, detection.Id, TestContext.Current.CancellationToken));
+        (await owner.GetVideoSegmentsAsync(video, TestContext.Current.CancellationToken)).Should().ContainSingle(item => item.Id == segment.Id);
+        var videoAfterHostDelete = await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
         videoAfterHostDelete.Tags.Select(item => item.Id).Should().Contain(otherTag.Id).And.NotContain(tag.Id);
         videoAfterHostDelete.ContextTagApplications.Should().ContainSingle(application => application.Id == contextual.Id);
 
         var repeatedHostDelete = () => owner.DeleteHostTagApplicationsAsync("video", video.Id, tag.Id);
         await repeatedHostDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
-        (await owner.GetTagApplicationsAsync("video", video.Id)).Should().BeEquivalentTo(afterHostDelete);
+        (await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(afterHostDelete);
 
-        await owner.DeleteTagApplicationAsync(contextual.Id);
+        await owner.DeleteTagApplicationAsync(contextual.Id, TestContext.Current.CancellationToken);
         var repeatedIdDelete = () => owner.DeleteTagApplicationAsync(contextual.Id);
         await repeatedIdDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
-        var finalHostApplications = await owner.GetTagApplicationsAsync("video", video.Id);
+        var finalHostApplications = await owner.GetTagApplicationsAsync("video", video.Id, cancellationToken: TestContext.Current.CancellationToken);
         finalHostApplications.Should().ContainSingle(application => application.Id == otherTagApplication.Id);
-        (await owner.GetVideoByIdAsync(video.Id)).ContextTagApplications.Should().BeEmpty();
-        (await owner.GetTagApplicationsAsync("video", controlVideo.Id)).Should().ContainSingle(application => application.Id == control.Id);
+        (await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken)).ContextTagApplications.Should().BeEmpty();
+        (await owner.GetTagApplicationsAsync("video", controlVideo.Id, cancellationToken: TestContext.Current.CancellationToken)).Should().ContainSingle(application => application.Id == control.Id);
     }
 
     private static DetectionUpdateDto ToUpdate(DetectionCreateDto detection, string sourceKey)
