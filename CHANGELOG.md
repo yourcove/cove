@@ -10,9 +10,18 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-08-24
+
+Stronger access boundaries, safer metadata workflows, and more reliable face and media operations.
+
 - Tag, performer, and studio merges now share documented transfer rules for Cove-owned relationships, metadata, JSON references, engagement, security, artwork, and extension safeguards. Foreign keys in extension-owned tables block source deletion, uninspectable locations fail closed, and opaque non-foreign-key data remains the extension's responsibility.
 - Metadata-server, scraper, Stash, and Cove metadata-import paths now use the enforced performer and studio identity rules. Normalized duplicate Stash identities collapse deterministically without losing mapped relationships, Cove metadata JSON restores run transactionally, and non-unique performer aliases are never treated as identity keys.
 - Tag metadata refreshes preserve the local canonical name and skip newly supplied aliases when those remote claims belong to another tag, saving the remaining metadata and reporting the omitted claims as warnings instead of failing the entire refresh.
+- Scoped accounts now consistently respect content visibility across streams, group items, bulk edits, file operations, library-wide jobs, administrative transfers and maintenance, derived discovery, and telemetry. Sensitive configuration and observability data is redacted, access-artifact ownership is enforced, API token scopes are preserved, and unsafe AI data selectors are rejected.
+- Face workflows add occurrence splitting and batch actions across images and videos, preserve face evidence through reversible merges, and restore permitted similarity results and completed AI-run review for members.
+- Video segment updates preserve tags, while video merges retain relationships, hierarchy, spans, and child videos and reject unsafe ancestry. Persisted sub-videos inherit playable media correctly, compilation clips honor API bounds, and targeted rescans refresh replaced video metadata and image dimensions.
+- Audio and text cards now align with video cards and contribute to tag and studio usage counts. Multi-value filter summaries preserve their spacing, and audio and text updates return their persisted URLs.
+- Legacy plugin lifecycle transitions, performer scraper collections, UI configuration updates, display-rule tags, metadata imports, failed downloads, and database maintenance are more resilient and deterministic.
 
 ## [1.3.0] - 2026-08-19
 

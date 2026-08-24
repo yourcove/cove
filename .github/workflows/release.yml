@@ -408,7 +408,7 @@ jobs:
 
             ## Downloads
 
-            Standalone Cove and Cove CLI executables for Windows, Linux, and macOS are attached below.
+            Standalone executables for Windows, Linux, and macOS are attached below.
 
             ${{ needs.check-version.outputs.is_stable != 'true' && '> **Pre-release:** These container tags are isolated and do not update the stable or nightly aliases.' || '' }}
 
