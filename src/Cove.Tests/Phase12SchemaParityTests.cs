@@ -57,7 +57,7 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using var context = CreateContext(environment.Port, databaseName);
-            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId);
+            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId, TestContext.Current.CancellationToken);
             var firstTagId = await InsertTagAsync(environment.Port, databaseName, " \u00a0Alpha\u00a0 ");
             var secondTagId = await InsertTagAsync(environment.Port, databaseName, "Gamma");
             var aliasId = await InsertAliasAsync(environment.Port, databaseName, firstTagId, "\u2003Beta\u2003");
@@ -73,20 +73,20 @@ public sealed class Phase12SchemaParityTests
             var studioId = await InsertStudioAsync(environment.Port, databaseName, " Studio ");
 
             var enforcement = CreateNameRuleEnforcement(context);
-            var preparation = await enforcement.PreflightAsync();
-            await using (await enforcement.StageAsync(preparation))
-                await context.Database.MigrateAsync();
+            var preparation = await enforcement.PreflightAsync(TestContext.Current.CancellationToken);
+            await using (await enforcement.StageAsync(preparation, TestContext.Current.CancellationToken))
+                await context.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             context.ChangeTracker.Clear();
-            var firstTag = await context.Tags.IgnoreQueryFilters().SingleAsync(tag => tag.Id == firstTagId);
-            var alias = await context.Set<TagAlias>().IgnoreQueryFilters().SingleAsync(value => value.Id == aliasId);
-            var longAlias = await context.Set<TagAlias>().IgnoreQueryFilters().SingleAsync(value => value.Id == longAliasId);
-            var performer = await context.Performers.IgnoreQueryFilters().SingleAsync(value => value.Id == performerId);
+            var firstTag = await context.Tags.IgnoreQueryFilters().SingleAsync(tag => tag.Id == firstTagId, cancellationToken: TestContext.Current.CancellationToken);
+            var alias = await context.Set<TagAlias>().IgnoreQueryFilters().SingleAsync(value => value.Id == aliasId, cancellationToken: TestContext.Current.CancellationToken);
+            var longAlias = await context.Set<TagAlias>().IgnoreQueryFilters().SingleAsync(value => value.Id == longAliasId, cancellationToken: TestContext.Current.CancellationToken);
+            var performer = await context.Performers.IgnoreQueryFilters().SingleAsync(value => value.Id == performerId, cancellationToken: TestContext.Current.CancellationToken);
             var blankDisambiguationPerformer = await context.Performers.IgnoreQueryFilters()
-                .SingleAsync(value => value.Id == blankDisambiguationPerformerId);
+                .SingleAsync(value => value.Id == blankDisambiguationPerformerId, cancellationToken: TestContext.Current.CancellationToken);
             var longDisambiguationPerformer = await context.Performers.IgnoreQueryFilters()
-                .SingleAsync(value => value.Id == longDisambiguationPerformerId);
-            var studio = await context.Studios.IgnoreQueryFilters().SingleAsync(value => value.Id == studioId);
+                .SingleAsync(value => value.Id == longDisambiguationPerformerId, cancellationToken: TestContext.Current.CancellationToken);
+            var studio = await context.Studios.IgnoreQueryFilters().SingleAsync(value => value.Id == studioId, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal("Alpha", firstTag.Name);
             Assert.Equal("alpha", firstTag.NamespaceKey);
             Assert.Equal("Beta", alias.Alias);
@@ -129,9 +129,9 @@ public sealed class Phase12SchemaParityTests
                 EntityNameRules.StudioIdentityKey("STUDIO")));
             Assert.Equal(PostgresErrorCodes.ExclusionViolation, studioException.SqlState);
             Assert.Equal("UQ_studios_name", studioException.ConstraintName);
-            Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+            Assert.Empty(await context.Database.GetPendingMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken));
 
-            await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE tags CASCADE");
+            await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE tags CASCADE", cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(0, await CountTagNameClaimsAsync(environment.Port, databaseName));
         }
         finally
@@ -154,13 +154,13 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using var context = CreateContext(environment.Port, databaseName);
-            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId);
+            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId, TestContext.Current.CancellationToken);
             await InsertTagAsync(environment.Port, databaseName, " Partial fixture ");
             await InsertTagAsync(environment.Port, databaseName, "partial fixture");
 
             var enforcement = CreateNameRuleEnforcement(context);
             var exception = await Assert.ThrowsAsync<NameRuleUpgradeBlockedException>(
-                () => enforcement.PreflightAsync());
+                () => enforcement.PreflightAsync(TestContext.Current.CancellationToken));
 
             Assert.Equal(1, exception.UnresolvedGroupCount);
             Assert.Equal(2, exception.UnresolvedClaimCount);
@@ -171,7 +171,7 @@ public sealed class Phase12SchemaParityTests
             Assert.Contains("Settings → Operations → Name Conflicts", exception.Message, StringComparison.Ordinal);
             Assert.DoesNotContain("Partial fixture", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "tags", "NamespaceKey"));
-            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync());
+            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -193,16 +193,16 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using var context = CreateContext(environment.Port, databaseName);
-            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId);
+            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId, TestContext.Current.CancellationToken);
             await InsertStudioAsync(environment.Port, databaseName, "Ready but unstaged studio");
 
-            var exception = await Assert.ThrowsAsync<PostgresException>(() => context.Database.MigrateAsync());
+            var exception = await Assert.ThrowsAsync<PostgresException>(() => context.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken));
 
             Assert.True(NameRuleEnforcementService.IsGuardFailure(exception));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "tags", "NamespaceKey"));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "performers", "IdentityKey"));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "studios", "NameKey"));
-            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync());
+            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -224,7 +224,7 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using (var setup = CreateContext(environment.Port, databaseName))
-                await setup.Database.MigrateAsync();
+                await setup.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             var barrier = new AsyncTwoPartyBarrier();
             await using var first = CreateContext(
@@ -237,8 +237,10 @@ public sealed class Phase12SchemaParityTests
                 saveChangesInterceptor: new FirstSaveBarrierInterceptor(barrier));
 
             var results = await Task.WhenAll(
-                new TagRepository(first).FindOrCreateByNamesAsync(["Concurrent namespace fixture"]),
-                new TagRepository(second).FindOrCreateByNamesAsync(["concurrent namespace fixture"]));
+                new TagRepository(first).FindOrCreateByNamesAsync(
+                    ["Concurrent namespace fixture"], TestContext.Current.CancellationToken),
+                new TagRepository(second).FindOrCreateByNamesAsync(
+                    ["concurrent namespace fixture"], TestContext.Current.CancellationToken));
 
             var firstResult = Assert.Single(results[0]).Value;
             var secondResult = Assert.Single(results[1]).Value;
@@ -248,7 +250,7 @@ public sealed class Phase12SchemaParityTests
             var persisted = await verify.Tags
                 .IgnoreQueryFilters()
                 .Where(tag => tag.NamespaceKey == "concurrent namespace fixture")
-                .ToListAsync();
+                .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(firstResult.Id, Assert.Single(persisted).Id);
         }
         finally
@@ -279,25 +281,25 @@ public sealed class Phase12SchemaParityTests
         {
             await using (var setup = CreateContext(environment.Port, databaseName))
             {
-                await setup.Database.MigrateAsync();
-                await setup.Database.ExecuteSqlRawAsync("CREATE TABLE optimize_probe (id integer PRIMARY KEY, value text NOT NULL) WITH (autovacuum_enabled = false)");
-                await setup.Database.ExecuteSqlRawAsync("INSERT INTO optimize_probe SELECT value, value::text FROM generate_series(1, 100) value");
+                await setup.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
+                await setup.Database.ExecuteSqlRawAsync("CREATE TABLE optimize_probe (id integer PRIMARY KEY, value text NOT NULL) WITH (autovacuum_enabled = false)", cancellationToken: TestContext.Current.CancellationToken);
+                await setup.Database.ExecuteSqlRawAsync("INSERT INTO optimize_probe SELECT value, value::text FROM generate_series(1, 100) value", cancellationToken: TestContext.Current.CancellationToken);
             }
 
             await using (var ownerConnection = new NpgsqlConnection(BuildConnectionString(environment.Port, databaseName)))
             {
-                await ownerConnection.OpenAsync();
+                await ownerConnection.OpenAsync(TestContext.Current.CancellationToken);
                 await using var alterOwner = ownerConnection.CreateCommand();
                 alterOwner.CommandText = $"ALTER DATABASE {QuoteIdentifier(databaseName)} OWNER TO {QuoteIdentifier(roleName)}";
-                await alterOwner.ExecuteNonQueryAsync();
+                await alterOwner.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             }
 
             await using var connection = new NpgsqlConnection(BuildConnectionString(environment.Port, databaseName));
-            await connection.OpenAsync();
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
             await using (var setRole = connection.CreateCommand())
             {
                 setRole.CommandText = $"SET ROLE {QuoteIdentifier(roleName)}";
-                await setRole.ExecuteNonQueryAsync();
+                await setRole.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             }
 
             var notices = new List<PostgresNotice>();
@@ -306,10 +308,10 @@ public sealed class Phase12SchemaParityTests
             await using (var before = connection.CreateCommand())
             {
                 before.CommandText = "SELECT last_analyze IS NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = 'optimize_probe'";
-                Assert.Equal(true, await before.ExecuteScalarAsync());
+                Assert.Equal(true, await before.ExecuteScalarAsync(TestContext.Current.CancellationToken));
             }
 
-            var relationCount = await DatabaseController.OptimizeRelationsAsync(connection);
+            var relationCount = await DatabaseController.OptimizeRelationsAsync(connection, TestContext.Current.CancellationToken);
 
             Assert.True(relationCount > 0);
             Assert.DoesNotContain(notices, notice =>
@@ -317,7 +319,7 @@ public sealed class Phase12SchemaParityTests
 
             await using var verify = connection.CreateCommand();
             verify.CommandText = "SELECT last_analyze IS NOT NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = 'optimize_probe'";
-            Assert.Equal(true, await verify.ExecuteScalarAsync());
+            Assert.Equal(true, await verify.ExecuteScalarAsync(TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -402,7 +404,7 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using (var setup = CreateContext(environment.Port, databaseName))
-                await setup.Database.MigrateAsync();
+                await setup.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             var tagBarrier = new AsyncTwoPartyBarrier();
             await using (var first = CreateContext(
@@ -416,9 +418,9 @@ public sealed class Phase12SchemaParityTests
             {
                 var errors = await Task.WhenAll(
                     Record.ExceptionAsync(() => new TagRepository(first)
-                        .AddAsync(new Tag { Name = "Concurrent tag" })).AsTask(),
+                        .AddAsync(new Tag { Name = "Concurrent tag" }, TestContext.Current.CancellationToken)).AsTask(),
                     Record.ExceptionAsync(() => new TagRepository(second)
-                        .AddAsync(new Tag { Name = " concurrent TAG " })).AsTask());
+                        .AddAsync(new Tag { Name = " concurrent TAG " }, TestContext.Current.CancellationToken)).AsTask());
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<TagNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(
@@ -439,8 +441,8 @@ public sealed class Phase12SchemaParityTests
                 first.Performers.Add(new Performer { Name = "Concurrent performer", Disambiguation = "Role" });
                 second.Performers.Add(new Performer { Name = " concurrent PERFORMER ", Disambiguation = " role " });
                 var errors = await Task.WhenAll(
-                    Record.ExceptionAsync(() => first.SaveChangesAsync()).AsTask(),
-                    Record.ExceptionAsync(() => second.SaveChangesAsync()).AsTask());
+                    Record.ExceptionAsync(() => first.SaveChangesAsync(TestContext.Current.CancellationToken)).AsTask(),
+                    Record.ExceptionAsync(() => second.SaveChangesAsync(TestContext.Current.CancellationToken)).AsTask());
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<EntityNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(NameConflictEntityTypes.Performer, conflict.EntityType);
@@ -462,8 +464,8 @@ public sealed class Phase12SchemaParityTests
                 first.Studios.Add(new Studio { Name = "Concurrent studio" });
                 second.Studios.Add(new Studio { Name = " concurrent STUDIO " });
                 var errors = await Task.WhenAll(
-                    Record.ExceptionAsync(() => first.SaveChangesAsync()).AsTask(),
-                    Record.ExceptionAsync(() => second.SaveChangesAsync()).AsTask());
+                    Record.ExceptionAsync(() => first.SaveChangesAsync(TestContext.Current.CancellationToken)).AsTask(),
+                    Record.ExceptionAsync(() => second.SaveChangesAsync(TestContext.Current.CancellationToken)).AsTask());
                 Assert.Single(errors, error => error == null);
                 var conflict = Assert.IsType<EntityNameConflictException>(Assert.Single(errors, error => error != null));
                 Assert.Equal(NameConflictEntityTypes.Studio, conflict.EntityType);
@@ -473,9 +475,9 @@ public sealed class Phase12SchemaParityTests
             }
 
             await using var verify = CreateContext(environment.Port, databaseName);
-            Assert.Equal(1, await verify.Tags.CountAsync());
-            Assert.Equal(1, await verify.Performers.CountAsync());
-            Assert.Equal(1, await verify.Studios.CountAsync());
+            Assert.Equal(1, await verify.Tags.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(1, await verify.Performers.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(1, await verify.Studios.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -503,20 +505,20 @@ public sealed class Phase12SchemaParityTests
             int videoId;
             await using (var setup = CreateContext(environment.Port, databaseName))
             {
-                await setup.Database.MigrateAsync();
+                await setup.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
                 var targetPerformer = new Performer { Name = "Target performer", Disambiguation = "Role" };
                 var sourcePerformer = new Performer { Name = "Source performer", Disambiguation = "Role" };
                 var targetStudio = new Studio { Name = "Target studio" };
                 var sourceStudio = new Studio { Name = "Source studio" };
                 var video = new Video { Title = "Relationship transfer fixture", Studio = sourceStudio };
                 setup.AddRange(targetPerformer, sourcePerformer, targetStudio, sourceStudio, video);
-                await setup.SaveChangesAsync();
+                await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
                 setup.Set<VideoPerformer>().Add(new VideoPerformer
                 {
                     VideoId = video.Id,
                     PerformerId = sourcePerformer.Id,
                 });
-                await setup.SaveChangesAsync();
+                await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
                 targetPerformerId = targetPerformer.Id;
                 sourcePerformerId = sourcePerformer.Id;
                 targetStudioId = targetStudio.Id;
@@ -525,23 +527,23 @@ public sealed class Phase12SchemaParityTests
             }
 
             await using (var performerContext = CreateContext(environment.Port, databaseName))
-                await new PerformerMergeService(performerContext).MergeAsync(targetPerformerId, [sourcePerformerId]);
+                await new PerformerMergeService(performerContext).MergeAsync(targetPerformerId, [sourcePerformerId], TestContext.Current.CancellationToken);
             await using (var studioContext = CreateContext(environment.Port, databaseName))
-                await new StudioMergeService(studioContext).MergeAsync(targetStudioId, [sourceStudioId]);
+                await new StudioMergeService(studioContext).MergeAsync(targetStudioId, [sourceStudioId], TestContext.Current.CancellationToken);
 
             await using var verify = CreateContext(environment.Port, databaseName);
-            Assert.False(await verify.Performers.IgnoreQueryFilters().AnyAsync(entity => entity.Id == sourcePerformerId));
-            Assert.False(await verify.Studios.IgnoreQueryFilters().AnyAsync(entity => entity.Id == sourceStudioId));
+            Assert.False(await verify.Performers.IgnoreQueryFilters().AnyAsync(entity => entity.Id == sourcePerformerId, cancellationToken: TestContext.Current.CancellationToken));
+            Assert.False(await verify.Studios.IgnoreQueryFilters().AnyAsync(entity => entity.Id == sourceStudioId, cancellationToken: TestContext.Current.CancellationToken));
             Assert.Equal(
                 targetPerformerId,
-                (await verify.Set<VideoPerformer>().SingleAsync(link => link.VideoId == videoId)).PerformerId);
-            Assert.Equal(targetStudioId, (await verify.Videos.SingleAsync(video => video.Id == videoId)).StudioId);
+                (await verify.Set<VideoPerformer>().SingleAsync(link => link.VideoId == videoId, cancellationToken: TestContext.Current.CancellationToken)).PerformerId);
+            Assert.Equal(targetStudioId, (await verify.Videos.SingleAsync(video => video.Id == videoId, cancellationToken: TestContext.Current.CancellationToken)).StudioId);
             Assert.Equal(
                 EntityNameRules.PerformerIdentityKey("Target performer", "Role"),
-                (await verify.Performers.SingleAsync(entity => entity.Id == targetPerformerId)).IdentityKey);
+                (await verify.Performers.SingleAsync(entity => entity.Id == targetPerformerId, cancellationToken: TestContext.Current.CancellationToken)).IdentityKey);
             Assert.Equal(
                 EntityNameRules.StudioIdentityKey("Target studio"),
-                (await verify.Studios.SingleAsync(entity => entity.Id == targetStudioId)).NameKey);
+                (await verify.Studios.SingleAsync(entity => entity.Id == targetStudioId, cancellationToken: TestContext.Current.CancellationToken)).NameKey);
         }
         finally
         {
@@ -563,7 +565,7 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using var context = CreateContext(environment.Port, databaseName);
-            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId);
+            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId, TestContext.Current.CancellationToken);
             var firstId = await InsertTagAsync(environment.Port, databaseName, " Case fixture ");
             await InsertTagAsync(environment.Port, databaseName, "case fixture");
             var aliasOwnerId = await InsertTagAsync(environment.Port, databaseName, "Alias owner fixture");
@@ -583,7 +585,7 @@ public sealed class Phase12SchemaParityTests
 
             var enforcement = CreateNameRuleEnforcement(context);
             var exception = await Assert.ThrowsAsync<NameRuleUpgradeBlockedException>(
-                () => enforcement.PreflightAsync());
+                () => enforcement.PreflightAsync(TestContext.Current.CancellationToken));
 
             Assert.Equal(5, exception.TagGroupCount);
             Assert.Equal(2, exception.PerformerGroupCount);
@@ -594,7 +596,7 @@ public sealed class Phase12SchemaParityTests
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "tag_aliases", "NamespaceKey"));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "performers", "IdentityKey"));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "studios", "NameKey"));
-            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync());
+            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -619,14 +621,14 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using var context = CreateContext(environment.Port, databaseName);
-            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId);
+            await context.GetService<IMigrator>().MigrateAsync(NameRuleCompatibilityCheckpointMigrationId, TestContext.Current.CancellationToken);
             var tagId = await InsertTagAsync(environment.Port, databaseName, " Stable fixture ");
             var performerId = await InsertPerformerAsync(environment.Port, databaseName, "Stable performer", "Stable role");
             var studioId = await InsertStudioAsync(environment.Port, databaseName, "Stable studio");
             var enforcement = CreateNameRuleEnforcement(context);
-            var preparation = await enforcement.PreflightAsync();
+            var preparation = await enforcement.PreflightAsync(TestContext.Current.CancellationToken);
 
-            await using (await enforcement.StageAsync(preparation))
+            await using (await enforcement.StageAsync(preparation, TestContext.Current.CancellationToken))
             {
                 if (changedEntityType == "tag")
                     await UpdateTagNameAsync(environment.Port, databaseName, tagId, "Changed tag after preflight");
@@ -634,7 +636,7 @@ public sealed class Phase12SchemaParityTests
                     await UpdatePerformerDisambiguationAsync(environment.Port, databaseName, performerId, "Changed role after preflight");
                 else
                     await UpdateStudioNameAsync(environment.Port, databaseName, studioId, "Changed studio after preflight");
-                var exception = await Assert.ThrowsAsync<PostgresException>(() => context.Database.MigrateAsync());
+                var exception = await Assert.ThrowsAsync<PostgresException>(() => context.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken));
                 Assert.True(NameRuleEnforcementService.IsGuardFailure(exception));
             }
 
@@ -647,7 +649,7 @@ public sealed class Phase12SchemaParityTests
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "tags", "NamespaceKey"));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "performers", "IdentityKey"));
             Assert.False(await ColumnExistsAsync(environment.Port, databaseName, "studios", "NameKey"));
-            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync());
+            Assert.Contains(NameRuleEnforcementMigrationId, await context.Database.GetPendingMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -672,10 +674,10 @@ public sealed class Phase12SchemaParityTests
             var expectedMigrations = context.GetService<IMigrationsAssembly>().Migrations.Keys.ToArray();
             AssertNoPendingModelChanges(context);
 
-            await context.Database.MigrateAsync();
+            await context.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
 
-            var applied = (await context.Database.GetAppliedMigrationsAsync()).ToArray();
-            var pending = (await context.Database.GetPendingMigrationsAsync()).ToArray();
+            var applied = (await context.Database.GetAppliedMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken)).ToArray();
+            var pending = (await context.Database.GetPendingMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken)).ToArray();
 
             Assert.Equal(expectedMigrations, applied);
             Assert.Empty(pending);
@@ -702,11 +704,11 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using var context = CreateContext(environment.Port, databaseName);
-            var preparation = await CreateNameRuleEnforcement(context).PreflightAsync();
-            await using (await CreateNameRuleEnforcement(context).StageAsync(preparation))
-                await context.Database.MigrateAsync();
+            var preparation = await CreateNameRuleEnforcement(context).PreflightAsync(TestContext.Current.CancellationToken);
+            await using (await CreateNameRuleEnforcement(context).StageAsync(preparation, TestContext.Current.CancellationToken))
+                await context.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
 
-            Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+            Assert.Empty(await context.Database.GetPendingMigrationsAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.True(await ColumnExistsAsync(environment.Port, databaseName, "tags", "NamespaceKey"));
             Assert.True(await ColumnExistsAsync(environment.Port, databaseName, "performers", "IdentityKey"));
             Assert.True(await ColumnExistsAsync(environment.Port, databaseName, "studios", "NameKey"));
@@ -733,23 +735,22 @@ public sealed class Phase12SchemaParityTests
         try
         {
             await using var context = CreateContext(environment.Port, databaseName, enableRetry: false);
-            await context.Database.MigrateAsync();
+            await context.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
             var target = new Cove.Core.Entities.Tag { Name = "Repair target fixture" };
             var referenced = new Cove.Core.Entities.Tag { Name = "Referenced fixture" };
             var unreferenced = new Cove.Core.Entities.Tag { Name = "Unreferenced fixture" };
             context.Tags.AddRange(target, referenced, unreferenced);
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
             await context.Database.ExecuteSqlRawAsync("""
                 CREATE TABLE extension_tag_reference_fixture (
                     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     tag_id integer NOT NULL REFERENCES tags("Id") ON DELETE RESTRICT
                 );
-                """);
-            await context.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO extension_tag_reference_fixture (tag_id) VALUES ({referenced.Id})");
+                """, cancellationToken: TestContext.Current.CancellationToken);
+            await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO extension_tag_reference_fixture (tag_id) VALUES ({referenced.Id})", cancellationToken: TestContext.Current.CancellationToken);
 
             var references = await new PostgresTagExternalReferenceInspector(context)
-                .InspectAsync([referenced.Id, unreferenced.Id]);
+                .InspectAsync([referenced.Id, unreferenced.Id], TestContext.Current.CancellationToken);
 
             var reference = Assert.Single(references);
             Assert.Equal(referenced.Id, reference.TagId);
@@ -760,38 +761,33 @@ public sealed class Phase12SchemaParityTests
             Assert.Equal(1, reference.RowCount);
 
             var inspector = new PostgresTagExternalReferenceInspector(context);
-            await using (var transaction = await context.Database.BeginTransactionAsync())
+            await using (var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
-                await inspector.ApplyResolutionsAsync(
-                    target.Id,
-                    [new TagExternalReferenceResolutionDto(
+                await inspector.ApplyResolutionsAsync(target.Id, [new TagExternalReferenceResolutionDto(
                         referenced.Id,
                         reference.ReferenceKey,
-                        TagExternalReferenceActions.UpdateToSurvivor)]);
-                await transaction.CommitAsync();
+                        TagExternalReferenceActions.UpdateToSurvivor)], TestContext.Current.CancellationToken);
+                await transaction.CommitAsync(TestContext.Current.CancellationToken);
             }
 
             var updatedTagId = await context.Database
                 .SqlQueryRaw<int>("SELECT tag_id AS \"Value\" FROM extension_tag_reference_fixture")
-                .SingleAsync();
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(target.Id, updatedTagId);
 
-            await context.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO extension_tag_reference_fixture (tag_id) VALUES ({unreferenced.Id}), ({unreferenced.Id})");
-            var deleteReference = Assert.Single(await inspector.InspectAsync([unreferenced.Id]));
+            await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO extension_tag_reference_fixture (tag_id) VALUES ({unreferenced.Id}), ({unreferenced.Id})", cancellationToken: TestContext.Current.CancellationToken);
+            var deleteReference = Assert.Single(await inspector.InspectAsync([unreferenced.Id], TestContext.Current.CancellationToken));
             Assert.Equal(2, deleteReference.RowCount);
-            await using (var transaction = await context.Database.BeginTransactionAsync())
+            await using (var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
-                await inspector.ApplyResolutionsAsync(
-                    target.Id,
-                    [new TagExternalReferenceResolutionDto(
+                await inspector.ApplyResolutionsAsync(target.Id, [new TagExternalReferenceResolutionDto(
                         unreferenced.Id,
                         deleteReference.ReferenceKey,
-                        TagExternalReferenceActions.DeleteRows)]);
-                await transaction.CommitAsync();
+                        TagExternalReferenceActions.DeleteRows)], TestContext.Current.CancellationToken);
+                await transaction.CommitAsync(TestContext.Current.CancellationToken);
             }
 
-            Assert.Empty(await inspector.InspectAsync([unreferenced.Id]));
+            Assert.Empty(await inspector.InspectAsync([unreferenced.Id], TestContext.Current.CancellationToken));
 
             await context.Database.ExecuteSqlRawAsync("""
                 CREATE TABLE extension_partitioned_tag_reference_fixture (
@@ -801,28 +797,25 @@ public sealed class Phase12SchemaParityTests
                 CREATE TABLE extension_partitioned_tag_reference_fixture_p0
                     PARTITION OF extension_partitioned_tag_reference_fixture
                     FOR VALUES FROM (0) TO (100);
-                """);
-            await context.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO extension_partitioned_tag_reference_fixture (id, tag_id) VALUES (1, {unreferenced.Id})");
-            var partitionedReferences = await inspector.InspectAsync([unreferenced.Id]);
+                """, cancellationToken: TestContext.Current.CancellationToken);
+            await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO extension_partitioned_tag_reference_fixture (id, tag_id) VALUES (1, {unreferenced.Id})", cancellationToken: TestContext.Current.CancellationToken);
+            var partitionedReferences = await inspector.InspectAsync([unreferenced.Id], TestContext.Current.CancellationToken);
             var partitionedReference = Assert.Single(partitionedReferences);
             Assert.Equal("extension_partitioned_tag_reference_fixture", partitionedReference.TableName);
             Assert.DoesNotContain(
                 partitionedReferences,
                 candidate => candidate.TableName == "extension_partitioned_tag_reference_fixture_p0");
-            await using (var transaction = await context.Database.BeginTransactionAsync())
+            await using (var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
-                await inspector.ApplyResolutionsAsync(
-                    target.Id,
-                    [new TagExternalReferenceResolutionDto(
+                await inspector.ApplyResolutionsAsync(target.Id, [new TagExternalReferenceResolutionDto(
                         unreferenced.Id,
                         partitionedReference.ReferenceKey,
-                        TagExternalReferenceActions.UpdateToSurvivor)]);
-                await transaction.CommitAsync();
+                        TagExternalReferenceActions.UpdateToSurvivor)], TestContext.Current.CancellationToken);
+                await transaction.CommitAsync(TestContext.Current.CancellationToken);
             }
             var partitionedTagId = await context.Database
                 .SqlQueryRaw<int>("SELECT tag_id AS \"Value\" FROM extension_partitioned_tag_reference_fixture")
-                .SingleAsync();
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(target.Id, partitionedTagId);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -831,24 +824,21 @@ public sealed class Phase12SchemaParityTests
                     source_tag_id integer NOT NULL REFERENCES tags("Id") ON DELETE RESTRICT,
                     derived_tag_id integer NOT NULL REFERENCES tags("Id") ON DELETE RESTRICT
                 );
-                """);
-            await context.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO extension_dual_tag_reference_fixture (source_tag_id, derived_tag_id) VALUES ({referenced.Id}, {referenced.Id})");
-            var overlappingReferences = await inspector.InspectAsync([referenced.Id]);
+                """, cancellationToken: TestContext.Current.CancellationToken);
+            await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO extension_dual_tag_reference_fixture (source_tag_id, derived_tag_id) VALUES ({referenced.Id}, {referenced.Id})", cancellationToken: TestContext.Current.CancellationToken);
+            var overlappingReferences = await inspector.InspectAsync([referenced.Id], TestContext.Current.CancellationToken);
             Assert.Equal(2, overlappingReferences.Count);
-            await using (var transaction = await context.Database.BeginTransactionAsync())
+            await using (var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
-                await inspector.ApplyResolutionsAsync(
-                    target.Id,
-                    overlappingReferences.Select(reference => new TagExternalReferenceResolutionDto(
+                await inspector.ApplyResolutionsAsync(target.Id, overlappingReferences.Select(reference => new TagExternalReferenceResolutionDto(
                         referenced.Id,
                         reference.ReferenceKey,
-                        TagExternalReferenceActions.DeleteRows)).ToArray());
-                await transaction.CommitAsync();
+                        TagExternalReferenceActions.DeleteRows)).ToArray(), TestContext.Current.CancellationToken);
+                await transaction.CommitAsync(TestContext.Current.CancellationToken);
             }
             var overlappingRows = await context.Database
                 .SqlQueryRaw<int>("SELECT count(*)::integer AS \"Value\" FROM extension_dual_tag_reference_fixture")
-                .SingleAsync();
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(0, overlappingRows);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -856,58 +846,53 @@ public sealed class Phase12SchemaParityTests
                     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     tag_id integer NOT NULL UNIQUE REFERENCES tags("Id") ON DELETE RESTRICT
                 );
-                """);
-            await context.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO extension_unique_tag_reference_fixture (tag_id) VALUES ({target.Id}), ({referenced.Id})");
-            var conflictingReference = Assert.Single(await inspector.InspectAsync([referenced.Id]));
-            await using (var transaction = await context.Database.BeginTransactionAsync())
+                """, cancellationToken: TestContext.Current.CancellationToken);
+            await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO extension_unique_tag_reference_fixture (tag_id) VALUES ({target.Id}), ({referenced.Id})", cancellationToken: TestContext.Current.CancellationToken);
+            var conflictingReference = Assert.Single(await inspector.InspectAsync([referenced.Id], TestContext.Current.CancellationToken));
+            await using (var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
                 var exception = await Assert.ThrowsAsync<TagExternalReferenceRepairException>(() =>
-                    inspector.ApplyResolutionsAsync(
-                        target.Id,
-                        [new TagExternalReferenceResolutionDto(
+                    inspector.ApplyResolutionsAsync(target.Id, [new TagExternalReferenceResolutionDto(
                             referenced.Id,
                             conflictingReference.ReferenceKey,
-                            TagExternalReferenceActions.UpdateToSurvivor)]));
+                            TagExternalReferenceActions.UpdateToSurvivor)], TestContext.Current.CancellationToken));
                 Assert.Contains("database rejected", exception.Message, StringComparison.OrdinalIgnoreCase);
-                await transaction.RollbackAsync();
+                await transaction.RollbackAsync(TestContext.Current.CancellationToken);
             }
 
             var preservedRows = await context.Database
                 .SqlQueryRaw<int>("SELECT count(*)::integer AS \"Value\" FROM extension_unique_tag_reference_fixture")
-                .SingleAsync();
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(2, preservedRows);
 
             var rlsTarget = new Tag { Name = "RLS merge fixture" };
             var rlsSource = new Tag { Name = "RLS source fixture" };
             context.Tags.AddRange(rlsTarget, rlsSource);
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
             // Simulate a conflicting 1.2 checkpoint row after the enforcement schema is present.
             // Updating only the display value deliberately preserves its old unique claim key.
-            await context.Database.ExecuteSqlInterpolatedAsync(
-                $"UPDATE tags SET \"Name\" = {' ' + rlsTarget.Name + ' '} WHERE \"Id\" = {rlsSource.Id}");
+            await context.Database.ExecuteSqlInterpolatedAsync($"UPDATE tags SET \"Name\" = {' ' + rlsTarget.Name + ' '} WHERE \"Id\" = {rlsSource.Id}", cancellationToken: TestContext.Current.CancellationToken);
             await context.Database.ExecuteSqlRawAsync("""
                 CREATE TABLE extension_rls_tag_reference_fixture (
                     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     tag_id integer NOT NULL REFERENCES tags("Id") ON DELETE CASCADE
                 );
-                """);
-            await context.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO extension_rls_tag_reference_fixture (tag_id) VALUES ({rlsSource.Id})");
+                """, cancellationToken: TestContext.Current.CancellationToken);
+            await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO extension_rls_tag_reference_fixture (tag_id) VALUES ({rlsSource.Id})", cancellationToken: TestContext.Current.CancellationToken);
             await context.Database.ExecuteSqlRawAsync("""
                 ALTER TABLE extension_rls_tag_reference_fixture ENABLE ROW LEVEL SECURITY;
                 ALTER TABLE extension_rls_tag_reference_fixture FORCE ROW LEVEL SECURITY;
                 CREATE POLICY extension_rls_deny_all ON extension_rls_tag_reference_fixture
                     FOR ALL USING (false) WITH CHECK (false);
-                """);
+                """, cancellationToken: TestContext.Current.CancellationToken);
             await GrantExtensionRepairPrivilegesAsync(context, restrictedRoleName);
 
             context.ChangeTracker.Clear();
-            await using (var transaction = await context.Database.BeginTransactionAsync())
+            await using (var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
                 await SetLocalRoleAsync(context, restrictedRoleName);
                 var restrictedInspector = new PostgresTagExternalReferenceInspector(context);
-                var restrictedReferences = (await restrictedInspector.InspectAsync([rlsTarget.Id, rlsSource.Id]))
+                var restrictedReferences = (await restrictedInspector.InspectAsync([rlsTarget.Id, rlsSource.Id], TestContext.Current.CancellationToken))
                     .Where(reference => reference.TableName == "extension_rls_tag_reference_fixture")
                     .ToArray();
                 Assert.Equal(2, restrictedReferences.Length);
@@ -919,27 +904,27 @@ public sealed class Phase12SchemaParityTests
                 var rowSecurity = await ReadRowSecuritySettingAsync(context);
                 Assert.Equal("on", rowSecurity);
 
-                await transaction.RollbackAsync();
+                await transaction.RollbackAsync(TestContext.Current.CancellationToken);
             }
 
             context.ChangeTracker.Clear();
-            await using (var transaction = await context.Database.BeginTransactionAsync())
+            await using (var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
                 await SetLocalRoleAsync(context, restrictedRoleName);
                 var mergeException = await Assert.ThrowsAsync<TagMergeBlockedException>(
                     () => new TagMergeService(
                             context,
                             externalReferenceInspector: new PostgresTagExternalReferenceInspector(context))
-                        .MergeAsync(rlsTarget.Id, [rlsSource.Id]));
+                        .MergeAsync(rlsTarget.Id, [rlsSource.Id], TestContext.Current.CancellationToken));
                 Assert.True(mergeException.HasUninspectableReferences);
-                await transaction.RollbackAsync();
+                await transaction.RollbackAsync(TestContext.Current.CancellationToken);
             }
 
             context.ChangeTracker.Clear();
-            Assert.True(await context.Tags.AnyAsync(tag => tag.Id == rlsSource.Id));
+            Assert.True(await context.Tags.AnyAsync(tag => tag.Id == rlsSource.Id, cancellationToken: TestContext.Current.CancellationToken));
             var hiddenRows = await context.Database
                 .SqlQueryRaw<int>("SELECT count(*)::integer AS \"Value\" FROM extension_rls_tag_reference_fixture")
-                .SingleAsync();
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(1, hiddenRows);
         }
         finally
@@ -973,17 +958,17 @@ public sealed class Phase12SchemaParityTests
             int initiatingUserId;
             await using (var setup = CreateContext(environment.Port, databaseName))
             {
-                await setup.Database.MigrateAsync();
+                await setup.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
                 var target = new Tag { Name = "Target fixture" };
                 var source = new Tag { Name = "Source fixture" };
                 var initiatingUser = new User { Username = "initiating-fixture", PasswordHash = "fixture" };
                 var otherUser = new User { Username = "other-fixture", PasswordHash = "fixture" };
                 setup.AddRange(target, source, initiatingUser, otherUser);
-                await setup.SaveChangesAsync();
+                await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
                 setup.Ratings.AddRange(
                     new Rating { UserId = initiatingUser.Id, HostType = RatingHostType.Tag, HostId = source.Id, Value = 60 },
                     new Rating { UserId = otherUser.Id, HostType = RatingHostType.Tag, HostId = source.Id, Value = 80 });
-                await setup.SaveChangesAsync();
+                await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
                 targetId = target.Id;
                 sourceId = source.Id;
                 initiatingUserId = initiatingUser.Id;
@@ -1006,7 +991,7 @@ public sealed class Phase12SchemaParityTests
                 await new TagMergeService(
                         filtered,
                         externalReferenceInspector: new PostgresTagExternalReferenceInspector(filtered))
-                    .MergeAsync(targetId, [sourceId]);
+                    .MergeAsync(targetId, [sourceId], TestContext.Current.CancellationToken);
             }
             finally
             {
@@ -1017,7 +1002,7 @@ public sealed class Phase12SchemaParityTests
             var ratings = await verify.Ratings
                 .IgnoreQueryFilters()
                 .OrderBy(rating => rating.UserId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(2, ratings.Count);
             Assert.All(ratings, rating => Assert.Equal(targetId, rating.HostId));
         }
@@ -1045,32 +1030,31 @@ public sealed class Phase12SchemaParityTests
             int videoId;
             await using (var setup = CreateContext(environment.Port, databaseName))
             {
-                await setup.Database.MigrateAsync();
+                await setup.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
                 var studio = new Studio { Name = "Extension studio fixture" };
                 var tag = new Tag { Name = "Extension tag fixture" };
                 var video = new Video { Title = "Extension reference fixture" };
                 setup.AddRange(studio, tag, video);
-                await setup.SaveChangesAsync();
+                await setup.SaveChangesAsync(TestContext.Current.CancellationToken);
                 studioId = studio.Id;
                 tagId = tag.Id;
                 videoId = video.Id;
                 await setup.Database.ExecuteSqlRawAsync("""
                     ALTER TABLE videos ADD COLUMN extension_studio_id integer NULL REFERENCES studios("Id") ON DELETE RESTRICT;
                     ALTER TABLE videos ADD COLUMN extension_tag_id integer NULL REFERENCES tags("Id") ON DELETE RESTRICT;
-                    """);
-                await setup.Database.ExecuteSqlInterpolatedAsync(
-                    $"UPDATE videos SET extension_studio_id = {studioId}, extension_tag_id = {tagId} WHERE \"Id\" = {videoId}");
+                    """, cancellationToken: TestContext.Current.CancellationToken);
+                await setup.Database.ExecuteSqlInterpolatedAsync($"UPDATE videos SET extension_studio_id = {studioId}, extension_tag_id = {tagId} WHERE \"Id\" = {videoId}", cancellationToken: TestContext.Current.CancellationToken);
             }
 
             await using var context = CreateExtensionModelContext(environment.Port, databaseName);
             var studioReference = Assert.Single(await new PostgresEntityExternalReferenceInspector(context)
-                .InspectAsync(NameConflictEntityTypes.Studio, [studioId]));
+                .InspectAsync(NameConflictEntityTypes.Studio, [studioId], TestContext.Current.CancellationToken));
             Assert.Equal("videos", studioReference.TableName);
             Assert.Equal("extension_studio_id", studioReference.ColumnName);
             Assert.Equal(1, studioReference.RowCount);
 
             var tagReference = Assert.Single(await new PostgresTagExternalReferenceInspector(context)
-                .InspectAsync([tagId]));
+                .InspectAsync([tagId], TestContext.Current.CancellationToken));
             Assert.Equal("videos", tagReference.TableName);
             Assert.Equal("extension_tag_id", tagReference.ColumnName);
             Assert.Equal(1, tagReference.RowCount);
