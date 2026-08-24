@@ -3,6 +3,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
+import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
+
+vi.mock("../hooks/useRegisterKeyboardActionHandler", () => ({
+  useRegisterKeyboardActionHandler: vi.fn(),
+}));
 
 vi.mock("../api/client", () => ({
   savedFilters: {
@@ -112,6 +117,26 @@ describe("DetailListToolbar", () => {
       perPage: 24,
       q: "summer",
     }));
+  });
+
+  it("registers the filter action when filtering is available", () => {
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={[{ id: "title", label: "Title", type: "string", filterKey: "titleCriterion" }]}
+        objectFilter={{}}
+        onObjectFilterChange={vi.fn()}
+      />,
+    );
+
+    expect(useRegisterKeyboardActionHandler).toHaveBeenCalledWith(
+      "list.filters",
+      expect.any(Function),
+      { enabled: true, surface: "list" },
+    );
   });
 
   it("renders matching pagination above and below a finite detail list", async () => {

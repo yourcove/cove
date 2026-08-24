@@ -120,6 +120,7 @@ export { VIDEO_SORT_OPTIONS } from "./videoSortOptions";
 export { useMultiSelect, toggleOptionsFromEvent, withOrderedToggle } from "../hooks/useMultiSelect";
 export type { MultiSelectToggleOptions, MultiSelectToggleHandler, BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
 export { useKeySequence } from "../hooks/useKeySequence";
+export { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 export { useListUrlState } from "../hooks/useListUrlState";
 
 // ─── App Config (extensions run in the same React tree) ───────────────────

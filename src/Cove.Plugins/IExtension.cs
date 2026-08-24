@@ -443,6 +443,43 @@ public record ExtensionAction(
     public string? RequiredPermission { get; init; }
 }
 
+/// <summary>A context in which an extension keyboard action can run.</summary>
+public record UIKeyboardActionScope(
+    string Surface,
+    string? Page = null,
+    string? EntityType = null,
+    string? Tab = null);
+
+/// <summary>A configurable keyboard action contributed by an extension.</summary>
+public record UIKeyboardAction(
+    string Id,
+    string Label,
+    string ExtensionId,
+    string[] DefaultBindings,
+    UIKeyboardActionScope[] Scopes,
+    string? Description = null,
+    string? Group = null,
+    string? HandlerName = null,
+    string? ApiEndpoint = null,
+    int Order = 100,
+    bool Repeatable = false,
+    bool AllowInEditable = false,
+    string? RequiredPermission = null);
+
+/// <summary>A data-only keyboard shortcut preset contributed by an extension.</summary>
+public record UIKeyboardShortcutPreset(
+    int SchemaVersion,
+    string Id,
+    string Name,
+    string ExtensionId,
+    string UnmappedActions,
+    Dictionary<string, string[]> Bindings,
+    string? Description = null,
+    string? Author = null,
+    string? Version = null,
+    string? BasePresetId = null,
+    int Order = 100);
+
 // ============================================================================
 // EXTENSION MANIFEST FILE — extension.json schema
 // ============================================================================
@@ -472,6 +509,10 @@ public class ExtensionManifestFile
     public List<ExtensionSettingManifest> Settings { get; set; } = [];
     /// <summary>In-app Cove Manual topics contributed by this extension.</summary>
     public List<UITutorialTopic> TutorialTopics { get; set; } = [];
+    /// <summary>Configurable keyboard actions contributed by a manifest-only extension.</summary>
+    public List<UIKeyboardAction> KeyboardActions { get; set; } = [];
+    /// <summary>Shareable keyboard presets contributed by a manifest-only extension.</summary>
+    public List<UIKeyboardShortcutPreset> KeyboardShortcutPresets { get; set; } = [];
     /// <summary>The DLL filename containing the IExtension implementation.</summary>
     public string? EntryDll { get; set; }
     /// <summary>Assembly names that must be unified across extension load contexts.</summary>
@@ -637,6 +678,8 @@ public class UIManifest
     public List<UIPageOverride> PageOverrides { get; set; } = [];
     public List<UIDialogOverride> DialogOverrides { get; set; } = [];
     public List<ExtensionAction> Actions { get; set; } = [];
+    public List<UIKeyboardAction> KeyboardActions { get; set; } = [];
+    public List<UIKeyboardShortcutPreset> KeyboardShortcutPresets { get; set; } = [];
     public List<UITutorialTopic> TutorialTopics { get; set; } = [];
     public List<UIListFilterContribution> ListFilters { get; set; } = [];
     public List<UIListSortContribution> ListSorts { get; set; } = [];
@@ -980,6 +1023,8 @@ public class UIRegistry
     private readonly List<UIPageOverride> _pageOverrides = [];
     private readonly List<UIDialogOverride> _dialogOverrides = [];
     private readonly List<ExtensionAction> _actions = [];
+    private readonly List<UIKeyboardAction> _keyboardActions = [];
+    private readonly List<UIKeyboardShortcutPreset> _keyboardShortcutPresets = [];
     private readonly List<UITutorialTopic> _tutorialTopics = [];
     private readonly List<UIListFilterContribution> _listFilters = [];
     private readonly List<UIListSortContribution> _listSorts = [];
@@ -999,6 +1044,8 @@ public class UIRegistry
     public IReadOnlyList<UIPageOverride> PageOverrides => _pageOverrides;
     public IReadOnlyList<UIDialogOverride> DialogOverrides => _dialogOverrides;
     public IReadOnlyList<ExtensionAction> Actions => _actions;
+    public IReadOnlyList<UIKeyboardAction> KeyboardActions => _keyboardActions;
+    public IReadOnlyList<UIKeyboardShortcutPreset> KeyboardShortcutPresets => _keyboardShortcutPresets;
     public IReadOnlyList<UITutorialTopic> TutorialTopics => _tutorialTopics;
     public IReadOnlyList<UIListFilterContribution> ListFilters => _listFilters;
     public IReadOnlyList<UIListSortContribution> ListSorts => _listSorts;
@@ -1018,6 +1065,8 @@ public class UIRegistry
     public void RegisterPageOverride(UIPageOverride ov) => _pageOverrides.Add(ov);
     public void RegisterDialogOverride(UIDialogOverride ov) => _dialogOverrides.Add(ov);
     public void RegisterAction(ExtensionAction action) => _actions.Add(action);
+    public void RegisterKeyboardAction(UIKeyboardAction action) => _keyboardActions.Add(action);
+    public void RegisterKeyboardShortcutPreset(UIKeyboardShortcutPreset preset) => _keyboardShortcutPresets.Add(preset);
     public void RegisterTutorialTopic(UITutorialTopic topic) => _tutorialTopics.Add(topic);
     public void RegisterListFilter(UIListFilterContribution filter) => _listFilters.Add(filter);
     public void RegisterListSort(UIListSortContribution sort) => _listSorts.Add(sort);
@@ -1039,6 +1088,8 @@ public class UIRegistry
         PageOverrides = [.. _pageOverrides],
         DialogOverrides = [.. _dialogOverrides],
         Actions = [.. _actions],
+        KeyboardActions = [.. _keyboardActions],
+        KeyboardShortcutPresets = [.. _keyboardShortcutPresets],
         TutorialTopics = [.. _tutorialTopics],
         ListFilters = [.. _listFilters],
         ListSorts = [.. _listSorts],

@@ -14,6 +14,7 @@ export interface MediaDetailTab {
 }
 
 export interface MediaDetailKeyboardShortcut {
+  id?: string;
   key: string;
   description: string;
   handler: () => void;

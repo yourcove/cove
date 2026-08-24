@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as signalR from "@microsoft/signalr";
 import { formatDate } from "../components/shared";
@@ -91,8 +91,7 @@ import { UsersTab, RolesTab, AuditTab, ContentRulesTab, ApiTokensTab, ShareLinks
 import { defaultRatingSystemOptions, normalizeRatingOptions } from "../components/Rating";
 import { readStoredRatingOptionsOverride, writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 import { readAuthenticatedUserThemePreferences, supportsServerBackedUiPreferences, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
-import { writeStoredKeybindingOverrides } from "../hooks/useResolvedKeybindingOverrides";
-import { KEYBINDING_GROUPS, keybindingDefault, normalizeShortcutEvent, normalizeShortcutSequence } from "../keyboard/keybindings";
+import { KeyboardShortcutSettings } from "../components/KeyboardShortcutSettings";
 import { openTutorialStoryboard } from "../components/TutorialStoryboardDialog";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { LibraryFolderTree } from "../components/LibraryFolderTree";
@@ -451,7 +450,6 @@ const TASK_SCAN_OPTIONS_KEY = "cove-settings-scan-options";
 const TASK_GENERATE_OPTIONS_KEY = "cove-settings-generate-options";
 const TASK_DOWNLOAD_IMPORT_OPTIONS_KEY = "cove-settings-download-import-options";
 const TASK_DOWNLOAD_IMPORT_CACHE_KEY = "cove-settings-download-import-cache";
-const KEYBINDING_CAPTURE_COMMIT_MS = 850;
 
 const DEFAULT_SCAN_OPTIONS: ScanOptions = {
   scanGenerateCovers: true,
@@ -1087,14 +1085,9 @@ export function SettingsPage() {
   );
   const [draftState, setDraft] = useState<CoveConfig | null>(null);
   const [customFieldDraftState, setCustomFieldDraft] = useState<CustomFieldDefinition[] | null>(null);
-  const [capturingKeybindingId, setCapturingKeybindingId] = useState<string | null>(null);
-  const [capturedKeybindingParts, setCapturedKeybindingParts] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const initializedRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const captureCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const capturingKeybindingIdRef = useRef<string | null>(null);
-  const capturedKeybindingPartsRef = useRef<string[]>([]);
   const savingRef = useRef(false);
   const [metadataServerValidation, setMetadataServerValidation] = useState<Record<string, MetadataServerValidationResult>>({});
 
@@ -1294,12 +1287,6 @@ export function SettingsPage() {
       return current === nextTab ? current : nextTab;
     });
   }, [extensionSettingsPathAliases, extensionsLoaded]);
-
-  useEffect(() => () => {
-    if (captureCommitTimerRef.current) {
-      clearTimeout(captureCommitTimerRef.current);
-    }
-  }, []);
 
   useEffect(() => {
     if (!extensionsLoaded && !tabByKey.has(activeTab as BuiltInSettingsTab)) {
@@ -1551,122 +1538,6 @@ export function SettingsPage() {
 
   const updateDraft = (updater: (current: CoveConfig) => CoveConfig) => {
     setDraft((current) => (current ? updater(current) : current));
-  };
-
-  const clearKeybindingCaptureTimer = () => {
-    if (captureCommitTimerRef.current) {
-      clearTimeout(captureCommitTimerRef.current);
-      captureCommitTimerRef.current = null;
-    }
-  };
-
-  const stopKeybindingCapture = () => {
-    clearKeybindingCaptureTimer();
-    capturingKeybindingIdRef.current = null;
-    capturedKeybindingPartsRef.current = [];
-    setCapturingKeybindingId(null);
-    setCapturedKeybindingParts([]);
-  };
-
-  const startKeybindingCapture = (id: string) => {
-    clearKeybindingCaptureTimer();
-    capturingKeybindingIdRef.current = id;
-    capturedKeybindingPartsRef.current = [];
-    setCapturingKeybindingId(id);
-    setCapturedKeybindingParts([]);
-  };
-
-  const persistKeybindingOverrides = (overrides: Record<string, string>) => {
-    const normalizedOverrides = Object.fromEntries(
-      Object.entries(overrides)
-        .map(([key, value]) => [key.trim(), normalizeShortcutSequence(value)] as const)
-        .filter(([key, value]) => key.length > 0 && value.length > 0),
-    );
-
-    const persistedToAccount = updateAuthenticatedUserUiPreferences((current) => ({
-      ...(current ?? {}),
-      keybindingOverrides: Object.keys(normalizedOverrides).length > 0 ? normalizedOverrides : null,
-    }));
-
-    if (!persistedToAccount) {
-      writeStoredKeybindingOverrides(normalizedOverrides);
-    }
-  };
-
-  const updateKeybindingOverride = (id: string, value: string) => {
-    updateDraft((current) => {
-      const nextOverrides = { ...(current.ui.keybindingOverrides ?? {}) };
-      const normalized = normalizeShortcutSequence(value);
-      const defaultShortcut = normalizeShortcutSequence(keybindingDefault(id));
-      if (!normalized || normalized === defaultShortcut) {
-        delete nextOverrides[id];
-      } else {
-        nextOverrides[id] = normalized;
-      }
-      persistKeybindingOverrides(nextOverrides);
-      return { ...current, ui: { ...current.ui, keybindingOverrides: nextOverrides } };
-    });
-  };
-
-  const commitCapturedKeybindingOverride = (id: string, parts: string[]) => {
-    const shortcut = normalizeShortcutSequence(parts.join(" "));
-    if (shortcut) {
-      updateKeybindingOverride(id, shortcut);
-    }
-    stopKeybindingCapture();
-  };
-
-  const scheduleCapturedKeybindingCommit = (id: string, parts: string[]) => {
-    clearKeybindingCaptureTimer();
-    captureCommitTimerRef.current = setTimeout(() => {
-      if (capturingKeybindingIdRef.current === id) {
-        commitCapturedKeybindingOverride(id, parts);
-      }
-    }, KEYBINDING_CAPTURE_COMMIT_MS);
-  };
-
-  const captureKeybindingOverride = (id: string, event: ReactKeyboardEvent<HTMLElement>) => {
-    if (capturingKeybindingId !== id) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (event.key === "Escape") {
-      stopKeybindingCapture();
-      return;
-    }
-
-    if (event.key === "Enter") {
-      if (capturedKeybindingPartsRef.current.length > 0) {
-        commitCapturedKeybindingOverride(id, capturedKeybindingPartsRef.current);
-      } else {
-        stopKeybindingCapture();
-      }
-      return;
-    }
-
-    if (event.key === "Backspace" || event.key === "Delete") {
-      clearKeybindingCaptureTimer();
-      capturedKeybindingPartsRef.current = [];
-      setCapturedKeybindingParts([]);
-      return;
-    }
-
-    const shortcut = normalizeShortcutEvent(event);
-    if (!shortcut) {
-      return;
-    }
-
-    const nextParts = [...capturedKeybindingPartsRef.current, shortcut].slice(0, 2);
-    capturedKeybindingPartsRef.current = nextParts;
-    setCapturedKeybindingParts(nextParts);
-    if (nextParts.length >= 2) {
-      commitCapturedKeybindingOverride(id, nextParts);
-    } else {
-      scheduleCapturedKeybindingCommit(id, nextParts);
-    }
   };
 
   // Render the panels a settings tab contributes. The tab's layout decides the chrome: "panels"
@@ -2968,96 +2839,9 @@ export function SettingsPage() {
         )}
 
         {resolvedActiveTab === "keyboard-shortcuts" && (
-          <>
-            {canWriteSystemSettings ? (
-              <SectionCard title="Keyboard Shortcuts" description="Override the registered global and list-page shortcut keys.">
-                <div className="space-y-5">
-                  {KEYBINDING_GROUPS.map((group) => (
-                    <div key={group.group} className="space-y-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-muted">{group.group}</div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {group.definitions.map((definition) => {
-                          const defaultShortcut = normalizeShortcutSequence(definition.keys);
-                          const value = normalizeShortcutSequence(draft.ui.keybindingOverrides?.[definition.id] ?? defaultShortcut);
-                          const isCapturing = capturingKeybindingId === definition.id;
-                          const isCustomized = value !== defaultShortcut;
-                          const capturedValue = isCapturing ? capturedKeybindingParts.join(" ") : "";
-
-                          return (
-                            <div key={definition.id} className="rounded-xl border border-border bg-card p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="text-sm font-medium text-foreground">{definition.label}</div>
-                                  <div className="mt-1 text-xs text-secondary">Default: {defaultShortcut}</div>
-                                </div>
-                                {isCustomized ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => updateKeybindingOverride(definition.id, "")}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted hover:border-accent hover:text-accent"
-                                    aria-label={`Reset ${definition.label}`}
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                ) : null}
-                              </div>
-                              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                                <input
-                                  value={value}
-                                  onChange={(event) => updateKeybindingOverride(definition.id, event.target.value)}
-                                  placeholder={definition.keys}
-                                  className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-foreground focus:border-accent focus:outline-none"
-                                  aria-label={`${definition.label} shortcut`}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => startKeybindingCapture(definition.id)}
-                                  onKeyDown={(event) => captureKeybindingOverride(definition.id, event)}
-                                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                                    isCapturing
-                                      ? "border-accent bg-accent/15 text-accent"
-                                      : "border-border text-secondary hover:border-accent hover:text-accent"
-                                  }`}
-                                >
-                                  <Keyboard className="h-4 w-4" />
-                                  {isCapturing ? (capturedValue || "Recording") : "Record"}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => updateDraft((current) => ({ ...current, ui: { ...current.ui, keybindingOverrides: {} } }))}
-                    className="rounded-lg border border-border px-3 py-2 text-sm text-secondary hover:border-accent hover:text-foreground"
-                  >
-                    Reset shortcuts
-                  </button>
-                </div>
-              </SectionCard>
-            ) : (
-              <SectionCard title="Keyboard Shortcuts" description="Current shortcut reference.">
-                <div className="space-y-5">
-                  {KEYBINDING_GROUPS.map((group) => (
-                    <div key={group.group} className="space-y-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-muted">{group.group}</div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {group.definitions.map((definition) => (
-                          <div key={definition.id} className="rounded-lg border border-border bg-card px-3 py-2">
-                            <div className="text-sm font-medium text-foreground">{definition.label}</div>
-                            <div className="mt-1 text-xs text-secondary">{definition.keys}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </SectionCard>
-            )}
-          </>
+          <SectionCard title="Keyboard Shortcuts" description="Choose, customize, import, and share keyboard shortcut presets.">
+            <KeyboardShortcutSettings />
+          </SectionCard>
         )}
 
         {(["my-account", "my-activity-history", "my-lists-wall"] as SettingsTab[]).includes(resolvedActiveTab) && <UserSettingsPanel activeTab={resolvedActiveTab} />}

@@ -216,6 +216,44 @@ public class UIManifestBuilder
         return this;
     }
 
+    /// <summary>Add a configurable keyboard action backed by a frontend handler or API endpoint.</summary>
+    public UIManifestBuilder AddKeyboardAction(
+        string id,
+        string label,
+        string[] defaultBindings,
+        UIKeyboardActionScope[] scopes,
+        string? description = null,
+        string? group = null,
+        string? handlerName = null,
+        string? apiEndpoint = null,
+        int order = 100,
+        bool repeatable = false,
+        bool allowInEditable = false,
+        string? requiredPermission = null)
+    {
+        _manifest.KeyboardActions.Add(new UIKeyboardAction(
+            id, label, _extensionId, defaultBindings, scopes, description, group, handlerName,
+            apiEndpoint, order, repeatable, allowInEditable, requiredPermission));
+        return this;
+    }
+
+    /// <summary>Add an immutable data-only keyboard shortcut preset.</summary>
+    public UIManifestBuilder AddKeyboardShortcutPreset(
+        string id,
+        string name,
+        Dictionary<string, string[]> bindings,
+        string unmappedActions = "unbound",
+        string? description = null,
+        string? author = null,
+        string? version = null,
+        string? basePresetId = null,
+        int order = 100)
+    {
+        _manifest.KeyboardShortcutPresets.Add(new UIKeyboardShortcutPreset(
+            1, id, name, _extensionId, unmappedActions, bindings, description, author, version, basePresetId, order));
+        return this;
+    }
+
     /// <summary>Add an action that is visible only when the current principal has the required permission.</summary>
     public UIManifestBuilder AddAction(
         string id,

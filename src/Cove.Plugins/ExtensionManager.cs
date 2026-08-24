@@ -1742,6 +1742,21 @@ public class ExtensionManager : IExtensionContributionRuntime
     // MANIFEST AGGREGATION
     // ========================================================================
 
+    private static string NamespaceKeyboardActionId(string extensionId, string actionId) =>
+        actionId.StartsWith("extension:", StringComparison.Ordinal)
+            || actionId.StartsWith("global.", StringComparison.Ordinal)
+            || actionId.StartsWith("list.", StringComparison.Ordinal)
+            || actionId.StartsWith("detail.", StringComparison.Ordinal)
+            || actionId.StartsWith("player.", StringComparison.Ordinal)
+            || actionId.StartsWith("viewer.", StringComparison.Ordinal)
+            ? actionId
+            : $"extension:{extensionId}:{actionId}";
+
+    private static string? NamespaceKeyboardPresetId(string extensionId, string? presetId) =>
+        string.IsNullOrWhiteSpace(presetId) || presetId.Contains(':', StringComparison.Ordinal)
+            ? presetId
+            : $"extension:{extensionId}:{presetId}";
+
     /// <summary>Get the aggregated UI manifest from all enabled extensions.</summary>
     public UIManifest GetAggregatedManifest()
     {
@@ -1786,6 +1801,21 @@ public class ExtensionManager : IExtensionContributionRuntime
             manifest.PageOverrides.AddRange(extManifest.PageOverrides.Select(pageOverride => pageOverride with { ExtensionId = ext.Id }));
             manifest.DialogOverrides.AddRange(extManifest.DialogOverrides.Select(dialogOverride => dialogOverride with { ExtensionId = ext.Id }));
             manifest.Actions.AddRange(extManifest.Actions.Select(action => action with { ExtensionId = ext.Id }));
+            manifest.KeyboardActions.AddRange(extManifest.KeyboardActions.Select(action => action with
+            {
+                Id = $"extension:{ext.Id}:{action.Id}",
+                ExtensionId = ext.Id,
+            }));
+            manifest.KeyboardShortcutPresets.AddRange(extManifest.KeyboardShortcutPresets.Select(preset => preset with
+            {
+                Id = $"extension:{ext.Id}:{preset.Id}",
+                ExtensionId = ext.Id,
+                BasePresetId = NamespaceKeyboardPresetId(ext.Id, preset.BasePresetId),
+                Bindings = preset.Bindings.ToDictionary(
+                    entry => NamespaceKeyboardActionId(ext.Id, entry.Key),
+                    entry => entry.Value,
+                    StringComparer.Ordinal),
+            }));
             AddTutorialTopics(extManifest.TutorialTopics, ext.Id);
             manifest.ListFilters.AddRange(extManifest.ListFilters.Select(filter => filter with
             {
@@ -1807,6 +1837,24 @@ public class ExtensionManager : IExtensionContributionRuntime
             if (manifestFile?.TutorialTopics.Count > 0)
             {
                 AddTutorialTopics(manifestFile.TutorialTopics, manifestFile.Id);
+            }
+            if (manifestFile is not null && GetExtension(extensionId) is not IUIExtension)
+            {
+                manifest.KeyboardActions.AddRange(manifestFile.KeyboardActions.Select(action => action with
+                {
+                    Id = NamespaceKeyboardActionId(manifestFile.Id, action.Id),
+                    ExtensionId = manifestFile.Id,
+                }));
+                manifest.KeyboardShortcutPresets.AddRange(manifestFile.KeyboardShortcutPresets.Select(preset => preset with
+                {
+                    Id = NamespaceKeyboardPresetId(manifestFile.Id, preset.Id)!,
+                    ExtensionId = manifestFile.Id,
+                    BasePresetId = NamespaceKeyboardPresetId(manifestFile.Id, preset.BasePresetId),
+                    Bindings = preset.Bindings.ToDictionary(
+                        entry => NamespaceKeyboardActionId(manifestFile.Id, entry.Key),
+                        entry => entry.Value,
+                        StringComparer.Ordinal),
+                }));
             }
         }
 
@@ -1844,6 +1892,8 @@ public class ExtensionManager : IExtensionContributionRuntime
         });
         manifest.SelectorOverrides.Sort((a, b) => b.Priority.CompareTo(a.Priority));
         manifest.Actions.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.KeyboardActions.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.KeyboardShortcutPresets.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.TutorialTopics.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListFilters.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListSorts.Sort((a, b) => a.Order.CompareTo(b.Order));

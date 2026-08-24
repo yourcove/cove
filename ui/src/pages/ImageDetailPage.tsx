@@ -260,6 +260,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
   }, []);
   const imageKeyboardShortcuts = useMemo(() => ([
     {
+      id: "detail.edit",
       key: "e",
       description: "Open edit tab",
       handler: () => {
@@ -269,6 +270,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       },
     },
     {
+      id: "detail.image.likes",
       key: "l",
       description: "Likes",
       handler: () => {
@@ -278,6 +280,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       },
     },
     {
+      id: "detail.image.lightbox",
       key: "f",
       description: "Toggle fullscreen lightbox",
       handler: () => {
@@ -289,6 +292,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
       },
     },
     {
+      id: "detail.image.detections",
       key: "d",
       description: "Open detections tab",
       handler: () => setActiveTab("detections"),

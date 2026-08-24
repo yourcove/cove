@@ -1,37 +1,7 @@
 import { Keyboard, X } from "lucide-react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useResolvedKeybindingOverrides } from "../hooks/useResolvedKeybindingOverrides";
-import { KEYBINDING_GROUPS, resolveKeybinding } from "../keyboard/keybindings";
-
-interface ShortcutSection {
-  title: string;
-  shortcuts: { keys: string; description: string }[];
-}
-
-const staticSections: ShortcutSection[] = [
-  {
-    title: "Video Detail",
-    shortcuts: [
-      { keys: "s", description: "Open segments" },
-      { keys: "d", description: "Open detections" },
-      { keys: "i", description: "Open file info" },
-      { keys: "h", description: "Open history" },
-      { keys: "o", description: "Add favorite" },
-    ],
-  },
-  {
-    title: "Video Player",
-    shortcuts: [
-      { keys: "Space", description: "Play / Pause" },
-      { keys: "k", description: "Play / Pause" },
-      { keys: "←/→", description: "Seek ±5s (Shift: ±10s)" },
-      { keys: "↑/↓", description: "Volume ±10%" },
-      { keys: "m", description: "Toggle mute" },
-      { keys: "f", description: "Toggle fullscreen" },
-      { keys: "0-9", description: "Seek to 0-90% duration" },
-    ],
-  },
-];
+import { useKeyboardShortcuts } from "../keyboard/KeyboardShortcutProvider";
 
 function KeyCap({ children }: { children: string }) {
   return (
@@ -51,23 +21,34 @@ function formatKeys(keys: string) {
 }
 
 export function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const overrides = useResolvedKeybindingOverrides();
+  const { actions, effectiveBindings, activeActionIds } = useKeyboardShortcuts();
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
 
   if (!open) return null;
 
-  const sections: ShortcutSection[] = [
-    ...KEYBINDING_GROUPS.map((group) => ({
-      title: group.group,
-      shortcuts: group.definitions.map((definition) => ({
-        keys: resolveKeybinding(overrides, definition.id, definition.keys),
-        description: definition.label,
-      })),
-    })),
-    ...staticSections,
-  ];
+  const sections = Array.from(actions.reduce((groups, action) => {
+    if (!activeActionIds.has(action.id)) return groups;
+    const bindings = effectiveBindings[action.id] ?? [];
+    if (bindings.length === 0) return groups;
+    const entries = groups.get(action.group) ?? [];
+    entries.push(...bindings.map((keys) => ({ keys, description: action.label })));
+    groups.set(action.group, entries);
+    return groups;
+  }, new Map<string, Array<{ keys: string; description: string }>>()).entries()).map(([title, shortcuts]) => ({ title, shortcuts }));
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="keyboard-shortcuts-title">
       <div
         className="shortcuts-dialog bg-surface border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -76,16 +57,18 @@ export function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onCl
         <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 shortcuts-dialog-header bg-surface z-10">
           <div className="flex items-center gap-2">
             <Keyboard className="w-5 h-5 text-accent" />
-            <h2 className="text-lg font-semibold text-foreground">Keyboard Shortcuts</h2>
+            <h2 id="keyboard-shortcuts-title" className="text-lg font-semibold text-foreground">Keyboard Shortcuts</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-card-hover text-muted hover:text-foreground">
+          <button type="button" onClick={onClose} aria-label="Close keyboard shortcuts" className="p-1.5 rounded-lg hover:bg-card-hover text-muted hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-          {sections.map((section) => (
+          {sections.length === 0 ? (
+            <p className="text-sm text-secondary">No configurable shortcuts are active on this screen.</p>
+          ) : sections.map((section) => (
             <div key={section.title}>
               <h3 className="text-sm font-semibold text-accent mb-3 uppercase tracking-wider">{section.title}</h3>
               <div className="space-y-2">
@@ -104,4 +87,3 @@ export function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onCl
     document.body
   );
 }
-
