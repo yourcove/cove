@@ -137,7 +137,9 @@ public sealed class EmbeddingService(
         var rows = await strategy.ExecuteAsync(async () =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-            await db.Database.ExecuteSqlRawAsync($"SET LOCAL hnsw.ef_search = {efSearch}", cancellationToken);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT set_config('hnsw.ef_search', {efSearch.ToString(System.Globalization.CultureInfo.InvariantCulture)}, true)",
+                cancellationToken);
             var list = await db.Embeddings.FromSqlRaw(sql, args.ToArray()).AsNoTracking().ToListAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return list;
