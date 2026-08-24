@@ -8,7 +8,6 @@ using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Tests.Entities.Performers;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class PerformerCreationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

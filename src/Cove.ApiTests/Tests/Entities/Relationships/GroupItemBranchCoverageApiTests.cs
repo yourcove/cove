@@ -9,7 +9,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Entities.Relationships;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class GroupItemBranchCoverageApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

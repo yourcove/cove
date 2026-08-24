@@ -2,7 +2,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(DatabaseRestoreApiTestCollection.Name)]
 public sealed class DatabaseRestoreApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -25,6 +24,7 @@ public sealed class DatabaseRestoreApiTests(
         (await AsUser().GetVideoByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Title.Should().Be(retained.Title);
         (await AsUser().GetVideoByIdAsync(addedAfterBackup.Id, TestContext.Current.CancellationToken)).Title.Should().Be(addedAfterBackup.Title);
 
+        RetireApiInstanceAfterClass();
         var restored = await AsUser().RestoreDatabaseAsync(backup.BackupPath, TestContext.Current.CancellationToken);
         restored.Message.Should().Be("Database restored successfully");
         restored.BackupPath.Should().Be(backup.BackupPath);

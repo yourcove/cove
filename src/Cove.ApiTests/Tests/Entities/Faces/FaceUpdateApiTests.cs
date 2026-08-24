@@ -4,7 +4,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.Entities.Faces;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class FaceUpdateApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

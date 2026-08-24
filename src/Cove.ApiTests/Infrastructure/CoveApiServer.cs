@@ -65,6 +65,8 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     public ApiTestFileManagerRecorder FileManagerRecorder => _fileManagerRecorder;
     public ApiTestFileSystem FileSystem { get; }
     public DatabaseClient DbUser => new(_database.ConnectionString);
+    internal string DatabaseName => _database.DatabaseName;
+    internal string DataRoot => _dataRoot;
     internal long ProcessStartedTimestamp { get; private init; }
     internal long ReadyTimestamp { get; private init; }
 

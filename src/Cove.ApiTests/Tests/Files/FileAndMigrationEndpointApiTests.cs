@@ -5,7 +5,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Files;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class FileAndMigrationEndpointApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -5,7 +5,6 @@ using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Tests.Entities.Relationships;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class GroupItemHostVisibilityApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

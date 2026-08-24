@@ -5,7 +5,6 @@ using Cove.Plugins;
 
 namespace Cove.ApiTests.Tests.Extensions;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class ExtensionLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

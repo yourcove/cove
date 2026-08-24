@@ -14,7 +14,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class ScrapeApplicationLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

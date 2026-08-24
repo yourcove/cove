@@ -9,7 +9,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Auth;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class RestrictedMediaVisibilityApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

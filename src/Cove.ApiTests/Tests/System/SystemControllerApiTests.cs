@@ -6,7 +6,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]

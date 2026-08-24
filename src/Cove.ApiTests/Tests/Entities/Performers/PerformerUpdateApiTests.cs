@@ -7,7 +7,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.Entities.Performers;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class PerformerUpdateApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -7,7 +7,6 @@ using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Tests.Entities.Studios;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class StudioUpdateApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

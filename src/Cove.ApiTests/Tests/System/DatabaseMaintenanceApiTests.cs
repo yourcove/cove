@@ -6,7 +6,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class DatabaseMaintenanceApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -5,7 +5,6 @@ using Cove.Plugins;
 
 namespace Cove.ApiTests.Tests.Auth;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class ExternalIdentityLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

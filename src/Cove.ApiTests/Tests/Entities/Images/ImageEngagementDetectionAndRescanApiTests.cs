@@ -14,7 +14,6 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace Cove.ApiTests.Tests.Entities.Images;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class ImageEngagementDetectionAndRescanApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -4,7 +4,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.Entities.Studios;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class StudioDeletionApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

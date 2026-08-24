@@ -6,7 +6,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Groups;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

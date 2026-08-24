@@ -9,7 +9,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class JobQueueControlApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

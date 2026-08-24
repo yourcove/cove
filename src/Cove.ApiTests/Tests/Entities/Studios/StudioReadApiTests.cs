@@ -3,7 +3,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.Entities.Studios;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class StudioReadApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

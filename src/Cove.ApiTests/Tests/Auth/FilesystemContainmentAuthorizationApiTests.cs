@@ -8,7 +8,6 @@ using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Tests.Auth;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class FilesystemContainmentAuthorizationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -4,7 +4,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Users;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class UsersAdministrationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -7,7 +7,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Images;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class ImageLifecycleQueryApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

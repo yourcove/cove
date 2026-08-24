@@ -10,7 +10,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Studios;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class StudioDiscoveryBulkAndMergeApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

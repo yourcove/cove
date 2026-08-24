@@ -12,7 +12,6 @@ using EntityKinds = Cove.Core.Entities.EntityKinds;
 
 namespace Cove.ApiTests.Tests.Stream;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class StreamDeliveryApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

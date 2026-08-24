@@ -7,7 +7,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Files;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class FileRevealApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

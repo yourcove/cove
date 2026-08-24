@@ -5,7 +5,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class VideoPerformerRelationshipApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

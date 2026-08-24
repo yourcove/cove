@@ -10,7 +10,6 @@ using System.Globalization;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class TagMetadataServiceApiTests(ITestOutputHelper output, CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]

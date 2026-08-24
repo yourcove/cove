@@ -7,7 +7,6 @@ using SixLabors.ImageSharp;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class VideoGenerationAndRescanApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -6,7 +6,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Auth;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class RoleAndContentRuleAdministrationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

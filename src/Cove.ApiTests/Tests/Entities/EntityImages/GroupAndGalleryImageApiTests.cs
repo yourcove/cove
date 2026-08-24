@@ -5,7 +5,6 @@ using System.Net.Http.Headers;
 
 namespace Cove.ApiTests.Tests.Entities.EntityImages;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class GroupAndGalleryImageApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

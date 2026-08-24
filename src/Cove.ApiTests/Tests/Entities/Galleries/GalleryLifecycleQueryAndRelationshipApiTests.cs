@@ -9,7 +9,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Galleries;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class GalleryLifecycleQueryAndRelationshipApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

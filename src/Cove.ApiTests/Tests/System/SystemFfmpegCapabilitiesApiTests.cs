@@ -3,7 +3,6 @@ using Cove.Core.Auth;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class SystemFfmpegCapabilitiesApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

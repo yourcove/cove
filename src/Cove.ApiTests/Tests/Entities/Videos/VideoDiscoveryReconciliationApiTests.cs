@@ -3,7 +3,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class VideoDiscoveryReconciliationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

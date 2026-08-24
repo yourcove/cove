@@ -5,7 +5,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class VideoLifecycleAndQueryApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

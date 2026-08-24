@@ -3,7 +3,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.Interactions;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class VideoEngagementLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

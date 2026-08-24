@@ -3,7 +3,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.Entities.Faces;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class FaceDeletionApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

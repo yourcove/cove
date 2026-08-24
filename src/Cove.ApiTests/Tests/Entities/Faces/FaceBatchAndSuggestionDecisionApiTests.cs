@@ -5,7 +5,6 @@ using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Tests.Entities.Faces;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class FaceBatchAndSuggestionDecisionApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

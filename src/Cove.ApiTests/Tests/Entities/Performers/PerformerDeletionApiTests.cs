@@ -4,7 +4,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.Entities.Performers;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class PerformerDeletionApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

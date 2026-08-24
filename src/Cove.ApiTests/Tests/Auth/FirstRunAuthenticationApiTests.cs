@@ -7,7 +7,7 @@ using Cove.ApiTests.Tests.Harness;
 
 namespace Cove.ApiTests.Tests.Auth;
 
-[Collection(ApiTestLaneHarnessCollection.Name)]
+[Collection(SelfHostedApiTestCollection.Name)]
 public sealed class FirstRunAuthenticationApiTests
 {
     [Fact]

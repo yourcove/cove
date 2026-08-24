@@ -4,7 +4,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class SystemConfigMutationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

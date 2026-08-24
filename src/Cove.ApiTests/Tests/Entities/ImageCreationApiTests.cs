@@ -7,7 +7,6 @@ using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Tests.Entities;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class ImageCreationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

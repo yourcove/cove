@@ -5,7 +5,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class MetadataReconciliationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

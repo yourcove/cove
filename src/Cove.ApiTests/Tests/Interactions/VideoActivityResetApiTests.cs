@@ -6,7 +6,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Interactions;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class VideoActivityResetApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

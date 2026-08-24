@@ -1,3 +1,5 @@
 using Xunit;
+using Cove.ApiTests.Infrastructure;
 
-[assembly: CollectionBehavior(MaxParallelThreads = 2)]
+[assembly: AssemblyFixture(typeof(CoveApiTestPool))]
+[assembly: CollectionBehavior(MaxParallelThreads = CoveApiTestPool.MaxParallelThreads, ParallelAlgorithm = Xunit.Sdk.ParallelAlgorithm.Conservative)]

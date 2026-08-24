@@ -4,7 +4,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class ConfigBackupRestoreApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

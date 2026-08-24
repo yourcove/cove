@@ -6,7 +6,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Filters;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class SavedFilterLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

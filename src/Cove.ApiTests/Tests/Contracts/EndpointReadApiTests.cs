@@ -3,7 +3,6 @@ using Cove.ApiTests.Infrastructure;
 
 namespace Cove.ApiTests.Tests.Contracts;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class EndpointReadApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -6,7 +6,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Extensions;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class LegacyPluginsApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

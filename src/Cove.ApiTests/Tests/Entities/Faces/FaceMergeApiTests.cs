@@ -5,7 +5,6 @@ using Cove.Core.Entities;
 
 namespace Cove.ApiTests.Tests.Entities.Faces;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class FaceMergeApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

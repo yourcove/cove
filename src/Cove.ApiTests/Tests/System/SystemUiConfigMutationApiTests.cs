@@ -6,7 +6,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class SystemUiConfigMutationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

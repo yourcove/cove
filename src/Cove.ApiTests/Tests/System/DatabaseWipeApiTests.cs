@@ -5,7 +5,6 @@ using AwesomeAssertions.Execution;
 
 namespace Cove.ApiTests.Tests.System;
 
-[Collection(DatabaseWipeApiTestCollection.Name)]
 public sealed class DatabaseWipeApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -43,6 +42,7 @@ public sealed class DatabaseWipeApiTests(
                 .Should().Be(retainedTextUntilWipe.Title);
 
             var wipeStartedAt = DateTime.UtcNow.AddSeconds(-1);
+            RetireApiInstanceAfterClass();
             var wiped = await AsUser().WipeDatabaseAsync(TestContext.Current.CancellationToken);
             wiped.Message.Should().Be("Database and config wiped successfully");
             wiped.BackupPath.Should().NotBeNullOrWhiteSpace();

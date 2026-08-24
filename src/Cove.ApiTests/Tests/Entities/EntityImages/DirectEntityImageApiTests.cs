@@ -4,7 +4,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.Entities.EntityImages;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class DirectEntityImageApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

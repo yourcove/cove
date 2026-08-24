@@ -3,7 +3,7 @@ using Cove.Core.Auth;
 
 namespace Cove.ApiTests.Infrastructure;
 
-public abstract class ApiTest : IAsyncLifetime
+public abstract class ApiTest : IAsyncLifetime, IClassFixture<CoveApiTestFixture>
 {
     private readonly ITestOutputHelper _output;
     private readonly CoveApiTestFixture _fixture;
@@ -82,6 +82,9 @@ public abstract class ApiTest : IAsyncLifetime
         IReadOnlyDictionary<int, IReadOnlyList<FaceSuggestionDto>> plan,
         CancellationToken cancellationToken = default)
         => _fixture.ConfigureFaceSuggestionPlanAsync(plan, cancellationToken);
+
+    protected void RetireApiInstanceAfterClass()
+        => _fixture.RetireAfterClass();
 
     public async ValueTask InitializeAsync()
     {

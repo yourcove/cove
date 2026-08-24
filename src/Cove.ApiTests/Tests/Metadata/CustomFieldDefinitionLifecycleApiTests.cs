@@ -5,7 +5,6 @@ using Cove.Core.DTOs;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class CustomFieldDefinitionLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

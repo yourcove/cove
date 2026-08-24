@@ -9,7 +9,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Texts;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class TextEngagementAndRescanApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

@@ -5,7 +5,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Audios;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class AudioLifecycleAndQueryApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

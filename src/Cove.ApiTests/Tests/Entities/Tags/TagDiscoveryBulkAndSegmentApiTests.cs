@@ -6,7 +6,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Tags;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class TagDiscoveryBulkAndSegmentApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)

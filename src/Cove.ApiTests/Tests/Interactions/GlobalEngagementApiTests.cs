@@ -8,7 +8,6 @@ using Cove.Core.Entities.Auth;
 
 namespace Cove.ApiTests.Tests.Interactions;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class GlobalEngagementApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
