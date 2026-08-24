@@ -20,7 +20,7 @@ public sealed class BlobReferenceSafetyTests
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-blob-reference-race-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         try
         {
@@ -46,25 +46,25 @@ public sealed class BlobReferenceSafetyTests
             await using (var seedScope = provider.CreateAsyncScope())
             {
                 var seed = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
-                await seed.Database.EnsureCreatedAsync();
+                await seed.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var performer = new Performer { Name = "target" };
                 seed.Performers.Add(performer);
-                await seed.SaveChangesAsync();
+                await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
                 performerId = performer.Id;
             }
 
             await using var payload = new MemoryStream([1, 2, 3, 4]);
-            var blobId = await blobService.StoreBlobAsync(payload, "image/png");
-            var deletion = blobService.DeleteBlobIfUnreferencedAsync(blobId);
+            var blobId = await blobService.StoreBlobAsync(payload, "image/png", TestContext.Current.CancellationToken);
+            var deletion = blobService.DeleteBlobIfUnreferencedAsync(blobId, TestContext.Current.CancellationToken);
             await counter.CountStarted.Task;
 
             await using var assignScope = provider.CreateAsyncScope();
             var assigningDb = assignScope.ServiceProvider.GetRequiredService<CoveContext>();
-            var target = await assigningDb.Performers.SingleAsync(item => item.Id == performerId);
+            var target = await assigningDb.Performers.SingleAsync(item => item.Id == performerId, cancellationToken: TestContext.Current.CancellationToken);
             target.ImageBlobId = blobId;
-            var assignment = assigningDb.SaveChangesAsync();
+            var assignment = assigningDb.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.False(assignment.IsCompleted);
 
             counter.AllowCountToFinish.SetResult();
@@ -72,10 +72,10 @@ public sealed class BlobReferenceSafetyTests
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => assignment);
 
             Assert.Contains(blobId, error.Message, StringComparison.Ordinal);
-            Assert.Null(await blobService.GetBlobAsync(blobId));
+            Assert.Null(await blobService.GetBlobAsync(blobId, TestContext.Current.CancellationToken));
             await using var verifyScope = provider.CreateAsyncScope();
             var verify = verifyScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Null((await verify.Performers.AsNoTracking().SingleAsync(item => item.Id == performerId)).ImageBlobId);
+            Assert.Null((await verify.Performers.AsNoTracking().SingleAsync(item => item.Id == performerId, cancellationToken: TestContext.Current.CancellationToken)).ImageBlobId);
         }
         finally
         {
@@ -90,7 +90,7 @@ public sealed class BlobReferenceSafetyTests
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-blob-reference-race-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         try
         {
@@ -114,39 +114,39 @@ public sealed class BlobReferenceSafetyTests
             await using (var seedScope = provider.CreateAsyncScope())
             {
                 var seed = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
-                await seed.Database.EnsureCreatedAsync();
+                await seed.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var performer = new Performer { Name = "target" };
                 seed.Performers.Add(performer);
-                await seed.SaveChangesAsync();
+                await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
                 performerId = performer.Id;
             }
 
             var blobService = provider.GetRequiredService<IBlobService>();
             await using var payload = new MemoryStream([1, 2, 3, 4]);
-            var blobId = await blobService.StoreBlobAsync(payload, "image/png");
+            var blobId = await blobService.StoreBlobAsync(payload, "image/png", TestContext.Current.CancellationToken);
 
             await using var assignScope = provider.CreateAsyncScope();
             var assigningDb = assignScope.ServiceProvider.GetRequiredService<CoveContext>();
-            var target = await assigningDb.Performers.SingleAsync(item => item.Id == performerId);
+            var target = await assigningDb.Performers.SingleAsync(item => item.Id == performerId, cancellationToken: TestContext.Current.CancellationToken);
             target.ImageBlobId = blobId;
             coordinator.HoldNextLeaseRelease();
-            var assignment = assigningDb.SaveChangesAsync();
+            var assignment = assigningDb.SaveChangesAsync(TestContext.Current.CancellationToken);
             await coordinator.ReleaseAttempted.Task;
 
-            var deletion = blobService.DeleteBlobIfUnreferencedAsync(blobId);
-            await Task.Delay(50);
+            var deletion = blobService.DeleteBlobIfUnreferencedAsync(blobId, TestContext.Current.CancellationToken);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.False(deletion.IsCompleted);
 
             coordinator.AllowRelease.SetResult();
             await assignment;
             await deletion;
 
-            var retained = await blobService.GetBlobAsync(blobId);
+            var retained = await blobService.GetBlobAsync(blobId, TestContext.Current.CancellationToken);
             Assert.NotNull(retained);
             await retained.Value.Stream.DisposeAsync();
             await using var verifyScope = provider.CreateAsyncScope();
             var verify = verifyScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal(blobId, (await verify.Performers.AsNoTracking().SingleAsync(item => item.Id == performerId)).ImageBlobId);
+            Assert.Equal(blobId, (await verify.Performers.AsNoTracking().SingleAsync(item => item.Id == performerId, cancellationToken: TestContext.Current.CancellationToken)).ImageBlobId);
         }
         finally
         {
@@ -161,7 +161,7 @@ public sealed class BlobReferenceSafetyTests
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-blob-reference-detached-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         try
         {
@@ -185,26 +185,26 @@ public sealed class BlobReferenceSafetyTests
             await using (var seedScope = provider.CreateAsyncScope())
             {
                 var seed = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
-                await seed.Database.EnsureCreatedAsync();
+                await seed.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 var performer = new Performer { Name = "target" };
                 seed.Performers.Add(performer);
-                await seed.SaveChangesAsync();
+                await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
                 performerId = performer.Id;
             }
 
             await using var payload = new MemoryStream([1, 2, 3, 4]);
-            var blobId = await blobService.StoreBlobAsync(payload, "image/png");
-            await blobService.DeleteBlobIfUnreferencedAsync(blobId);
+            var blobId = await blobService.StoreBlobAsync(payload, "image/png", TestContext.Current.CancellationToken);
+            await blobService.DeleteBlobIfUnreferencedAsync(blobId, TestContext.Current.CancellationToken);
 
             await using var updateScope = provider.CreateAsyncScope();
             var update = updateScope.ServiceProvider.GetRequiredService<CoveContext>();
             update.Update(new Performer { Id = performerId, Name = "target", ImageBlobId = blobId });
 
-            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => update.SaveChangesAsync());
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => update.SaveChangesAsync(TestContext.Current.CancellationToken));
             Assert.Contains(blobId, error.Message, StringComparison.Ordinal);
             await using var verifyScope = provider.CreateAsyncScope();
             var verify = verifyScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Null((await verify.Performers.AsNoTracking().SingleAsync(item => item.Id == performerId)).ImageBlobId);
+            Assert.Null((await verify.Performers.AsNoTracking().SingleAsync(item => item.Id == performerId, cancellationToken: TestContext.Current.CancellationToken)).ImageBlobId);
         }
         finally
         {
@@ -217,39 +217,39 @@ public sealed class BlobReferenceSafetyTests
     public async Task BlobReferenceChange_IsRejectedInsideAnExplicitTransaction()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var provider = CreateInterceptorProvider(connection);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var performer = new Performer { Name = "target" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await using var transaction = await context.Database.BeginTransactionAsync();
+        await using var transaction = await context.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
         performer.ImageBlobId = "11111111-1111-4111-8111-111111111111";
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync());
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync(TestContext.Current.CancellationToken));
         Assert.Contains("explicit, enlisted, or ambient", error.Message, StringComparison.Ordinal);
-        await transaction.RollbackAsync();
+        await transaction.RollbackAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
     public async Task BlobReferenceChange_IsRejectedInsideAnAmbientTransaction()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var provider = CreateInterceptorProvider(connection, useTestEnlistmentManager: true);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var performer = new Performer { Name = "target" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         performer.ImageBlobId = "11111111-1111-4111-8111-111111111111";
 
         using var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled);
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync());
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("explicit, enlisted, or ambient", error.Message, StringComparison.Ordinal);
     }
@@ -258,19 +258,19 @@ public sealed class BlobReferenceSafetyTests
     public async Task BlobReferenceChange_IsRejectedInsideAManuallyEnlistedTransaction()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var provider = CreateInterceptorProvider(connection, useTestEnlistmentManager: true);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var performer = new Performer { Name = "target" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         performer.ImageBlobId = "11111111-1111-4111-8111-111111111111";
 
         using var transaction = new CommittableTransaction();
         context.Database.EnlistTransaction(transaction);
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync());
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("explicit, enlisted, or ambient", error.Message, StringComparison.Ordinal);
         transaction.Rollback();
@@ -280,11 +280,11 @@ public sealed class BlobReferenceSafetyTests
     public async Task TransactionalTagMerge_TransfersArtworkWithTheProductionInterceptor()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var provider = CreateInterceptorProvider(connection);
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var target = new Tag { Name = "target", ImageBlobId = "target-artwork" };
         var source = new Tag
         {
@@ -293,13 +293,13 @@ public sealed class BlobReferenceSafetyTests
             ImageOverrideBlobId = "source-override-artwork",
         };
         context.Tags.AddRange(target, source);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await scope.ServiceProvider.GetRequiredService<TagMergeService>()
-            .MergeAsync(target.Id, [source.Id]);
+            .MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
         context.ChangeTracker.Clear();
-        var merged = await context.Tags.SingleAsync();
+        var merged = await context.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, merged.Id);
         Assert.Equal("target-artwork", merged.ImageBlobId);
         Assert.Equal("source-override-artwork", merged.ImageOverrideBlobId);
@@ -309,7 +309,7 @@ public sealed class BlobReferenceSafetyTests
     public async Task SaveChanges_CleansDetachedBlobOnlyAfterTheReferenceIsPersisted()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var coordinator = new BlobReferenceCoordinator();
         var deleted = new List<string>();
 
@@ -331,14 +331,14 @@ public sealed class BlobReferenceSafetyTests
 
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
         var video = new Video { Title = "covered", ImageBlobId = "existing-blob" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         Assert.Empty(deleted);
 
         video.ImageBlobId = null;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(["existing-blob"], deleted);
     }

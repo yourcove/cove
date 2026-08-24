@@ -19,7 +19,7 @@ public sealed class BulkDeleteEventTargetTests
         await using var db = CreateContext();
         var audio = new Audio { Title = "Audio" };
         db.Audios.Add(audio);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var controller = new AudiosController(db, new CustomFieldService(db), null!, null!, null!);
 
         var result = await controller.BulkDelete(new BatchDeleteDto([audio.Id, audio.Id, 999]), CancellationToken.None);
@@ -33,7 +33,7 @@ public sealed class BulkDeleteEventTargetTests
         await using var db = CreateContext();
         var image = new Image { Title = "Image" };
         db.Images.Add(image);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var controller = new ImagesController(
             new ImageRepository(db),
             db,
@@ -53,7 +53,7 @@ public sealed class BulkDeleteEventTargetTests
         await using var db = CreateContext();
         var text = new TextDocument { Title = "Text" };
         db.TextDocuments.Add(text);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var controller = new TextsController(db, new CustomFieldService(db), null!, null!, null!, null!);
 
         var result = await controller.BulkDelete(new BatchDeleteDto([text.Id, text.Id, 999]), CancellationToken.None);

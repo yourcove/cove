@@ -17,11 +17,11 @@ public class MediaProbeServiceTests
         try
         {
             var scriptPath = Path.Combine(tempRoot, "fake ffprobe");
-            await File.WriteAllTextAsync(scriptPath, "#!/bin/sh\nprintf '%s' '{\"streams\":[]}'\n");
+            await File.WriteAllTextAsync(scriptPath, "#!/bin/sh\nprintf '%s' '{\"streams\":[]}'\n", TestContext.Current.CancellationToken);
             File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             var service = CreateService(scriptPath, TimeSpan.FromSeconds(2));
 
-            var result = await service.ProbeAsync(Path.Combine(tempRoot, "media with spaces.mp4"));
+            var result = await service.ProbeAsync(Path.Combine(tempRoot, "media with spaces.mp4"), TestContext.Current.CancellationToken);
 
             Assert.Equal(MediaProbeStatus.Success, result.Status);
             Assert.Equal("{\"streams\":[]}", result.Json);
@@ -43,12 +43,12 @@ public class MediaProbeServiceTests
         try
         {
             var scriptPath = Path.Combine(tempRoot, "hanging-ffprobe");
-            await File.WriteAllTextAsync(scriptPath, "#!/bin/sh\nsleep 30\n");
+            await File.WriteAllTextAsync(scriptPath, "#!/bin/sh\nsleep 30\n", TestContext.Current.CancellationToken);
             File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             var service = CreateService(scriptPath, TimeSpan.FromMilliseconds(100));
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            var result = await service.ProbeAsync(Path.Combine(tempRoot, "media.mp4"));
+            var result = await service.ProbeAsync(Path.Combine(tempRoot, "media.mp4"), TestContext.Current.CancellationToken);
 
             Assert.Equal(MediaProbeStatus.TimedOut, result.Status);
             Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"Probe cleanup took {stopwatch.Elapsed}");

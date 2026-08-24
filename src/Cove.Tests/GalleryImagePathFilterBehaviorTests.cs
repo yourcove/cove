@@ -17,7 +17,7 @@ public class GalleryImagePathFilterBehaviorTests
             new Gallery { Title = "folder", Folder = new Folder { Path = @"C:\library\matching", ModTime = DateTime.UtcNow } },
             new Gallery { Title = "nested", Folder = new Folder { Path = @"C:\library\matching\nested", ModTime = DateTime.UtcNow } },
             new Gallery { Title = "prefix-only", Folder = new Folder { Path = @"C:\library\matching-other", ModTime = DateTime.UtcNow } });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new GalleryRepository(context);
         var filter = new GalleryFilter
@@ -29,7 +29,7 @@ public class GalleryImagePathFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["folder", "nested"], items.Select(gallery => gallery.Title ?? string.Empty).Order().ToArray());
@@ -43,7 +43,7 @@ public class GalleryImagePathFilterBehaviorTests
             CreateImageWithFile("direct", @"C:\library\matching", "direct.jpg"),
             CreateImageWithFile("nested", @"C:\library\matching\nested", "nested.jpg"),
             CreateImageWithFile("prefix-only", @"C:\library\matching-other", "other.jpg"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new ImageRepository(context);
         var filter = new ImageFilter
@@ -55,7 +55,7 @@ public class GalleryImagePathFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["direct", "nested"], items.Select(image => image.Title ?? string.Empty).Order().ToArray());
@@ -68,12 +68,10 @@ public class GalleryImagePathFilterBehaviorTests
         context.Images.AddRange(
             CreateImageWithFile("exact-case", "/library/Media", "exact.jpg"),
             CreateImageWithFile("different-case", "/library/media", "different.jpg"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new ImageRepository(context);
-        var (items, totalCount) = await repository.FindAsync(
-            new ImageFilter { PathCriterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath } },
-            new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(new ImageFilter { PathCriterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath } }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase ? 2 : 1, totalCount);
         Assert.Contains(items, image => image.Title == "exact-case");
@@ -87,7 +85,7 @@ public class GalleryImagePathFilterBehaviorTests
         context.Galleries.AddRange(
             CreateGalleryWithFile("match", folderPath: @"C:\library\matching", basename: "cover.jpg"),
             CreateGalleryWithFile("same-name-other-folder", folderPath: @"C:\library\other", basename: "cover.jpg"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new GalleryRepository(context);
         var filter = new GalleryFilter
@@ -99,7 +97,7 @@ public class GalleryImagePathFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["match"], items.Select(gallery => gallery.Title ?? string.Empty).ToArray());
@@ -113,42 +111,36 @@ public class GalleryImagePathFilterBehaviorTests
             CreateImageWithFile("regex-match", folderPath: @"C:\library\matching", basename: "still.jpg"),
             CreateImageWithFile("regex-miss", folderPath: @"C:\library\other", basename: "still.jpg"),
             new Image { Title = "missing-file" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new ImageRepository(context);
 
-        var (regexItems, regexCount) = await repository.FindAsync(
-            new ImageFilter
+        var (regexItems, regexCount) = await repository.FindAsync(new ImageFilter
             {
                 PathCriterion = new StringCriterion
                 {
                     Value = "matching/.+[.]jpg$",
                     Modifier = CriterionModifier.MatchesRegex,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (nullItems, nullCount) = await repository.FindAsync(
-            new ImageFilter
+        var (nullItems, nullCount) = await repository.FindAsync(new ImageFilter
             {
                 PathCriterion = new StringCriterion
                 {
                     Value = string.Empty,
                     Modifier = CriterionModifier.IsNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (notNullItems, notNullCount) = await repository.FindAsync(
-            new ImageFilter
+        var (notNullItems, notNullCount) = await repository.FindAsync(new ImageFilter
             {
                 PathCriterion = new StringCriterion
                 {
                     Value = string.Empty,
                     Modifier = CriterionModifier.NotNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, regexCount);
         Assert.Equal(["regex-match"], regexItems.Select(image => image.Title ?? string.Empty).ToArray());

@@ -31,7 +31,7 @@ public class JobServiceTests
                     return Task.CompletedTask;
                 });
 
-            var scope = await capturedScope.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var scope = await capturedScope.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.Equal(jobId, scope["JobId"]);
             Assert.Equal("scan", scope["JobType"]);
@@ -225,7 +225,7 @@ public class JobServiceTests
                     await Task.Delay(Timeout.Infinite, ct);
                 });
 
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.True(service.Cancel(jobId));
 
             var cancelled = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
@@ -279,14 +279,14 @@ public class JobServiceTests
                     }
                 });
 
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var drain = service.CancelAllAndWaitAsync();
-            await unwinding.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var drain = service.CancelAllAndWaitAsync(TestContext.Current.CancellationToken);
+            await unwinding.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.False(drain.IsCompleted);
 
             release.SetResult();
-            await drain.WaitAsync(TimeSpan.FromSeconds(5));
+            await drain.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.Empty(service.GetAllJobs());
             Assert.Empty(service.GetJobHistory());
