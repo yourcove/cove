@@ -29,13 +29,13 @@ public sealed class SavedFilterLifecycleApiTests(
             "  Night sky filter  ",
             findFilter,
             objectFilter,
-            uiOptions));
+            uiOptions), TestContext.Current.CancellationToken);
         var extensionFilter = await member.CreateSavedFilterAsync(new SavedFilterCreateDto(
             extensionModeInput,
             "  Extension view  ",
             "{\"sort\":\"title\",\"seed\":77}",
             "{\"extensionCriterion\":{\"enabled\":true}}",
-            "{\"panel\":\"extension\"}"));
+            "{\"panel\":\"extension\"}"), TestContext.Current.CancellationToken);
 
         created.Mode.Should().Be("videos");
         created.Name.Should().Be("Night sky filter");
@@ -46,11 +46,11 @@ public sealed class SavedFilterLifecycleApiTests(
         extensionFilter.Name.Should().Be("Extension view");
         JsonNode.Parse(extensionFilter.FindFilter!)!["seed"]!.GetValue<int>().Should().Be(77, "non-random sort seeds are preserved");
 
-        var fresh = await member.GetSavedFilterAsync(created.Id);
+        var fresh = await member.GetSavedFilterAsync(created.Id, TestContext.Current.CancellationToken);
         AssertFilterEquivalent(created, fresh);
-        (await member.GetSavedFiltersAsync()).Select(filter => filter.Id).Should().Equal(extensionFilter.Id, created.Id);
-        AssertFilterEquivalent(created, (await member.GetSavedFiltersAsync(" videos ")).Should().ContainSingle(filter => filter.Id == created.Id).Which);
-        AssertFilterEquivalent(extensionFilter, (await member.GetSavedFiltersAsync(extensionModeInput)).Should().ContainSingle(filter => filter.Id == extensionFilter.Id).Which);
+        (await member.GetSavedFiltersAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(filter => filter.Id).Should().Equal(extensionFilter.Id, created.Id);
+        AssertFilterEquivalent(created, (await member.GetSavedFiltersAsync(" videos ", TestContext.Current.CancellationToken)).Should().ContainSingle(filter => filter.Id == created.Id).Which);
+        AssertFilterEquivalent(extensionFilter, (await member.GetSavedFiltersAsync(extensionModeInput, TestContext.Current.CancellationToken)).Should().ContainSingle(filter => filter.Id == extensionFilter.Id).Which);
 
         const string replacementObjectFilter = "{\"or\":[{\"rating\":{\"min\":80}},{\"favorite\":true}]}";
         var updated = await member.UpdateSavedFilterAsync(created.Id, new SavedFilterUpdateDto(
@@ -58,7 +58,7 @@ public sealed class SavedFilterLifecycleApiTests(
             Name: "  Updated night sky  ",
             FindFilter: null,
             ObjectFilter: replacementObjectFilter,
-            UIOptions: null));
+            UIOptions: null), TestContext.Current.CancellationToken);
 
         updated.Id.Should().Be(created.Id);
         updated.Mode.Should().Be("images");
@@ -66,9 +66,9 @@ public sealed class SavedFilterLifecycleApiTests(
         JsonNode.DeepEquals(JsonNode.Parse(updated.FindFilter!), JsonNode.Parse(created.FindFilter!)).Should().BeTrue("a null partial-update field preserves persisted JSON");
         JsonNode.DeepEquals(JsonNode.Parse(updated.ObjectFilter!), JsonNode.Parse(replacementObjectFilter)).Should().BeTrue();
         JsonNode.DeepEquals(JsonNode.Parse(updated.UIOptions!), JsonNode.Parse(uiOptions)).Should().BeTrue();
-        AssertFilterEquivalent(updated, await member.GetSavedFilterAsync(created.Id));
-        (await member.GetSavedFiltersAsync("videos")).Should().NotContain(filter => filter.Id == created.Id);
-        AssertFilterEquivalent(updated, (await member.GetSavedFiltersAsync("images")).Should().ContainSingle(filter => filter.Id == created.Id).Which);
+        AssertFilterEquivalent(updated, await member.GetSavedFilterAsync(created.Id, TestContext.Current.CancellationToken));
+        (await member.GetSavedFiltersAsync("videos", TestContext.Current.CancellationToken)).Should().NotContain(filter => filter.Id == created.Id);
+        AssertFilterEquivalent(updated, (await member.GetSavedFiltersAsync("images", TestContext.Current.CancellationToken)).Should().ContainSingle(filter => filter.Id == created.Id).Which);
     }
 
     [Fact]
@@ -80,24 +80,24 @@ public sealed class SavedFilterLifecycleApiTests(
         var anthony = AsUser(ApiTestUsers.Anthony);
         var suffix = Guid.NewGuid().ToString("N");
         var sharedName = $"Shared filter {suffix}";
-        var evaFilter = await eva.CreateSavedFilterAsync(new SavedFilterCreateDto("videos", $"  {sharedName}  ", "{\"sort\":\"title\"}", "{\"eva\":true}", "{\"view\":\"list\"}"));
+        var evaFilter = await eva.CreateSavedFilterAsync(new SavedFilterCreateDto("videos", $"  {sharedName}  ", "{\"sort\":\"title\"}", "{\"eva\":true}", "{\"view\":\"list\"}"), TestContext.Current.CancellationToken);
 
         var duplicate = () => eva.CreateSavedFilterAsync(new SavedFilterCreateDto(" VIDEOS ", $" {sharedName.ToUpperInvariant()} ", null, null, null));
         await duplicate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 409 (Conflict)*");
-        AssertFilterEquivalent(evaFilter, (await eva.GetSavedFiltersAsync("videos")).Should().ContainSingle().Which);
+        AssertFilterEquivalent(evaFilter, (await eva.GetSavedFiltersAsync("videos", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
 
-        var anthonyFilter = await anthony.CreateSavedFilterAsync(new SavedFilterCreateDto("videos", $" {sharedName.ToUpperInvariant()} ", "{\"sort\":\"date\"}", "{\"anthony\":true}", "{\"view\":\"grid\"}"));
+        var anthonyFilter = await anthony.CreateSavedFilterAsync(new SavedFilterCreateDto("videos", $" {sharedName.ToUpperInvariant()} ", "{\"sort\":\"date\"}", "{\"anthony\":true}", "{\"view\":\"grid\"}"), TestContext.Current.CancellationToken);
         anthonyFilter.Name.Should().Be(sharedName.ToUpperInvariant());
-        AssertFilterEquivalent(anthonyFilter, (await anthony.GetSavedFiltersAsync("videos")).Should().ContainSingle().Which);
+        AssertFilterEquivalent(anthonyFilter, (await anthony.GetSavedFiltersAsync("videos", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
         await AssertNotFoundAsync(() => anthony.GetSavedFilterAsync(evaFilter.Id));
         await AssertNotFoundAsync(() => eva.GetSavedFilterAsync(anthonyFilter.Id));
         await AssertNotFoundAsync(() => anthony.UpdateSavedFilterAsync(evaFilter.Id, new SavedFilterUpdateDto(null, "Hijacked", null, null, null)));
         await AssertNotFoundAsync(() => anthony.DeleteSavedFilterAsync(evaFilter.Id));
-        AssertFilterEquivalent(evaFilter, await eva.GetSavedFilterAsync(evaFilter.Id));
+        AssertFilterEquivalent(evaFilter, await eva.GetSavedFilterAsync(evaFilter.Id, TestContext.Current.CancellationToken));
 
-        await eva.DeleteSavedFilterAsync(evaFilter.Id);
+        await eva.DeleteSavedFilterAsync(evaFilter.Id, TestContext.Current.CancellationToken);
         await AssertNotFoundAsync(() => eva.GetSavedFilterAsync(evaFilter.Id));
-        AssertFilterEquivalent(anthonyFilter, await anthony.GetSavedFilterAsync(anthonyFilter.Id));
+        AssertFilterEquivalent(anthonyFilter, await anthony.GetSavedFilterAsync(anthonyFilter.Id, TestContext.Current.CancellationToken));
 
         var invalidMode = () => eva.CreateSavedFilterAsync(new SavedFilterCreateDto("unknown-mode", "Invalid mode", null, null, null));
         var invalidName = () => eva.CreateSavedFilterAsync(new SavedFilterCreateDto("videos", "   ", null, null, null));
@@ -108,34 +108,34 @@ public sealed class SavedFilterLifecycleApiTests(
 
         var viewerUsername = $"filter-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "Saved filter viewer 123!";
-        var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Member]));
+        var viewerUser = await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, viewerPassword, Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
         SavedFilterDto seeded;
-        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword))
+        using (var memberSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken))
         {
             seeded = await memberSession.Client.CreateSavedFilterAsync(new SavedFilterCreateDto(
                 "audios",
                 "Viewer-owned filter",
                 "{\"sort\":\"title\"}",
                 "{\"organized\":true}",
-                "{\"view\":\"table\"}"));
+                "{\"view\":\"table\"}"), TestContext.Current.CancellationToken);
         }
-        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer]);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword);
+        _ = await owner.SetUserRolesAsync(viewerUser.Id, [BuiltinRoles.Viewer], TestContext.Current.CancellationToken);
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
         var viewer = viewerSession.Client;
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id));
+        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
 
         var forbiddenCreate = () => viewer.CreateSavedFilterAsync(new SavedFilterCreateDto("audios", "Forbidden create", null, null, null));
         await forbiddenCreate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id));
-        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios")).Should().ContainSingle().Which);
+        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
+        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
         var forbiddenUpdate = () => viewer.UpdateSavedFilterAsync(seeded.Id, new SavedFilterUpdateDto("images", "Forbidden update", "{}", "{}", "{}"));
         await forbiddenUpdate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id));
-        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios")).Should().ContainSingle().Which);
+        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
+        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
         var forbiddenDelete = () => viewer.DeleteSavedFilterAsync(seeded.Id);
         await forbiddenDelete.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id));
-        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios")).Should().ContainSingle().Which);
+        AssertFilterEquivalent(seeded, await viewer.GetSavedFilterAsync(seeded.Id, TestContext.Current.CancellationToken));
+        AssertFilterEquivalent(seeded, (await viewer.GetSavedFiltersAsync("audios", TestContext.Current.CancellationToken)).Should().ContainSingle().Which);
     }
 
     private static void AssertRandomSeedStripped(string? persisted, string input)

@@ -29,7 +29,7 @@ public sealed class EndpointReadApiTests(
         var expectedShape = ReadEndpointCatalog.Get(endpoint).ExpectedShape;
 
         // Act
-        var response = await AsUser().ReadEndpointAsync(endpoint);
+        var response = await AsUser().ReadEndpointAsync(endpoint, TestContext.Current.CancellationToken);
 
         // Assert
         response.ValueKind.Should().Be(

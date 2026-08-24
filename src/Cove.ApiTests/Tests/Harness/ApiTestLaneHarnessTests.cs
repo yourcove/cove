@@ -17,8 +17,8 @@ public sealed class ApiTestLaneHarnessTests
         // Arrange
         var starts = new[]
         {
-            CoveApiServer.StartAsync(),
-            CoveApiServer.StartAsync(),
+            CoveApiServer.StartAsync(TestContext.Current.CancellationToken),
+            CoveApiServer.StartAsync(TestContext.Current.CancellationToken),
         };
 
         // Act & Assert
