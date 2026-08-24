@@ -21,47 +21,39 @@ public sealed class AccessArtifactOwnershipApiTests(
     public async Task GivenScopedApiTokens_WhenCreatedDeniedAndRevoked_ThenSecretsPermissionsAuditsAndControlsAreExact()
     {
         var suffix = Guid.NewGuid().ToString("N");
-        var video = await AsUser().CreateVideoAsync($"API token target {suffix}");
+        var video = await AsUser().CreateVideoAsync($"API token target {suffix}", TestContext.Current.CancellationToken);
         var expiresAt = DateTime.UtcNow.AddHours(1);
         expiresAt = expiresAt.AddTicks(-(expiresAt.Ticks % TimeSpan.TicksPerSecond));
         var createdAfter = DateTime.UtcNow;
 
         using var memberClient = AsUser(ApiTestUsers.Eva).CreateHttpClient();
-        using var forbiddenCreate = await memberClient.PostAsJsonAsync(
-            "/api/apitokens",
-            new ApiTokensController.CreateApiTokenRequest(
+        using var forbiddenCreate = await memberClient.PostAsJsonAsync("/api/apitokens", new ApiTokensController.CreateApiTokenRequest(
                 $"Forbidden API token {suffix}",
                 [Permissions.VideosRead],
-                expiresAt));
+                expiresAt), cancellationToken: TestContext.Current.CancellationToken);
 
-        var target = await AsUser().CreateApiTokenAsync(
-            $"Target API token {suffix}",
-            [Permissions.VideosRead],
-            expiresAt);
-        var control = await AsUser().CreateApiTokenAsync(
-            $"Control API token {suffix}",
-            [Permissions.VideosRead],
-            expiresAt);
-        var listedBefore = await AsUser().GetApiTokensAsync();
+        var target = await AsUser().CreateApiTokenAsync($"Target API token {suffix}", [Permissions.VideosRead], expiresAt, TestContext.Current.CancellationToken);
+        var control = await AsUser().CreateApiTokenAsync($"Control API token {suffix}", [Permissions.VideosRead], expiresAt, TestContext.Current.CancellationToken);
+        var listedBefore = await AsUser().GetApiTokensAsync(TestContext.Current.CancellationToken);
         var targetBefore = await GetWithApiTokenAsync(target.PlaintextToken, $"/api/videos/{video.Id}");
         var targetOutsideScope = await GetWithApiTokenAsync(target.PlaintextToken, "/api/users");
         var controlBefore = await GetWithApiTokenAsync(control.PlaintextToken, $"/api/videos/{video.Id}");
 
-        using var forbiddenRevoke = await memberClient.DeleteAsync($"/api/apitokens/{target.Id:D}");
+        using var forbiddenRevoke = await memberClient.DeleteAsync($"/api/apitokens/{target.Id:D}", TestContext.Current.CancellationToken);
         var targetAfterForbidden = await GetWithApiTokenAsync(target.PlaintextToken, $"/api/videos/{video.Id}");
 
-        await AsUser().RevokeApiTokenAsync(target.Id);
-        await AsUser().RevokeApiTokenAsync(target.Id);
-        await AsUser().RevokeApiTokenAsync(Guid.NewGuid());
+        await AsUser().RevokeApiTokenAsync(target.Id, TestContext.Current.CancellationToken);
+        await AsUser().RevokeApiTokenAsync(target.Id, TestContext.Current.CancellationToken);
+        await AsUser().RevokeApiTokenAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
         await WaitForAuditAsync(AuditActions.ApiTokenCreate, target.Id);
         await WaitForAuditAsync(AuditActions.ApiTokenCreate, control.Id);
         await WaitForAuditAsync(AuditActions.ApiTokenRevoke, target.Id);
 
-        var listedAfter = await AsUser().GetApiTokensAsync();
+        var listedAfter = await AsUser().GetApiTokensAsync(TestContext.Current.CancellationToken);
         var targetAfterRevoke = await GetWithApiTokenAsync(target.PlaintextToken, $"/api/videos/{video.Id}");
         var controlAfterRevoke = await GetWithApiTokenAsync(control.PlaintextToken, $"/api/videos/{video.Id}");
-        var createAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ApiTokenCreate)).Items;
-        var revokeAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ApiTokenRevoke)).Items;
+        var createAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ApiTokenCreate, TestContext.Current.CancellationToken)).Items;
+        var revokeAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ApiTokenRevoke, TestContext.Current.CancellationToken)).Items;
 
         using var assertions = new AssertionScope();
         forbiddenCreate.StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -115,26 +107,20 @@ public sealed class AccessArtifactOwnershipApiTests(
         var role = await owner.CreateRoleAsync(new CreateRoleRequest(
             $"Scoped token entity grant role {suffix}",
             "Creates tokens and reads only explicitly granted entities.",
-            [Permissions.ApiTokensWrite]));
-        var video = await owner.CreateVideoAsync($"Scoped token entity grant target {suffix}");
+            [Permissions.ApiTokensWrite]), TestContext.Current.CancellationToken);
+        var video = await owner.CreateVideoAsync($"Scoped token entity grant target {suffix}", TestContext.Current.CancellationToken);
         await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             role.Id,
             EntityKinds.Video,
             video.Id.ToString(),
             "allow",
-            "read"));
+            "read"), TestContext.Current.CancellationToken);
         var username = $"scoped-token-entity-grant-{suffix}";
         const string password = "Scoped token entity grant password 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [role.Name]));
-        using var session = await owner.CreateAuthSessionAsync(username, password);
-        var inScope = await session.Client.CreateApiTokenAsync(
-            $"In-scope entity grant token {suffix}",
-            [Permissions.VideosRead],
-            DateTime.UtcNow.AddHours(1));
-        var outOfScope = await session.Client.CreateApiTokenAsync(
-            $"Out-of-scope entity grant token {suffix}",
-            [Permissions.ApiTokensWrite],
-            DateTime.UtcNow.AddHours(1));
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [role.Name]), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
+        var inScope = await session.Client.CreateApiTokenAsync($"In-scope entity grant token {suffix}", [Permissions.VideosRead], DateTime.UtcNow.AddHours(1), TestContext.Current.CancellationToken);
+        var outOfScope = await session.Client.CreateApiTokenAsync($"Out-of-scope entity grant token {suffix}", [Permissions.ApiTokensWrite], DateTime.UtcNow.AddHours(1), TestContext.Current.CancellationToken);
 
         var inScopeStatus = await GetWithApiTokenAsync(inScope.PlaintextToken, $"/api/videos/{video.Id}");
         var outOfScopeStatus = await GetWithApiTokenAsync(outOfScope.PlaintextToken, $"/api/videos/{video.Id}");
@@ -150,30 +136,28 @@ public sealed class AccessArtifactOwnershipApiTests(
     public async Task GivenShareLinks_WhenCreatedDeniedAndRevoked_ThenScopePasswordAuditsAndControlsAreExact()
     {
         var suffix = Guid.NewGuid().ToString("N");
-        var targetVideo = await AsUser().CreateVideoAsync($"Share link target {suffix}");
-        var controlVideo = await AsUser().CreateVideoAsync($"Share link control {suffix}");
-        var hiddenVideo = await AsUser().CreateVideoAsync($"Share link hidden {suffix}");
+        var targetVideo = await AsUser().CreateVideoAsync($"Share link target {suffix}", TestContext.Current.CancellationToken);
+        var controlVideo = await AsUser().CreateVideoAsync($"Share link control {suffix}", TestContext.Current.CancellationToken);
+        var hiddenVideo = await AsUser().CreateVideoAsync($"Share link hidden {suffix}", TestContext.Current.CancellationToken);
         var restrictedRole = await AsUser().CreateRoleAsync(new CreateRoleRequest(
             $"Restricted share creator {suffix}",
             "Creates share links only for readable videos.",
-            [Permissions.ShareLinksWrite, Permissions.VideosRead]));
+            [Permissions.ShareLinksWrite, Permissions.VideosRead]), TestContext.Current.CancellationToken);
         await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             restrictedRole.Id,
             EntityKinds.Video,
             hiddenVideo.Id.ToString(),
             "deny",
-            "read"));
+            "read"), TestContext.Current.CancellationToken);
         var restrictedUsername = $"restricted-share-creator-{suffix}";
         const string restrictedPassword = "Restricted share creator password 123!";
         await AsUser().CreateUserAsync(new CreateUserRequest(
             restrictedUsername,
             restrictedPassword,
-            Roles: [restrictedRole.Name]));
-        using var restrictedSession = await AsUser().CreateAuthSessionAsync(restrictedUsername, restrictedPassword);
+            Roles: [restrictedRole.Name]), TestContext.Current.CancellationToken);
+        using var restrictedSession = await AsUser().CreateAuthSessionAsync(restrictedUsername, restrictedPassword, TestContext.Current.CancellationToken);
         using var restrictedClient = restrictedSession.Client.CreateHttpClient();
-        using var deniedByScope = await restrictedClient.PostAsJsonAsync(
-            "/api/share-links",
-            new CreateShareLinkRequest(EntityKinds.Video, [hiddenVideo.Id.ToString()]));
+        using var deniedByScope = await restrictedClient.PostAsJsonAsync("/api/share-links", new CreateShareLinkRequest(EntityKinds.Video, [hiddenVideo.Id.ToString()]), cancellationToken: TestContext.Current.CancellationToken);
 
         var expiresAt = DateTime.UtcNow.AddHours(1);
         expiresAt = expiresAt.AddTicks(-(expiresAt.Ticks % TimeSpan.TicksPerSecond));
@@ -182,17 +166,15 @@ public sealed class AccessArtifactOwnershipApiTests(
             " VIDEO ",
             [$" {targetVideo.Id} ", targetVideo.Id.ToString(), " "],
             expiresAt,
-            sharePassword));
+            sharePassword), TestContext.Current.CancellationToken);
         var control = await AsUser().CreateShareLinkAsync(new CreateShareLinkRequest(
             EntityKinds.Video,
-            [controlVideo.Id.ToString()]));
-        var listedBefore = await AsUser().GetShareLinksAsync();
+            [controlVideo.Id.ToString()]), TestContext.Current.CancellationToken);
+        var listedBefore = await AsUser().GetShareLinksAsync(TestContext.Current.CancellationToken);
 
         using var memberClient = AsUser(ApiTestUsers.Eva).CreateHttpClient();
-        using var forbiddenCreate = await memberClient.PostAsJsonAsync(
-            "/api/share-links",
-            new CreateShareLinkRequest(EntityKinds.Video, [controlVideo.Id.ToString()]));
-        using var forbiddenRevoke = await memberClient.DeleteAsync($"/api/share-links/{target.Id:D}");
+        using var forbiddenCreate = await memberClient.PostAsJsonAsync("/api/share-links", new CreateShareLinkRequest(EntityKinds.Video, [controlVideo.Id.ToString()]), cancellationToken: TestContext.Current.CancellationToken);
+        using var forbiddenRevoke = await memberClient.DeleteAsync($"/api/share-links/{target.Id:D}", TestContext.Current.CancellationToken);
 
         var missingPassword = await GetWithShareLinkAsync(target.PlaintextToken, targetVideo.Id);
         var wrongPassword = await GetWithShareLinkAsync(target.PlaintextToken, targetVideo.Id, "wrong password");
@@ -200,22 +182,22 @@ public sealed class AccessArtifactOwnershipApiTests(
         var unrelatedBefore = await GetWithShareLinkAsync(target.PlaintextToken, controlVideo.Id, sharePassword);
         var controlBefore = await GetWithShareLinkAsync(control.PlaintextToken, controlVideo.Id);
 
-        await AsUser().RevokeShareLinkAsync(target.Id);
-        await AsUser().RevokeShareLinkAsync(target.Id);
-        await AsUser().RevokeShareLinkAsync(Guid.NewGuid());
+        await AsUser().RevokeShareLinkAsync(target.Id, TestContext.Current.CancellationToken);
+        await AsUser().RevokeShareLinkAsync(target.Id, TestContext.Current.CancellationToken);
+        await AsUser().RevokeShareLinkAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
         await WaitForAuditAsync(AuditActions.ShareLinkCreate, target.Id);
         await WaitForAuditAsync(AuditActions.ShareLinkCreate, control.Id);
         await WaitForAuditAsync(AuditActions.ShareLinkRevoke, target.Id);
 
-        var listedAfter = await AsUser().GetShareLinksAsync();
+        var listedAfter = await AsUser().GetShareLinksAsync(TestContext.Current.CancellationToken);
         var targetAfter = await GetWithShareLinkAsync(target.PlaintextToken, targetVideo.Id, sharePassword);
         var controlAfter = await GetWithShareLinkAsync(control.PlaintextToken, controlVideo.Id);
-        var createAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ShareLinkCreate)).Items;
-        var revokeAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ShareLinkRevoke)).Items;
+        var createAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ShareLinkCreate, TestContext.Current.CancellationToken)).Items;
+        var revokeAudits = (await AsUser().GetAuditEventsAsync(AuditActions.ShareLinkRevoke, TestContext.Current.CancellationToken)).Items;
 
         using var assertions = new AssertionScope();
         deniedByScope.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await restrictedSession.Client.GetShareLinksAsync()).Should().BeEmpty();
+        (await restrictedSession.Client.GetShareLinksAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
         target.Id.Should().NotBeEmpty();
         Regex.IsMatch(target.PlaintextToken, $"^cove_share_{target.Id:N}_[A-Za-z0-9_-]+$").Should().BeTrue();
         target.EntityKind.Should().Be(EntityKinds.Video);
@@ -271,7 +253,7 @@ public sealed class AccessArtifactOwnershipApiTests(
         await AsUser().CreateRoleAsync(new CreateRoleRequest(
             roleName,
             "Manages only its own API tokens and share links.",
-            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.VideosRead]));
+            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.VideosRead]), TestContext.Current.CancellationToken);
         var victimUsername = $"access-artifact-victim-{suffix}";
         var limitedUsername = $"access-artifact-attacker-{suffix}";
         const string victimPassword = "Access artifact victim password 123!";
@@ -279,42 +261,35 @@ public sealed class AccessArtifactOwnershipApiTests(
         await AsUser().CreateUserAsync(new CreateUserRequest(
             victimUsername,
             victimPassword,
-            Roles: [roleName]));
+            Roles: [roleName]), TestContext.Current.CancellationToken);
         await AsUser().CreateUserAsync(new CreateUserRequest(
             limitedUsername,
             limitedPassword,
-            Roles: [roleName]));
-        using var victimSession = await AsUser().CreateAuthSessionAsync(victimUsername, victimPassword);
-        using var limitedSession = await AsUser().CreateAuthSessionAsync(limitedUsername, limitedPassword);
-        var video = await AsUser().CreateVideoAsync($"Access artifact target {suffix}");
-        var apiToken = await victimSession.Client.CreateApiTokenAsync(
-            $"Victim API token {suffix}",
-            [Permissions.VideosRead],
-            DateTime.UtcNow.AddHours(1));
+            Roles: [roleName]), TestContext.Current.CancellationToken);
+        using var victimSession = await AsUser().CreateAuthSessionAsync(victimUsername, victimPassword, TestContext.Current.CancellationToken);
+        using var limitedSession = await AsUser().CreateAuthSessionAsync(limitedUsername, limitedPassword, TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync($"Access artifact target {suffix}", TestContext.Current.CancellationToken);
+        var apiToken = await victimSession.Client.CreateApiTokenAsync($"Victim API token {suffix}", [Permissions.VideosRead], DateTime.UtcNow.AddHours(1), TestContext.Current.CancellationToken);
         var shareLink = await victimSession.Client.CreateShareLinkAsync(new CreateShareLinkRequest(
             EntityKinds.Video,
-            [video.Id.ToString()]));
+            [video.Id.ToString()]), TestContext.Current.CancellationToken);
 
         using var apiTokenClient = new HttpClient { BaseAddress = ApiUri };
         apiTokenClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiToken.PlaintextToken);
-        using var apiTokenBefore = await apiTokenClient.GetAsync(
-            $"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
+        using var apiTokenBefore = await apiTokenClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         using var shareLinkClient = new HttpClient { BaseAddress = ApiUri };
         shareLinkClient.DefaultRequestHeaders.Add("X-Share-Token", shareLink.PlaintextToken);
-        using var shareLinkBefore = await shareLinkClient.GetAsync(
-            $"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
-        (await limitedSession.Client.GetApiTokensAsync()).Should().BeEmpty();
-        (await limitedSession.Client.GetShareLinksAsync()).Should().BeEmpty();
+        using var shareLinkBefore = await shareLinkClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        (await limitedSession.Client.GetApiTokensAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await limitedSession.Client.GetShareLinksAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
 
-        await limitedSession.Client.RevokeApiTokenAsync(apiToken.Id);
-        await limitedSession.Client.RevokeShareLinkAsync(shareLink.Id);
+        await limitedSession.Client.RevokeApiTokenAsync(apiToken.Id, TestContext.Current.CancellationToken);
+        await limitedSession.Client.RevokeShareLinkAsync(shareLink.Id, TestContext.Current.CancellationToken);
 
-        using var apiTokenAfter = await apiTokenClient.GetAsync(
-            $"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
-        using var shareLinkAfter = await shareLinkClient.GetAsync(
-            $"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
-        var victimTokens = await victimSession.Client.GetApiTokensAsync();
-        var victimShareLinks = await victimSession.Client.GetShareLinksAsync();
+        using var apiTokenAfter = await apiTokenClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        using var shareLinkAfter = await shareLinkClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var victimTokens = await victimSession.Client.GetApiTokensAsync(TestContext.Current.CancellationToken);
+        var victimShareLinks = await victimSession.Client.GetShareLinksAsync(TestContext.Current.CancellationToken);
 
         using var assertions = new AssertionScope();
         apiTokenBefore.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -334,49 +309,46 @@ public sealed class AccessArtifactOwnershipApiTests(
         await administrator.CreateRoleAsync(new CreateRoleRequest(
             creatorRole,
             "Creates and revokes its own access artifacts.",
-            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.VideosRead]));
+            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.VideosRead]), TestContext.Current.CancellationToken);
         var creatorUsername = $"access-artifact-creator-{suffix}";
         const string creatorPassword = "Access artifact creator password 123!";
         await administrator.CreateUserAsync(new CreateUserRequest(
             creatorUsername,
             creatorPassword,
-            Roles: [creatorRole]));
-        using var creatorSession = await administrator.CreateAuthSessionAsync(creatorUsername, creatorPassword);
+            Roles: [creatorRole]), TestContext.Current.CancellationToken);
+        using var creatorSession = await administrator.CreateAuthSessionAsync(creatorUsername, creatorPassword, TestContext.Current.CancellationToken);
         var creator = creatorSession.Client;
-        var video = await administrator.CreateVideoAsync($"Owned artifact target {suffix}");
-        var apiToken = await creator.CreateApiTokenAsync(
-            $"Owned API token {suffix}",
-            [Permissions.VideosRead],
-            DateTime.UtcNow.AddHours(1));
+        var video = await administrator.CreateVideoAsync($"Owned artifact target {suffix}", TestContext.Current.CancellationToken);
+        var apiToken = await creator.CreateApiTokenAsync($"Owned API token {suffix}", [Permissions.VideosRead], DateTime.UtcNow.AddHours(1), TestContext.Current.CancellationToken);
         var shareLink = await creator.CreateShareLinkAsync(new CreateShareLinkRequest(
             EntityKinds.Video,
-            [video.Id.ToString()]));
+            [video.Id.ToString()]), TestContext.Current.CancellationToken);
         var missingApiTokenId = Guid.NewGuid();
         var missingShareLinkId = Guid.NewGuid();
 
-        await creator.RevokeApiTokenAsync(apiToken.Id);
-        await creator.RevokeApiTokenAsync(apiToken.Id);
-        await creator.RevokeApiTokenAsync(missingApiTokenId);
-        await creator.RevokeShareLinkAsync(shareLink.Id);
-        await creator.RevokeShareLinkAsync(shareLink.Id);
-        await creator.RevokeShareLinkAsync(missingShareLinkId);
+        await creator.RevokeApiTokenAsync(apiToken.Id, TestContext.Current.CancellationToken);
+        await creator.RevokeApiTokenAsync(apiToken.Id, TestContext.Current.CancellationToken);
+        await creator.RevokeApiTokenAsync(missingApiTokenId, TestContext.Current.CancellationToken);
+        await creator.RevokeShareLinkAsync(shareLink.Id, TestContext.Current.CancellationToken);
+        await creator.RevokeShareLinkAsync(shareLink.Id, TestContext.Current.CancellationToken);
+        await creator.RevokeShareLinkAsync(missingShareLinkId, TestContext.Current.CancellationToken);
         await WaitForAuditAsync(AuditActions.ApiTokenRevoke, apiToken.Id);
         await WaitForAuditAsync(AuditActions.ShareLinkRevoke, shareLink.Id);
 
         using var apiTokenClient = new HttpClient { BaseAddress = ApiUri };
         apiTokenClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiToken.PlaintextToken);
-        using var apiTokenAfter = await apiTokenClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
+        using var apiTokenAfter = await apiTokenClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         using var shareLinkClient = new HttpClient { BaseAddress = ApiUri };
         shareLinkClient.DefaultRequestHeaders.Add("X-Share-Token", shareLink.PlaintextToken);
-        using var shareLinkAfter = await shareLinkClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
-        var tokenAudits = await administrator.GetAuditEventsAsync(AuditActions.ApiTokenRevoke);
-        var shareAudits = await administrator.GetAuditEventsAsync(AuditActions.ShareLinkRevoke);
+        using var shareLinkAfter = await shareLinkClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tokenAudits = await administrator.GetAuditEventsAsync(AuditActions.ApiTokenRevoke, TestContext.Current.CancellationToken);
+        var shareAudits = await administrator.GetAuditEventsAsync(AuditActions.ShareLinkRevoke, TestContext.Current.CancellationToken);
 
         using var assertions = new AssertionScope();
         apiTokenAfter.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         shareLinkAfter.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await creator.GetApiTokensAsync()).Should().NotContain(token => token.Id == apiToken.Id);
-        (await creator.GetShareLinksAsync()).Should().ContainSingle(link => link.Id == shareLink.Id && link.Revoked);
+        (await creator.GetApiTokensAsync(TestContext.Current.CancellationToken)).Should().NotContain(token => token.Id == apiToken.Id);
+        (await creator.GetShareLinksAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(link => link.Id == shareLink.Id && link.Revoked);
         tokenAudits.Items.Should().ContainSingle(item => item.TargetId == apiToken.Id.ToString() && item.ActorUsername == creatorUsername && item.Outcome == AuditOutcomes.Success);
         tokenAudits.Items.Should().NotContain(item => item.TargetId == missingApiTokenId.ToString());
         shareAudits.Items.Should().ContainSingle(item => item.TargetId == shareLink.Id.ToString() && item.ActorUsername == creatorUsername && item.Outcome == AuditOutcomes.Success);
@@ -393,44 +365,41 @@ public sealed class AccessArtifactOwnershipApiTests(
         await owner.CreateRoleAsync(new CreateRoleRequest(
             victimRole,
             "Creates access artifacts.",
-            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.VideosRead]));
+            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.VideosRead]), TestContext.Current.CancellationToken);
         await owner.CreateRoleAsync(new CreateRoleRequest(
             administratorRole,
             "Administers users and share links.",
-            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.UsersRead, Permissions.VideosRead]));
+            [Permissions.ApiTokensWrite, Permissions.ShareLinksWrite, Permissions.UsersRead, Permissions.VideosRead]), TestContext.Current.CancellationToken);
         var victimUsername = $"access-artifact-admin-victim-{suffix}";
         var administratorUsername = $"access-artifact-administrator-{suffix}";
         const string password = "Access artifact administration password 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(victimUsername, password, Roles: [victimRole]));
-        await owner.CreateUserAsync(new CreateUserRequest(administratorUsername, password, Roles: [administratorRole]));
-        using var victimSession = await owner.CreateAuthSessionAsync(victimUsername, password);
-        using var administratorSession = await owner.CreateAuthSessionAsync(administratorUsername, password);
-        var video = await owner.CreateVideoAsync($"Administrative artifact target {suffix}");
-        var apiToken = await victimSession.Client.CreateApiTokenAsync(
-            $"Administrative API token {suffix}",
-            [Permissions.VideosRead],
-            DateTime.UtcNow.AddHours(1));
+        await owner.CreateUserAsync(new CreateUserRequest(victimUsername, password, Roles: [victimRole]), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(administratorUsername, password, Roles: [administratorRole]), TestContext.Current.CancellationToken);
+        using var victimSession = await owner.CreateAuthSessionAsync(victimUsername, password, TestContext.Current.CancellationToken);
+        using var administratorSession = await owner.CreateAuthSessionAsync(administratorUsername, password, TestContext.Current.CancellationToken);
+        var video = await owner.CreateVideoAsync($"Administrative artifact target {suffix}", TestContext.Current.CancellationToken);
+        var apiToken = await victimSession.Client.CreateApiTokenAsync($"Administrative API token {suffix}", [Permissions.VideosRead], DateTime.UtcNow.AddHours(1), TestContext.Current.CancellationToken);
         var shareLink = await victimSession.Client.CreateShareLinkAsync(new CreateShareLinkRequest(
             EntityKinds.Video,
-            [video.Id.ToString()]));
+            [video.Id.ToString()]), TestContext.Current.CancellationToken);
 
-        await administratorSession.Client.RevokeApiTokenAsync(apiToken.Id);
-        await administratorSession.Client.RevokeShareLinkAsync(shareLink.Id);
+        await administratorSession.Client.RevokeApiTokenAsync(apiToken.Id, TestContext.Current.CancellationToken);
+        await administratorSession.Client.RevokeShareLinkAsync(shareLink.Id, TestContext.Current.CancellationToken);
         var shareAudit = await WaitForAuditAsync(AuditActions.ShareLinkRevoke, shareLink.Id);
 
         using var apiTokenClient = new HttpClient { BaseAddress = ApiUri };
         apiTokenClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiToken.PlaintextToken);
-        using var apiTokenAfter = await apiTokenClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
+        using var apiTokenAfter = await apiTokenClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         using var shareLinkClient = new HttpClient { BaseAddress = ApiUri };
         shareLinkClient.DefaultRequestHeaders.Add("X-Share-Token", shareLink.PlaintextToken);
-        using var shareLinkAfter = await shareLinkClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}");
-        var tokenAudits = await owner.GetAuditEventsAsync(AuditActions.ApiTokenRevoke);
+        using var shareLinkAfter = await shareLinkClient.GetAsync($"/api/videos/{video.Id}?apiTestNonce={Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tokenAudits = await owner.GetAuditEventsAsync(AuditActions.ApiTokenRevoke, TestContext.Current.CancellationToken);
 
         using var assertions = new AssertionScope();
         apiTokenAfter.StatusCode.Should().Be(HttpStatusCode.OK);
         shareLinkAfter.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await victimSession.Client.GetApiTokensAsync()).Should().ContainSingle(token => token.Id == apiToken.Id);
-        (await administratorSession.Client.GetShareLinksAsync()).Should().ContainSingle(link => link.Id == shareLink.Id && link.Revoked);
+        (await victimSession.Client.GetApiTokensAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(token => token.Id == apiToken.Id);
+        (await administratorSession.Client.GetShareLinksAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(link => link.Id == shareLink.Id && link.Revoked);
         tokenAudits.Items.Should().NotContain(item => item.TargetId == apiToken.Id.ToString());
         shareAudit.ActorUsername.Should().Be(administratorUsername);
         shareAudit.Outcome.Should().Be(AuditOutcomes.Success);

@@ -18,36 +18,36 @@ public sealed class ScopedMutationAuthorizationApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var hiddenTag = await owner.CreateTagAsync($"Mutation hidden tag {suffix}");
-        var deleteOnlyTag = await owner.CreateTagAsync($"Mutation delete-only tag {suffix}");
+        var hiddenTag = await owner.CreateTagAsync($"Mutation hidden tag {suffix}", TestContext.Current.CancellationToken);
+        var deleteOnlyTag = await owner.CreateTagAsync($"Mutation delete-only tag {suffix}", TestContext.Current.CancellationToken);
 
-        var visibleVideo = await owner.CreateVideoAsync($"Mutation visible video {suffix}");
+        var visibleVideo = await owner.CreateVideoAsync($"Mutation visible video {suffix}", TestContext.Current.CancellationToken);
         var hiddenVideo = await owner.CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Mutation hidden video {suffix}")
             .WithTags([hiddenTag])
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var deleteDeniedMergeSource = await owner.CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Mutation delete-denied merge source {suffix}")
             .WithTags([deleteOnlyTag])
-            .Build());
-        var disposableVisibleVideo = await owner.CreateVideoAsync($"Mutation disposable visible video {suffix}");
-        var visibleImage = await owner.CreateImageAsync($"Mutation visible image {suffix}");
+            .Build(), TestContext.Current.CancellationToken);
+        var disposableVisibleVideo = await owner.CreateVideoAsync($"Mutation disposable visible video {suffix}", TestContext.Current.CancellationToken);
+        var visibleImage = await owner.CreateImageAsync($"Mutation visible image {suffix}", TestContext.Current.CancellationToken);
         var hiddenImage = await owner.CreateImageAsync(new ImageBuilder()
             .WithTitle($"Mutation hidden image {suffix}")
             .WithTag(hiddenTag)
-            .Build());
-        var visibleAudio = await owner.CreateAudioAsync($"Mutation visible audio {suffix}");
-        var hiddenAudio = await owner.CreateAudioAsync($"Mutation hidden audio {suffix}");
-        var visibleText = await owner.CreateTextAsync($"Mutation visible text {suffix}");
-        var hiddenText = await owner.CreateTextAsync($"Mutation hidden text {suffix}");
-        var visibleGallery = await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"Mutation visible gallery {suffix}").Build());
-        var hiddenGallery = await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"Mutation hidden gallery {suffix}").WithTag(hiddenTag).Build());
-        var visibleGroup = await owner.CreateGroupAsync($"Mutation visible group {suffix}");
-        var hiddenGroup = await owner.CreateGroupAsync($"Mutation hidden group {suffix}");
+            .Build(), TestContext.Current.CancellationToken);
+        var visibleAudio = await owner.CreateAudioAsync($"Mutation visible audio {suffix}", TestContext.Current.CancellationToken);
+        var hiddenAudio = await owner.CreateAudioAsync($"Mutation hidden audio {suffix}", TestContext.Current.CancellationToken);
+        var visibleText = await owner.CreateTextAsync($"Mutation visible text {suffix}", TestContext.Current.CancellationToken);
+        var hiddenText = await owner.CreateTextAsync($"Mutation hidden text {suffix}", TestContext.Current.CancellationToken);
+        var visibleGallery = await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"Mutation visible gallery {suffix}").Build(), TestContext.Current.CancellationToken);
+        var hiddenGallery = await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"Mutation hidden gallery {suffix}").WithTag(hiddenTag).Build(), TestContext.Current.CancellationToken);
+        var visibleGroup = await owner.CreateGroupAsync($"Mutation visible group {suffix}", TestContext.Current.CancellationToken);
+        var hiddenGroup = await owner.CreateGroupAsync($"Mutation hidden group {suffix}", TestContext.Current.CancellationToken);
 
-        await owner.AssertResponseAsync(HttpMethod.Put, $"/api/audios/{hiddenAudio.Id}", payload: new { tagIds = new[] { hiddenTag.Id } });
-        await owner.AssertResponseAsync(HttpMethod.Put, $"/api/texts/{hiddenText.Id}", payload: new { tagIds = new[] { hiddenTag.Id } });
-        await owner.AssertResponseAsync(HttpMethod.Put, $"/api/groups/{hiddenGroup.Id}", payload: new { tagIds = new[] { hiddenTag.Id } });
+        await owner.AssertResponseAsync(HttpMethod.Put, $"/api/audios/{hiddenAudio.Id}", payload: new { tagIds = new[] { hiddenTag.Id } }, cancellationToken: TestContext.Current.CancellationToken);
+        await owner.AssertResponseAsync(HttpMethod.Put, $"/api/texts/{hiddenText.Id}", payload: new { tagIds = new[] { hiddenTag.Id } }, cancellationToken: TestContext.Current.CancellationToken);
+        await owner.AssertResponseAsync(HttpMethod.Put, $"/api/groups/{hiddenGroup.Id}", payload: new { tagIds = new[] { hiddenTag.Id } }, cancellationToken: TestContext.Current.CancellationToken);
 
         var roleName = $"Scoped mutator {suffix}";
         var role = await owner.CreateRoleAsync(new CreateRoleRequest(
@@ -62,7 +62,7 @@ public sealed class ScopedMutationAuthorizationApiTests(
                 Permissions.GroupsRead, Permissions.GroupsWrite, Permissions.GroupsDelete,
                 Permissions.LibraryScan, Permissions.LibraryIdentify, Permissions.LibraryClean,
                 Permissions.JobsRead, Permissions.JobsRun,
-            ]));
+            ]), TestContext.Current.CancellationToken);
         foreach (var entityKind in new[]
                  {
                      EntityKinds.Video, EntityKinds.Image, EntityKinds.Audio,
@@ -70,48 +70,43 @@ public sealed class ScopedMutationAuthorizationApiTests(
                  })
         {
             await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
-                role.Id, entityKind, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "write"));
+                role.Id, entityKind, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "write"), TestContext.Current.CancellationToken);
             await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
-                role.Id, entityKind, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "delete"));
+                role.Id, entityKind, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "delete"), TestContext.Current.CancellationToken);
         }
         await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
-            role.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{deleteOnlyTag.Id}}}", "delete"));
+            role.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{deleteOnlyTag.Id}}}", "delete"), TestContext.Current.CancellationToken);
 
         var username = $"scoped-mutator-{suffix}";
         const string password = "Scoped mutation password 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]));
-        using var session = await owner.CreateAuthSessionAsync(username, password);
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
         var user = session.Client;
 
-        (await user.GetVideoByIdAsync(hiddenVideo.Id)).Id.Should().Be(hiddenVideo.Id);
-        (await user.GetImageByIdAsync(hiddenImage.Id)).Id.Should().Be(hiddenImage.Id);
-        (await user.GetAudioByIdAsync(hiddenAudio.Id)).Id.Should().Be(hiddenAudio.Id);
-        (await user.GetTextByIdAsync(hiddenText.Id)).Id.Should().Be(hiddenText.Id);
-        (await user.GetGalleryByIdAsync(hiddenGallery.Id)).Id.Should().Be(hiddenGallery.Id);
-        (await user.GetGroupByIdAsync(hiddenGroup.Id)).Id.Should().Be(hiddenGroup.Id);
+        (await user.GetVideoByIdAsync(hiddenVideo.Id, TestContext.Current.CancellationToken)).Id.Should().Be(hiddenVideo.Id);
+        (await user.GetImageByIdAsync(hiddenImage.Id, TestContext.Current.CancellationToken)).Id.Should().Be(hiddenImage.Id);
+        (await user.GetAudioByIdAsync(hiddenAudio.Id, TestContext.Current.CancellationToken)).Id.Should().Be(hiddenAudio.Id);
+        (await user.GetTextByIdAsync(hiddenText.Id, TestContext.Current.CancellationToken)).Id.Should().Be(hiddenText.Id);
+        (await user.GetGalleryByIdAsync(hiddenGallery.Id, TestContext.Current.CancellationToken)).Id.Should().Be(hiddenGallery.Id);
+        (await user.GetGroupByIdAsync(hiddenGroup.Id, TestContext.Current.CancellationToken)).Id.Should().Be(hiddenGroup.Id);
 
         const string allowedVisibleTitle = "allowed scoped mutation";
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/videos/{visibleVideo.Id}",
-            payload: new { title = allowedVisibleTitle });
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/videos/{deleteDeniedMergeSource.Id}",
-            payload: new { title = "allowed write despite delete deny" });
-        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/videos/{disposableVisibleVideo.Id}",
-            HttpStatusCode.NoContent);
-        await owner.AssertResponseAsync($"/api/videos/{disposableVisibleVideo.Id}", HttpStatusCode.NotFound);
-        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{visibleVideo.Id}/rescan",
-            HttpStatusCode.BadRequest);
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/videos/{visibleVideo.Id}", payload: new { title = allowedVisibleTitle }, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/videos/{deleteDeniedMergeSource.Id}", payload: new { title = "allowed write despite delete deny" }, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/videos/{disposableVisibleVideo.Id}", HttpStatusCode.NoContent, cancellationToken: TestContext.Current.CancellationToken);
+        await owner.AssertResponseAsync($"/api/videos/{disposableVisibleVideo.Id}", HttpStatusCode.NotFound, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{visibleVideo.Id}/rescan", HttpStatusCode.BadRequest, cancellationToken: TestContext.Current.CancellationToken);
 
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/videos/{hiddenVideo.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" });
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/images/{hiddenImage.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" });
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/audios/{hiddenAudio.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" });
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/texts/{hiddenText.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" });
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/galleries/{hiddenGallery.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" });
-        await user.AssertResponseAsync(HttpMethod.Put, $"/api/groups/{hiddenGroup.Id}", HttpStatusCode.Forbidden, new { name = "forbidden" });
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/videos/{hiddenVideo.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" }, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/images/{hiddenImage.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" }, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/audios/{hiddenAudio.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" }, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/texts/{hiddenText.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" }, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/galleries/{hiddenGallery.Id}", HttpStatusCode.Forbidden, new { title = "forbidden" }, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Put, $"/api/groups/{hiddenGroup.Id}", HttpStatusCode.Forbidden, new { name = "forbidden" }, TestContext.Current.CancellationToken);
 
-        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{hiddenVideo.Id}/cover/from-frame", HttpStatusCode.Forbidden);
-        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{hiddenVideo.Id}/generate-screenshot", HttpStatusCode.Forbidden);
-        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{hiddenVideo.Id}/assign-file", HttpStatusCode.Forbidden,
-            new VideoAssignFileDto(-1));
+        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{hiddenVideo.Id}/cover/from-frame", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{hiddenVideo.Id}/generate-screenshot", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Post, $"/api/videos/{hiddenVideo.Id}/assign-file", HttpStatusCode.Forbidden, new VideoAssignFileDto(-1), TestContext.Current.CancellationToken);
         foreach (var path in new[]
                  {
                      $"/api/videos/{hiddenVideo.Id}/image",
@@ -123,7 +118,7 @@ public sealed class ScopedMutationAuthorizationApiTests(
                      $"/api/galleries/{hiddenGallery.Id}/image/back",
                  })
         {
-            await user.AssertResponseAsync(HttpMethod.Delete, path, HttpStatusCode.Forbidden);
+            await user.AssertResponseAsync(HttpMethod.Delete, path, HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
         }
 
         await AssertMixedBulkMutationForbiddenAsync(user, "/api/videos/bulk", visibleVideo.Id, hiddenVideo.Id);
@@ -131,23 +126,18 @@ public sealed class ScopedMutationAuthorizationApiTests(
         await AssertMixedBulkMutationForbiddenAsync(user, "/api/audios/bulk", visibleAudio.Id, hiddenAudio.Id);
         await AssertMixedBulkMutationForbiddenAsync(user, "/api/texts/bulk", visibleText.Id, hiddenText.Id);
         await AssertMixedBulkMutationForbiddenAsync(user, "/api/galleries/bulk", visibleGallery.Id, hiddenGallery.Id);
-        await user.AssertResponseAsync(HttpMethod.Post, "/api/groups/bulk", HttpStatusCode.Forbidden,
-            new { ids = new[] { visibleGroup.Id, hiddenGroup.Id }, description = "forbidden bulk" });
+        await user.AssertResponseAsync(HttpMethod.Post, "/api/groups/bulk", HttpStatusCode.Forbidden, new { ids = new[] { visibleGroup.Id, hiddenGroup.Id }, description = "forbidden bulk" }, TestContext.Current.CancellationToken);
 
-        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/destroy", HttpStatusCode.Forbidden,
-            new BatchDeleteDto([visibleVideo.Id, hiddenVideo.Id]));
+        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/destroy", HttpStatusCode.Forbidden, new BatchDeleteDto([visibleVideo.Id, hiddenVideo.Id]), TestContext.Current.CancellationToken);
         await AssertMixedBulkDeleteForbiddenAsync(user, "/api/images/bulk", visibleImage.Id, hiddenImage.Id);
         await AssertMixedBulkDeleteForbiddenAsync(user, "/api/audios/bulk", visibleAudio.Id, hiddenAudio.Id);
         await AssertMixedBulkDeleteForbiddenAsync(user, "/api/texts/bulk", visibleText.Id, hiddenText.Id);
         await AssertMixedBulkDeleteForbiddenAsync(user, "/api/galleries/bulk", visibleGallery.Id, hiddenGallery.Id);
         await AssertMixedBulkDeleteForbiddenAsync(user, "/api/groups/bulk", visibleGroup.Id, hiddenGroup.Id);
 
-        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/merge", HttpStatusCode.Forbidden,
-            new VideoMergeDto(visibleVideo.Id, [hiddenVideo.Id]));
-        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/merge", HttpStatusCode.Forbidden,
-            new VideoMergeDto(hiddenVideo.Id, [visibleVideo.Id]));
-        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/merge", HttpStatusCode.Forbidden,
-            new VideoMergeDto(visibleVideo.Id, [deleteDeniedMergeSource.Id]));
+        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/merge", HttpStatusCode.Forbidden, new VideoMergeDto(visibleVideo.Id, [hiddenVideo.Id]), TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/merge", HttpStatusCode.Forbidden, new VideoMergeDto(hiddenVideo.Id, [visibleVideo.Id]), TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Post, "/api/videos/merge", HttpStatusCode.Forbidden, new VideoMergeDto(visibleVideo.Id, [deleteDeniedMergeSource.Id]), TestContext.Current.CancellationToken);
 
         foreach (var (kind, id) in new[]
                  {
@@ -156,7 +146,7 @@ public sealed class ScopedMutationAuthorizationApiTests(
                      ("galleries", hiddenGallery.Id),
                  })
         {
-            await user.AssertResponseAsync(HttpMethod.Post, $"/api/{kind}/{id}/rescan", HttpStatusCode.Forbidden);
+            await user.AssertResponseAsync(HttpMethod.Post, $"/api/{kind}/{id}/rescan", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
         }
         foreach (var path in new[]
                  {
@@ -166,43 +156,43 @@ public sealed class ScopedMutationAuthorizationApiTests(
                      "/api/metadata/clean", "/api/metadata/identify", "/api/metadata/sync-fingerprints",
                  })
         {
-            await user.AssertResponseAsync(HttpMethod.Post, path, HttpStatusCode.Forbidden);
+            await user.AssertResponseAsync(HttpMethod.Post, path, HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
         }
-        await user.AssertResponseAsync("/api/metadata/library-folders");
-        await user.AssertResponseAsync("/api/metadata/filesystem-policy");
+        await user.AssertResponseAsync("/api/metadata/library-folders", cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync("/api/metadata/filesystem-policy", cancellationToken: TestContext.Current.CancellationToken);
 
-        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/videos/{hiddenVideo.Id}", HttpStatusCode.Forbidden);
-        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/images/{hiddenImage.Id}", HttpStatusCode.Forbidden);
-        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/audios/{hiddenAudio.Id}", HttpStatusCode.Forbidden);
-        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/texts/{hiddenText.Id}", HttpStatusCode.Forbidden);
-        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/galleries/{hiddenGallery.Id}", HttpStatusCode.Forbidden);
-        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/groups/{hiddenGroup.Id}", HttpStatusCode.Forbidden);
+        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/videos/{hiddenVideo.Id}", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/images/{hiddenImage.Id}", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/audios/{hiddenAudio.Id}", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/texts/{hiddenText.Id}", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/galleries/{hiddenGallery.Id}", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Delete, $"/api/groups/{hiddenGroup.Id}", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
 
-        var ownerVisibleVideo = await owner.GetVideoByIdAsync(visibleVideo.Id);
+        var ownerVisibleVideo = await owner.GetVideoByIdAsync(visibleVideo.Id, TestContext.Current.CancellationToken);
         ownerVisibleVideo.Title.Should().Be(allowedVisibleTitle);
         ownerVisibleVideo.Organized.Should().BeFalse();
-        (await owner.GetVideoByIdAsync(hiddenVideo.Id)).Title.Should().Be(hiddenVideo.Title);
-        (await owner.GetVideoByIdAsync(deleteDeniedMergeSource.Id)).Title.Should().Be("allowed write despite delete deny");
-        var ownerVisibleImage = await owner.GetImageByIdAsync(visibleImage.Id);
+        (await owner.GetVideoByIdAsync(hiddenVideo.Id, TestContext.Current.CancellationToken)).Title.Should().Be(hiddenVideo.Title);
+        (await owner.GetVideoByIdAsync(deleteDeniedMergeSource.Id, TestContext.Current.CancellationToken)).Title.Should().Be("allowed write despite delete deny");
+        var ownerVisibleImage = await owner.GetImageByIdAsync(visibleImage.Id, TestContext.Current.CancellationToken);
         ownerVisibleImage.Title.Should().Be(visibleImage.Title);
         ownerVisibleImage.Organized.Should().BeFalse();
-        (await owner.GetImageByIdAsync(hiddenImage.Id)).Title.Should().Be(hiddenImage.Title);
-        var ownerVisibleAudio = await owner.GetAudioByIdAsync(visibleAudio.Id);
+        (await owner.GetImageByIdAsync(hiddenImage.Id, TestContext.Current.CancellationToken)).Title.Should().Be(hiddenImage.Title);
+        var ownerVisibleAudio = await owner.GetAudioByIdAsync(visibleAudio.Id, TestContext.Current.CancellationToken);
         ownerVisibleAudio.Title.Should().Be(visibleAudio.Title);
         ownerVisibleAudio.Organized.Should().BeFalse();
-        (await owner.GetAudioByIdAsync(hiddenAudio.Id)).Title.Should().Be(hiddenAudio.Title);
-        var ownerVisibleText = await owner.GetTextByIdAsync(visibleText.Id);
+        (await owner.GetAudioByIdAsync(hiddenAudio.Id, TestContext.Current.CancellationToken)).Title.Should().Be(hiddenAudio.Title);
+        var ownerVisibleText = await owner.GetTextByIdAsync(visibleText.Id, TestContext.Current.CancellationToken);
         ownerVisibleText.Title.Should().Be(visibleText.Title);
         ownerVisibleText.Organized.Should().BeFalse();
-        (await owner.GetTextByIdAsync(hiddenText.Id)).Title.Should().Be(hiddenText.Title);
-        var ownerVisibleGallery = await owner.GetGalleryByIdAsync(visibleGallery.Id);
+        (await owner.GetTextByIdAsync(hiddenText.Id, TestContext.Current.CancellationToken)).Title.Should().Be(hiddenText.Title);
+        var ownerVisibleGallery = await owner.GetGalleryByIdAsync(visibleGallery.Id, TestContext.Current.CancellationToken);
         ownerVisibleGallery.Title.Should().Be(visibleGallery.Title);
         ownerVisibleGallery.Organized.Should().BeFalse();
-        (await owner.GetGalleryByIdAsync(hiddenGallery.Id)).Title.Should().Be(hiddenGallery.Title);
-        var ownerVisibleGroup = await owner.GetGroupByIdAsync(visibleGroup.Id);
+        (await owner.GetGalleryByIdAsync(hiddenGallery.Id, TestContext.Current.CancellationToken)).Title.Should().Be(hiddenGallery.Title);
+        var ownerVisibleGroup = await owner.GetGroupByIdAsync(visibleGroup.Id, TestContext.Current.CancellationToken);
         ownerVisibleGroup.Name.Should().Be(visibleGroup.Name);
         ownerVisibleGroup.Description.Should().BeNull();
-        (await owner.GetGroupByIdAsync(hiddenGroup.Id)).Name.Should().Be(hiddenGroup.Name);
+        (await owner.GetGroupByIdAsync(hiddenGroup.Id, TestContext.Current.CancellationToken)).Name.Should().Be(hiddenGroup.Name);
     }
 
     private static Task AssertMixedBulkMutationForbiddenAsync(CoveClient user, string path, int visibleId, int hiddenId)

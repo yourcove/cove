@@ -28,81 +28,69 @@ public sealed class ExternalIdentityLifecycleApiTests(
         var adminSubject = $"admin-{suffix}";
         var controlSubject = $"control-{suffix}";
 
-        var canceledPreparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(
-            canceledSubject,
-            $"  {ProviderLabel}  ",
-            "  canceled@example.test  ");
+        var canceledPreparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(canceledSubject, $"  {ProviderLabel}  ", "  canceled@example.test  ", TestContext.Current.CancellationToken);
         canceledPreparation.Failure.Should().Be(ExtensionIdentityLinkPreparationFailure.None);
         canceledPreparation.Code.Should().NotBeNullOrWhiteSpace();
         var canceledPreview = await AsUser(ApiTestUsers.Eva)
-            .PreviewExternalLinkAsync(canceledPreparation.Code!);
+            .PreviewExternalLinkAsync(canceledPreparation.Code!, TestContext.Current.CancellationToken);
         canceledPreview.ProviderLabel.Should().Be(ProviderLabel);
         canceledPreview.AccountLabel.Should().Be("canceled@example.test");
         (await AsUser(ApiTestUsers.Anthony)
-                .TryPreviewExternalLinkStatusAsync(canceledPreparation.Code!))
+                .TryPreviewExternalLinkStatusAsync(canceledPreparation.Code!, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.BadRequest);
 
-        await AsUser(ApiTestUsers.Eva).CancelExternalLinkAsync(canceledPreparation.Code!);
+        await AsUser(ApiTestUsers.Eva).CancelExternalLinkAsync(canceledPreparation.Code!, TestContext.Current.CancellationToken);
         (await AsUser(ApiTestUsers.Eva)
-                .TryPreviewExternalLinkStatusAsync(canceledPreparation.Code!))
+                .TryPreviewExternalLinkStatusAsync(canceledPreparation.Code!, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.BadRequest);
         (await AsUser(ApiTestUsers.Eva)
-                .TryCancelExternalLinkStatusAsync(canceledPreparation.Code!))
+                .TryCancelExternalLinkStatusAsync(canceledPreparation.Code!, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.BadRequest);
-        (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync()).Should().BeEmpty();
+        (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
 
-        var ownedPreparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(
-            ownedSubject,
-            ProviderLabel,
-            "eva@example.test");
+        var ownedPreparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(ownedSubject, ProviderLabel, "eva@example.test", TestContext.Current.CancellationToken);
         var ownedLink = await AsUser(ApiTestUsers.Eva)
-            .ConfirmExternalLinkAsync(ownedPreparation.Code!);
+            .ConfirmExternalLinkAsync(ownedPreparation.Code!, TestContext.Current.CancellationToken);
         AssertLink(ownedLink, "eva@example.test");
-        var freshOwned = (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync())
+        var freshOwned = (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync(TestContext.Current.CancellationToken))
             .Should().ContainSingle().Which;
         AssertSameLink(freshOwned, ownedLink);
 
-        (await AsUser(ApiTestUsers.Anthony).TryRemoveOwnExternalLinkStatusAsync(ownedLink.Id))
+        (await AsUser(ApiTestUsers.Anthony).TryRemoveOwnExternalLinkStatusAsync(ownedLink.Id, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.NotFound);
-        (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync())
+        (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync(TestContext.Current.CancellationToken))
             .Select(link => link.Id)
             .Should().Equal(ownedLink.Id);
-        await AsUser(ApiTestUsers.Eva).RemoveOwnExternalLinkAsync(ownedLink.Id);
-        (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync()).Should().BeEmpty();
-        (await AsUser(ApiTestUsers.Eva).TryRemoveOwnExternalLinkStatusAsync(ownedLink.Id))
+        await AsUser(ApiTestUsers.Eva).RemoveOwnExternalLinkAsync(ownedLink.Id, TestContext.Current.CancellationToken);
+        (await AsUser(ApiTestUsers.Eva).GetOwnExternalLinksAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await AsUser(ApiTestUsers.Eva).TryRemoveOwnExternalLinkStatusAsync(ownedLink.Id, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.NotFound);
 
-        var adminPreparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(
-            adminSubject,
-            ProviderLabel,
-            "admin@example.test");
+        var adminPreparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(adminSubject, ProviderLabel, "admin@example.test", TestContext.Current.CancellationToken);
         var adminLink = await AsUser(ApiTestUsers.Eva)
-            .ConfirmExternalLinkAsync(adminPreparation.Code!);
-        var controlPreparation = await AsUser(ApiTestUsers.Anthony).PrepareApiTestExternalLinkAsync(
-            controlSubject,
-            ProviderLabel,
-            "control@example.test");
+            .ConfirmExternalLinkAsync(adminPreparation.Code!, TestContext.Current.CancellationToken);
+        var controlPreparation = await AsUser(ApiTestUsers.Anthony).PrepareApiTestExternalLinkAsync(controlSubject, ProviderLabel, "control@example.test", TestContext.Current.CancellationToken);
         var controlLink = await AsUser(ApiTestUsers.Anthony)
-            .ConfirmExternalLinkAsync(controlPreparation.Code!);
+            .ConfirmExternalLinkAsync(controlPreparation.Code!, TestContext.Current.CancellationToken);
 
         (await AsUser(ApiTestUsers.Eva)
-                .TryRemoveUserExternalLinkStatusAsync(adminLink.UserId, adminLink.Id))
+                .TryRemoveUserExternalLinkStatusAsync(adminLink.UserId, adminLink.Id, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.Forbidden);
-        (await AsUser().TryRemoveUserExternalLinkStatusAsync(controlLink.UserId, adminLink.Id))
+        (await AsUser().TryRemoveUserExternalLinkStatusAsync(controlLink.UserId, adminLink.Id, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.NotFound);
         AssertSameLink(
-            (await AsUser().GetUserExternalLinksAsync(adminLink.UserId)).Should().ContainSingle().Which,
+            (await AsUser().GetUserExternalLinksAsync(adminLink.UserId, TestContext.Current.CancellationToken)).Should().ContainSingle().Which,
             adminLink);
         AssertSameLink(
-            (await AsUser().GetUserExternalLinksAsync(controlLink.UserId)).Should().ContainSingle().Which,
+            (await AsUser().GetUserExternalLinksAsync(controlLink.UserId, TestContext.Current.CancellationToken)).Should().ContainSingle().Which,
             controlLink);
 
-        await AsUser().RemoveUserExternalLinkAsync(adminLink.UserId, adminLink.Id);
-        (await AsUser().GetUserExternalLinksAsync(adminLink.UserId)).Should().BeEmpty();
-        (await AsUser().TryRemoveUserExternalLinkStatusAsync(adminLink.UserId, adminLink.Id))
+        await AsUser().RemoveUserExternalLinkAsync(adminLink.UserId, adminLink.Id, TestContext.Current.CancellationToken);
+        (await AsUser().GetUserExternalLinksAsync(adminLink.UserId, TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await AsUser().TryRemoveUserExternalLinkStatusAsync(adminLink.UserId, adminLink.Id, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.NotFound);
         AssertSameLink(
-            (await AsUser().GetUserExternalLinksAsync(controlLink.UserId)).Should().ContainSingle().Which,
+            (await AsUser().GetUserExternalLinksAsync(controlLink.UserId, TestContext.Current.CancellationToken)).Should().ContainSingle().Which,
             controlLink);
     }
 
@@ -111,38 +99,31 @@ public sealed class ExternalIdentityLifecycleApiTests(
     public async Task GivenConfirmedExternalIdentity_WhenProviderCompletesLogin_ThenOneTimeRedemptionIssuesTheLinkedUsersSession()
     {
         var subject = $"login-{Guid.NewGuid():N}";
-        var preparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(
-            subject,
-            ProviderLabel,
-            "login@example.test");
-        var link = await AsUser(ApiTestUsers.Eva).ConfirmExternalLinkAsync(preparation.Code!);
+        var preparation = await AsUser(ApiTestUsers.Eva).PrepareApiTestExternalLinkAsync(subject, ProviderLabel, "login@example.test", TestContext.Current.CancellationToken);
+        var link = await AsUser(ApiTestUsers.Eva).ConfirmExternalLinkAsync(preparation.Code!, TestContext.Current.CancellationToken);
         link.LastUsedAt.Should().BeNull();
 
-        var browser = await AsUser(ApiTestUsers.Eva).BeginApiTestExternalLoginAsync();
+        var browser = await AsUser(ApiTestUsers.Eva).BeginApiTestExternalLoginAsync(TestContext.Current.CancellationToken);
         browser.BrowserBinding.Should().NotBeNullOrWhiteSpace();
-        var completion = await AsUser(ApiTestUsers.Eva).CompleteApiTestExternalLoginAsync(
-            browser.BrowserBinding,
-            subject,
-            ProviderLabel,
-            "login@example.test");
+        var completion = await AsUser(ApiTestUsers.Eva).CompleteApiTestExternalLoginAsync(browser.BrowserBinding, subject, ProviderLabel, "login@example.test", TestContext.Current.CancellationToken);
         completion.Failure.Should().Be(ExtensionLoginCompletionFailure.None);
         completion.Code.Should().NotBeNullOrWhiteSpace();
-        (await AsUser(ApiTestUsers.Eva).TryRedeemExternalLoginStatusAsync(" "))
+        (await AsUser(ApiTestUsers.Eva).TryRedeemExternalLoginStatusAsync(" ", TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.Unauthorized);
 
         using var externalSession = await AsUser(ApiTestUsers.Eva)
-            .RedeemExternalLoginAsync(completion.Code!);
+            .RedeemExternalLoginAsync(completion.Code!, TestContext.Current.CancellationToken);
         externalSession.Username.Should().Be(ApiTestUsers.Eva);
         externalSession.Client.AccessToken.Should().NotBe(AsUser(ApiTestUsers.Eva).AccessToken);
-        var current = await externalSession.Client.GetCurrentUserAsync();
+        var current = await externalSession.Client.GetCurrentUserAsync(TestContext.Current.CancellationToken);
         current.GetProperty("user").GetProperty("username").GetString()
             .Should().Be(ApiTestUsers.Eva);
-        var usedLink = (await externalSession.Client.GetOwnExternalLinksAsync())
+        var usedLink = (await externalSession.Client.GetOwnExternalLinksAsync(TestContext.Current.CancellationToken))
             .Should().ContainSingle().Which;
         AssertSameLink(usedLink, link, expectLastUsed: true);
-        (await AsUser(ApiTestUsers.Eva).TryRedeemExternalLoginStatusAsync(completion.Code!))
+        (await AsUser(ApiTestUsers.Eva).TryRedeemExternalLoginStatusAsync(completion.Code!, TestContext.Current.CancellationToken))
             .Should().Be(HttpStatusCode.Unauthorized);
-        (await AsUser(ApiTestUsers.Anthony).GetOwnExternalLinksAsync()).Should().BeEmpty();
+        (await AsUser(ApiTestUsers.Anthony).GetOwnExternalLinksAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
     }
 
     private static void AssertLink(
