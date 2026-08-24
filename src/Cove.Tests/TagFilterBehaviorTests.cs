@@ -27,31 +27,27 @@ public class TagFilterBehaviorTests
                 RemoteIds = [new TagRemoteId { Endpoint = "StashDB", RemoteId = "stash-1" }],
             },
             new Tag { Name = "No Remote" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
 
-        var (withProviderItems, withProviderCount) = await repository.FindAsync(
-            new TagFilter
+        var (withProviderItems, withProviderCount) = await repository.FindAsync(new TagFilter
             {
                 RemoteIdCriterion = new StringCriterion
                 {
                     Value = "PMVStash",
                     Modifier = CriterionModifier.NotNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+            }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
-        var (withoutProviderItems, withoutProviderCount) = await repository.FindAsync(
-            new TagFilter
+        var (withoutProviderItems, withoutProviderCount) = await repository.FindAsync(new TagFilter
             {
                 RemoteIdCriterion = new StringCriterion
                 {
                     Value = "PMVStash",
                     Modifier = CriterionModifier.IsNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+            }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, withProviderCount);
         Assert.Equal(["Has PMVStash"], withProviderItems.Select(tag => tag.Name).ToArray());
@@ -77,7 +73,7 @@ public class TagFilterBehaviorTests
                 RemoteIds = [new TagRemoteId { Endpoint = "PMVStash", RemoteId = "other-456" }],
             },
             new Tag { Name = "No Remote" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
         var filter = new TagFilter
@@ -89,7 +85,7 @@ public class TagFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["Has PMV Value"], items.Select(tag => tag.Name).ToArray());
@@ -107,7 +103,7 @@ public class TagFilterBehaviorTests
             Title = "grandchild video",
             VideoTags = [new VideoTag { TagId = grandchild.Id }],
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
         var directFilter = new TagFilter
@@ -128,8 +124,8 @@ public class TagFilterBehaviorTests
             VideoCountIncludesChildren = true,
         };
 
-        var (directItems, directCount) = await repository.FindAsync(directFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
-        var (aggregatedItems, aggregatedCount) = await repository.FindAsync(includeChildrenFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (directItems, directCount) = await repository.FindAsync(directFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
+        var (aggregatedItems, aggregatedCount) = await repository.FindAsync(includeChildrenFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, directCount);
         Assert.Equal(["Grandchild"], directItems.Select(tag => tag.Name).ToArray());
@@ -149,7 +145,7 @@ public class TagFilterBehaviorTests
             Name = "Tagged Performer",
             PerformerTags = [new PerformerTag { TagId = child.Id }],
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
         var directFilter = new TagFilter
@@ -170,8 +166,8 @@ public class TagFilterBehaviorTests
             PerformerCountIncludesChildren = true,
         };
 
-        var (directItems, directCount) = await repository.FindAsync(directFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
-        var (aggregatedItems, aggregatedCount) = await repository.FindAsync(includeChildrenFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (directItems, directCount) = await repository.FindAsync(directFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
+        var (aggregatedItems, aggregatedCount) = await repository.FindAsync(includeChildrenFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, directCount);
         Assert.Equal(["Child"], directItems.Select(tag => tag.Name).ToArray());
@@ -190,7 +186,7 @@ public class TagFilterBehaviorTests
         var childB = new Tag { Name = "Child B" };
 
         context.Tags.AddRange(parent, childA, childB);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Set<TagParent>().AddRange(
             new TagParent { ParentId = parent.Id, ChildId = childA.Id },
@@ -200,7 +196,7 @@ public class TagFilterBehaviorTests
             Title = "shared video",
             VideoTags = [new VideoTag { TagId = childA.Id }, new VideoTag { TagId = childB.Id }],
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
         var filter = new TagFilter
@@ -213,7 +209,7 @@ public class TagFilterBehaviorTests
             VideoCountIncludesChildren = true,
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, totalCount);
         Assert.Equal(["Child A", "Child B", "Parent"], items.Select(tag => tag.Name).ToArray());
@@ -228,35 +224,31 @@ public class TagFilterBehaviorTests
         var actionGroup = new TagGroup { Name = "Action", SortOrder = 1 };
         var subjectGroup = new TagGroup { Name = "Subject", SortOrder = 2 };
         context.TagGroups.AddRange(actionGroup, subjectGroup);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Tags.AddRange(
             new Tag { Name = "Action Tag", TagGroupId = actionGroup.Id },
             new Tag { Name = "Subject Tag", TagGroupId = subjectGroup.Id },
             new Tag { Name = "Ungrouped Tag" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
-        var (includedItems, includedCount) = await repository.FindAsync(
-            new TagFilter
+        var (includedItems, includedCount) = await repository.FindAsync(new TagFilter
             {
                 TagGroupsCriterion = new MultiIdCriterion
                 {
                     Modifier = CriterionModifier.Includes,
                     Value = [actionGroup.Id],
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+            }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
-        var (excludedItems, excludedCount) = await repository.FindAsync(
-            new TagFilter
+        var (excludedItems, excludedCount) = await repository.FindAsync(new TagFilter
             {
                 TagGroupsCriterion = new MultiIdCriterion
                 {
                     Excludes = [subjectGroup.Id],
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+            }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, includedCount);
         Assert.Equal(["Action Tag"], includedItems.Select(tag => tag.Name).ToArray());
@@ -273,17 +265,17 @@ public class TagFilterBehaviorTests
         var actionGroup = new TagGroup { Name = "Action", SortOrder = 1 };
         var subjectGroup = new TagGroup { Name = "Subject", SortOrder = 2 };
         context.TagGroups.AddRange(actionGroup, subjectGroup);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Tags.AddRange(
             new Tag { Name = "Zulu Action", TagGroupId = actionGroup.Id },
             new Tag { Name = "Alpha Action", TagGroupId = actionGroup.Id },
             new Tag { Name = "Subject Tag", TagGroupId = subjectGroup.Id },
             new Tag { Name = "Ungrouped Tag" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
-        var (items, totalCount) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "tag_group" });
+        var (items, totalCount) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "tag_group" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(4, totalCount);
         Assert.Equal(["Alpha Action", "Zulu Action", "Subject Tag", "Ungrouped Tag"], items.Select(tag => tag.Name).ToArray());
