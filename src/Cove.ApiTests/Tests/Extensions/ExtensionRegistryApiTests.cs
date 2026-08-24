@@ -17,13 +17,7 @@ public sealed class ExtensionRegistryApiTests(
     [CoversEndpoint("POST", "/api/extensions/registry/install")]
     public async Task GivenFixtureRegistry_WhenMemberDiscoversAndOwnerInstalls_ThenMetadataDependenciesAndPackagesAreExact()
     {
-        var firstPage = await AsUser(ApiTestUsers.Eva).SearchExtensionRegistryAsync(
-            query: "Registry",
-            category: "api-test",
-            type: "extension",
-            sort: "name",
-            page: 1,
-            pageSize: 1);
+        var firstPage = await AsUser(ApiTestUsers.Eva).SearchExtensionRegistryAsync(query: "Registry", category: "api-test", type: "extension", sort: "name", page: 1, pageSize: 1, cancellationToken: TestContext.Current.CancellationToken);
         firstPage.TotalCount.Should().Be(2);
         firstPage.Page.Should().Be(1);
         firstPage.PageSize.Should().Be(1);
@@ -34,13 +28,7 @@ public sealed class ExtensionRegistryApiTests(
             ExtensionRegistrySimulator.DependencyVersion,
             ["api-test", "dependency", "registry"]);
 
-        var secondPage = await AsUser(ApiTestUsers.Eva).SearchExtensionRegistryAsync(
-            query: "Registry",
-            category: "api-test",
-            type: "extension",
-            sort: "name",
-            page: 2,
-            pageSize: 1);
+        var secondPage = await AsUser(ApiTestUsers.Eva).SearchExtensionRegistryAsync(query: "Registry", category: "api-test", type: "extension", sort: "name", page: 2, pageSize: 1, cancellationToken: TestContext.Current.CancellationToken);
         secondPage.TotalCount.Should().Be(2);
         secondPage.Page.Should().Be(2);
         secondPage.PageSize.Should().Be(1);
@@ -51,8 +39,7 @@ public sealed class ExtensionRegistryApiTests(
             ExtensionRegistrySimulator.TargetVersion,
             ["api-test", "extension", "registry"]);
 
-        var detail = await AsUser(ApiTestUsers.Eva).GetRegistryExtensionAsync(
-            ExtensionRegistrySimulator.TargetId);
+        var detail = await AsUser(ApiTestUsers.Eva).GetRegistryExtensionAsync(ExtensionRegistrySimulator.TargetId, TestContext.Current.CancellationToken);
         AssertSummary(
             detail,
             ExtensionRegistrySimulator.TargetId,
@@ -77,17 +64,16 @@ public sealed class ExtensionRegistryApiTests(
         version.Checksum.Should().MatchRegex("^[a-f0-9]{64}$");
         version.Dependencies.Should().Equal(detail.Dependencies);
 
-        (await AsUser(ApiTestUsers.Eva).GetExtensionRegistryCategoriesAsync()).Should().Equal(
+        (await AsUser(ApiTestUsers.Eva).GetExtensionRegistryCategoriesAsync(TestContext.Current.CancellationToken)).Should().Equal(
             "api-test", "dependency", "extension", "faces", "registry");
 
-        var update = (await AsUser(ApiTestUsers.Eva).GetExtensionRegistryUpdatesAsync())
+        var update = (await AsUser(ApiTestUsers.Eva).GetExtensionRegistryUpdatesAsync(TestContext.Current.CancellationToken))
             .Should().ContainSingle().Which;
         update.ExtensionId.Should().Be(ExtensionRegistrySimulator.FaceProviderId);
         update.CurrentVersion.Should().Be("1.0.0");
         update.LatestVersion.Should().Be(ExtensionRegistrySimulator.FaceProviderVersion);
 
-        var dependency = (await AsUser(ApiTestUsers.Eva).GetRegistryExtensionDependenciesAsync(
-                ExtensionRegistrySimulator.TargetId))
+        var dependency = (await AsUser(ApiTestUsers.Eva).GetRegistryExtensionDependenciesAsync(ExtensionRegistrySimulator.TargetId, TestContext.Current.CancellationToken))
             .Should().ContainSingle().Which;
         dependency.Id.Should().Be(ExtensionRegistrySimulator.DependencyId);
         dependency.VersionConstraint.Should().Be(">=1.0.0");
@@ -114,9 +100,7 @@ public sealed class ExtensionRegistryApiTests(
             AsExtensionRegistry().GetPackageRequestCount(ExtensionRegistrySimulator.DependencyId).Should().Be(0);
             AsExtensionRegistry().GetPackageRequestCount(ExtensionRegistrySimulator.TargetId).Should().Be(0);
 
-            var preview = await AsUser().PreviewRegistryExtensionInstallAsync(
-                ExtensionRegistrySimulator.TargetId,
-                ExtensionRegistrySimulator.TargetVersion);
+            var preview = await AsUser().PreviewRegistryExtensionInstallAsync(ExtensionRegistrySimulator.TargetId, ExtensionRegistrySimulator.TargetVersion, TestContext.Current.CancellationToken);
             preview.RequiresDependencies.Should().BeTrue();
             preview.Extension.Should().Be(new RegistryInstallExtension(
                 ExtensionRegistrySimulator.TargetId,
@@ -125,13 +109,11 @@ public sealed class ExtensionRegistryApiTests(
             preview.MissingDependencies.Should().ContainSingle().Which.Should().Be(dependency);
             AsExtensionRegistry().GetPackageRequestCount(ExtensionRegistrySimulator.DependencyId).Should().Be(0);
             AsExtensionRegistry().GetPackageRequestCount(ExtensionRegistrySimulator.TargetId).Should().Be(0);
-            (await AsUser().GetExtensionsAsync()).Should().NotContain(extension =>
+            (await AsUser().GetExtensionsAsync(TestContext.Current.CancellationToken)).Should().NotContain(extension =>
                 extension.Id == ExtensionRegistrySimulator.DependencyId
                 || extension.Id == ExtensionRegistrySimulator.TargetId);
 
-            var installed = await AsUser().InstallRegistryExtensionAsync(
-                ExtensionRegistrySimulator.TargetId,
-                ExtensionRegistrySimulator.TargetVersion);
+            var installed = await AsUser().InstallRegistryExtensionAsync(ExtensionRegistrySimulator.TargetId, ExtensionRegistrySimulator.TargetVersion, TestContext.Current.CancellationToken);
             installed.Message.Should().Be(
                 $"Extension '{ExtensionRegistrySimulator.TargetId}' v{ExtensionRegistrySimulator.TargetVersion} installed.");
             Path.GetFileName(installed.Path).Should().Be(ExtensionRegistrySimulator.TargetId);
@@ -140,7 +122,7 @@ public sealed class ExtensionRegistryApiTests(
             AsExtensionRegistry().GetPackageRequestCount(ExtensionRegistrySimulator.DependencyId).Should().Be(1);
             AsExtensionRegistry().GetPackageRequestCount(ExtensionRegistrySimulator.TargetId).Should().Be(1);
 
-            var installedExtensions = await AsUser().GetExtensionsAsync();
+            var installedExtensions = await AsUser().GetExtensionsAsync(TestContext.Current.CancellationToken);
             var installedDependency = installedExtensions.Should()
                 .ContainSingle(extension => extension.Id == ExtensionRegistrySimulator.DependencyId).Which;
             installedDependency.Name.Should().Be("API Test Registry Dependency");

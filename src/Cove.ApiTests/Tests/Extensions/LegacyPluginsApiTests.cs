@@ -33,19 +33,19 @@ public sealed class LegacyPluginsApiTests(
     {
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
-        var originalConfig = await owner.GetLegacyPluginConfigAsync(ExtensionId);
+        var originalConfig = await owner.GetLegacyPluginConfigAsync(ExtensionId, TestContext.Current.CancellationToken);
         var originalConfigValues = ToObjectDictionary(originalConfig);
         originalConfig.Should().ContainKey(BaselineConfigKey)
             .WhoseValue.GetString().Should().Be("preserved");
 
         try
         {
-            var memberTasks = await member.GetLegacyPluginTasksAsync();
+            var memberTasks = await member.GetLegacyPluginTasksAsync(TestContext.Current.CancellationToken);
             AssertOnlyApiTestTask(memberTasks);
-            AssertApiTestPluginEnabled(await member.GetLegacyPluginsAsync(), expected: true);
-            AssertConfigurationEquals(await member.GetLegacyPluginConfigAsync(ExtensionId), originalConfig);
+            AssertApiTestPluginEnabled(await member.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: true);
+            AssertConfigurationEquals(await member.GetLegacyPluginConfigAsync(ExtensionId, TestContext.Current.CancellationToken), originalConfig);
 
-            var stateBeforeForbiddenMutations = await owner.GetExtensionDataAsync(ExtensionId);
+            var stateBeforeForbiddenMutations = await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken);
             var forbiddenConfig = () => member.SetLegacyPluginConfigAsync(ExtensionId, new Dictionary<string, object?> { ["member"] = "blocked" });
             var forbiddenRun = () => member.RunLegacyPluginTaskAsync(new RunPluginTaskDto(ExtensionId, TaskId, new Dictionary<string, string> { ["member"] = "blocked" }));
             var forbiddenSettings = () => member.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = false }));
@@ -55,17 +55,17 @@ public sealed class LegacyPluginsApiTests(
             await forbiddenRun.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
             await forbiddenSettings.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
             await forbiddenReload.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId), originalConfig);
-            (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(stateBeforeForbiddenMutations);
-            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync());
-            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: true);
+            AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId, TestContext.Current.CancellationToken), originalConfig);
+            (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(stateBeforeForbiddenMutations);
+            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync(TestContext.Current.CancellationToken));
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: true);
 
             await owner.SetLegacyPluginConfigAsync(ExtensionId, new Dictionary<string, object?>
             {
                 ["theme"] = "midnight",
                 ["retries"] = 3,
-            });
-            var configured = await owner.GetLegacyPluginConfigAsync(ExtensionId);
+            }, TestContext.Current.CancellationToken);
+            var configured = await owner.GetLegacyPluginConfigAsync(ExtensionId, TestContext.Current.CancellationToken);
             configured["theme"].GetString().Should().Be("midnight");
             configured["retries"].GetInt32().Should().Be(3);
 
@@ -77,24 +77,24 @@ public sealed class LegacyPluginsApiTests(
                     ["beta"] = "two words",
                     ["alpha"] = "one",
                     [CaptureInstallCountParameter] = "true",
-                }));
-            var completed = await owner.WaitForTerminalJobAsync(started.JobId);
+                }), TestContext.Current.CancellationToken);
+            var completed = await owner.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken);
             completed.Status.Should().Be(JobStatus.Completed);
             completed.Type.Should().Be($"plugin:{ExtensionId}");
             completed.Error.Should().BeNull();
-            var stateAfterRun = await owner.GetExtensionDataAsync(ExtensionId);
+            var stateAfterRun = await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken);
             stateAfterRun.Should().ContainKey(JobParametersStoreKey)
                 .WhoseValue.Should().Be("{\"alpha\":\"one\",\"beta\":\"two words\",\"capture-install-count\":\"true\"}");
             stateAfterRun.Should().ContainKey(JobProgressStoreKey)
                 .WhoseValue.Should().Be("1|API test parameters recorded");
             var installCount = stateAfterRun.Should().ContainKey(InstallCountStoreKey).WhoseValue;
 
-            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = false }));
-            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: false);
-            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync());
-            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = true }));
-            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: true);
-            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync());
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = false }), TestContext.Current.CancellationToken);
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: false);
+            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync(TestContext.Current.CancellationToken));
+            await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: true);
+            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync(TestContext.Current.CancellationToken));
 
             var postEnableRun = await owner.RunLegacyPluginTaskAsync(new RunPluginTaskDto(
                 ExtensionId,
@@ -103,55 +103,55 @@ public sealed class LegacyPluginsApiTests(
                 {
                     ["phase"] = "after re-enable",
                     [ExpectedInstallCountParameter] = installCount,
-                }));
-            var postEnableJob = await owner.WaitForTerminalJobAsync(postEnableRun.JobId);
+                }), TestContext.Current.CancellationToken);
+            var postEnableJob = await owner.WaitForTerminalJobAsync(postEnableRun.JobId, TestContext.Current.CancellationToken);
             postEnableJob.Status.Should().Be(JobStatus.Completed);
             postEnableJob.Type.Should().Be($"plugin:{ExtensionId}");
             postEnableJob.Error.Should().BeNull();
-            var stateAfterEnable = await owner.GetExtensionDataAsync(ExtensionId);
+            var stateAfterEnable = await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken);
             stateAfterEnable.Should().ContainKey(JobParametersStoreKey)
                 .WhoseValue.Should().Be($"{{\"expected-install-count\":\"{installCount}\",\"phase\":\"after re-enable\"}}");
             stateAfterEnable.Should().ContainKey(JobProgressStoreKey)
                 .WhoseValue.Should().Be("1|API test parameters recorded");
 
-            (await owner.ReloadLegacyPluginsAsync()).Message.Should().Be("Plugins reloaded");
-            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync());
+            (await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken)).Message.Should().Be("Plugins reloaded");
+            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync(TestContext.Current.CancellationToken));
             var postReloadRun = await owner.RunLegacyPluginTaskAsync(new RunPluginTaskDto(
                 ExtensionId,
                 TaskId,
-                new Dictionary<string, string> { ["phase"] = "after reload" }));
-            var postReloadJob = await owner.WaitForTerminalJobAsync(postReloadRun.JobId);
+                new Dictionary<string, string> { ["phase"] = "after reload" }), TestContext.Current.CancellationToken);
+            var postReloadJob = await owner.WaitForTerminalJobAsync(postReloadRun.JobId, TestContext.Current.CancellationToken);
             postReloadJob.Status.Should().Be(JobStatus.Completed);
             postReloadJob.Type.Should().Be($"plugin:{ExtensionId}");
             postReloadJob.Error.Should().BeNull();
-            var stateAfterReload = await owner.GetExtensionDataAsync(ExtensionId);
+            var stateAfterReload = await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken);
             stateAfterReload.Should().ContainKey(JobParametersStoreKey)
                 .WhoseValue.Should().Be("{\"phase\":\"after reload\"}");
             stateAfterReload.Should().ContainKey(JobProgressStoreKey)
                 .WhoseValue.Should().Be("1|API test parameters recorded");
 
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [ExtensionId] = false }));
-            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: false);
+                new Dictionary<string, bool> { [ExtensionId] = false }), TestContext.Current.CancellationToken);
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: false);
             (await owner.TryRunLegacyPluginTaskAsync(new RunPluginTaskDto(
                     ExtensionId,
                     TaskId,
-                    new Dictionary<string, string> { ["phase"] = "disabled after reload" })))
+                    new Dictionary<string, string> { ["phase"] = "disabled after reload" }), TestContext.Current.CancellationToken))
                 .Should().Be(HttpStatusCode.Conflict);
-            (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(stateAfterReload);
+            (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(stateAfterReload);
 
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [ExtensionId] = true }));
-            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: true);
+                new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: true);
             var postReloadEnableRun = await owner.RunLegacyPluginTaskAsync(new RunPluginTaskDto(
                 ExtensionId,
                 TaskId,
-                new Dictionary<string, string> { ["phase"] = "re-enabled after reload" }));
-            var postReloadEnableJob = await owner.WaitForTerminalJobAsync(postReloadEnableRun.JobId);
+                new Dictionary<string, string> { ["phase"] = "re-enabled after reload" }), TestContext.Current.CancellationToken);
+            var postReloadEnableJob = await owner.WaitForTerminalJobAsync(postReloadEnableRun.JobId, TestContext.Current.CancellationToken);
             postReloadEnableJob.Status.Should().Be(JobStatus.Completed);
             postReloadEnableJob.Type.Should().Be($"plugin:{ExtensionId}");
             postReloadEnableJob.Error.Should().BeNull();
-            var finalState = await owner.GetExtensionDataAsync(ExtensionId);
+            var finalState = await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken);
             finalState.Should().ContainKey(JobParametersStoreKey)
                 .WhoseValue.Should().Be("{\"phase\":\"re-enabled after reload\"}");
             finalState.Should().ContainKey(JobProgressStoreKey)
@@ -162,7 +162,7 @@ public sealed class LegacyPluginsApiTests(
             var cleanupErrors = new List<Exception>();
             try
             {
-                await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = true }));
+                await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
             }
             catch (Exception exception)
             {
@@ -171,7 +171,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                await owner.ReloadLegacyPluginsAsync();
+                await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
             }
             catch (Exception exception)
             {
@@ -180,7 +180,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                await owner.SetLegacyPluginConfigAsync(ExtensionId, originalConfigValues);
+                await owner.SetLegacyPluginConfigAsync(ExtensionId, originalConfigValues, TestContext.Current.CancellationToken);
             }
             catch (Exception exception)
             {
@@ -189,7 +189,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId), originalConfig);
+                AssertConfigurationEquals(await owner.GetLegacyPluginConfigAsync(ExtensionId, TestContext.Current.CancellationToken), originalConfig);
             }
             catch (Exception exception)
             {
@@ -205,22 +205,22 @@ public sealed class LegacyPluginsApiTests(
     public async Task GivenDisabledJobExtension_WhenLegacyTaskIsRun_ThenRequestIsRejectedWithoutStateChanges()
     {
         var owner = AsUser();
-        var stateBeforeDisable = await owner.GetExtensionDataAsync(ExtensionId);
+        var stateBeforeDisable = await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken);
 
         try
         {
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [ExtensionId] = false }));
-            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: false);
-            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync());
+                new Dictionary<string, bool> { [ExtensionId] = false }), TestContext.Current.CancellationToken);
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: false);
+            AssertOnlyApiTestTask(await owner.GetLegacyPluginTasksAsync(TestContext.Current.CancellationToken));
 
             var status = await owner.TryRunLegacyPluginTaskAsync(new RunPluginTaskDto(
                 ExtensionId,
                 TaskId,
-                new Dictionary<string, string> { ["disabled"] = "blocked" }));
+                new Dictionary<string, string> { ["disabled"] = "blocked" }), TestContext.Current.CancellationToken);
 
             status.Should().Be(HttpStatusCode.Conflict);
-            (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(stateBeforeDisable);
+            (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(stateBeforeDisable);
         }
         finally
         {
@@ -228,7 +228,7 @@ public sealed class LegacyPluginsApiTests(
             try
             {
                 await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                    new Dictionary<string, bool> { [ExtensionId] = true }));
+                    new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
             }
             catch (Exception exception)
             {
@@ -237,7 +237,7 @@ public sealed class LegacyPluginsApiTests(
 
             try
             {
-                await owner.ReloadLegacyPluginsAsync();
+                await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
             }
             catch (Exception exception)
             {
@@ -256,28 +256,28 @@ public sealed class LegacyPluginsApiTests(
 
         try
         {
-            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "true");
+            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "true", TestContext.Current.CancellationToken);
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [ExtensionId] = false }));
+                new Dictionary<string, bool> { [ExtensionId] = false }), TestContext.Current.CancellationToken);
 
             var reEnable = () => owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
                 new Dictionary<string, bool> { [ExtensionId] = true }));
 
             await reEnable.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 409 (Conflict)*");
-            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(), expected: false);
+            AssertApiTestPluginEnabled(await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken), expected: false);
             (await owner.TryRunLegacyPluginTaskAsync(new RunPluginTaskDto(
                     ExtensionId,
                     TaskId,
-                    new Dictionary<string, string> { ["phase"] = "failed initialization" })))
+                    new Dictionary<string, string> { ["phase"] = "failed initialization" }), TestContext.Current.CancellationToken))
                 .Should().Be(HttpStatusCode.Conflict);
         }
         finally
         {
-            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "false");
+            await owner.SetExtensionDataAsync(ExtensionId, FailInitializationStoreKey, "false", TestContext.Current.CancellationToken);
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [ExtensionId] = true }));
-            await owner.ReloadLegacyPluginsAsync();
+                new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
+            await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
         }
     }
 
@@ -289,28 +289,28 @@ public sealed class LegacyPluginsApiTests(
         try
         {
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [DependencyExtensionId] = false }));
+                new Dictionary<string, bool> { [DependencyExtensionId] = false }), TestContext.Current.CancellationToken);
 
-            var disabledPlugins = await owner.GetLegacyPluginsAsync();
+            var disabledPlugins = await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken);
             AssertPluginEnabled(disabledPlugins, ExtensionId, expected: false);
             AssertPluginEnabled(disabledPlugins, DependencyExtensionId, expected: false);
             (await owner.TryRunLegacyPluginTaskAsync(new RunPluginTaskDto(
                     ExtensionId,
                     TaskId,
-                    new Dictionary<string, string> { ["phase"] = "dependency disabled" })))
+                    new Dictionary<string, string> { ["phase"] = "dependency disabled" }), TestContext.Current.CancellationToken))
                 .Should().Be(HttpStatusCode.Conflict);
 
             await owner.UpdateLegacyPluginSettingsAsync(new PluginSettingsDto(
-                new Dictionary<string, bool> { [ExtensionId] = true }));
+                new Dictionary<string, bool> { [ExtensionId] = true }), TestContext.Current.CancellationToken);
 
-            var reEnabledPlugins = await owner.GetLegacyPluginsAsync();
+            var reEnabledPlugins = await owner.GetLegacyPluginsAsync(TestContext.Current.CancellationToken);
             AssertPluginEnabled(reEnabledPlugins, ExtensionId, expected: true);
             AssertPluginEnabled(reEnabledPlugins, DependencyExtensionId, expected: true);
             var reEnabledRun = await owner.RunLegacyPluginTaskAsync(new RunPluginTaskDto(
                 ExtensionId,
                 TaskId,
-                new Dictionary<string, string> { ["phase"] = "dependency re-enabled" }));
-            (await owner.WaitForTerminalJobAsync(reEnabledRun.JobId)).Status.Should().Be(JobStatus.Completed);
+                new Dictionary<string, string> { ["phase"] = "dependency re-enabled" }), TestContext.Current.CancellationToken);
+            (await owner.WaitForTerminalJobAsync(reEnabledRun.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
         }
         finally
         {
@@ -319,8 +319,8 @@ public sealed class LegacyPluginsApiTests(
                 {
                     [DependencyExtensionId] = true,
                     [ExtensionId] = true,
-                }));
-            await owner.ReloadLegacyPluginsAsync();
+                }), TestContext.Current.CancellationToken);
+            await owner.ReloadLegacyPluginsAsync(TestContext.Current.CancellationToken);
         }
     }
 

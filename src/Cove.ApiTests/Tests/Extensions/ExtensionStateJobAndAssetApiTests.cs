@@ -22,7 +22,7 @@ public sealed class ExtensionStateJobAndAssetApiTests(
     public async Task GivenRuntimeExtensionAssets_WhenMemberReadsDependenciesAndAssets_ThenTypesBytesAndNoCacheHeadersAreExact()
     {
         var member = AsUser(ApiTestUsers.Eva);
-        (await member.ValidateExtensionDependenciesAsync()).Should().BeEmpty();
+        (await member.ValidateExtensionDependenciesAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
 
         var assets = new Dictionary<string, (string MediaType, string Content)>
         {
@@ -41,7 +41,7 @@ public sealed class ExtensionStateJobAndAssetApiTests(
 
         foreach (var (path, expected) in assets)
         {
-            var asset = await member.GetExtensionAssetAsync(ExtensionId, path);
+            var asset = await member.GetExtensionAssetAsync(ExtensionId, path, TestContext.Current.CancellationToken);
             asset.Content.Should().Equal(Encoding.UTF8.GetBytes(expected.Content));
             asset.MediaType.Should().Be(expected.MediaType);
             asset.CacheControl.Should().NotBeNull();
@@ -56,7 +56,7 @@ public sealed class ExtensionStateJobAndAssetApiTests(
         }
 
         using var client = member.CreateHttpClient();
-        using var missing = await client.GetAsync($"/api/extensions/assets/{ExtensionId}/missing.bin");
+        using var missing = await client.GetAsync($"/api/extensions/assets/{ExtensionId}/missing.bin", TestContext.Current.CancellationToken);
         missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -68,43 +68,43 @@ public sealed class ExtensionStateJobAndAssetApiTests(
     {
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
-        (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEmpty("the database reset must isolate extension state between API tests");
+        (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEmpty("the database reset must isolate extension state between API tests");
 
         var forbiddenStateRead = () => member.GetExtensionDataAsync(ExtensionId);
         await forbiddenStateRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         var forbiddenStateWrite = () => member.SetExtensionDataAsync(ExtensionId, "owner-value", "member attempt");
         await forbiddenStateWrite.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEmpty();
+        (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEmpty();
 
-        await owner.SetExtensionDataAsync(ExtensionId, "owner-value", "first");
-        (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(new Dictionary<string, string>
+        await owner.SetExtensionDataAsync(ExtensionId, "owner-value", "first", TestContext.Current.CancellationToken);
+        (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(new Dictionary<string, string>
         {
             ["owner-value"] = "first",
         });
-        await owner.SetExtensionDataAsync(ExtensionId, "owner-value", "second");
-        (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(new Dictionary<string, string>
+        await owner.SetExtensionDataAsync(ExtensionId, "owner-value", "second", TestContext.Current.CancellationToken);
+        (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(new Dictionary<string, string>
         {
             ["owner-value"] = "second",
         });
 
-        var beforeForbiddenJob = await owner.GetExtensionDataAsync(ExtensionId);
+        var beforeForbiddenJob = await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken);
         var forbiddenJob = () => member.RunExtensionJobAsync(
             ExtensionId,
             JobId,
             new Dictionary<string, string> { ["forbidden"] = "value" });
         await forbiddenJob.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(beforeForbiddenJob);
+        (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(beforeForbiddenJob);
 
         var parameters = new Dictionary<string, string>
         {
             ["beta"] = "two words",
             ["alpha"] = "one",
         };
-        var started = await owner.RunExtensionJobAsync(ExtensionId, JobId, parameters);
+        var started = await owner.RunExtensionJobAsync(ExtensionId, JobId, parameters, TestContext.Current.CancellationToken);
         started.Message.Should().Be("Job 'Record API test parameters' started");
         started.JobId.Should().NotBeNullOrWhiteSpace();
 
-        var completed = await owner.WaitForTerminalJobAsync(started.JobId);
+        var completed = await owner.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken);
         completed.Status.Should().Be(JobStatus.Completed);
         completed.Type.Should().Be($"ext:{ExtensionId}:{JobId}");
         completed.Description.Should().Be("[API Test Face Provider] Record API test parameters");
@@ -113,7 +113,7 @@ public sealed class ExtensionStateJobAndAssetApiTests(
         completed.StartedAt.Should().BeOnOrBefore(completed.CompletedAt!.Value);
         completed.Error.Should().BeNull();
 
-        (await owner.GetExtensionDataAsync(ExtensionId)).Should().BeEquivalentTo(new Dictionary<string, string>
+        (await owner.GetExtensionDataAsync(ExtensionId, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(new Dictionary<string, string>
         {
             ["owner-value"] = "second",
             [JobParametersStoreKey] = "{\"alpha\":\"one\",\"beta\":\"two words\"}",
@@ -121,15 +121,11 @@ public sealed class ExtensionStateJobAndAssetApiTests(
         });
 
         using var client = owner.CreateHttpClient();
-        using var nonStateful = await client.GetAsync("/api/extensions/builtin.direct-file/data");
+        using var nonStateful = await client.GetAsync("/api/extensions/builtin.direct-file/data", TestContext.Current.CancellationToken);
         nonStateful.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var unknownJob = await client.PostAsJsonAsync(
-            $"/api/extensions/{ExtensionId}/jobs/missing/run",
-            new Dictionary<string, string>());
+        using var unknownJob = await client.PostAsJsonAsync($"/api/extensions/{ExtensionId}/jobs/missing/run", new Dictionary<string, string>(), cancellationToken: TestContext.Current.CancellationToken);
         unknownJob.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var nonJobExtension = await client.PostAsJsonAsync(
-            "/api/extensions/builtin.direct-file/jobs/missing/run",
-            new Dictionary<string, string>());
+        using var nonJobExtension = await client.PostAsJsonAsync("/api/extensions/builtin.direct-file/jobs/missing/run", new Dictionary<string, string>(), cancellationToken: TestContext.Current.CancellationToken);
         nonJobExtension.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

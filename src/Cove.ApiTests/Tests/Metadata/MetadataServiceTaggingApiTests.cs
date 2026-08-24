@@ -18,8 +18,8 @@ public sealed class MetadataServiceTaggingApiTests(
                 .WithTitle("Metadata scene")
                 .WithTag("Metadata tag")
                 .Build());
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title);
-        var taggedVideo = await AsUser().ImportVideoFromMetadataServiceAsync(video, metadataScene);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.RaidersOfTheLostCorset.Title, TestContext.Current.CancellationToken);
+        var taggedVideo = await AsUser().ImportVideoFromMetadataServiceAsync(video, metadataScene, TestContext.Current.CancellationToken);
         taggedVideo.Tags.Should().ContainSingle();
         var scrapedTag = taggedVideo.Tags.Single();
         scrapedTag.CanRemove.Should().BeTrue();
@@ -27,11 +27,11 @@ public sealed class MetadataServiceTaggingApiTests(
             provenance => provenance.SourceKey == $"metadata:{metadataScene.Endpoint.AbsoluteUri}");
 
         // Act
-        await AsUser().RemoveTagFromVideoAsync(taggedVideo, scrapedTag);
+        await AsUser().RemoveTagFromVideoAsync(taggedVideo, scrapedTag, TestContext.Current.CancellationToken);
 
         // Assert
-        var videoAfter = await AsUser().GetVideoByIdAsync(video.Id);
+        var videoAfter = await AsUser().GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
         videoAfter.Tags.Should().NotContain(tag => tag.Id == scrapedTag.Id);
-        (await AsUser().TagExistsAsync(scrapedTag.Id)).Should().BeTrue();
+        (await AsUser().TagExistsAsync(scrapedTag.Id, TestContext.Current.CancellationToken)).Should().BeTrue();
     }
 }

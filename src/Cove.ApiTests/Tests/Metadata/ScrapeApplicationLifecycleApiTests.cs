@@ -26,19 +26,19 @@ public sealed class ScrapeApplicationLifecycleApiTests(
     public async Task GivenLoopbackTextMetadata_WhenScrapeAttemptIsCreatedReadAndApplied_ThenPermissionsAndPersistenceAreExact()
     {
         var suffix = Guid.NewGuid().ToString("N");
-        var originalTag = await AsUser().CreateTagAsync($"Original scrape tag {suffix}");
+        var originalTag = await AsUser().CreateTagAsync($"Original scrape tag {suffix}", TestContext.Current.CancellationToken);
         var target = await AsUser().CreateTextAsync(new TextDocumentBuilder()
             .WithTitle($"Original scrape text {suffix}")
             .WithDetails($"Original scrape details {suffix}")
             .WithUrl($"https://text.example/original/{suffix}")
             .WithTag(originalTag)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var control = await AsUser().CreateTextAsync(new TextDocumentBuilder()
             .WithTitle($"Control scrape text {suffix}")
             .WithDetails($"Control scrape details {suffix}")
-            .Build());
-        var beforeTarget = await AsUser().GetTextByIdAsync(target.Id);
-        var beforeControl = await AsUser().GetTextByIdAsync(control.Id);
+            .Build(), TestContext.Current.CancellationToken);
+        var beforeTarget = await AsUser().GetTextByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var beforeControl = await AsUser().GetTextByIdAsync(control.Id, TestContext.Current.CancellationToken);
         var scrapedTitle = $"Applied scrape text {suffix}";
         var scrapedTag = $"Applied scrape tag {suffix}";
         var scrapedDetails = $"Applied scrape details {suffix}";
@@ -56,16 +56,16 @@ public sealed class ScrapeApplicationLifecycleApiTests(
             Name: null,
             Fragment: null);
 
-        var created = await AsUser(ApiTestUsers.Eva).CreateScrapeAttemptAsync(createRequest);
-        var fetched = await AsUser(ApiTestUsers.Eva).GetScrapeAttemptAsync(created.Id);
+        var created = await AsUser(ApiTestUsers.Eva).CreateScrapeAttemptAsync(createRequest, TestContext.Current.CancellationToken);
+        var fetched = await AsUser(ApiTestUsers.Eva).GetScrapeAttemptAsync(created.Id, TestContext.Current.CancellationToken);
 
         var viewerUsername = $"scrape-viewer-{suffix}";
         const string viewerPassword = "Scrape application viewer 123!";
         await AsUser().CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
         var forbiddenCreate = await SendForStatusAsync(
             viewerSession.Client,
             HttpMethod.Post,
@@ -97,11 +97,11 @@ public sealed class ScrapeApplicationLifecycleApiTests(
             $"/api/scrape-attempts/{missingAttemptId:D}/apply",
             BuildTextApplyRequest());
 
-        var afterDenied = await AsUser().GetTextByIdAsync(target.Id);
-        var applied = await AsUser(ApiTestUsers.Eva).ApplyScrapeAttemptAsync(created.Id, BuildTextApplyRequest());
-        var persistedAttempt = await AsUser(ApiTestUsers.Eva).GetScrapeAttemptAsync(created.Id);
-        var persistedTarget = await AsUser().GetTextByIdAsync(target.Id);
-        var persistedControl = await AsUser().GetTextByIdAsync(control.Id);
+        var afterDenied = await AsUser().GetTextByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var applied = await AsUser(ApiTestUsers.Eva).ApplyScrapeAttemptAsync(created.Id, BuildTextApplyRequest(), TestContext.Current.CancellationToken);
+        var persistedAttempt = await AsUser(ApiTestUsers.Eva).GetScrapeAttemptAsync(created.Id, TestContext.Current.CancellationToken);
+        var persistedTarget = await AsUser().GetTextByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var persistedControl = await AsUser().GetTextByIdAsync(control.Id, TestContext.Current.CancellationToken);
 
         using var assertions = new AssertionScope();
         source.RequestCount.Should().Be(1);
@@ -149,12 +149,12 @@ public sealed class ScrapeApplicationLifecycleApiTests(
         var resolvedTag = await AsUser().CreateTagAsync(new TagBuilder()
             .WithName($"Resolved scrape tag {suffix}")
             .WithAlias($"Resolved tag alias {suffix}")
-            .Build());
-        var staleTag = await AsUser().CreateTagAsync($"Stale scrape tag {suffix}");
+            .Build(), TestContext.Current.CancellationToken);
+        var staleTag = await AsUser().CreateTagAsync($"Stale scrape tag {suffix}", TestContext.Current.CancellationToken);
         var resolvedPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Resolved scrape performer {suffix}")
             .WithAlias($"Nonidentity performer alias {suffix}")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var target = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Original apply performer {suffix}")
             .WithDetails($"Preserved performer details {suffix}")
@@ -162,13 +162,13 @@ public sealed class ScrapeApplicationLifecycleApiTests(
             .WithAlias($"Stale performer alias {suffix}")
             .WithUrl($"https://performer.example/original/{suffix}")
             .WithTag(staleTag)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var control = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Control apply performer {suffix}")
             .WithDetails($"Control performer details {suffix}")
-            .Build());
-        var beforeTarget = await AsUser().GetPerformerByIdAsync(target.Id);
-        var beforeControl = await AsUser().GetPerformerByIdAsync(control.Id);
+            .Build(), TestContext.Current.CancellationToken);
+        var beforeTarget = await AsUser().GetPerformerByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var beforeControl = await AsUser().GetPerformerByIdAsync(control.Id, TestContext.Current.CancellationToken);
         var missingPerformerName = $"Missing scrape performer {suffix}";
         var missingTagName = $"Missing scrape tag {suffix}";
         var relationRequest = new ResolveScrapeRelationsRequestDto
@@ -235,17 +235,17 @@ public sealed class ScrapeApplicationLifecycleApiTests(
             },
         };
 
-        var resolved = await AsUser(ApiTestUsers.Eva).ResolveScrapeRelationsAsync(relationRequest);
-        var performersAfterResolve = await AsUser().GetPerformersAsync();
-        var tagsAfterResolve = await AsUser().GetTagsAsync();
+        var resolved = await AsUser(ApiTestUsers.Eva).ResolveScrapeRelationsAsync(relationRequest, TestContext.Current.CancellationToken);
+        var performersAfterResolve = await AsUser().GetPerformersAsync(TestContext.Current.CancellationToken);
+        var tagsAfterResolve = await AsUser().GetTagsAsync(TestContext.Current.CancellationToken);
 
         var viewerUsername = $"performer-apply-viewer-{suffix}";
         const string viewerPassword = "Performer apply viewer 123!";
         await AsUser().CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
         var forbiddenResolve = await SendForStatusAsync(
             viewerSession.Client,
             HttpMethod.Post,
@@ -262,10 +262,10 @@ public sealed class ScrapeApplicationLifecycleApiTests(
             $"/api/performers/{int.MaxValue}/apply-scraped",
             applyRequest);
 
-        var afterDenied = await AsUser().GetPerformerByIdAsync(target.Id);
-        var applied = await AsUser(ApiTestUsers.Eva).ApplyScrapedPerformerAsync(target.Id, applyRequest);
-        var persisted = await AsUser().GetPerformerByIdAsync(target.Id);
-        var persistedControl = await AsUser().GetPerformerByIdAsync(control.Id);
+        var afterDenied = await AsUser().GetPerformerByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var applied = await AsUser(ApiTestUsers.Eva).ApplyScrapedPerformerAsync(target.Id, applyRequest, TestContext.Current.CancellationToken);
+        var persisted = await AsUser().GetPerformerByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var persistedControl = await AsUser().GetPerformerByIdAsync(control.Id, TestContext.Current.CancellationToken);
 
         using var assertions = new AssertionScope();
         resolved.Performers.Should().ContainSingle();

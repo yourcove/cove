@@ -39,29 +39,22 @@ public sealed class PerformerMetadataServiceApiTests(
                 .WithCareerStartYear(2014)
                 .WithUrl(performerProfileUrl)
                 .Build());
-        var performer = await owner.CreatePerformerAsync(
-            new PerformerBuilder()
+        var performer = await owner.CreatePerformerAsync(new PerformerBuilder()
                 .WithName(catalogPerformer.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act & Assert
-        var fallbackMatches = await owner.SearchPerformerMetadataServiceAsync(
-            performer,
-            string.Empty,
-            metadataPerformer);
+        var fallbackMatches = await owner.SearchPerformerMetadataServiceAsync(performer, string.Empty, metadataPerformer, TestContext.Current.CancellationToken);
         fallbackMatches.Should().ContainSingle().Which.Id.Should().Be(metadataPerformer.Id);
 
-        var matches = await owner.SearchPerformerMetadataServiceAsync(
-            performer,
-            catalogPerformer.Name,
-            metadataPerformer);
+        var matches = await owner.SearchPerformerMetadataServiceAsync(performer, catalogPerformer.Name, metadataPerformer, TestContext.Current.CancellationToken);
         var match = matches.Should().ContainSingle().Which;
         match.MetadataServerName.Should().Be(pulpMovieDb.Name);
         match.Id.Should().Be(metadataPerformer.Id);
         match.Name.Should().Be(catalogPerformer.Name);
         match.Urls.Should().ContainSingle().Which.Should().Be(performerProfileUrl);
 
-        var imported = await owner.ImportPerformerFromMetadataServiceAsync(performer, match);
+        var imported = await owner.ImportPerformerFromMetadataServiceAsync(performer, match, TestContext.Current.CancellationToken);
 
         imported.Name.Should().Be(catalogPerformer.Name);
         imported.Disambiguation.Should().Be("the theatrical entrance specialist");
@@ -79,7 +72,7 @@ public sealed class PerformerMetadataServiceApiTests(
             remoteId.Endpoint == metadataPerformer.Endpoint.AbsoluteUri
             && remoteId.RemoteId == metadataPerformer.Id);
 
-        var persisted = await owner.GetPerformerByIdAsync(imported.Id);
+        var persisted = await owner.GetPerformerByIdAsync(imported.Id, TestContext.Current.CancellationToken);
         persisted.Name.Should().Be(catalogPerformer.Name);
         persisted.Disambiguation.Should().Be("the theatrical entrance specialist");
         persisted.Aliases.Should().ContainSingle().Which.Should().Be("Cherry Pop-In");
@@ -96,10 +89,7 @@ public sealed class PerformerMetadataServiceApiTests(
             remoteId.Endpoint == metadataPerformer.Endpoint.AbsoluteUri
             && remoteId.RemoteId == metadataPerformer.Id);
 
-        var existingRemoteMatches = await owner.SearchPerformerMetadataServiceAsync(
-            persisted,
-            string.Empty,
-            metadataPerformer);
+        var existingRemoteMatches = await owner.SearchPerformerMetadataServiceAsync(persisted, string.Empty, metadataPerformer, TestContext.Current.CancellationToken);
         existingRemoteMatches.Should().ContainSingle().Which.Id.Should().Be(metadataPerformer.Id);
     }
 
@@ -137,35 +127,32 @@ public sealed class PerformerMetadataServiceApiTests(
                 .WithUrl($"https://metadata.example/performers/batch-{suffix}")
                 .Build());
         var preservedBatchAlias = $"Preserved batch alias {suffix}";
-        var performer = await owner.CreatePerformerAsync(
-            new PerformerBuilder()
+        var performer = await owner.CreatePerformerAsync(new PerformerBuilder()
                 .WithName(metadataPerformer.Performer.Name)
                 .WithDetails($"Local metadata details {suffix}")
-                .Build());
-        var batchPerformer = await owner.CreatePerformerAsync(
-            new PerformerBuilder()
+                .Build(), TestContext.Current.CancellationToken);
+        var batchPerformer = await owner.CreatePerformerAsync(new PerformerBuilder()
                 .WithName(batchMetadataPerformer.Performer.Name)
                 .WithDisambiguation(batchMetadataPerformer.Performer.Disambiguation!)
                 .WithDetails($"Local batch details {suffix}")
                 .WithAlias(preservedBatchAlias)
-                .Build());
-        var unmatchedPerformer = await owner.CreatePerformerAsync(
-            new PerformerBuilder()
+                .Build(), TestContext.Current.CancellationToken);
+        var unmatchedPerformer = await owner.CreatePerformerAsync(new PerformerBuilder()
                 .WithName($"Unmatched batch performer {suffix}")
                 .WithDetails($"Unmatched batch details {suffix}")
                 .WithAlias($"Unmatched batch alias {suffix}")
-                .Build());
-        var beforeForbiddenPerformer = await owner.GetPerformerByIdAsync(performer.Id);
-        var beforeForbiddenBatchPerformer = await owner.GetPerformerByIdAsync(batchPerformer.Id);
-        var beforeUnmatchedPerformer = await owner.GetPerformerByIdAsync(unmatchedPerformer.Id);
+                .Build(), TestContext.Current.CancellationToken);
+        var beforeForbiddenPerformer = await owner.GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken);
+        var beforeForbiddenBatchPerformer = await owner.GetPerformerByIdAsync(batchPerformer.Id, TestContext.Current.CancellationToken);
+        var beforeUnmatchedPerformer = await owner.GetPerformerByIdAsync(unmatchedPerformer.Id, TestContext.Current.CancellationToken);
 
         var noRoleUsername = $"performer-metadata-no-role-{suffix}";
         var viewerUsername = $"performer-metadata-viewer-{suffix}";
         const string password = "Performer metadata permissions 123!";
-        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []));
-        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]));
-        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password);
-        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password);
+        await owner.CreateUserAsync(new CreateUserRequest(noRoleUsername, password, Roles: []), TestContext.Current.CancellationToken);
+        await owner.CreateUserAsync(new CreateUserRequest(viewerUsername, password, Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var noRoleSession = await owner.CreateAuthSessionAsync(noRoleUsername, password, TestContext.Current.CancellationToken);
+        using var viewerSession = await owner.CreateAuthSessionAsync(viewerUsername, password, TestContext.Current.CancellationToken);
         var noRole = noRoleSession.Client;
         var viewer = viewerSession.Client;
         var viewerBatchRequest = new MetadataServerPerformerBatchTagRequestDto
@@ -177,9 +164,7 @@ public sealed class PerformerMetadataServiceApiTests(
         var forbiddenFind = () => noRole.FindPerformerMetadataServiceByIdsAsync(metadataPerformer, [metadataPerformer.Id]);
         await forbiddenFind.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
 
-        var viewerMatches = await viewer.FindPerformerMetadataServiceByIdsAsync(
-            metadataPerformer,
-            [metadataPerformer.Id, $"missing-{suffix}", metadataPerformer.Id]);
+        var viewerMatches = await viewer.FindPerformerMetadataServiceByIdsAsync(metadataPerformer, [metadataPerformer.Id, $"missing-{suffix}", metadataPerformer.Id], TestContext.Current.CancellationToken);
         AssertPerformerMatch(viewerMatches.Should().ContainSingle().Which, metadataPerformer);
 
         var forbiddenWrites = new Func<Task>[]
@@ -192,20 +177,18 @@ public sealed class PerformerMetadataServiceApiTests(
             await forbiddenWrite.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
 
         AsMetadataService().PerformerDraftSubmissions.Should().BeEmpty();
-        AssertUnchanged(await owner.GetPerformerByIdAsync(performer.Id), beforeForbiddenPerformer);
-        AssertUnchanged(await owner.GetPerformerByIdAsync(batchPerformer.Id), beforeForbiddenBatchPerformer);
-        AssertUnchanged(await owner.GetPerformerByIdAsync(unmatchedPerformer.Id), beforeUnmatchedPerformer);
+        AssertUnchanged(await owner.GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken), beforeForbiddenPerformer);
+        AssertUnchanged(await owner.GetPerformerByIdAsync(batchPerformer.Id, TestContext.Current.CancellationToken), beforeForbiddenBatchPerformer);
+        AssertUnchanged(await owner.GetPerformerByIdAsync(unmatchedPerformer.Id, TestContext.Current.CancellationToken), beforeUnmatchedPerformer);
 
-        var foundByIds = await owner.FindPerformerMetadataServiceByIdsAsync(
-            metadataPerformer,
-            [metadataPerformer.Id, $"missing-{suffix}", metadataPerformer.Id]);
+        var foundByIds = await owner.FindPerformerMetadataServiceByIdsAsync(metadataPerformer, [metadataPerformer.Id, $"missing-{suffix}", metadataPerformer.Id], TestContext.Current.CancellationToken);
         AssertPerformerMatch(foundByIds.Should().ContainSingle().Which, metadataPerformer);
-        (await owner.FindPerformerMetadataServiceByIdsAsync(metadataPerformer, [])).Should().BeEmpty();
+        (await owner.FindPerformerMetadataServiceByIdsAsync(metadataPerformer, [], TestContext.Current.CancellationToken)).Should().BeEmpty();
 
-        var imported = await owner.ImportPerformerFromMetadataServiceAsync(performer, foundByIds.Single());
+        var imported = await owner.ImportPerformerFromMetadataServiceAsync(performer, foundByIds.Single(), TestContext.Current.CancellationToken);
         AssertImportedPerformer(imported, metadataPerformer);
 
-        var draftId = await owner.SubmitPerformerDraftToMetadataServiceAsync(imported, metadataPerformer);
+        var draftId = await owner.SubmitPerformerDraftToMetadataServiceAsync(imported, metadataPerformer, TestContext.Current.CancellationToken);
         draftId.Should().Be("draft-1");
         var draft = AsMetadataService().PerformerDraftSubmissions.Should().ContainSingle().Which;
         draft.DraftId.Should().Be(draftId);
@@ -231,13 +214,13 @@ public sealed class PerformerMetadataServiceApiTests(
             RefreshAlreadyTagged = true,
             ExcludeFields = ["aliases"],
         };
-        var batchStart = await owner.StartPerformerMetadataBatchTagAsync(batchRequest);
+        var batchStart = await owner.StartPerformerMetadataBatchTagAsync(batchRequest, TestContext.Current.CancellationToken);
         batchStart.ItemCount.Should().Be(2);
-        var batchJob = await owner.WaitForTerminalJobAsync(batchStart.JobId);
+        var batchJob = await owner.WaitForTerminalJobAsync(batchStart.JobId, TestContext.Current.CancellationToken);
         batchJob.Status.Should().Be(JobStatus.Completed);
         batchJob.Type.Should().Be("metadata-server:performers");
         batchJob.Error.Should().BeNull();
-        var batchUpdated = await owner.GetPerformerByIdAsync(batchPerformer.Id);
+        var batchUpdated = await owner.GetPerformerByIdAsync(batchPerformer.Id, TestContext.Current.CancellationToken);
         batchUpdated.Name.Should().Be(batchMetadataPerformer.Performer.Name);
         batchUpdated.Disambiguation.Should().Be(batchMetadataPerformer.Performer.Disambiguation);
         batchUpdated.Gender.Should().Be("Male");
@@ -246,11 +229,9 @@ public sealed class PerformerMetadataServiceApiTests(
         batchUpdated.RemoteIds.Should().ContainSingle(remoteId =>
             remoteId.Endpoint == batchMetadataPerformer.Endpoint.AbsoluteUri
             && remoteId.RemoteId == batchMetadataPerformer.Id);
-        AssertUnchanged(await owner.GetPerformerByIdAsync(unmatchedPerformer.Id), beforeUnmatchedPerformer);
+        AssertUnchanged(await owner.GetPerformerByIdAsync(unmatchedPerformer.Id, TestContext.Current.CancellationToken), beforeUnmatchedPerformer);
 
-        var driftedBatchPerformer = await owner.UpdatePerformerAsync(
-            batchPerformer.Id,
-            new { gender = "Female" });
+        var driftedBatchPerformer = await owner.UpdatePerformerAsync(batchPerformer.Id, new { gender = "Female" }, TestContext.Current.CancellationToken);
         driftedBatchPerformer.Gender.Should().Be("Female");
         driftedBatchPerformer.Aliases.Should().Equal(preservedBatchAlias);
 
@@ -262,17 +243,17 @@ public sealed class PerformerMetadataServiceApiTests(
             RefreshAlreadyTagged = true,
             ExcludeFields = ["aliases"],
         };
-        var filteredBatchStart = await owner.StartPerformerMetadataBatchTagAsync(filteredBatchRequest);
+        var filteredBatchStart = await owner.StartPerformerMetadataBatchTagAsync(filteredBatchRequest, TestContext.Current.CancellationToken);
         filteredBatchStart.ItemCount.Should().Be(1);
-        var filteredBatchJob = await owner.WaitForTerminalJobAsync(filteredBatchStart.JobId);
+        var filteredBatchJob = await owner.WaitForTerminalJobAsync(filteredBatchStart.JobId, TestContext.Current.CancellationToken);
         filteredBatchJob.Status.Should().Be(JobStatus.Completed);
         filteredBatchJob.Type.Should().Be("metadata-server:performers");
         filteredBatchJob.Error.Should().BeNull();
-        var filteredBatchUpdated = await owner.GetPerformerByIdAsync(batchPerformer.Id);
+        var filteredBatchUpdated = await owner.GetPerformerByIdAsync(batchPerformer.Id, TestContext.Current.CancellationToken);
         filteredBatchUpdated.Gender.Should().Be("Male");
         filteredBatchUpdated.Aliases.Should().Equal(preservedBatchAlias);
         filteredBatchUpdated.RemoteIds.Should().Equal(batchUpdated.RemoteIds);
-        AssertUnchanged(await owner.GetPerformerByIdAsync(unmatchedPerformer.Id), beforeUnmatchedPerformer);
+        AssertUnchanged(await owner.GetPerformerByIdAsync(unmatchedPerformer.Id, TestContext.Current.CancellationToken), beforeUnmatchedPerformer);
     }
 
     private static void AssertPerformerMatch(

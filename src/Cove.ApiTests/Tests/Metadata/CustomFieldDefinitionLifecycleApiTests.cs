@@ -35,9 +35,9 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
         Func<Task> forbiddenCreate = () => member.CreateCustomFieldDefinitionAsync(create);
         await forbiddenCreate.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetCustomFieldDefinitionsAsync()).Should().BeEmpty();
+        (await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Should().BeEmpty();
 
-        var created = await owner.CreateCustomFieldDefinitionAsync(create);
+        var created = await owner.CreateCustomFieldDefinitionAsync(create, TestContext.Current.CancellationToken);
         AssertDefinition(
             created,
             created.Id,
@@ -75,7 +75,7 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             new CustomFieldDefinitionUpdateDto { Label = "Forbidden label" });
         await forbiddenUpdate.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        var afterForbidden = (await owner.GetCustomFieldDefinitionsAsync()).Should().ContainSingle().Which;
+        var afterForbidden = (await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Should().ContainSingle().Which;
         AssertDefinition(
             afterForbidden,
             created.Id,
@@ -98,7 +98,7 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             Filterable = true,
             Sortable = false,
             DisplayOrder = 17,
-        });
+        }, TestContext.Current.CancellationToken);
         AssertDefinition(
             updated,
             created.Id,
@@ -120,7 +120,7 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             new CustomFieldDefinitionUpdateDto { Label = "Missing" });
         await missingUpdate.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
-        var persisted = (await owner.GetCustomFieldDefinitionsAsync(" VIDEO ")).Should().ContainSingle().Which;
+        var persisted = (await owner.GetCustomFieldDefinitionsAsync(" VIDEO ", TestContext.Current.CancellationToken)).Should().ContainSingle().Which;
         AssertDefinition(
             persisted,
             created.Id,
@@ -160,9 +160,9 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             .WithCustomField(retainedKey, "retained value")
             .WithCustomField(omittedKey, "omitted value")
             .WithCustomField(controlKey, "control value")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         AssertTextCustomFields(
-            await owner.GetVideoByIdAsync(video.Id),
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
             [
                 (retainedKey, "retained value"),
                 (omittedKey, "omitted value"),
@@ -198,22 +198,22 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
                 DisplayOrder = 30,
             },
         };
-        var beforeForbiddenReplace = await owner.GetCustomFieldDefinitionsAsync();
+        var beforeForbiddenReplace = await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken);
         Func<Task> forbiddenReplace = () => member.ReplaceCustomFieldDefinitionsAsync(replacement);
         await forbiddenReplace.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetCustomFieldDefinitionsAsync()).Should().BeEquivalentTo(
+        (await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(
             beforeForbiddenReplace,
             options => options.WithStrictOrdering());
         AssertTextCustomFields(
-            await owner.GetVideoByIdAsync(video.Id),
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
             [
                 (retainedKey, "retained value"),
                 (omittedKey, "omitted value"),
                 (controlKey, "control value"),
             ]);
 
-        var replaced = await owner.ReplaceCustomFieldDefinitionsAsync(replacement);
+        var replaced = await owner.ReplaceCustomFieldDefinitionsAsync(replacement, TestContext.Current.CancellationToken);
         replaced.Select(definition => definition.Key).Should().Equal(newKey, renamedKey, controlKey);
         replaced.Select(definition => definition.DisplayOrder).Should().Equal(0, 20, 30);
         var createdByReplace = replaced[0];
@@ -221,11 +221,11 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
         replaced[1].Id.Should().Be(retained.Id);
         replaced[2].Id.Should().Be(control.Id);
         replaced.Should().NotContain(definition => definition.Id == omitted.Id || definition.Key == omittedKey);
-        (await owner.GetCustomFieldDefinitionsAsync()).Should().BeEquivalentTo(
+        (await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(
             replaced,
             options => options.WithStrictOrdering());
         AssertTextCustomFields(
-            await owner.GetVideoByIdAsync(video.Id),
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
             [(renamedKey, "retained value"), (controlKey, "control value")]);
 
         var duplicateReplacement = new List<CustomFieldDefinitionSyncDto>
@@ -237,11 +237,11 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
         Func<Task> duplicateKeys = () => owner.ReplaceCustomFieldDefinitionsAsync(duplicateReplacement);
         await duplicateKeys.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 400 (BadRequest)*already exists*");
-        (await owner.GetCustomFieldDefinitionsAsync()).Should().BeEquivalentTo(
+        (await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken)).Should().BeEquivalentTo(
             replaced,
             options => options.WithStrictOrdering());
         AssertTextCustomFields(
-            await owner.GetVideoByIdAsync(video.Id),
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
             [(renamedKey, "retained value"), (controlKey, "control value")]);
 
         await owner.UpdateVideoAsync(video.Id, new
@@ -252,24 +252,24 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
                 [controlKey] = "control value",
                 [newKey] = "new value",
             },
-        });
+        }, TestContext.Current.CancellationToken);
         AssertTextCustomFields(
-            await owner.GetVideoByIdAsync(video.Id),
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
             [(newKey, "new value"), (renamedKey, "retained value"), (controlKey, "control value")]);
 
         Func<Task> forbiddenDelete = () => member.DeleteCustomFieldDefinitionAsync(createdByReplace.Id);
         await forbiddenDelete.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
         AssertTextCustomFields(
-            await owner.GetVideoByIdAsync(video.Id),
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
             [(newKey, "new value"), (renamedKey, "retained value"), (controlKey, "control value")]);
 
-        await owner.DeleteCustomFieldDefinitionAsync(createdByReplace.Id);
-        var afterDelete = await owner.GetCustomFieldDefinitionsAsync();
+        await owner.DeleteCustomFieldDefinitionAsync(createdByReplace.Id, TestContext.Current.CancellationToken);
+        var afterDelete = await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken);
         afterDelete.Select(definition => definition.Id).Should().Equal(retained.Id, control.Id);
         afterDelete.Select(definition => definition.Key).Should().Equal(renamedKey, controlKey);
         AssertTextCustomFields(
-            await owner.GetVideoByIdAsync(video.Id),
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
             [(renamedKey, "retained value"), (controlKey, "control value")]);
         Func<Task> repeatedDelete = () => owner.DeleteCustomFieldDefinitionAsync(createdByReplace.Id);
         await repeatedDelete.Should().ThrowAsync<InvalidOperationException>()
