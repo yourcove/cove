@@ -13,7 +13,7 @@ public sealed class StartupHealthSmokeTests
 
         await WaitForStartupAsync(client);
 
-        var response = await client.GetAsync("/health");
+        var response = await client.GetAsync("/health", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotEqual(configuredBaseAddress, client.BaseAddress);
@@ -28,7 +28,7 @@ public sealed class StartupHealthSmokeTests
 
         await WaitForStartupAsync(client);
 
-        var response = await client.GetAsync("/health");
+        var response = await client.GetAsync("/health", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

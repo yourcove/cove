@@ -26,7 +26,7 @@ public sealed class DatabaseUnavailableMiddlewareTests
         Assert.Equal("5", context.Response.Headers.RetryAfter);
 
         context.Response.Body.Position = 0;
-        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
         Assert.Contains("DATABASE_UNAVAILABLE", body);
     }
 
@@ -53,7 +53,7 @@ public sealed class DatabaseUnavailableMiddlewareTests
         Assert.Equal("5", context.Response.Headers.RetryAfter);
 
         context.Response.Body.Position = 0;
-        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
         Assert.Contains("DATABASE_RESTORE_IN_PROGRESS", body);
     }
 
@@ -80,7 +80,7 @@ public sealed class DatabaseUnavailableMiddlewareTests
         Assert.Equal("5", context.Response.Headers.RetryAfter);
 
         context.Response.Body.Position = 0;
-        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
         Assert.Contains("DATABASE_INITIALIZING", body);
     }
 

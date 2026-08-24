@@ -23,10 +23,10 @@ public sealed class EntityEngagementControllerSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync($"/api/engagement/video/{videoId}");
+        var response = await client.GetAsync($"/api/engagement/video/{videoId}", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var payload = await response.Content.ReadApiJsonAsync<EntityEngagementDto>();
+        var payload = await response.Content.ReadApiJsonAsync<EntityEngagementDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         Assert.Equal(videoId, payload.HostId);
     }
@@ -58,7 +58,7 @@ public sealed class PlaybackControllerSmokeTests
             180.0,
             12.0,
             "active",
-            [new PlaybackIntervalInputDto(0.0, 12.0)]));
+            [new PlaybackIntervalInputDto(0.0, 12.0)]), cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
 
         var second = await client.PostAsJsonAsync("/api/playback/intervals", new PlaybackIntervalsRequestDto(
@@ -68,7 +68,7 @@ public sealed class PlaybackControllerSmokeTests
             180.0,
             27.0,
             "paused",
-            [new PlaybackIntervalInputDto(12.0, 27.0)]));
+            [new PlaybackIntervalInputDto(12.0, 27.0)]), cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, second.StatusCode);
 
         await factory.WithDbContextAsync(async db =>
@@ -111,7 +111,7 @@ public sealed class PlaybackControllerSmokeTests
                 "video",
                 videoId,
                 "openDetail",
-                null));
+                null), cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         }
@@ -123,7 +123,7 @@ public sealed class PlaybackControllerSmokeTests
             180.0,
             12.0,
             "active",
-            [new PlaybackIntervalInputDto(0.0, 12.0)]));
+            [new PlaybackIntervalInputDto(0.0, 12.0)]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.TooManyRequests, rateLimited.StatusCode);
     }

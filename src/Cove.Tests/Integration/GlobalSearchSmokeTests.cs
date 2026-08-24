@@ -20,10 +20,10 @@ public sealed class GlobalSearchSmokeTests
         });
         using var client = factory.CreateAuthenticatedClient();
 
-        var response = await client.GetAsync("/api/search/global?q=unique+searchable&perType=8");
+        var response = await client.GetAsync("/api/search/global?q=unique+searchable&perType=8", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>();
+        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(result);
         Assert.Empty(result.FailedTypes);
         Assert.Contains(result.Groups, group => group.Type == "video" && group.Items.Any(item => item.Title == "Unique searchable title"));
@@ -37,10 +37,10 @@ public sealed class GlobalSearchSmokeTests
         await factory.ResetDatabaseAsync();
         using var client = factory.CreateAuthenticatedClient();
 
-        var response = await client.GetAsync("/api/search/global?q=a&perType=8");
+        var response = await client.GetAsync("/api/search/global?q=a&perType=8", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>();
+        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(result);
         Assert.Empty(result.Groups);
     }
@@ -60,10 +60,10 @@ public sealed class GlobalSearchSmokeTests
         });
         using var client = factory.CreateAuthenticatedClient();
 
-        var response = await client.GetAsync("/api/search/global?q=relationship-only&perType=8");
+        var response = await client.GetAsync("/api/search/global?q=relationship-only&perType=8", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>();
+        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(result);
         Assert.DoesNotContain(result.Groups, group => group.Type == "video");
         Assert.Contains(result.Groups, group => group.Type == "performer");
@@ -83,10 +83,10 @@ public sealed class GlobalSearchSmokeTests
         });
         using var client = factory.CreateAuthenticatedClient();
 
-        var response = await client.GetAsync("/api/search/global?q=remembered+scene&perType=8");
+        var response = await client.GetAsync("/api/search/global?q=remembered+scene&perType=8", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>();
+        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>(cancellationToken: TestContext.Current.CancellationToken);
         var videos = Assert.Single(result!.Groups, group => group.Type == "video").Items;
         Assert.Equal("Remembered Scene", videos[0].Title);
     }
@@ -105,10 +105,10 @@ public sealed class GlobalSearchSmokeTests
         });
         using var client = factory.CreateAuthenticatedClient();
 
-        var response = await client.GetAsync("/api/search/global?q=remembered+gallery&perType=8");
+        var response = await client.GetAsync("/api/search/global?q=remembered+gallery&perType=8", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>();
+        var result = await response.Content.ReadFromJsonAsync<GlobalSearchResponseDto>(cancellationToken: TestContext.Current.CancellationToken);
         var galleries = Assert.Single(result!.Groups, group => group.Type == "gallery").Items;
         Assert.Equal("Remembered Gallery", galleries[0].Title);
     }
