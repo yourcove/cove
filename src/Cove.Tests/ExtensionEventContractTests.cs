@@ -34,7 +34,7 @@ public class ExtensionEventContractTests
             CanonicalEventType = "audio.updated",
         };
 
-        await extension.OnEventAsync(evt);
+        await extension.OnEventAsync(evt, TestContext.Current.CancellationToken);
 
         Assert.Equal(["canonical"], extension.Calls);
     }
@@ -48,7 +48,7 @@ public class ExtensionEventContractTests
             CanonicalEventType = "audio.updated",
         };
 
-        await extension.OnEventAsync(evt);
+        await extension.OnEventAsync(evt, TestContext.Current.CancellationToken);
 
         Assert.Equal(["legacy"], extension.Calls);
     }

@@ -42,7 +42,7 @@ public sealed class ConfigServiceTests
                 Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
             };
             var persisted = JsonSerializer.Deserialize<CoveConfigDto>(
-                await File.ReadAllTextAsync(configPath),
+                await File.ReadAllTextAsync(configPath, TestContext.Current.CancellationToken),
                 jsonOptions);
 
             Assert.Equal("Concurrent UI title", configuration.Ui.Title);

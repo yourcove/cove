@@ -36,7 +36,7 @@ public class CompoundSortValidationTests
 
         Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
         context.Response.Body.Position = 0;
-        using var document = await JsonDocument.ParseAsync(context.Response.Body);
+        using var document = await JsonDocument.ParseAsync(context.Response.Body, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Unsupported compound sort.", document.RootElement.GetProperty("title").GetString());
         Assert.Contains("unsupported", document.RootElement.GetProperty("detail").GetString());
     }
