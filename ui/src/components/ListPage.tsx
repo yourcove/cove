@@ -27,6 +27,7 @@ import { resolveQueryLoadState, type QueryLoadState } from "../utils/queryLoadSt
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
 import { MultiSortControl } from "./MultiSortControl";
+import { getWallColumnCountFromSizeLevel, getWallSizeLevelFromColumnCount, WallSizeControl } from "./WallSizeControl";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -1047,22 +1048,10 @@ export function ListPage({
           )}
 
           {displayMode === "wall" && wallColumnCount != null && onWallColumnCountChange && (
-            <div className="hidden items-center gap-1 pl-1 md:flex">
-              <ZoomOut className="w-3 h-3 text-muted" />
-              <input
-                type="range"
-                min={2}
-                max={8}
-                step={1}
-                value={10 - wallColumnCount}
-                onChange={(e) => onWallColumnCountChange(10 - Number(e.target.value))}
-                style={{ "--range-fill": `${(((10 - wallColumnCount) - 2) / 6) * 100}%` } as CSSProperties}
-                className="themed-range-input h-1 w-16 cursor-pointer sm:w-20"
-                title={`Wall card size: ${10 - wallColumnCount}`}
-              />
-              <ZoomIn className="w-3 h-3 text-muted" />
-              <span className="min-w-[2.25rem] text-[10px] text-muted">{wallColumnCount} cols</span>
-            </div>
+            <WallSizeControl
+              sizeLevel={getWallSizeLevelFromColumnCount(wallColumnCount)}
+              onChange={(sizeLevel) => onWallColumnCountChange(getWallColumnCountFromSizeLevel(sizeLevel))}
+            />
           )}
         </div>
 

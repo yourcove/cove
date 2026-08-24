@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ListPage } from "../components/ListPage";
@@ -41,6 +41,37 @@ beforeEach(() => {
 });
 
 describe("ListPage active filter chips", () => {
+  it("keeps the top-level wall size control mapped to wall columns", () => {
+    const queryClient = new QueryClient();
+    const onWallColumnCountChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            displayMode="wall"
+            wallColumnCount={5}
+            onWallColumnCountChange={onWallColumnCountChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const slider = screen.getByRole("slider", { name: "Wall card size" });
+    expect(slider).toHaveValue("5");
+    expect(screen.getByText("5 cols")).toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: "8" } });
+
+    expect(onWallColumnCountChange).toHaveBeenCalledWith(2);
+  });
+
   it("does not present a pending collection as empty", () => {
     const queryClient = new QueryClient();
 

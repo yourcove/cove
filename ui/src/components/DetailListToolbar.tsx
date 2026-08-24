@@ -10,6 +10,7 @@ import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu
 import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
 import { ListSearchControl } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
+import { WallSizeControl } from "./WallSizeControl";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -281,7 +282,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: nextPerPage, page: 1 })}
           />
 
-          {effectiveZoomLevel !== undefined && onZoomChange && (
+          {effectiveZoomLevel !== undefined && onZoomChange && (displayMode === "grid" || displayMode === "list" || displayMode == null) && (
             <div className="hidden items-center gap-1 pl-1 md:flex">
               <ZoomOut className="w-3 h-3 text-muted" />
               <input
@@ -295,6 +296,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
               />
               <ZoomIn className="w-3 h-3 text-muted" />
             </div>
+          )}
+
+          {displayMode === "wall" && effectiveZoomLevel !== undefined && onZoomChange && (
+            <WallSizeControl sizeLevel={effectiveZoomLevel} onChange={handleZoomChange} />
           )}
         </div>
       </div>
