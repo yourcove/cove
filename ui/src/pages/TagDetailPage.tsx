@@ -28,6 +28,7 @@ import { ContextualImageListView, ContextualVideoListView } from "../components/
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
+import { useKeySequence } from "../hooks/useKeySequence";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
@@ -123,19 +124,10 @@ export function TagDetailPage({ id, onNavigate }: Props) {
 
   useDocumentTitle(tag?.name);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const el = (e.target as HTMLElement).tagName;
-      if (el === "INPUT" || el === "TEXTAREA" || el === "SELECT") return;
-      switch (e.key) {
-        case "e": if (canWriteTag) setEditing((v) => !v); break;
-        case "f": if (tag && canEngageTag) setTagFavorite(!tagFavorite); break;
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [canEngageTag, canWriteTag, tag, tagFavorite, setTagFavorite]);
+  useKeySequence(useMemo(() => [
+    { id: "detail.edit", keys: "e", surface: "detail" as const, action: () => { if (canWriteTag) setEditing((value) => !value); } },
+    { id: "detail.favorite", keys: "o", surface: "detail" as const, action: () => { if (tag && canEngageTag) setTagFavorite(!tagFavorite); } },
+  ], [canEngageTag, canWriteTag, tag, tagFavorite, setTagFavorite]));
 
   useEffect(() => {
     if (visibleTagTabs.length > 0 && !visibleTagTabs.some((tab) => tab.key === activeTab)) {

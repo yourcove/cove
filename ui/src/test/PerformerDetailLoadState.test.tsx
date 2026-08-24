@@ -3,9 +3,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PerformerDetailPage } from "../pages/PerformerDetailPage";
 
-const { mockPerformers } = vi.hoisted(() => ({
+const { mockPerformers, mockPageState } = vi.hoisted(() => ({
   mockPerformers: {
     get: vi.fn(),
+  },
+  mockPageState: {
+    activeTab: "extension-test",
+    setFavorite: vi.fn(),
   },
 }));
 
@@ -14,6 +18,11 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     performers: { ...actual.performers, ...mockPerformers },
+    savedFilters: {
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      delete: vi.fn(),
+    },
   };
 });
 
@@ -38,7 +47,7 @@ vi.mock("../components/useExtensionTabs", () => ({
 }));
 
 vi.mock("../hooks/useDetailListUrlState", () => ({
-  useDetailTabUrlState: () => ({ activeTab: "extension-test", setActiveTab: vi.fn() }),
+  useDetailTabUrlState: () => ({ activeTab: mockPageState.activeTab, setActiveTab: vi.fn() }),
   useRelatedDetailListUrlState: () => ({
     filter: {},
     setFilter: vi.fn(),
@@ -50,11 +59,27 @@ vi.mock("../hooks/useDetailListUrlState", () => ({
   }),
 }));
 
+vi.mock("../hooks/useDetailListQuery", () => ({
+  useDetailListQuery: () => ({
+    data: { items: [], totalCount: 0, page: 1, perPage: 24 },
+    isLoading: false,
+    infinitePageSize: false,
+    infiniteQuery: { hasNextPage: false, isFetchingNextPage: false },
+    infiniteFilterKey: "test",
+    fetchAllIds: vi.fn().mockResolvedValue([]),
+    loadMore: vi.fn(),
+  }),
+}));
+
+vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({
+  useResolvedKeybindingOverrides: () => ({}),
+}));
+
 vi.mock("../hooks/useEntityEngagement", () => ({
   useEntityEngagement: () => ({
     favorite: false,
     rating: undefined,
-    setFavorite: vi.fn(),
+    setFavorite: mockPageState.setFavorite,
     setRating: vi.fn(),
   }),
 }));
@@ -111,6 +136,7 @@ describe("PerformerDetailPage load state", () => {
   afterEach(() => {
     vi.clearAllMocks();
     mockPerformers.get.mockReset();
+    mockPageState.activeTab = "extension-test";
   });
 
   it("shows a retryable load error and recovers", async () => {

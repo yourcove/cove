@@ -522,6 +522,28 @@ public class ExtensionBundleSupportTests
     }
 
     [Fact]
+    public void AggregatedManifest_NamespacesKeyboardActionsAndPresetReferences()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new KeyboardShortcutContributionExtension(), "local");
+
+        var manifest = manager.GetAggregatedManifest();
+
+        var action = Assert.Single(manifest.KeyboardActions);
+        Assert.Equal("extension:com.example.keyboard:open-panel", action.Id);
+        var preset = Assert.Single(manifest.KeyboardShortcutPresets);
+        Assert.Equal("extension:com.example.keyboard:alternate", preset.Id);
+        Assert.Equal("extension:com.example.keyboard:base", preset.BasePresetId);
+        Assert.Equal(["Mod+K"], preset.Bindings["extension:com.example.keyboard:open-panel"]);
+        Assert.Equal(["?"], preset.Bindings["global.shortcuts"]);
+    }
+
+    [Fact]
     public void AddSettingsTab_DefaultsToPanelsLayout()
     {
         var manager = new ExtensionManager(new ExtensionContext
@@ -1552,6 +1574,32 @@ public class ExtensionBundleSupportTests
                     "Example",
                     description: "Example settings tab from a normal extension.")
                 .AddSettingsSection("extensions/example", "Example Settings", "ExampleSettingsPanel")
+                .Build();
+    }
+
+    private sealed class KeyboardShortcutContributionExtension : CoveExtensionBase
+    {
+        public override string Id => "com.example.keyboard";
+        public override string Name => "Keyboard Extension";
+        public override string Version => "1.0.0";
+
+        public override UIManifest GetUIManifest()
+            => ManifestBuilder()
+                .AddKeyboardAction(
+                    "open-panel",
+                    "Open panel",
+                    ["Mod+K"],
+                    [new UIKeyboardActionScope("page", Page: "videos")],
+                    handlerName: "openPanel")
+                .AddKeyboardShortcutPreset(
+                    "alternate",
+                    "Alternate",
+                    new Dictionary<string, string[]>
+                    {
+                        ["open-panel"] = ["Mod+K"],
+                        ["global.shortcuts"] = ["?"],
+                    },
+                    basePresetId: "base")
                 .Build();
     }
 

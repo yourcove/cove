@@ -550,14 +550,14 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   }, [activeTab, goNext, onNavigate]);
 
   const videoKeyboardShortcuts = useMemo(() => [
-    { key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
-    { key: "e", description: "Open edit tab", handler: () => canWriteVideo && setActiveTab("edit") },
-    { key: "s", description: "Open segments tab", handler: () => canReadSegments && setActiveTab("segments") },
-    { key: "i", description: "Open file info tab", handler: () => canReadFiles && setActiveTab("file-info") },
-    { key: "h", description: "Open history tab", handler: () => setActiveTab("history") },
-    { key: "o", description: "Toggle favorite", handler: () => video && canEngageVideo && setVideoFavorite(!videoFavorite) },
-    { key: "[", description: "Open previous video", handler: () => { if (queueSyncedToVideo && hasPrev) void navigatePreviousVideo(); } },
-    { key: "]", description: "Open next video", handler: () => { if (queueSyncedToVideo && hasNext) void navigateNextVideo(); } },
+    { id: "detail.video.details", key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
+    { id: "detail.edit", key: "e", description: "Open edit tab", handler: () => canWriteVideo && setActiveTab("edit") },
+    { id: "detail.video.segments", key: "s", description: "Open segments tab", handler: () => canReadSegments && setActiveTab("segments") },
+    { id: "detail.fileInfo", key: "i", description: "Open file info tab", handler: () => canReadFiles && setActiveTab("file-info") },
+    { id: "detail.video.history", key: "h", description: "Open history tab", handler: () => setActiveTab("history") },
+    { id: "detail.favorite", key: "o", description: "Toggle favorite", handler: () => video && canEngageVideo && setVideoFavorite(!videoFavorite) },
+    { id: "detail.previous", key: "[", description: "Open previous video", handler: () => { if (queueSyncedToVideo && hasPrev) void navigatePreviousVideo(); } },
+    { id: "detail.next", key: "]", description: "Open next video", handler: () => { if (queueSyncedToVideo && hasNext) void navigateNextVideo(); } },
   ], [canEngageVideo, canReadFiles, canReadSegments, canWriteVideo, hasNext, hasPrev, navigateNextVideo, navigatePreviousVideo, queueSyncedToVideo, video, videoFavorite, setVideoFavorite]);
 
   if (isLoading) {

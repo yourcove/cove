@@ -7,6 +7,7 @@ import { StudioDetailPage } from "../pages/StudioDetailPage";
 
 const mocks = vi.hoisted(() => ({
   studioGet: vi.fn(),
+  setFavorite: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -61,11 +62,12 @@ vi.mock("../hooks/useDetailListQuery", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({ useAppConfig: () => ({ config: {} }) }));
+vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({ useResolvedKeybindingOverrides: () => ({}) }));
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ user: { kind: "user" }, hasPermission: () => true }),
 }));
 vi.mock("../hooks/useEntityEngagement", () => ({
-  useEntityEngagement: () => ({ favorite: false, setFavorite: vi.fn(), rating: 0, setRating: vi.fn() }),
+  useEntityEngagement: () => ({ favorite: false, setFavorite: mocks.setFavorite, rating: 0, setRating: vi.fn() }),
 }));
 vi.mock("../hooks/useBackNavigation", () => ({
   useBackNavigation: () => ({ backLabel: "Back to Studios", goBack: vi.fn() }),
@@ -93,6 +95,7 @@ vi.mock("../components/CoverImageDialog", () => ({ CoverImageDialog: () => null 
 describe("StudioDetailPage", () => {
   beforeEach(() => {
     mocks.studioGet.mockReset().mockResolvedValue(buildStudio());
+    mocks.setFavorite.mockReset();
     localStorage.clear();
     window.history.replaceState(null, "", "/studio/25?perPage=100&sort=rating&filters=%7B%22favorite%22%3Atrue%7D");
   });

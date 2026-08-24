@@ -1873,11 +1873,36 @@ export interface UserUiPreferences {
   tracking?: UserTrackingPreferences | null;
   videos?: UserVideosPreferences | null;
   keybindingOverrides?: Record<string, string> | null;
+  keyboardShortcuts?: UserKeyboardShortcutPreferences | null;
   playback?: UserPlaybackPreferences | null;
   /** JSON blob of the user's customized home page rows (opaque to the server). */
   homePageContent?: string | null;
   /** Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON. */
   defaultFilters?: Record<string, string> | null;
+}
+
+export interface UserKeyboardShortcutPreferences {
+  activePresetId?: string | null;
+  personalPresets?: KeyboardShortcutPresetDocument[] | null;
+  showChordHints?: boolean | null;
+}
+
+export interface KeyboardShortcutPresetDocument {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description?: string;
+  author?: string;
+  version?: string;
+  basePresetId?: string;
+  unmappedActions: "action-defaults" | "unbound";
+  bindings: Record<string, string[]>;
+  requirements?: { extensions?: Array<{ id: string; minimumVersion?: string }> };
+  provenance?: {
+    source: "cove" | "extension" | "import" | "personal" | "instance";
+    providerId?: string;
+    originalPresetId?: string;
+  };
 }
 
 export interface UserTrackingPreferences {
@@ -3214,12 +3239,42 @@ export interface ExtensionManifest {
   pageOverrides: ExtensionPageOverride[];
   dialogOverrides: ExtensionDialogOverride[];
   actions: ExtensionAction[];
+  keyboardActions?: ExtensionKeyboardAction[];
+  keyboardShortcutPresets?: ExtensionKeyboardShortcutPreset[];
   tutorialTopics?: ExtensionTutorialTopic[];
   listFilters?: ExtensionListFilterContribution[];
   listSorts?: ExtensionListSortContribution[];
   frontendRuntimeVersion?: string;
   jsBundleUrl?: string;
   cssBundleUrl?: string;
+}
+
+export interface ExtensionKeyboardActionScope {
+  surface: "global" | "page" | "list" | "detail" | "player" | "viewer" | "overlay" | "local";
+  page?: string;
+  entityType?: string;
+  tab?: string;
+}
+
+export interface ExtensionKeyboardAction {
+  id: string;
+  label: string;
+  extensionId: string;
+  defaultBindings: string[];
+  scopes: ExtensionKeyboardActionScope[];
+  description?: string;
+  group?: string;
+  handlerName?: string;
+  apiEndpoint?: string;
+  order: number;
+  repeatable?: boolean;
+  allowInEditable?: boolean;
+  requiredPermission?: string;
+}
+
+export interface ExtensionKeyboardShortcutPreset extends KeyboardShortcutPresetDocument {
+  extensionId: string;
+  order: number;
 }
 
 export interface ExtensionUiBundle {

@@ -189,6 +189,45 @@ export interface UIManifestListContributions {
   listSorts?: ListSortContribution[];
 }
 
+export type KeyboardShortcutSurface = "global" | "page" | "list" | "detail" | "player" | "viewer" | "overlay" | "local";
+
+export interface KeyboardActionScope {
+  surface: KeyboardShortcutSurface;
+  page?: string;
+  entityType?: EntityType | string;
+  tab?: string;
+}
+
+export interface KeyboardActionContribution {
+  id: string;
+  label: string;
+  extensionId: string;
+  defaultBindings: string[];
+  scopes: KeyboardActionScope[];
+  description?: string;
+  group?: string;
+  handlerName?: string;
+  apiEndpoint?: string;
+  order?: number;
+  repeatable?: boolean;
+  allowInEditable?: boolean;
+  requiredPermission?: string;
+}
+
+export interface KeyboardShortcutPresetContribution {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  extensionId: string;
+  unmappedActions: "action-defaults" | "unbound";
+  bindings: Record<string, string[]>;
+  description?: string;
+  author?: string;
+  version?: string;
+  basePresetId?: string;
+  order?: number;
+}
+
 // ── Extension registration contract ──────────────────────────────────────
 
 /** Manifest action passed to a bundle-provided action handler. */

@@ -1,7 +1,7 @@
 import { auth } from "../api/client";
 import { authStore } from "../auth/authStore";
 import type { AuthUser } from "../auth/authStore";
-import type { RatingSystemOptions, UserPlaybackPreferences, UserThemePreferences, UserTrackingPreferences, UserUiPreferences } from "../api/types";
+import type { KeyboardShortcutPresetDocument, RatingSystemOptions, UserKeyboardShortcutPreferences, UserPlaybackPreferences, UserThemePreferences, UserTrackingPreferences, UserUiPreferences } from "../api/types";
 import { normalizeShortcutSequence } from "../keyboard/keybindings";
 
 const SAVE_DEBOUNCE_MS = 250;
@@ -133,6 +133,23 @@ function normalizePlaybackPreferences(preferences: UserPlaybackPreferences | nul
   return skipSeconds == null ? null : { skipSeconds: Math.round(skipSeconds) };
 }
 
+function normalizeKeyboardShortcutPreferences(preferences: UserKeyboardShortcutPreferences | null | undefined): UserKeyboardShortcutPreferences | null {
+  if (!preferences) return null;
+  const activePresetId = preferences.activePresetId?.trim() || null;
+  const showChordHints = typeof preferences.showChordHints === "boolean" ? preferences.showChordHints : null;
+  const personalPresets = (preferences.personalPresets ?? []).filter((preset): preset is KeyboardShortcutPresetDocument => (
+    preset?.schemaVersion === 1
+    && typeof preset.id === "string"
+    && preset.id.trim().length > 0
+    && typeof preset.name === "string"
+    && preset.name.trim().length > 0
+    && (preset.unmappedActions === "action-defaults" || preset.unmappedActions === "unbound")
+    && !!preset.bindings
+  ));
+  if (!activePresetId && personalPresets.length === 0 && showChordHints == null) return null;
+  return { activePresetId, personalPresets, showChordHints };
+}
+
 function normalizeUiPreferences(preferences: UserUiPreferences | null | undefined): UserUiPreferences | null {
   const theme = normalizeThemePreferences(preferences?.theme);
   const ratingSystemOptions = normalizeRatingSystemOptions(preferences?.ratingSystemOptions);
@@ -149,9 +166,10 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
     : null;
   const playback = normalizePlaybackPreferences(preferences?.playback);
   const keybindingOverrides = normalizeKeybindingOverrides(preferences?.keybindingOverrides);
+  const keyboardShortcuts = normalizeKeyboardShortcutPreferences(preferences?.keyboardShortcuts);
   const homePageContent = preferences?.homePageContent?.trim() ? preferences.homePageContent : null;
   const defaultFilters = normalizeDefaultFilters(preferences?.defaultFilters);
-  if (!theme && !ratingSystemOptions && !tracking && !videos && !playback && !keybindingOverrides && !homePageContent && !defaultFilters) {
+  if (!theme && !ratingSystemOptions && !tracking && !videos && !playback && !keybindingOverrides && !keyboardShortcuts && !homePageContent && !defaultFilters) {
     return null;
   }
 
@@ -162,6 +180,7 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
     videos,
     playback,
     keybindingOverrides,
+    keyboardShortcuts,
     homePageContent,
     defaultFilters,
   };

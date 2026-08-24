@@ -5,6 +5,7 @@ using Cove.Data;
 using Cove.Data.Auth;
 using System.Data.Common;
 using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -18,6 +19,23 @@ namespace Cove.Tests;
 /// </summary>
 public class UserServiceTests
 {
+    [Fact]
+    public void UiPreferences_RoundTripsChordHintVisibility()
+    {
+        var preferences = new UserUiPreferencesDto(
+            null, null, null, null, null,
+            KeyboardShortcuts: new UserKeyboardShortcutPreferencesDto("cove:native", [], false));
+
+        var json = Assert.IsType<string>(UserService.SerializeUiPreferences(preferences));
+        var restored = JsonSerializer.Deserialize<UserUiPreferencesDto>(json, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true,
+        });
+
+        Assert.False(restored?.KeyboardShortcuts?.ShowChordHints);
+    }
+
     private static CoveContext NewDb(string name = "users")
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

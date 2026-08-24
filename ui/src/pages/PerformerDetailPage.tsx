@@ -33,6 +33,7 @@ import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { PerformerMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useDetailListQuery } from "../hooks/useDetailListQuery";
+import { useKeySequence } from "../hooks/useKeySequence";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
@@ -131,21 +132,12 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
 
   useDocumentTitle(performer?.name);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      switch (e.key) {
-        case "e": if (canWritePerformer) setEditing((v) => !v); break;
-        case "f": if (performer && canEngagePerformer) setPerformerFavorite(!performerFavorite); break;
-        case "c": if (canReadPerformerVideos) setActiveTab("videos"); break;
-        case "g": if (canReadPerformerGalleries) setActiveTab("galleries"); break;
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [canEngagePerformer, canReadPerformerGalleries, canReadPerformerVideos, canWritePerformer, performer, performerFavorite, setPerformerFavorite]);
+  useKeySequence(useMemo(() => [
+    { id: "detail.edit", keys: "e", surface: "detail" as const, action: () => { if (canWritePerformer) setEditing((value) => !value); } },
+    { id: "detail.favorite", keys: "o", surface: "detail" as const, action: () => { if (performer && canEngagePerformer) setPerformerFavorite(!performerFavorite); } },
+    { id: "detail.performer.videos", keys: "c", surface: "detail" as const, action: () => { if (canReadPerformerVideos) setActiveTab("videos"); } },
+    { id: "detail.performer.galleries", keys: "g", surface: "detail" as const, action: () => { if (canReadPerformerGalleries) setActiveTab("galleries"); } },
+  ], [canEngagePerformer, canReadPerformerGalleries, canReadPerformerVideos, canWritePerformer, performer, performerFavorite, setPerformerFavorite]));
 
   useEffect(() => {
     if (!showOpsMenu) return;
