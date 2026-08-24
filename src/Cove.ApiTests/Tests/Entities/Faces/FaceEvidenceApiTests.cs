@@ -17,38 +17,20 @@ public sealed class FaceEvidenceApiTests(
     public async Task GivenVideoAndImageEvidence_WhenFaceRelationshipsAreRead_ThenMetadataIsProjectedFromBothHosts()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Face evidence video {Guid.NewGuid():N}");
-        var image = await AsUser().CreateImageAsync($"Face evidence image {Guid.NewGuid():N}");
-        var evidenceFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Evidence candidate", null, false, "detector.primary"));
-        var projectedFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Host candidate", null, false, null));
-        var videoDetection = await AsUser().CreateVideoFaceDetectionAsync(video, evidenceFace);
-        var imageDetection = await AsUser().CreateImageFaceDetectionAsync(image, evidenceFace);
-        await AsDbUser().CreateFaceAppearanceAsync(
-            projectedFace.Id,
-            FaceAppearanceHostType.Video,
-            video.Id,
-            sampleCount: 6,
-            retainedSpatialSampleCount: 4,
-            segmentCount: 2,
-            firstSeenAtSec: 1.25,
-            lastSeenAtSec: 8.5,
-            topConfidence: 0.97f);
-        await AsDbUser().CreateFaceAppearanceAsync(
-            projectedFace.Id,
-            FaceAppearanceHostType.Image,
-            image.Id,
-            sampleCount: 3,
-            retainedSpatialSampleCount: 2,
-            segmentCount: 1,
-            firstSeenAtSec: null,
-            lastSeenAtSec: null,
-            topConfidence: 0.89f);
+        var video = await AsUser().CreateVideoAsync($"Face evidence video {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var image = await AsUser().CreateImageAsync($"Face evidence image {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var evidenceFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Evidence candidate", null, false, "detector.primary"), TestContext.Current.CancellationToken);
+        var projectedFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Host candidate", null, false, null), TestContext.Current.CancellationToken);
+        var videoDetection = await AsUser().CreateVideoFaceDetectionAsync(video, evidenceFace, TestContext.Current.CancellationToken);
+        var imageDetection = await AsUser().CreateImageFaceDetectionAsync(image, evidenceFace, TestContext.Current.CancellationToken);
+        await AsDbUser().CreateFaceAppearanceAsync(projectedFace.Id, FaceAppearanceHostType.Video, video.Id, sampleCount: 6, retainedSpatialSampleCount: 4, segmentCount: 2, firstSeenAtSec: 1.25, lastSeenAtSec: 8.5, topConfidence: 0.97f, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateFaceAppearanceAsync(projectedFace.Id, FaceAppearanceHostType.Image, image.Id, sampleCount: 3, retainedSpatialSampleCount: 2, segmentCount: 1, firstSeenAtSec: null, lastSeenAtSec: null, topConfidence: 0.89f, cancellationToken: TestContext.Current.CancellationToken);
 
         // Act
-        var appearances = await AsUser().GetFaceAppearancesAsync(evidenceFace.Id);
-        var detections = await AsUser().GetFaceDetectionsAsync(evidenceFace.Id);
-        var videoFaces = await AsUser().GetVideoFacesAsync(video);
-        var imageFaces = await AsUser().GetImageFacesAsync(image);
+        var appearances = await AsUser().GetFaceAppearancesAsync(evidenceFace.Id, TestContext.Current.CancellationToken);
+        var detections = await AsUser().GetFaceDetectionsAsync(evidenceFace.Id, TestContext.Current.CancellationToken);
+        var videoFaces = await AsUser().GetVideoFacesAsync(video, TestContext.Current.CancellationToken);
+        var imageFaces = await AsUser().GetImageFacesAsync(image, TestContext.Current.CancellationToken);
 
         // Assert
         appearances.TotalCount.Should().Be(2);

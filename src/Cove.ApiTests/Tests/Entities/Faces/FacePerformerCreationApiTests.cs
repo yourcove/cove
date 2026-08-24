@@ -16,26 +16,15 @@ public sealed class FacePerformerCreationApiTests(
     public async Task GivenUnlinkedFace_WhenPerformerIsCreatedFromIt_ThenBothSidesExposeTheRelationship()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Face performer host {Guid.NewGuid():N}");
-        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Candidate label", null, false, null));
-        await AsDbUser().CreateFaceAppearanceAsync(
-            face.Id,
-            FaceAppearanceHostType.Video,
-            video.Id,
-            sampleCount: 1,
-            retainedSpatialSampleCount: 1,
-            segmentCount: 0,
-            firstSeenAtSec: 2,
-            lastSeenAtSec: 2,
-            topConfidence: 0.95f);
+        var video = await AsUser().CreateVideoAsync($"Face performer host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Candidate label", null, false, null), TestContext.Current.CancellationToken);
+        await AsDbUser().CreateFaceAppearanceAsync(face.Id, FaceAppearanceHostType.Video, video.Id, sampleCount: 1, retainedSpatialSampleCount: 1, segmentCount: 0, firstSeenAtSec: 2, lastSeenAtSec: 2, topConfidence: 0.95f, cancellationToken: TestContext.Current.CancellationToken);
 
         // Act
-        var linkedFace = await AsUser(ApiTestUsers.Eva).CreatePerformerFromFaceAsync(
-            face.Id,
-            new FaceCreatePerformerDto("  New face performer  ", SetPerformerImage: false));
-        var performer = await AsUser().GetPerformerByIdAsync(linkedFace.PerformerId!.Value);
-        var performerFaces = await AsUser().GetPerformerFacesAsync(performer.Id);
-        var performerVideos = await AsUser().GetVideosByPerformerAsync(performer.Id);
+        var linkedFace = await AsUser(ApiTestUsers.Eva).CreatePerformerFromFaceAsync(face.Id, new FaceCreatePerformerDto("  New face performer  ", SetPerformerImage: false), TestContext.Current.CancellationToken);
+        var performer = await AsUser().GetPerformerByIdAsync(linkedFace.PerformerId!.Value, TestContext.Current.CancellationToken);
+        var performerFaces = await AsUser().GetPerformerFacesAsync(performer.Id, TestContext.Current.CancellationToken);
+        var performerVideos = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
 
         // Assert
         linkedFace.PerformerName.Should().Be("New face performer");
@@ -51,9 +40,8 @@ public sealed class FacePerformerCreationApiTests(
     public async Task GivenUnlinkedFace_WhenPerformerNameIsBlankOrConflicts_ThenFaceRemainsUnlinked()
     {
         // Arrange
-        var existing = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName("Existing face performer").Build());
-        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Candidate", null, false, null));
+        var existing = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Existing face performer").Build(), TestContext.Current.CancellationToken);
+        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Candidate", null, false, null), TestContext.Current.CancellationToken);
 
         // Act
         var blankName = () => AsUser(ApiTestUsers.Eva).CreatePerformerFromFaceAsync(
@@ -68,7 +56,7 @@ public sealed class FacePerformerCreationApiTests(
             .WithMessage("*returned 400 (BadRequest)*");
         await conflictingName.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 409 (Conflict)*PERFORMER_NAME_CONFLICT*");
-        var retrieved = await AsUser().GetFaceByIdAsync(face.Id);
+        var retrieved = await AsUser().GetFaceByIdAsync(face.Id, TestContext.Current.CancellationToken);
         retrieved.PerformerId.Should().BeNull();
         retrieved.PerformerName.Should().BeNull();
     }
@@ -77,8 +65,8 @@ public sealed class FacePerformerCreationApiTests(
     public async Task GivenMissingOrLinkedFace_WhenPerformerCreationIsRequested_ThenRequestIsRejected()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build());
-        var linkedFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Linked", performer.Id, false, null));
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build(), TestContext.Current.CancellationToken);
+        var linkedFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Linked", performer.Id, false, null), TestContext.Current.CancellationToken);
 
         // Act
         var missing = () => AsUser(ApiTestUsers.Eva).CreatePerformerFromFaceAsync(

@@ -26,50 +26,23 @@ public sealed class AiArtifactLifecycleApiTests(
         var runKey = $"ai-artifact-{Guid.NewGuid():N}";
         var startedAt = DateTime.UtcNow.AddMinutes(-2);
         var completedAt = DateTime.UtcNow.AddMinutes(-1);
-        var nearestFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI artifact nearest", null, false, null));
-        var fartherFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI artifact farther", null, false, null));
-        var excludedFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI artifact excluded", null, false, null));
-        var runId = await AsDbUser().CreateCompletedAiRunAsync(
-            runKey,
-            AiRunTargetType.Face,
-            nearestFace.Id,
-            startedAt,
-            completedAt);
-        var nearestId = await AsDbUser().CreateFaceEmbeddingAsync(
-            nearestFace.Id,
-            [1f, 0f, 0f],
-            kindFamily,
-            sourceKey: sourceKey,
-            sourceRunId: runKey,
-            sectionIndex: 2,
-            startSec: 1.25,
-            endSec: 2.75,
-            metaJson: """{"label":"nearest","score":0.9}""");
-        var fartherId = await AsDbUser().CreateFaceEmbeddingAsync(
-            fartherFace.Id,
-            [0.8f, 0.2f, 0f],
-            kindFamily,
-            sourceKey: sourceKey,
-            sourceRunId: runKey,
-            sectionIndex: 3,
-            startSec: 3.5,
-            endSec: 4.75);
-        await AsDbUser().CreateFaceEmbeddingAsync(
-            excludedFace.Id,
-            [0.999f, 0.001f, 0f],
-            "face.api-artifact.other",
-            sourceKey: sourceKey,
-            sourceRunId: runKey);
+        var nearestFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI artifact nearest", null, false, null), TestContext.Current.CancellationToken);
+        var fartherFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI artifact farther", null, false, null), TestContext.Current.CancellationToken);
+        var excludedFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI artifact excluded", null, false, null), TestContext.Current.CancellationToken);
+        var runId = await AsDbUser().CreateCompletedAiRunAsync(runKey, AiRunTargetType.Face, nearestFace.Id, startedAt, completedAt, TestContext.Current.CancellationToken);
+        var nearestId = await AsDbUser().CreateFaceEmbeddingAsync(nearestFace.Id, [1f, 0f, 0f], kindFamily, cancellationToken: TestContext.Current.CancellationToken, sourceKey: sourceKey, sourceRunId: runKey, sectionIndex: 2, startSec: 1.25, endSec: 2.75, metaJson: """{"label":"nearest","score":0.9}""");
+        var fartherId = await AsDbUser().CreateFaceEmbeddingAsync(fartherFace.Id, [0.8f, 0.2f, 0f], kindFamily, cancellationToken: TestContext.Current.CancellationToken, sourceKey: sourceKey, sourceRunId: runKey, sectionIndex: 3, startSec: 3.5, endSec: 4.75);
+        await AsDbUser().CreateFaceEmbeddingAsync(excludedFace.Id, [0.999f, 0.001f, 0f], "face.api-artifact.other", cancellationToken: TestContext.Current.CancellationToken, sourceKey: sourceKey, sourceRunId: runKey);
         var viewerUsername = $"ai-artifact-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "AI artifact viewer password 123!";
         await AsUser().CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
 
-        var run = await viewerSession.Client.GetAiRunAsync(runId);
-        var nearest = await viewerSession.Client.GetEmbeddingAsync(nearestId);
+        var run = await viewerSession.Client.GetAiRunAsync(runId, TestContext.Current.CancellationToken);
+        var nearest = await viewerSession.Client.GetEmbeddingAsync(nearestId, TestContext.Current.CancellationToken);
         var results = await viewerSession.Client.SearchEmbeddingsAsync(new EmbeddingSearchRequestDto(
             QueryText: null,
             QueryVector: [1f, 0f, 0f],
@@ -80,19 +53,13 @@ public sealed class AiArtifactLifecycleApiTests(
             Modality: EmbeddingModality.Face,
             IsSemantic: true,
             SourceKey: sourceKey,
-            K: 2));
+            K: 2), TestContext.Current.CancellationToken);
         using var viewerClient = viewerSession.Client.CreateHttpClient();
-        using var missingRun = await viewerClient.GetAsync("/api/ai-runs/2147483647");
-        using var missingEmbedding = await viewerClient.GetAsync("/api/embeddings/2147483647");
-        using var emptySearch = await viewerClient.PostAsJsonAsync(
-            "/api/embeddings/search",
-            new EmbeddingSearchRequestDto(null, null, null, null, null, null, null, null, null));
-        using var textWithoutFamily = await viewerClient.PostAsJsonAsync(
-            "/api/embeddings/search",
-            new EmbeddingSearchRequestDto("query", null, null, null, null, null, null, null, null));
-        using var missingEncoder = await viewerClient.PostAsJsonAsync(
-            "/api/embeddings/search",
-            new EmbeddingSearchRequestDto(
+        using var missingRun = await viewerClient.GetAsync("/api/ai-runs/2147483647", TestContext.Current.CancellationToken);
+        using var missingEmbedding = await viewerClient.GetAsync("/api/embeddings/2147483647", TestContext.Current.CancellationToken);
+        using var emptySearch = await viewerClient.PostAsJsonAsync("/api/embeddings/search", new EmbeddingSearchRequestDto(null, null, null, null, null, null, null, null, null), cancellationToken: TestContext.Current.CancellationToken);
+        using var textWithoutFamily = await viewerClient.PostAsJsonAsync("/api/embeddings/search", new EmbeddingSearchRequestDto("query", null, null, null, null, null, null, null, null), cancellationToken: TestContext.Current.CancellationToken);
+        using var missingEncoder = await viewerClient.PostAsJsonAsync("/api/embeddings/search", new EmbeddingSearchRequestDto(
                 "query",
                 null,
                 null,
@@ -101,7 +68,7 @@ public sealed class AiArtifactLifecycleApiTests(
                 null,
                 EmbeddingModality.Face,
                 true,
-                sourceKey));
+                sourceKey), cancellationToken: TestContext.Current.CancellationToken);
 
         using var assertions = new AssertionScope();
         run.Id.Should().Be(runId);
@@ -170,34 +137,14 @@ public sealed class AiArtifactLifecycleApiTests(
         const string deleteSource = "api-test:embedding-delete";
         var purgeRun = $"purge-{Guid.NewGuid():N}";
         var deleteRun = $"delete-{Guid.NewGuid():N}";
-        var purgeFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI purge target", null, false, null));
-        var purgeControlFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI purge control", null, false, null));
-        var deleteFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Embedding delete target", null, false, null));
-        var deleteControlFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Embedding delete control", null, false, null));
-        var purgeId = await AsDbUser().CreateFaceEmbeddingAsync(
-            purgeFace.Id,
-            [1f, 0f, 0f],
-            "face.ai-purge.v1",
-            sourceKey: purgeSource,
-            sourceRunId: purgeRun);
-        var purgeControlId = await AsDbUser().CreateFaceEmbeddingAsync(
-            purgeControlFace.Id,
-            [0f, 1f, 0f],
-            "face.ai-purge.v1",
-            sourceKey: purgeSource,
-            sourceRunId: $"control-{Guid.NewGuid():N}");
-        var deleteId = await AsDbUser().CreateFaceEmbeddingAsync(
-            deleteFace.Id,
-            [0f, 0f, 1f],
-            "face.embedding-delete.v1",
-            sourceKey: deleteSource,
-            sourceRunId: deleteRun);
-        var deleteControlId = await AsDbUser().CreateFaceEmbeddingAsync(
-            deleteControlFace.Id,
-            [0.5f, 0.5f, 0f],
-            "face.embedding-delete.v1",
-            sourceKey: deleteSource,
-            sourceRunId: $"control-{Guid.NewGuid():N}");
+        var purgeFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI purge target", null, false, null), TestContext.Current.CancellationToken);
+        var purgeControlFace = await AsUser().CreateFaceAsync(new FaceCreateDto("AI purge control", null, false, null), TestContext.Current.CancellationToken);
+        var deleteFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Embedding delete target", null, false, null), TestContext.Current.CancellationToken);
+        var deleteControlFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Embedding delete control", null, false, null), TestContext.Current.CancellationToken);
+        var purgeId = await AsDbUser().CreateFaceEmbeddingAsync(purgeFace.Id, [1f, 0f, 0f], "face.ai-purge.v1", cancellationToken: TestContext.Current.CancellationToken, sourceKey: purgeSource, sourceRunId: purgeRun);
+        var purgeControlId = await AsDbUser().CreateFaceEmbeddingAsync(purgeControlFace.Id, [0f, 1f, 0f], "face.ai-purge.v1", cancellationToken: TestContext.Current.CancellationToken, sourceKey: purgeSource, sourceRunId: $"control-{Guid.NewGuid():N}");
+        var deleteId = await AsDbUser().CreateFaceEmbeddingAsync(deleteFace.Id, [0f, 0f, 1f], "face.embedding-delete.v1", cancellationToken: TestContext.Current.CancellationToken, sourceKey: deleteSource, sourceRunId: deleteRun);
+        var deleteControlId = await AsDbUser().CreateFaceEmbeddingAsync(deleteControlFace.Id, [0.5f, 0.5f, 0f], "face.embedding-delete.v1", cancellationToken: TestContext.Current.CancellationToken, sourceKey: deleteSource, sourceRunId: $"control-{Guid.NewGuid():N}");
         var purgeSelector = new AiDataPurgeRequestDto(
             purgeSource,
             purgeRun,
@@ -219,33 +166,33 @@ public sealed class AiArtifactLifecycleApiTests(
         await AsUser().CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
         using var viewerClient = viewerSession.Client.CreateHttpClient();
         using var forbiddenDeleteRequest = new HttpRequestMessage(HttpMethod.Delete, "/api/embeddings")
         {
             Content = JsonContent.Create(deleteSelector),
         };
-        using var forbiddenDelete = await viewerClient.SendAsync(forbiddenDeleteRequest);
-        using var forbiddenPurge = await viewerClient.PostAsJsonAsync("/api/ai-data/purge", purgeSelector);
+        using var forbiddenDelete = await viewerClient.SendAsync(forbiddenDeleteRequest, TestContext.Current.CancellationToken);
+        using var forbiddenPurge = await viewerClient.PostAsJsonAsync("/api/ai-data/purge", purgeSelector, cancellationToken: TestContext.Current.CancellationToken);
 
-        var auditBefore = await AsUser().GetAuditEventsAsync(AuditActions.AiDataPurge);
-        var preview = await AsUser().PurgeAiDataAsync(purgeSelector with { DryRun = true });
-        var auditAfterPreview = await AsUser().GetAuditEventsAsync(AuditActions.AiDataPurge);
-        var purgeAfterPreview = await AsUser().GetEmbeddingAsync(purgeId);
-        var purgeControlAfterPreview = await AsUser().GetEmbeddingAsync(purgeControlId);
-        var deleteAfterForbidden = await AsUser().GetEmbeddingAsync(deleteId);
-        var deleteControlAfterForbidden = await AsUser().GetEmbeddingAsync(deleteControlId);
+        var auditBefore = await AsUser().GetAuditEventsAsync(AuditActions.AiDataPurge, TestContext.Current.CancellationToken);
+        var preview = await AsUser().PurgeAiDataAsync(purgeSelector with { DryRun = true }, TestContext.Current.CancellationToken);
+        var auditAfterPreview = await AsUser().GetAuditEventsAsync(AuditActions.AiDataPurge, TestContext.Current.CancellationToken);
+        var purgeAfterPreview = await AsUser().GetEmbeddingAsync(purgeId, TestContext.Current.CancellationToken);
+        var purgeControlAfterPreview = await AsUser().GetEmbeddingAsync(purgeControlId, TestContext.Current.CancellationToken);
+        var deleteAfterForbidden = await AsUser().GetEmbeddingAsync(deleteId, TestContext.Current.CancellationToken);
+        var deleteControlAfterForbidden = await AsUser().GetEmbeddingAsync(deleteControlId, TestContext.Current.CancellationToken);
 
-        var purged = await AsUser().PurgeAiDataAsync(purgeSelector);
+        var purged = await AsUser().PurgeAiDataAsync(purgeSelector, TestContext.Current.CancellationToken);
         var purgeAudit = await WaitForPurgeAuditAsync();
         using var ownerClient = AsUser().CreateHttpClient();
-        using var missingPurged = await ownerClient.GetAsync($"/api/embeddings/{purgeId}");
-        var purgeControl = await AsUser().GetEmbeddingAsync(purgeControlId);
+        using var missingPurged = await ownerClient.GetAsync($"/api/embeddings/{purgeId}", TestContext.Current.CancellationToken);
+        var purgeControl = await AsUser().GetEmbeddingAsync(purgeControlId, TestContext.Current.CancellationToken);
 
-        var deleted = await AsUser().DeleteEmbeddingsAsync(deleteSelector);
-        using var missingDeleted = await ownerClient.GetAsync($"/api/embeddings/{deleteId}");
-        var deleteControl = await AsUser().GetEmbeddingAsync(deleteControlId);
+        var deleted = await AsUser().DeleteEmbeddingsAsync(deleteSelector, TestContext.Current.CancellationToken);
+        using var missingDeleted = await ownerClient.GetAsync($"/api/embeddings/{deleteId}", TestContext.Current.CancellationToken);
+        var deleteControl = await AsUser().GetEmbeddingAsync(deleteControlId, TestContext.Current.CancellationToken);
 
         using var assertions = new AssertionScope();
         forbiddenDelete.StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -287,35 +234,27 @@ public sealed class AiArtifactLifecycleApiTests(
         var hostControl = await CreateFaceEmbeddingAsync("invalid host control");
 
         using var client = AsUser().CreateHttpClient();
-        using var invalidHostResponse = await client.PostAsJsonAsync(
-            "/api/ai-data/purge",
-            new AiDataPurgeRequestDto(null, null, null, null, "not-a-host", null, ["embedding"]));
-        var invalidHostBody = await invalidHostResponse.Content.ReadAsStringAsync();
+        using var invalidHostResponse = await client.PostAsJsonAsync("/api/ai-data/purge", new AiDataPurgeRequestDto(null, null, null, null, "not-a-host", null, ["embedding"]), cancellationToken: TestContext.Current.CancellationToken);
+        var invalidHostBody = await invalidHostResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var hostPrimaryAfter = await GetStatusAsync(client, hostPrimary);
         var hostControlAfter = await GetStatusAsync(client, hostControl);
 
         var blankHostPrimary = await CreateFaceEmbeddingAsync("blank host primary");
         var blankHostControl = await CreateFaceEmbeddingAsync("blank host control");
-        using var blankHostResponse = await client.PostAsJsonAsync(
-            "/api/ai-data/purge",
-            new AiDataPurgeRequestDto(null, null, null, null, " ", null, ["embedding"]));
+        using var blankHostResponse = await client.PostAsJsonAsync("/api/ai-data/purge", new AiDataPurgeRequestDto(null, null, null, null, " ", null, ["embedding"]), cancellationToken: TestContext.Current.CancellationToken);
         var blankHostPrimaryAfter = await GetStatusAsync(client, blankHostPrimary);
         var blankHostControlAfter = await GetStatusAsync(client, blankHostControl);
 
         var modalityPrimary = await CreateFaceEmbeddingAsync("invalid modality primary");
         var modalityControl = await CreateFaceEmbeddingAsync("invalid modality control");
-        using var invalidModalityResponse = await client.PostAsJsonAsync(
-            "/api/ai-data/purge",
-            new AiDataPurgeRequestDto(null, null, null, "not-a-modality", "face", null, ["embedding"]));
-        var invalidModalityBody = await invalidModalityResponse.Content.ReadAsStringAsync();
+        using var invalidModalityResponse = await client.PostAsJsonAsync("/api/ai-data/purge", new AiDataPurgeRequestDto(null, null, null, "not-a-modality", "face", null, ["embedding"]), cancellationToken: TestContext.Current.CancellationToken);
+        var invalidModalityBody = await invalidModalityResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var modalityPrimaryAfter = await GetStatusAsync(client, modalityPrimary);
         var modalityControlAfter = await GetStatusAsync(client, modalityControl);
 
         var blankModalityPrimary = await CreateFaceEmbeddingAsync("blank modality primary");
         var blankModalityControl = await CreateFaceEmbeddingAsync("blank modality control");
-        using var blankModalityResponse = await client.PostAsJsonAsync(
-            "/api/ai-data/purge",
-            new AiDataPurgeRequestDto(null, null, null, " ", "face", null, ["embedding"]));
+        using var blankModalityResponse = await client.PostAsJsonAsync("/api/ai-data/purge", new AiDataPurgeRequestDto(null, null, null, " ", "face", null, ["embedding"]), cancellationToken: TestContext.Current.CancellationToken);
         var blankModalityPrimaryAfter = await GetStatusAsync(client, blankModalityPrimary);
         var blankModalityControlAfter = await GetStatusAsync(client, blankModalityControl);
 

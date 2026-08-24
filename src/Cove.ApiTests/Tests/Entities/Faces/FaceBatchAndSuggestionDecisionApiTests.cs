@@ -15,18 +15,17 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
     public async Task GivenDuplicateMissingAndMergedFaces_WhenBatchDeleteRuns_ThenResultsAndRelationshipsAreConsistent()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Face batch-delete host {Guid.NewGuid():N}");
-        var first = await AsUser().CreateFaceAsync(new FaceCreateDto("First deletion", null, false, null));
-        var target = await AsUser().CreateFaceAsync(new FaceCreateDto("Target deletion", null, false, null));
-        var mergedChild = await AsUser().CreateFaceAsync(new FaceCreateDto("Released child", null, false, null));
-        var firstDetection = await AsUser().CreateVideoFaceDetectionAsync(video, first);
-        var targetDetection = await AsUser().CreateVideoFaceDetectionAsync(video, target);
-        await AsUser().MergeFaceIntoAsync(mergedChild.Id, target.Id);
+        var video = await AsUser().CreateVideoAsync($"Face batch-delete host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var first = await AsUser().CreateFaceAsync(new FaceCreateDto("First deletion", null, false, null), TestContext.Current.CancellationToken);
+        var target = await AsUser().CreateFaceAsync(new FaceCreateDto("Target deletion", null, false, null), TestContext.Current.CancellationToken);
+        var mergedChild = await AsUser().CreateFaceAsync(new FaceCreateDto("Released child", null, false, null), TestContext.Current.CancellationToken);
+        var firstDetection = await AsUser().CreateVideoFaceDetectionAsync(video, first, TestContext.Current.CancellationToken);
+        var targetDetection = await AsUser().CreateVideoFaceDetectionAsync(video, target, TestContext.Current.CancellationToken);
+        await AsUser().MergeFaceIntoAsync(mergedChild.Id, target.Id, TestContext.Current.CancellationToken);
         const int missingId = int.MaxValue;
 
         // Act
-        var result = await AsUser(ApiTestUsers.Eva).BatchDeleteFacesAsync(
-            [first.Id, first.Id, target.Id, missingId]);
+        var result = await AsUser(ApiTestUsers.Eva).BatchDeleteFacesAsync([first.Id, first.Id, target.Id, missingId], TestContext.Current.CancellationToken);
 
         // Assert
         result.Succeeded.Should().Equal(first.Id, target.Id);
@@ -41,9 +40,9 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
         await targetRead.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
 
-        var releasedChild = await AsUser().GetFaceByIdAsync(mergedChild.Id);
+        var releasedChild = await AsUser().GetFaceByIdAsync(mergedChild.Id, TestContext.Current.CancellationToken);
         releasedChild.MergedIntoFaceId.Should().BeNull();
-        var detections = await AsUser().GetVideoDetectionsAsync(video);
+        var detections = await AsUser().GetVideoDetectionsAsync(video, TestContext.Current.CancellationToken);
         detections.Should().NotContain(detection => detection.Id == firstDetection.Id || detection.Id == targetDetection.Id);
     }
 
@@ -52,21 +51,17 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
     public async Task GivenLocalPerformerSuggestion_WhenMemberRejectsThenAcceptsIt_ThenDecisionAndHostLinkAreUpdated()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build());
-        var video = await AsUser().CreateVideoAsync($"Face suggestion host {Guid.NewGuid():N}");
-        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Suggestion candidate", null, false, null));
-        await AsUser().CreateVideoFaceDetectionAsync(video, face);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build(), TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync($"Face suggestion host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Suggestion candidate", null, false, null), TestContext.Current.CancellationToken);
+        await AsUser().CreateVideoFaceDetectionAsync(video, face, TestContext.Current.CancellationToken);
 
         // Act
-        var rejected = await AsUser(ApiTestUsers.Eva).RecordFaceSuggestionDecisionAsync(
-            face.Id,
-            new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Reject));
-        var videosAfterReject = await AsUser().GetVideosByPerformerAsync(performer.Id);
-        var accepted = await AsUser(ApiTestUsers.Eva).RecordFaceSuggestionDecisionAsync(
-            face.Id,
-            new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Accept));
-        var retrieved = await AsUser().GetFaceByIdAsync(face.Id);
-        var videosAfterAccept = await AsUser().GetVideosByPerformerAsync(performer.Id);
+        var rejected = await AsUser(ApiTestUsers.Eva).RecordFaceSuggestionDecisionAsync(face.Id, new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Reject), TestContext.Current.CancellationToken);
+        var videosAfterReject = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
+        var accepted = await AsUser(ApiTestUsers.Eva).RecordFaceSuggestionDecisionAsync(face.Id, new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Accept), TestContext.Current.CancellationToken);
+        var retrieved = await AsUser().GetFaceByIdAsync(face.Id, TestContext.Current.CancellationToken);
+        var videosAfterAccept = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
 
         // Assert
         rejected.PerformerId.Should().BeNull();

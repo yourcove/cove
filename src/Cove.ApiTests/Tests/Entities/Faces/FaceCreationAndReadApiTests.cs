@@ -15,7 +15,7 @@ public sealed class FaceCreationAndReadApiTests(
     public async Task GivenFaceMetadata_WhenMemberCreatesAndReadsFace_ThenMetadataIsPersisted()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build());
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build(), TestContext.Current.CancellationToken);
         var request = new FaceCreateDto(
             Label: "  Profile candidate  ",
             PerformerId: performer.Id,
@@ -23,8 +23,8 @@ public sealed class FaceCreationAndReadApiTests(
             PrimarySourceKey: "  detector.primary  ");
 
         // Act
-        var created = await AsUser(ApiTestUsers.Eva).CreateFaceAsync(request);
-        var retrieved = await AsUser(ApiTestUsers.Eva).GetFaceByIdAsync(created.Id);
+        var created = await AsUser(ApiTestUsers.Eva).CreateFaceAsync(request, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser(ApiTestUsers.Eva).GetFaceByIdAsync(created.Id, TestContext.Current.CancellationToken);
 
         // Assert
         created.Id.Should().BePositive();

@@ -15,15 +15,15 @@ public sealed class FaceImageApiTests(
     public async Task GivenFace_WhenImageIsUploadedReadAndDeleted_ThenPublicImageLifecycleIsObservable()
     {
         // Arrange
-        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Image candidate", null, false, null));
+        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Image candidate", null, false, null), TestContext.Current.CancellationToken);
         var image = ApiTestImages.OnePixelPng();
 
         // Act
-        await AsUser(ApiTestUsers.Eva).UploadFaceImageAsync(face, image);
-        var uploaded = await AsUser(ApiTestUsers.Eva).GetFaceImageAsync(face);
-        var faceWithImage = await AsUser().GetFaceByIdAsync(face.Id);
-        await AsUser(ApiTestUsers.Eva).DeleteFaceImageAsync(face);
-        var faceWithoutImage = await AsUser().GetFaceByIdAsync(face.Id);
+        await AsUser(ApiTestUsers.Eva).UploadFaceImageAsync(face, image, TestContext.Current.CancellationToken);
+        var uploaded = await AsUser(ApiTestUsers.Eva).GetFaceImageAsync(face, TestContext.Current.CancellationToken);
+        var faceWithImage = await AsUser().GetFaceByIdAsync(face.Id, TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Eva).DeleteFaceImageAsync(face, TestContext.Current.CancellationToken);
+        var faceWithoutImage = await AsUser().GetFaceByIdAsync(face.Id, TestContext.Current.CancellationToken);
         var readAfterDelete = () => AsUser().GetFaceImageAsync(face);
 
         // Assert
