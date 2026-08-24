@@ -16,8 +16,8 @@ public sealed class SegmentDisplayProfilesApiTests(ITestOutputHelper output, Cov
     public async Task GivenPersonalProfiles_WhenMemberManagesDefaults_ThenOwnershipAndFallbackAreEnforced()
     {
         var eva = AsUser(ApiTestUsers.Eva);
-        var first = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("  First profile  ", "  First description  ", false));
-        var second = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("Second profile", null, false));
+        var first = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("  First profile  ", "  First description  ", false), TestContext.Current.CancellationToken);
+        var second = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("Second profile", null, false), TestContext.Current.CancellationToken);
         first.Name.Should().Be("First profile");
         first.Description.Should().Be("First description");
         first.UserId.Should().NotBeNull();
@@ -29,17 +29,17 @@ public sealed class SegmentDisplayProfilesApiTests(ITestOutputHelper output, Cov
         second.UserId.Should().Be(first.UserId);
         second.IsDefault.Should().BeFalse();
 
-        var updated = await eva.UpdateSegmentDisplayProfileAsync(first.Id, new SegmentDisplayProfileUpdateDto("  Renamed profile  ", "  Updated description  "));
+        var updated = await eva.UpdateSegmentDisplayProfileAsync(first.Id, new SegmentDisplayProfileUpdateDto("  Renamed profile  ", "  Updated description  "), TestContext.Current.CancellationToken);
         updated.Name.Should().Be("Renamed profile");
         updated.Description.Should().Be("Updated description");
-        var persistedUpdated = await eva.GetSegmentDisplayProfileAsync(first.Id);
+        var persistedUpdated = await eva.GetSegmentDisplayProfileAsync(first.Id, TestContext.Current.CancellationToken);
         persistedUpdated.Name.Should().Be("Renamed profile");
         persistedUpdated.Description.Should().Be("Updated description");
-        (await eva.SetDefaultSegmentDisplayProfileAsync(second.Id)).IsDefault.Should().BeTrue();
-        (await eva.GetSegmentDisplayProfilesAsync()).Where(profile => profile.UserId == first.UserId).Should().ContainSingle(profile => profile.IsDefault).Which.Id.Should().Be(second.Id);
+        (await eva.SetDefaultSegmentDisplayProfileAsync(second.Id, TestContext.Current.CancellationToken)).IsDefault.Should().BeTrue();
+        (await eva.GetSegmentDisplayProfilesAsync(TestContext.Current.CancellationToken)).Where(profile => profile.UserId == first.UserId).Should().ContainSingle(profile => profile.IsDefault).Which.Id.Should().Be(second.Id);
 
-        await eva.DeleteSegmentDisplayProfileAsync(second.Id);
-        (await eva.GetSegmentDisplayProfileAsync(first.Id)).IsDefault.Should().BeTrue();
+        await eva.DeleteSegmentDisplayProfileAsync(second.Id, TestContext.Current.CancellationToken);
+        (await eva.GetSegmentDisplayProfileAsync(first.Id, TestContext.Current.CancellationToken)).IsDefault.Should().BeTrue();
         var deleted = () => eva.GetSegmentDisplayProfileAsync(second.Id);
         var blank = () => eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("  ", null, false));
         var crossRead = () => AsUser(ApiTestUsers.Anthony).GetSegmentDisplayProfileAsync(first.Id);
@@ -59,47 +59,47 @@ public sealed class SegmentDisplayProfilesApiTests(ITestOutputHelper output, Cov
     public async Task GivenPersonalProfile_WhenMemberManagesRules_ThenRulesAreOrderedVersionedAndOwned()
     {
         var eva = AsUser(ApiTestUsers.Eva);
-        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("Rules profile", null, false));
-        var tag = await AsUser().CreateTagAsync($"Display rule tag {Guid.NewGuid():N}");
-        var replacementTag = await AsUser().CreateTagAsync($"Replacement display rule tag {Guid.NewGuid():N}");
+        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto("Rules profile", null, false), TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync($"Display rule tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var replacementTag = await AsUser().CreateTagAsync($"Replacement display rule tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var rich = new SegmentDisplayRuleCreateDto("  detector  ", "  chapter  ", tag.Id, "  category  ", SegmentHostType.Video, true, 0.8f, 2.5, 0.5, false, "  #aabbcc  ", 3, 50);
-        var created = await eva.CreateSegmentDisplayRuleAsync(profile.Id, rich);
+        var created = await eva.CreateSegmentDisplayRuleAsync(profile.Id, rich, TestContext.Current.CancellationToken);
         created.ShouldMatch(rich, tag.Name, profile.UserId);
         DateTimeOffset.TryParse(created.CreatedAt, out _).Should().BeTrue();
         DateTimeOffset.TryParse(created.UpdatedAt, out _).Should().BeTrue();
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id)).Version.Should().Be(2);
+        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(2);
 
-        await eva.BulkCreateSegmentDisplayRulesAsync(profile.Id, [new SegmentDisplayRuleCreateDto("bulk-low", null, null, null, null, true, null, null, null, false, null, 1, 10), new SegmentDisplayRuleCreateDto("bulk-high", null, null, null, null, true, null, null, null, false, null, 2, 70)]);
-        var afterBulk = await eva.GetSegmentDisplayRulesAsync(profile.Id);
+        await eva.BulkCreateSegmentDisplayRulesAsync(profile.Id, [new SegmentDisplayRuleCreateDto("bulk-low", null, null, null, null, true, null, null, null, false, null, 1, 10), new SegmentDisplayRuleCreateDto("bulk-high", null, null, null, null, true, null, null, null, false, null, 2, 70)], TestContext.Current.CancellationToken);
+        var afterBulk = await eva.GetSegmentDisplayRulesAsync(profile.Id, TestContext.Current.CancellationToken);
         afterBulk.Select(rule => rule.Priority).Should().Equal(70, 50, 10);
         afterBulk.Select(rule => rule.SourceKey).Should().Equal("bulk-high", "  detector  ", "bulk-low");
         afterBulk.Select(rule => rule.Lane).Should().Equal(2, 3, 1);
         afterBulk.Should().OnlyContain(rule => rule.UserId == profile.UserId);
         afterBulk.Single(rule => rule.Id == created.Id).ShouldMatch(rich, tag.Name, profile.UserId);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id)).Version.Should().Be(3);
+        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(3);
 
         var update = new SegmentDisplayRuleUpdateDto("edited", "marker", replacementTag.Id, "category", SegmentHostType.Video, false, 0.9f, 3, 1, true, "#112233", 7, 60);
-        var edited = await eva.UpdateSegmentDisplayRuleAsync(profile.Id, created.Id, update);
+        var edited = await eva.UpdateSegmentDisplayRuleAsync(profile.Id, created.Id, update, TestContext.Current.CancellationToken);
         edited.ShouldMatch(update, replacementTag.Name, profile.UserId);
-        (await eva.GetSegmentDisplayRulesAsync(profile.Id)).Single(rule => rule.Id == created.Id).ShouldMatch(update, replacementTag.Name, profile.UserId);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id)).Version.Should().Be(4);
-        await eva.DeleteSegmentDisplayRuleAsync(profile.Id, created.Id);
-        (await eva.GetSegmentDisplayRulesAsync(profile.Id)).Should().NotContain(rule => rule.Id == created.Id);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id)).Version.Should().Be(5);
+        (await eva.GetSegmentDisplayRulesAsync(profile.Id, TestContext.Current.CancellationToken)).Single(rule => rule.Id == created.Id).ShouldMatch(update, replacementTag.Name, profile.UserId);
+        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(4);
+        await eva.DeleteSegmentDisplayRuleAsync(profile.Id, created.Id, TestContext.Current.CancellationToken);
+        (await eva.GetSegmentDisplayRulesAsync(profile.Id, TestContext.Current.CancellationToken)).Should().NotContain(rule => rule.Id == created.Id);
+        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(5);
         var deleted = () => eva.DeleteSegmentDisplayRuleAsync(profile.Id, created.Id);
         await deleted.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
-        await eva.BulkCreateSegmentDisplayRulesAsync(profile.Id, []);
-        (await eva.GetSegmentDisplayProfileAsync(profile.Id)).Version.Should().Be(5);
+        await eva.BulkCreateSegmentDisplayRulesAsync(profile.Id, [], TestContext.Current.CancellationToken);
+        (await eva.GetSegmentDisplayProfileAsync(profile.Id, TestContext.Current.CancellationToken)).Version.Should().Be(5);
     }
 
     [Fact]
     [CoversEndpoint("POST", "/api/segment-display-profiles/preview")]
     public async Task GivenVideoSegments_WhenMemberPreviewsTransientRules_ThenMatchingSpansAndErrorsAreReturned()
     {
-        var video = await AsUser().CreateVideoAsync($"Preview video {Guid.NewGuid():N}");
-        await AsUser().CreateVideoSegmentAsync(video, new SegmentCreateDto(2, 5, null, "chapter", null, null, "preview-source", null, 0.9f, "Preview", null));
+        var video = await AsUser().CreateVideoAsync($"Preview video {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        await AsUser().CreateVideoSegmentAsync(video, new SegmentCreateDto(2, 5, null, "chapter", null, null, "preview-source", null, 0.9f, "Preview", null), TestContext.Current.CancellationToken);
         var rule = new SegmentDisplayRuleCreateDto("preview-source", "chapter", null, null, SegmentHostType.Video, true, 0.8f, null, null, false, "#00ff00", 4, 10);
-        var preview = await AsUser(ApiTestUsers.Eva).PreviewSegmentDisplayProfileAsync(new SegmentDisplayProfilePreviewRequestDto(video.Id, [rule]));
+        var preview = await AsUser(ApiTestUsers.Eva).PreviewSegmentDisplayProfileAsync(new SegmentDisplayProfilePreviewRequestDto(video.Id, [rule]), TestContext.Current.CancellationToken);
         var span = preview.Spans.Should().ContainSingle().Which;
         span.StartSec.Should().Be(2);
         span.EndSec.Should().Be(5);

@@ -17,10 +17,9 @@ public sealed class PerformerCreationApiTests(
     public async Task GivenPerformer_WhenPerformerWithDuplicateNameIsCreated_ThenConflictIsReturned()
     {
         // Arrange
-        await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
         var request = new PerformerBuilder()
             .WithName(TestCatalog.Performers.CherryPoppins.Name.ToUpperInvariant())
             .Build();
@@ -37,17 +36,15 @@ public sealed class PerformerCreationApiTests(
     public async Task GivenPerformer_WhenSameNameWithDistinctDisambiguationIsCreated_ThenBothPerformersExist()
     {
         // Arrange
-        var first = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var first = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var second = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var second = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .WithDisambiguation("Silent Era")
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Assert
         second.Id.Should().NotBe(first.Id);
@@ -59,11 +56,10 @@ public sealed class PerformerCreationApiTests(
     public async Task GivenPerformer_WhenNameAndDisambiguationAreDuplicated_ThenConflictIsReturned()
     {
         // Arrange
-        await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .WithDisambiguation("Silent Era")
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
         var request = new PerformerBuilder()
             .WithName(TestCatalog.Performers.CherryPoppins.Name.ToUpperInvariant())
             .WithDisambiguation("SILENT ERA")
@@ -81,18 +77,16 @@ public sealed class PerformerCreationApiTests(
     public async Task GivenPerformerAlias_WhenAnotherPerformerUsesAlias_ThenBothPerformersExist()
     {
         // Arrange
-        var first = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var first = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .WithAlias(TestCatalog.Performers.RandyDandy.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var second = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var second = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.VelvetThunder.Name)
                 .WithAlias(TestCatalog.Performers.RandyDandy.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Assert
         second.Id.Should().NotBe(first.Id);
@@ -110,7 +104,7 @@ public sealed class PerformerCreationApiTests(
             .Build();
 
         // Act
-        var performer = await AsUser().CreatePerformerAsync(request);
+        var performer = await AsUser().CreatePerformerAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         performer.Name.Should().Be(TestCatalog.Performers.CherryPoppins.Name);
@@ -121,8 +115,7 @@ public sealed class PerformerCreationApiTests(
     public async Task GivenBlankName_WhenPerformerIsCreated_ThenEmptySentinelClaimsIdentity()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName(" \t ").Build());
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(" \t ").Build(), TestContext.Current.CancellationToken);
 
         // Act & Assert
         performer.Name.Should().Be(EntityNameRules.EmptyCanonicalName);
@@ -140,14 +133,14 @@ public sealed class PerformerCreationApiTests(
     {
         // Arrange
         const string customFieldKey = "stage_persona";
-        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.Brooding.Name);
+        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.Brooding.Name, TestContext.Current.CancellationToken);
         await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = customFieldKey,
             Label = "Stage persona",
             Type = "text",
             EntityTypes = ["performer"]
-        });
+        }, TestContext.Current.CancellationToken);
         var request =
             new PerformerBuilder()
                 .WithName(TestCatalog.Performers.VelvetThunder.Name)
@@ -179,11 +172,11 @@ public sealed class PerformerCreationApiTests(
                 .WithCustomField(customFieldKey, "Brooding romantic lead")
                 .Build();
 
-        var performer = await AsUser().CreatePerformerAsync(request);
+        var performer = await AsUser().CreatePerformerAsync(request, TestContext.Current.CancellationToken);
 
         // Act
-        var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id);
-        var engagement = await AsUser().GetPerformerEngagementAsync(performerAfter);
+        var performerAfter = await AsUser().GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken);
+        var engagement = await AsUser().GetPerformerEngagementAsync(performerAfter, TestContext.Current.CancellationToken);
 
         // Assert
         performerAfter.Should().BeEquivalentTo(request, options => options

@@ -18,14 +18,14 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
     {
         var eva = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var video = await AsUser().CreateVideoAsync($"Span lifecycle {suffix}");
-        var tag = await AsUser().CreateTagAsync($"Span tag {suffix}");
-        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Span profile {suffix}", null, false));
-        await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("span-slice", "chapter", tag.Id, null, SegmentHostType.Video, true, null, null, 1, false, "#224466", 3, 100));
-        var first = await AsUser().CreateVideoSegmentAsync(video, Segment(2, 4, tag.Id, "chapter", "span-slice", "First"));
-        var second = await AsUser().CreateVideoSegmentAsync(video, Segment(4.5, 7, tag.Id, "chapter", "span-slice", "Second"));
+        var video = await AsUser().CreateVideoAsync($"Span lifecycle {suffix}", TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync($"Span tag {suffix}", TestContext.Current.CancellationToken);
+        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Span profile {suffix}", null, false), TestContext.Current.CancellationToken);
+        await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("span-slice", "chapter", tag.Id, null, SegmentHostType.Video, true, null, null, 1, false, "#224466", 3, 100), TestContext.Current.CancellationToken);
+        var first = await AsUser().CreateVideoSegmentAsync(video, Segment(2, 4, tag.Id, "chapter", "span-slice", "First"), TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateVideoSegmentAsync(video, Segment(4.5, 7, tag.Id, "chapter", "span-slice", "Second"), TestContext.Current.CancellationToken);
 
-        var resolved = await eva.GetVideoResolvedSpansAsync(video, profile.Id);
+        var resolved = await eva.GetVideoResolvedSpansAsync(video, profile.Id, TestContext.Current.CancellationToken);
         var span = resolved.Spans.Should().ContainSingle().Which;
         span.StartSec.Should().Be(2);
         span.EndSec.Should().Be(7);
@@ -34,7 +34,7 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
         span.ColorHint.Should().Be("#224466");
         span.Lane.Should().Be(3);
         span.SegmentIds.Should().Equal(first.Id, second.Id);
-        var detail = await eva.GetVideoResolvedSpanDetailAsync(video, span.SpanKey, profile.Id);
+        var detail = await eva.GetVideoResolvedSpanDetailAsync(video, span.SpanKey, profile.Id, TestContext.Current.CancellationToken);
         detail.VideoId.Should().Be(video.Id);
         detail.VideoTitle.Should().Be(video.Title);
         detail.ProfileId.Should().Be(profile.Id);
@@ -42,13 +42,13 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
         detail.Intervals.Should().Equal(new ResolvedSpanIntervalDto(2, 4), new ResolvedSpanIntervalDto(4.5, 7));
 
         var derivedRequest = new SegmentSpanQueryRequestDto(profile.Id, "union", [new SegmentSpanOperandDto("span-slice", "chapter", [tag.Id], null)], 0, 0);
-        var derived = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest);
+        var derived = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest, TestContext.Current.CancellationToken);
         derived.Spans.Select(item => (item.StartSec, item.EndSec)).Should().Equal((2, 4), (4.5, 7));
         derived.Spans.Select(item => item.SegmentIds.Single()).Should().Equal(first.Id, second.Id);
 
         var update = new SegmentUpdateDto(10, 14, tag.Id, "chapter", 42, Json("{\"source\":\"api\"}"), "span-slice", "run-1", .55f, "Updated segment", "#abcdef");
-        var updated = await eva.UpdateVideoSegmentAsync(video, first.Id, update);
-        var persisted = await eva.GetVideoSegmentAsync(video, first.Id);
+        var updated = await eva.UpdateVideoSegmentAsync(video, first.Id, update, TestContext.Current.CancellationToken);
+        var persisted = await eva.GetVideoSegmentAsync(video, first.Id, TestContext.Current.CancellationToken);
         foreach (var actual in new[] { updated, persisted })
         {
             actual.Id.Should().Be(first.Id);
@@ -69,7 +69,7 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
             actual.ColorHint.Should().Be("#abcdef");
         }
 
-        var global = await eva.GetSegmentByIdAsync(first.Id);
+        var global = await eva.GetSegmentByIdAsync(first.Id, TestContext.Current.CancellationToken);
         global.HostType.Should().Be(persisted.HostType);
         global.HostId.Should().Be(persisted.HostId);
         global.StartSec.Should().Be(persisted.StartSec);
@@ -85,18 +85,18 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
         global.Confidence.Should().Be(persisted.Confidence);
         global.Title.Should().Be(persisted.Title);
         global.ColorHint.Should().Be(persisted.ColorHint);
-        var afterUpdate = await eva.GetVideoResolvedSpansAsync(video, profile.Id);
+        var afterUpdate = await eva.GetVideoResolvedSpansAsync(video, profile.Id, TestContext.Current.CancellationToken);
         afterUpdate.Spans.Select(item => (item.StartSec, item.EndSec)).Should().Equal((4.5, 7), (10, 14));
         afterUpdate.Spans[0].SegmentIds.Should().Equal(second.Id);
         afterUpdate.Spans[1].SegmentIds.Should().Equal(first.Id);
-        var derivedAfterUpdate = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest);
+        var derivedAfterUpdate = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest, TestContext.Current.CancellationToken);
         derivedAfterUpdate.Spans.Select(item => (item.StartSec, item.EndSec)).Should().Equal((4.5, 7), (10, 14));
         derivedAfterUpdate.Spans.Select(item => item.SegmentIds.Single()).Should().Equal(second.Id, first.Id);
 
-        await eva.DeleteVideoSegmentAsync(video, first.Id);
-        var afterDelete = await eva.GetVideoResolvedSpansAsync(video, profile.Id);
+        await eva.DeleteVideoSegmentAsync(video, first.Id, TestContext.Current.CancellationToken);
+        var afterDelete = await eva.GetVideoResolvedSpansAsync(video, profile.Id, TestContext.Current.CancellationToken);
         afterDelete.Spans.Should().ContainSingle().Which.SegmentIds.Should().Equal(second.Id);
-        var derivedAfterDelete = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest);
+        var derivedAfterDelete = await eva.QueryVideoResolvedSpansAsync(video, derivedRequest, TestContext.Current.CancellationToken);
         derivedAfterDelete.Spans.Should().ContainSingle().Which.SegmentIds.Should().Equal(second.Id);
         var deleted = () => eva.GetVideoSegmentAsync(video, first.Id);
         await deleted.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
@@ -109,18 +109,18 @@ public sealed class SegmentSpanLifecycleApiTests(ITestOutputHelper output, CoveA
     {
         var eva = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Search span profile {suffix}", null, false));
-        await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("span-search", "chapter", null, null, SegmentHostType.Video, true, null, null, 0, false, null, 1, 100));
-        var firstVideo = await AsUser().CreateVideoAsync($"First scoped span {suffix}");
-        var secondVideo = await AsUser().CreateVideoAsync($"Second scoped span {suffix}");
-        var excludedVideo = await AsUser().CreateVideoAsync($"Excluded scoped span {suffix}");
-        await AsUser().CreateVideoSegmentAsync(firstVideo, Segment(1, 4, null, "chapter", "span-search", "First"));
-        await AsUser().CreateVideoSegmentAsync(secondVideo, Segment(10, 16, null, "chapter", "span-search", "Second"));
-        await AsUser().CreateVideoSegmentAsync(excludedVideo, Segment(20, 29, null, "chapter", "span-search", "Excluded"));
+        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Search span profile {suffix}", null, false), TestContext.Current.CancellationToken);
+        await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("span-search", "chapter", null, null, SegmentHostType.Video, true, null, null, 0, false, null, 1, 100), TestContext.Current.CancellationToken);
+        var firstVideo = await AsUser().CreateVideoAsync($"First scoped span {suffix}", TestContext.Current.CancellationToken);
+        var secondVideo = await AsUser().CreateVideoAsync($"Second scoped span {suffix}", TestContext.Current.CancellationToken);
+        var excludedVideo = await AsUser().CreateVideoAsync($"Excluded scoped span {suffix}", TestContext.Current.CancellationToken);
+        await AsUser().CreateVideoSegmentAsync(firstVideo, Segment(1, 4, null, "chapter", "span-search", "First"), TestContext.Current.CancellationToken);
+        await AsUser().CreateVideoSegmentAsync(secondVideo, Segment(10, 16, null, "chapter", "span-search", "Second"), TestContext.Current.CancellationToken);
+        await AsUser().CreateVideoSegmentAsync(excludedVideo, Segment(20, 29, null, "chapter", "span-search", "Excluded"), TestContext.Current.CancellationToken);
         var request = new SegmentSpanSearchRequestDto(profile.Id, null, 1, 10, "start_sec", "asc", null, null, [firstVideo.Id, secondVideo.Id], null, null, "chapter", "span-search");
 
-        var search = await eva.SearchResolvedSpansAsync(request);
-        var count = await eva.CountResolvedSpansAsync(request);
+        var search = await eva.SearchResolvedSpansAsync(request, TestContext.Current.CancellationToken);
+        var count = await eva.CountResolvedSpansAsync(request, TestContext.Current.CancellationToken);
 
         search.TotalCount.Should().Be(2);
         search.Page.Should().Be(1);

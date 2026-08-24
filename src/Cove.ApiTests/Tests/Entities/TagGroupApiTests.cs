@@ -22,8 +22,8 @@ public sealed class TagGroupApiTests(
             SortOrder: 3);
 
         // Act
-        var created = await AsUser().CreateTagGroupAsync(request);
-        var retrieved = await AsUser().GetTagGroupByIdAsync(created.Id);
+        var created = await AsUser().CreateTagGroupAsync(request, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser().GetTagGroupByIdAsync(created.Id, TestContext.Current.CancellationToken);
 
         // Assert
         retrieved.Should().BeEquivalentTo(created, options => options
@@ -52,7 +52,7 @@ public sealed class TagGroupApiTests(
             Color: " \t ");
 
         // Act
-        var created = await AsUser().CreateTagGroupAsync(request);
+        var created = await AsUser().CreateTagGroupAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         created.Description.Should().BeNull();
@@ -71,7 +71,7 @@ public sealed class TagGroupApiTests(
         var request = new TagGroupCreateDto("Color Group", Color: color);
 
         // Act
-        var created = await AsUser().CreateTagGroupAsync(request);
+        var created = await AsUser().CreateTagGroupAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         created.Color.Should().Be(color.Trim());
@@ -114,7 +114,7 @@ public sealed class TagGroupApiTests(
     public async Task GivenTagGroup_WhenExactNormalizedNameIsCreatedAgain_ThenConflictIsReturned()
     {
         // Arrange
-        await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Camera Movement"));
+        await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Camera Movement"), TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().CreateTagGroupAsync(
@@ -129,11 +129,11 @@ public sealed class TagGroupApiTests(
     public async Task GivenExistingSortOrders_WhenTagGroupsUseDefaultSortOrder_ThenDefaultsAdvanceByTen()
     {
         // Arrange
-        var first = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("First Default"));
-        await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Explicit Order", SortOrder: 50));
+        var first = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("First Default"), TestContext.Current.CancellationToken);
+        await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Explicit Order", SortOrder: 50), TestContext.Current.CancellationToken);
 
         // Act
-        var afterExplicit = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("After Explicit"));
+        var afterExplicit = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("After Explicit"), TestContext.Current.CancellationToken);
 
         // Assert
         first.SortOrder.Should().Be(10);
@@ -144,15 +144,12 @@ public sealed class TagGroupApiTests(
     public async Task GivenTagGroups_WhenListed_ThenTheyAreOrderedBySortOrderAndName()
     {
         // Arrange
-        var secondByName = await AsUser().CreateTagGroupAsync(
-            new TagGroupCreateDto("Zulu", SortOrder: 20));
-        var firstByOrder = await AsUser().CreateTagGroupAsync(
-            new TagGroupCreateDto("Middle", SortOrder: 10));
-        var firstByName = await AsUser().CreateTagGroupAsync(
-            new TagGroupCreateDto("Alpha", SortOrder: 20));
+        var secondByName = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Zulu", SortOrder: 20), TestContext.Current.CancellationToken);
+        var firstByOrder = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Middle", SortOrder: 10), TestContext.Current.CancellationToken);
+        var firstByName = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Alpha", SortOrder: 20), TestContext.Current.CancellationToken);
 
         // Act
-        var groups = await AsUser().GetTagGroupsAsync();
+        var groups = await AsUser().GetTagGroupsAsync(TestContext.Current.CancellationToken);
 
         // Assert
         groups.Select(group => group.Id).Should().Equal(
@@ -170,12 +167,10 @@ public sealed class TagGroupApiTests(
             Name: "Original Group",
             Description: "Original description",
             Color: "#123456",
-            SortOrder: 15));
+            SortOrder: 15), TestContext.Current.CancellationToken);
 
         // Act
-        var updated = await AsUser().UpdateTagGroupAsync(
-            created.Id,
-            new TagGroupUpdateDto(Name: " Updated Group ", Color: " #abcdef ", SortOrder: 25));
+        var updated = await AsUser().UpdateTagGroupAsync(created.Id, new TagGroupUpdateDto(Name: " Updated Group ", Color: " #abcdef ", SortOrder: 25), TestContext.Current.CancellationToken);
 
         // Assert
         updated.Name.Should().Be("Updated Group");
@@ -193,12 +188,10 @@ public sealed class TagGroupApiTests(
         var created = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto(
             Name: "Clearable Group",
             Description: "Description",
-            Color: "#123456"));
+            Color: "#123456"), TestContext.Current.CancellationToken);
 
         // Act
-        var updated = await AsUser().UpdateTagGroupAsync(
-            created.Id,
-            new TagGroupUpdateDto(Description: " \t ", Color: " \t "));
+        var updated = await AsUser().UpdateTagGroupAsync(created.Id, new TagGroupUpdateDto(Description: " \t ", Color: " \t "), TestContext.Current.CancellationToken);
 
         // Assert
         updated.Description.Should().BeNull();
@@ -211,7 +204,7 @@ public sealed class TagGroupApiTests(
         // Arrange
         var created = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto(
             Name: "Stable Color Group",
-            Color: "#123456"));
+            Color: "#123456"), TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().UpdateTagGroupAsync(
@@ -221,7 +214,7 @@ public sealed class TagGroupApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 400 (BadRequest)*");
-        var retrieved = await AsUser().GetTagGroupByIdAsync(created.Id);
+        var retrieved = await AsUser().GetTagGroupByIdAsync(created.Id, TestContext.Current.CancellationToken);
         retrieved.Color.Should().Be(created.Color);
     }
 
@@ -229,8 +222,8 @@ public sealed class TagGroupApiTests(
     public async Task GivenExistingTagGroup_WhenAnotherGroupIsRenamedToExactNormalizedName_ThenConflictIsReturnedWithoutChangingGroup()
     {
         // Arrange
-        var existing = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Existing Group"));
-        var renamed = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Renamed Group"));
+        var existing = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Existing Group"), TestContext.Current.CancellationToken);
+        var renamed = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Renamed Group"), TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().UpdateTagGroupAsync(
@@ -240,7 +233,7 @@ public sealed class TagGroupApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 409 (Conflict)*");
-        var retrieved = await AsUser().GetTagGroupByIdAsync(renamed.Id);
+        var retrieved = await AsUser().GetTagGroupByIdAsync(renamed.Id, TestContext.Current.CancellationToken);
         retrieved.Name.Should().Be(renamed.Name);
     }
 
@@ -248,15 +241,13 @@ public sealed class TagGroupApiTests(
     public async Task GivenTagsInTagGroup_WhenTagGroupIsRead_ThenTagCountIsCurrent()
     {
         // Arrange
-        var group = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Production Details"));
-        await AsUser().CreateTagAsync(
-            new TagBuilder().WithName("Practical Lighting").WithTagGroup(group).Build());
-        await AsUser().CreateTagAsync(
-            new TagBuilder().WithName("Visible Boom Microphone").WithTagGroup(group).Build());
+        var group = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Production Details"), TestContext.Current.CancellationToken);
+        await AsUser().CreateTagAsync(new TagBuilder().WithName("Practical Lighting").WithTagGroup(group).Build(), TestContext.Current.CancellationToken);
+        await AsUser().CreateTagAsync(new TagBuilder().WithName("Visible Boom Microphone").WithTagGroup(group).Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var detail = await AsUser().GetTagGroupByIdAsync(group.Id);
-        var listed = (await AsUser().GetTagGroupsAsync()).Single(candidate => candidate.Id == group.Id);
+        var detail = await AsUser().GetTagGroupByIdAsync(group.Id, TestContext.Current.CancellationToken);
+        var listed = (await AsUser().GetTagGroupsAsync(TestContext.Current.CancellationToken)).Single(candidate => candidate.Id == group.Id);
 
         // Assert
         detail.TagCount.Should().Be(2);
@@ -268,10 +259,9 @@ public sealed class TagGroupApiTests(
     public async Task GivenTagInTagGroup_WhenAssignedToAnotherTagGroup_ThenTagBelongsOnlyToNewGroup()
     {
         // Arrange
-        var originalGroup = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Original Group"));
-        var newGroup = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("New Group"));
-        var tag = await AsUser().CreateTagAsync(
-            new TagBuilder().WithName("Reassigned Tag").WithTagGroup(originalGroup).Build());
+        var originalGroup = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Original Group"), TestContext.Current.CancellationToken);
+        var newGroup = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("New Group"), TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync(new TagBuilder().WithName("Reassigned Tag").WithTagGroup(originalGroup).Build(), TestContext.Current.CancellationToken);
         var update = new TagUpdateDto(
             Name: null,
             SortName: null,
@@ -284,9 +274,9 @@ public sealed class TagGroupApiTests(
             TagGroupId: newGroup.Id);
 
         // Act
-        var updated = await AsUser().UpdateTagAsync(tag.Id, update);
-        var originalGroupAfter = await AsUser().GetTagGroupByIdAsync(originalGroup.Id);
-        var newGroupAfter = await AsUser().GetTagGroupByIdAsync(newGroup.Id);
+        var updated = await AsUser().UpdateTagAsync(tag.Id, update, TestContext.Current.CancellationToken);
+        var originalGroupAfter = await AsUser().GetTagGroupByIdAsync(originalGroup.Id, TestContext.Current.CancellationToken);
+        var newGroupAfter = await AsUser().GetTagGroupByIdAsync(newGroup.Id, TestContext.Current.CancellationToken);
 
         // Assert
         updated.TagGroupId.Should().Be(newGroup.Id);
@@ -302,19 +292,18 @@ public sealed class TagGroupApiTests(
         // Arrange
         var group = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto(
             Name: "Temporary Category",
-            Color: "#654321"));
-        var tag = await AsUser().CreateTagAsync(
-            new TagBuilder().WithName("Preserved Tag").WithTagGroup(group).Build());
+            Color: "#654321"), TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync(new TagBuilder().WithName("Preserved Tag").WithTagGroup(group).Build(), TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().DeleteTagGroupAsync(group.Id);
-        var tagAfter = await AsUser().GetTagByIdAsync(tag.Id);
+        await AsUser().DeleteTagGroupAsync(group.Id, TestContext.Current.CancellationToken);
+        var tagAfter = await AsUser().GetTagByIdAsync(tag.Id, TestContext.Current.CancellationToken);
 
         // Assert
         tagAfter.TagGroupId.Should().BeNull();
         tagAfter.TagGroupName.Should().BeNull();
         tagAfter.TagGroupColor.Should().BeNull();
-        (await AsUser().GetTagGroupsAsync()).Should().NotContain(candidate => candidate.Id == group.Id);
+        (await AsUser().GetTagGroupsAsync(TestContext.Current.CancellationToken)).Should().NotContain(candidate => candidate.Id == group.Id);
         var getDeleted = () => AsUser().GetTagGroupByIdAsync(group.Id);
         await getDeleted.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
@@ -327,11 +316,9 @@ public sealed class TagGroupApiTests(
         var member = AsUser(ApiTestUsers.Eva);
 
         // Act
-        var created = await member.CreateTagGroupAsync(new TagGroupCreateDto("Member Managed"));
-        var updated = await member.UpdateTagGroupAsync(
-            created.Id,
-            new TagGroupUpdateDto(Description: "Updated by member"));
-        var retrieved = await member.GetTagGroupByIdAsync(created.Id);
+        var created = await member.CreateTagGroupAsync(new TagGroupCreateDto("Member Managed"), TestContext.Current.CancellationToken);
+        var updated = await member.UpdateTagGroupAsync(created.Id, new TagGroupUpdateDto(Description: "Updated by member"), TestContext.Current.CancellationToken);
+        var retrieved = await member.GetTagGroupByIdAsync(created.Id, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Description.Should().Be("Updated by member");
@@ -347,7 +334,7 @@ public sealed class TagGroupApiTests(
     public async Task GivenMember_WhenTagGroupIsDeleted_ThenForbiddenIsReturned()
     {
         // Arrange
-        var group = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Owner Managed"));
+        var group = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto("Owner Managed"), TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser(ApiTestUsers.Eva).DeleteTagGroupAsync(group.Id);
@@ -355,7 +342,7 @@ public sealed class TagGroupApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await AsUser().GetTagGroupsAsync()).Should().Contain(candidate => candidate.Id == group.Id);
+        (await AsUser().GetTagGroupsAsync(TestContext.Current.CancellationToken)).Should().Contain(candidate => candidate.Id == group.Id);
     }
 
     [Fact]

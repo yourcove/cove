@@ -18,19 +18,18 @@ public sealed class StudioUpdateApiTests(
     {
         // Arrange
         const string customFieldKey = "production_tone";
-        var originalParent = await AsUser().CreateStudioAsync("Original Parent");
-        var updatedParent = await AsUser().CreateStudioAsync("Updated Parent");
-        var originalTag = await AsUser().CreateTagAsync(TestCatalog.Tags.Brooding.Name);
-        var updatedTag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name);
+        var originalParent = await AsUser().CreateStudioAsync("Original Parent", TestContext.Current.CancellationToken);
+        var updatedParent = await AsUser().CreateStudioAsync("Updated Parent", TestContext.Current.CancellationToken);
+        var originalTag = await AsUser().CreateTagAsync(TestCatalog.Tags.Brooding.Name, TestContext.Current.CancellationToken);
+        var updatedTag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name, TestContext.Current.CancellationToken);
         await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = customFieldKey,
             Label = "Production tone",
             Type = "text",
             EntityTypes = ["studio"]
-        });
-        var studio = await AsUser().CreateStudioAsync(
-            new StudioBuilder()
+        }, TestContext.Current.CancellationToken);
+        var studio = await AsUser().CreateStudioAsync(new StudioBuilder()
                 .WithName(TestCatalog.Studio.Name)
                 .WithParent(originalParent)
                 .WithDetails("Original details")
@@ -40,7 +39,7 @@ public sealed class StudioUpdateApiTests(
                 .WithRemoteId("https://original-metadata.example/graphql", "original-id")
                 .WithCustomField(customFieldKey, "Original tone")
                 .WithRating(40)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var updated = await AsUser().UpdateStudioAsync(studio.Id, new
@@ -55,9 +54,9 @@ public sealed class StudioUpdateApiTests(
             remoteIds = new[] { new StudioRemoteIdDto("https://updated-metadata.example/graphql", "updated-id") },
             customFields = new Dictionary<string, object> { [customFieldKey] = "Updated tone" },
             rating = 85,
-        });
-        var retrieved = await AsUser().GetStudioByIdAsync(studio.Id);
-        var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Studio, studio.Id);
+        }, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser().GetStudioByIdAsync(studio.Id, TestContext.Current.CancellationToken);
+        var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Studio, studio.Id, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Name.Should().Be(studio.Name);
@@ -80,19 +79,18 @@ public sealed class StudioUpdateApiTests(
     public async Task GivenParentAndDetails_WhenFieldsAreCleared_ThenValuesBecomeNull()
     {
         // Arrange
-        var parent = await AsUser().CreateStudioAsync("Parent Studio");
-        var studio = await AsUser().CreateStudioAsync(
-            new StudioBuilder()
+        var parent = await AsUser().CreateStudioAsync("Parent Studio", TestContext.Current.CancellationToken);
+        var studio = await AsUser().CreateStudioAsync(new StudioBuilder()
                 .WithName(TestCatalog.Studio.Name)
                 .WithParent(parent)
                 .WithDetails("Original details")
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var updated = await AsUser().UpdateStudioAsync(studio.Id, new
         {
             clearFields = new[] { "parentId", "details" },
-        });
+        }, TestContext.Current.CancellationToken);
 
         // Assert
         updated.ParentId.Should().BeNull();
@@ -104,8 +102,8 @@ public sealed class StudioUpdateApiTests(
     public async Task GivenExistingStudio_WhenAnotherStudioIsRenamedToSameName_ThenConflictIsReturnedWithoutChangingStudio()
     {
         // Arrange
-        var existing = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
-        var studio = await AsUser().CreateStudioAsync("Distinct Studio");
+        var existing = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
+        var studio = await AsUser().CreateStudioAsync("Distinct Studio", TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().UpdateStudioAsync(
@@ -115,7 +113,7 @@ public sealed class StudioUpdateApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 409 (Conflict)*");
-        var retrieved = await AsUser().GetStudioByIdAsync(studio.Id);
+        var retrieved = await AsUser().GetStudioByIdAsync(studio.Id, TestContext.Current.CancellationToken);
         retrieved.Name.Should().Be(studio.Name);
     }
 
@@ -123,12 +121,10 @@ public sealed class StudioUpdateApiTests(
     public async Task GivenMember_WhenStudioIsUpdated_ThenWriteAccessIsAllowed()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
 
         // Act
-        var updated = await AsUser(ApiTestUsers.Eva).UpdateStudioAsync(
-            studio.Id,
-            new { details = "Updated by member" });
+        var updated = await AsUser(ApiTestUsers.Eva).UpdateStudioAsync(studio.Id, new { details = "Updated by member" }, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Details.Should().Be("Updated by member");

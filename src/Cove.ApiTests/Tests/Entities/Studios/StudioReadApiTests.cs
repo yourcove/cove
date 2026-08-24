@@ -12,10 +12,10 @@ public sealed class StudioReadApiTests(
     public async Task GivenStudio_WhenMemberReadsStudios_ThenStudioIsReturned()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
+        var studio = await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
 
         // Act
-        var studios = await AsUser(ApiTestUsers.Eva).GetStudiosAsync();
+        var studios = await AsUser(ApiTestUsers.Eva).GetStudiosAsync(TestContext.Current.CancellationToken);
 
         // Assert
         studios.Should().ContainSingle(candidate => candidate.Id == studio.Id);

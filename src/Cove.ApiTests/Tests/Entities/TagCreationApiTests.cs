@@ -16,10 +16,10 @@ public sealed class TagCreationApiTests(
     public async Task GivenTag_WhenMemberReadsTags_ThenTagIsReturned()
     {
         // Arrange
-        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name);
+        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name, TestContext.Current.CancellationToken);
 
         // Act
-        var tags = await AsUser(ApiTestUsers.Eva).GetTagsAsync();
+        var tags = await AsUser(ApiTestUsers.Eva).GetTagsAsync(TestContext.Current.CancellationToken);
 
         // Assert
         tags.Should().ContainSingle(candidate => candidate.Id == tag.Id);
@@ -34,7 +34,7 @@ public sealed class TagCreationApiTests(
     public async Task GivenTag_WhenTagWithEquivalentNameIsCreated_ThenConflictIsReturned(string duplicateName)
     {
         // Arrange
-        await AsUser().CreateTagAsync(TestCatalog.Tags.DramaticStandoff.Name);
+        await AsUser().CreateTagAsync(TestCatalog.Tags.DramaticStandoff.Name, TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().CreateTagAsync(duplicateName);
@@ -48,11 +48,10 @@ public sealed class TagCreationApiTests(
     public async Task GivenTagAlias_WhenTagWithEquivalentNameIsCreated_ThenConflictIsReturned()
     {
         // Arrange
-        await AsUser().CreateTagAsync(
-            new TagBuilder()
+        await AsUser().CreateTagAsync(new TagBuilder()
                 .WithName(TestCatalog.Tags.CowboyBoots.Name)
                 .WithAlias(TestCatalog.Tags.QuestionableAlibi.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().CreateTagAsync($" {TestCatalog.Tags.QuestionableAlibi.Name.ToUpperInvariant()} ");
@@ -66,7 +65,7 @@ public sealed class TagCreationApiTests(
     public async Task GivenTag_WhenAnotherTagUsesEquivalentAlias_ThenConflictIsReturned()
     {
         // Arrange
-        await AsUser().CreateTagAsync(TestCatalog.Tags.QuestionableAlibi.Name);
+        await AsUser().CreateTagAsync(TestCatalog.Tags.QuestionableAlibi.Name, TestContext.Current.CancellationToken);
         var request = new TagBuilder()
             .WithName(TestCatalog.Tags.CowboyBoots.Name)
             .WithAlias($" {TestCatalog.Tags.QuestionableAlibi.Name.ToUpperInvariant()} ")
@@ -84,11 +83,10 @@ public sealed class TagCreationApiTests(
     public async Task GivenTagAlias_WhenTagWithDuplicateAliasIsCreated_ThenConflictIsReturned()
     {
         // Arrange
-        await AsUser().CreateTagAsync(
-            new TagBuilder()
+        await AsUser().CreateTagAsync(new TagBuilder()
                 .WithName(TestCatalog.Tags.CowboyBoots.Name)
                 .WithAlias(TestCatalog.Tags.QuestionableAlibi.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
         var request = new TagBuilder()
             .WithName(TestCatalog.Tags.CandleBudgetExceeded.Name)
             .WithAlias(TestCatalog.Tags.QuestionableAlibi.Name.ToUpperInvariant())
@@ -148,7 +146,7 @@ public sealed class TagCreationApiTests(
             .Build();
 
         // Act
-        var tag = await AsUser().CreateTagAsync(request);
+        var tag = await AsUser().CreateTagAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         tag.Name.Should().Be(TestCatalog.Tags.CowboyBoots.Name);
@@ -159,7 +157,7 @@ public sealed class TagCreationApiTests(
     public async Task GivenBlankTagName_WhenCreated_ThenEmptySentinelClaimsNamespace()
     {
         // Arrange
-        var tag = await AsUser().CreateTagAsync(" \t ");
+        var tag = await AsUser().CreateTagAsync(" \t ", TestContext.Current.CancellationToken);
 
         // Act & Assert
         tag.Name.Should().Be(TagNameRules.EmptyCanonicalName);
@@ -177,20 +175,20 @@ public sealed class TagCreationApiTests(
     {
         // Arrange
         const string customFieldKey = "wardrobe_department";
-        var parent = await AsUser().CreateTagAsync("Costume Comedy");
-        var child = await AsUser().CreateTagAsync(TestCatalog.Tags.WardrobeMalfunction.Name);
+        var parent = await AsUser().CreateTagAsync("Costume Comedy", TestContext.Current.CancellationToken);
+        var child = await AsUser().CreateTagAsync(TestCatalog.Tags.WardrobeMalfunction.Name, TestContext.Current.CancellationToken);
         var tagGroup = await AsUser().CreateTagGroupAsync(new TagGroupCreateDto(
             Name: "Production Motifs",
             Description: "Recurring production details",
             Color: "#6b4f3a",
-            SortOrder: 3));
+            SortOrder: 3), TestContext.Current.CancellationToken);
         await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = customFieldKey,
             Label = "Wardrobe department",
             Type = "text",
             EntityTypes = ["tag"]
-        });
+        }, TestContext.Current.CancellationToken);
         var request = new TagBuilder()
             .WithName(TestCatalog.Tags.PeriodCostume.Name)
             .WithSortName("Period Costume, The")
@@ -209,10 +207,10 @@ public sealed class TagCreationApiTests(
             .Build();
 
         // Act
-        var tag = await AsUser().CreateTagAsync(request);
+        var tag = await AsUser().CreateTagAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
-        var tagAfter = await AsUser().GetTagByIdAsync(tag.Id);
+        var tagAfter = await AsUser().GetTagByIdAsync(tag.Id, TestContext.Current.CancellationToken);
         tagAfter.Name.Should().Be(request.Name);
         tagAfter.SortName.Should().Be(request.SortName);
         tagAfter.Description.Should().Be(request.Description);

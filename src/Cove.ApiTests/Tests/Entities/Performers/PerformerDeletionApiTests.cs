@@ -14,14 +14,13 @@ public sealed class PerformerDeletionApiTests(
     public async Task GivenPerformer_WhenDeleted_ThenPerformerCanNoLongerBeReadOrListed()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName(TestCatalog.Performers.CherryPoppins.Name).Build());
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.CherryPoppins.Name).Build(), TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().DeletePerformerAsync(performer.Id);
+        await AsUser().DeletePerformerAsync(performer.Id, TestContext.Current.CancellationToken);
 
         // Assert
-        (await AsUser().GetPerformersAsync()).Should().NotContain(candidate => candidate.Id == performer.Id);
+        (await AsUser().GetPerformersAsync(TestContext.Current.CancellationToken)).Should().NotContain(candidate => candidate.Id == performer.Id);
         var read = () => AsUser().GetPerformerByIdAsync(performer.Id);
         await read.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
@@ -31,9 +30,8 @@ public sealed class PerformerDeletionApiTests(
     public async Task GivenDeletedPerformer_WhenOwnerDeletesItAgain_ThenNotFoundIsReturned()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName(TestCatalog.Performers.CherryPoppins.Name).Build());
-        await AsUser().DeletePerformerAsync(performer.Id);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.CherryPoppins.Name).Build(), TestContext.Current.CancellationToken);
+        await AsUser().DeletePerformerAsync(performer.Id, TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().DeletePerformerAsync(performer.Id);
@@ -47,8 +45,7 @@ public sealed class PerformerDeletionApiTests(
     public async Task GivenMember_WhenPerformerIsDeleted_ThenForbiddenIsReturnedWithoutDeletingPerformer()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build());
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build(), TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser(ApiTestUsers.Eva).DeletePerformerAsync(performer.Id);
@@ -56,7 +53,7 @@ public sealed class PerformerDeletionApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        var retrieved = await AsUser().GetPerformerByIdAsync(performer.Id);
+        var retrieved = await AsUser().GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken);
         retrieved.Id.Should().Be(performer.Id);
     }
 

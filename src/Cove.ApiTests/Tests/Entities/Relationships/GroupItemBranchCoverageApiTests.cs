@@ -20,39 +20,39 @@ public sealed class GroupItemBranchCoverageApiTests(
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var group = await owner.CreateGroupAsync($"Scoped group item parent {suffix}");
-        var studio = await owner.CreateStudioAsync($"Scoped group item studio {suffix}");
-        var tag = await owner.CreateTagAsync($"Scoped group item tag {suffix}");
+        var group = await owner.CreateGroupAsync($"Scoped group item parent {suffix}", TestContext.Current.CancellationToken);
+        var studio = await owner.CreateStudioAsync($"Scoped group item studio {suffix}", TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync($"Scoped group item tag {suffix}", TestContext.Current.CancellationToken);
         var gallery = await owner.CreateGalleryAsync(new GalleryBuilder()
             .WithTitle($"Scoped group item gallery {suffix}")
-            .Build());
-        var face = await owner.CreateFaceAsync(new FaceCreateDto($"Scoped group item face {suffix}", null, false, "api-test"));
-        var video = await owner.CreateVideoAsync($"Scoped group item video {suffix}");
-        var segment = await owner.CreateVideoSegmentAsync(video, $"Scoped group item segment {suffix}");
+            .Build(), TestContext.Current.CancellationToken);
+        var face = await owner.CreateFaceAsync(new FaceCreateDto($"Scoped group item face {suffix}", null, false, "api-test"), TestContext.Current.CancellationToken);
+        var video = await owner.CreateVideoAsync($"Scoped group item video {suffix}", TestContext.Current.CancellationToken);
+        var segment = await owner.CreateVideoSegmentAsync(video, $"Scoped group item segment {suffix}", TestContext.Current.CancellationToken);
         var created = new[]
         {
-            await owner.CreateGroupItemAsync(group.Id, CreateItem(0, GroupItemKind.Studio, "studio", studio.Id)),
-            await owner.CreateGroupItemAsync(group.Id, CreateItem(1, GroupItemKind.Tag, "tag", tag.Id)),
-            await owner.CreateGroupItemAsync(group.Id, CreateItem(2, GroupItemKind.Gallery, "gallery", gallery.Id)),
-            await owner.CreateGroupItemAsync(group.Id, CreateItem(3, GroupItemKind.Face, "face", face.Id)),
-            await owner.CreateGroupItemAsync(group.Id, CreateItem(4, GroupItemKind.Segment, "segment", segment.Id)),
+            await owner.CreateGroupItemAsync(group.Id, CreateItem(0, GroupItemKind.Studio, "studio", studio.Id), TestContext.Current.CancellationToken),
+            await owner.CreateGroupItemAsync(group.Id, CreateItem(1, GroupItemKind.Tag, "tag", tag.Id), TestContext.Current.CancellationToken),
+            await owner.CreateGroupItemAsync(group.Id, CreateItem(2, GroupItemKind.Gallery, "gallery", gallery.Id), TestContext.Current.CancellationToken),
+            await owner.CreateGroupItemAsync(group.Id, CreateItem(3, GroupItemKind.Face, "face", face.Id), TestContext.Current.CancellationToken),
+            await owner.CreateGroupItemAsync(group.Id, CreateItem(4, GroupItemKind.Segment, "segment", segment.Id), TestContext.Current.CancellationToken),
         };
-        var memberRole = (await owner.GetRolesAsync()).Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
+        var memberRole = (await owner.GetRolesAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
 
-        (await member.GetGroupItemsPageAsync(group.Id, perPage: 10)).Items.Select(item => item.Id).Should().Equal(created.Select(item => item.Id));
+        (await member.GetGroupItemsPageAsync(group.Id, perPage: 10, cancellationToken: TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().Equal(created.Select(item => item.Id));
 
         await CreateReadDenyAsync(owner, memberRole.Id, EntityKinds.Studio, studio.Id);
         await CreateReadDenyAsync(owner, memberRole.Id, EntityKinds.Tag, tag.Id);
         await CreateReadDenyAsync(owner, memberRole.Id, EntityKinds.Gallery, gallery.Id);
         await CreateReadDenyAsync(owner, memberRole.Id, EntityKinds.Video, video.Id);
 
-        var page = await member.GetGroupItemsPageAsync(group.Id, perPage: 10);
+        var page = await member.GetGroupItemsPageAsync(group.Id, perPage: 10, cancellationToken: TestContext.Current.CancellationToken);
         var deniedStudio = () => member.GetStudioByIdAsync(studio.Id);
         var deniedTag = () => member.GetTagByIdAsync(tag.Id);
         var deniedGallery = () => member.GetGalleryByIdAsync(gallery.Id);
         var deniedVideo = () => member.GetVideoByIdAsync(video.Id);
         var deniedSegment = () => member.GetSegmentByIdAsync(segment.Id);
-        var retainedFace = await member.GetFaceByIdAsync(face.Id);
+        var retainedFace = await member.GetFaceByIdAsync(face.Id, TestContext.Current.CancellationToken);
 
         await deniedStudio.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
         await deniedTag.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
@@ -72,15 +72,15 @@ public sealed class GroupItemBranchCoverageApiTests(
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var video = await owner.CreateVideoAsync($"Group item validation video {suffix}");
-        var staticGroup = await owner.CreateGroupAsync($"Group item validation static {suffix}");
+        var video = await owner.CreateVideoAsync($"Group item validation video {suffix}", TestContext.Current.CancellationToken);
+        var staticGroup = await owner.CreateGroupAsync($"Group item validation static {suffix}", TestContext.Current.CancellationToken);
         var audioOnlyGroup = await owner.CreateGroupAsync(GroupRequest(
             $"Group item validation allowed hosts {suffix}",
-            ["audio"]));
-        var dynamicGroup = await owner.CreateGroupAsync($"Group item validation dynamic {suffix}");
+            ["audio"]), TestContext.Current.CancellationToken);
+        var dynamicGroup = await owner.CreateGroupAsync($"Group item validation dynamic {suffix}", TestContext.Current.CancellationToken);
         await member.UpdateGroupQueryAsync(dynamicGroup.Id, new GroupQueryUpdateDto(
             "filter",
-            FilterQuery($"no-dynamic-item-{suffix}", ["video"])));
+            FilterQuery($"no-dynamic-item-{suffix}", ["video"])), TestContext.Current.CancellationToken);
 
         await AssertBadRequestAndNoItemsAsync(owner, staticGroup.Id, () => member.CreateGroupItemAsync(
             staticGroup.Id,
@@ -115,15 +115,15 @@ public sealed class GroupItemBranchCoverageApiTests(
             Urls: null,
             TagIds: null,
             CustomFields: null,
-            Kind: GroupKind.Static));
-        var restoredStaticPage = await owner.GetGroupItemsPageAsync(dynamicGroup.Id, perPage: 25);
+            Kind: GroupKind.Static), TestContext.Current.CancellationToken);
+        var restoredStaticPage = await owner.GetGroupItemsPageAsync(dynamicGroup.Id, perPage: 25, cancellationToken: TestContext.Current.CancellationToken);
 
-        (await owner.GetGroupByIdAsync(staticGroup.Id)).ItemCount.Should().Be(0);
-        (await owner.GetGroupByIdAsync(audioOnlyGroup.Id)).ItemCount.Should().Be(0);
+        (await owner.GetGroupByIdAsync(staticGroup.Id, TestContext.Current.CancellationToken)).ItemCount.Should().Be(0);
+        (await owner.GetGroupByIdAsync(audioOnlyGroup.Id, TestContext.Current.CancellationToken)).ItemCount.Should().Be(0);
         restoredStaticGroup.Kind.Should().Be(GroupKind.Static);
         restoredStaticPage.TotalCount.Should().Be(0);
         restoredStaticPage.Items.Should().BeEmpty();
-        (await owner.GetGroupByIdAsync(dynamicGroup.Id)).ItemCount.Should().Be(0);
+        (await owner.GetGroupByIdAsync(dynamicGroup.Id, TestContext.Current.CancellationToken)).ItemCount.Should().Be(0);
     }
 
     [Fact]
@@ -132,21 +132,21 @@ public sealed class GroupItemBranchCoverageApiTests(
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var group = await owner.CreateGroupAsync($"Mixed manifest group {suffix}");
-        var childGroup = await owner.CreateGroupAsync($"Mixed manifest child group {suffix}");
-        var video = await owner.CreateVideoAsync($"Mixed manifest video {suffix}");
-        var audio = await owner.CreateAudioAsync($"Mixed manifest audio {suffix}");
-        var image = await owner.CreateImageAsync($"Mixed manifest image {suffix}");
-        var text = await owner.CreateTextAsync($"Mixed manifest text {suffix}");
+        var group = await owner.CreateGroupAsync($"Mixed manifest group {suffix}", TestContext.Current.CancellationToken);
+        var childGroup = await owner.CreateGroupAsync($"Mixed manifest child group {suffix}", TestContext.Current.CancellationToken);
+        var video = await owner.CreateVideoAsync($"Mixed manifest video {suffix}", TestContext.Current.CancellationToken);
+        var audio = await owner.CreateAudioAsync($"Mixed manifest audio {suffix}", TestContext.Current.CancellationToken);
+        var image = await owner.CreateImageAsync($"Mixed manifest image {suffix}", TestContext.Current.CancellationToken);
+        var text = await owner.CreateTextAsync($"Mixed manifest text {suffix}", TestContext.Current.CancellationToken);
         var performer = await owner.CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Mixed manifest performer {suffix}")
-            .Build());
-        var studio = await owner.CreateStudioAsync($"Mixed manifest studio {suffix}");
-        var tag = await owner.CreateTagAsync($"Mixed manifest tag {suffix}");
+            .Build(), TestContext.Current.CancellationToken);
+        var studio = await owner.CreateStudioAsync($"Mixed manifest studio {suffix}", TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync($"Mixed manifest tag {suffix}", TestContext.Current.CancellationToken);
         var gallery = await owner.CreateGalleryAsync(new GalleryBuilder()
             .WithTitle($"Mixed manifest gallery {suffix}")
-            .Build());
-        var face = await owner.CreateFaceAsync(new FaceCreateDto($"Mixed manifest face {suffix}", null, false, "api-test"));
+            .Build(), TestContext.Current.CancellationToken);
+        var face = await owner.CreateFaceAsync(new FaceCreateDto($"Mixed manifest face {suffix}", null, false, "api-test"), TestContext.Current.CancellationToken);
         var segment = await owner.CreateVideoSegmentAsync(video, new SegmentCreateDto(
             StartSec: 4,
             EndSec: 9,
@@ -158,30 +158,30 @@ public sealed class GroupItemBranchCoverageApiTests(
             SourceRunId: null,
             Confidence: null,
             Title: $"Mixed manifest segment {suffix}",
-            ColorHint: null));
+            ColorHint: null), TestContext.Current.CancellationToken);
 
         var nonPlayable = new List<GroupItemDto>
         {
-            await owner.CreateGroupItemAsync(group.Id, CreateItem(0, GroupItemKind.Performer, "performer", performer.Id)),
+            await owner.CreateGroupItemAsync(group.Id, CreateItem(0, GroupItemKind.Performer, "performer", performer.Id), TestContext.Current.CancellationToken),
         };
         var videoRangeItem = await owner.CreateGroupItemAsync(group.Id, CreateItem(
-            1, GroupItemKind.VideoRange, "video", video.Id, startSec: 1, endSec: 4, title: "Video range item title"));
-        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(2, GroupItemKind.Studio, "studio", studio.Id)));
+            1, GroupItemKind.VideoRange, "video", video.Id, startSec: 1, endSec: 4, title: "Video range item title"), TestContext.Current.CancellationToken);
+        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(2, GroupItemKind.Studio, "studio", studio.Id), TestContext.Current.CancellationToken));
         var audioItem = await owner.CreateGroupItemAsync(group.Id, CreateItem(
-            3, GroupItemKind.Audio, "audio", audio.Id, startSec: 3, endSec: 7, title: "Audio item title"));
-        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(4, GroupItemKind.Tag, "tag", tag.Id)));
+            3, GroupItemKind.Audio, "audio", audio.Id, startSec: 3, endSec: 7, title: "Audio item title"), TestContext.Current.CancellationToken);
+        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(4, GroupItemKind.Tag, "tag", tag.Id), TestContext.Current.CancellationToken));
         var imageItem = await owner.CreateGroupItemAsync(group.Id, CreateItem(
-            5, GroupItemKind.Image, "image", image.Id, title: "Image item title"));
-        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(6, GroupItemKind.Gallery, "gallery", gallery.Id)));
+            5, GroupItemKind.Image, "image", image.Id, title: "Image item title"), TestContext.Current.CancellationToken);
+        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(6, GroupItemKind.Gallery, "gallery", gallery.Id), TestContext.Current.CancellationToken));
         var textItem = await owner.CreateGroupItemAsync(group.Id, CreateItem(
-            7, GroupItemKind.Text, "text", text.Id, title: "Text item title"));
-        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(8, GroupItemKind.Face, "face", face.Id)));
+            7, GroupItemKind.Text, "text", text.Id, title: "Text item title"), TestContext.Current.CancellationToken);
+        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(8, GroupItemKind.Face, "face", face.Id), TestContext.Current.CancellationToken));
         var segmentItem = await owner.CreateGroupItemAsync(group.Id, CreateItem(
-            9, GroupItemKind.Segment, "segment", segment.Id, title: "Segment item title"));
-        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(10, GroupItemKind.Group, "group", childGroup.Id)));
+            9, GroupItemKind.Segment, "segment", segment.Id, title: "Segment item title"), TestContext.Current.CancellationToken);
+        nonPlayable.Add(await owner.CreateGroupItemAsync(group.Id, CreateItem(10, GroupItemKind.Group, "group", childGroup.Id), TestContext.Current.CancellationToken));
 
-        var page = await member.GetGroupItemsPageAsync(group.Id, page: 1, perPage: 25);
-        var manifest = await member.GetGroupPlaybackManifestAsync(group.Id);
+        var page = await member.GetGroupItemsPageAsync(group.Id, page: 1, perPage: 25, cancellationToken: TestContext.Current.CancellationToken);
+        var manifest = await member.GetGroupPlaybackManifestAsync(group.Id, TestContext.Current.CancellationToken);
 
         page.TotalCount.Should().Be(11);
         page.Items.Select(item => item.Id).Should().Equal(
@@ -218,11 +218,11 @@ public sealed class GroupItemBranchCoverageApiTests(
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var video = await owner.CreateVideoAsync($"Dynamic five type video {suffix}");
-        var excludedVideo = await owner.CreateVideoAsync($"Dynamic excluded control {Guid.NewGuid():N}");
-        var audio = await owner.CreateAudioAsync($"Dynamic five type audio {suffix}");
-        var image = await owner.CreateImageAsync($"Dynamic five type image {suffix}");
-        var text = await owner.CreateTextAsync($"Dynamic five type text {suffix}");
+        var video = await owner.CreateVideoAsync($"Dynamic five type video {suffix}", TestContext.Current.CancellationToken);
+        var excludedVideo = await owner.CreateVideoAsync($"Dynamic excluded control {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var audio = await owner.CreateAudioAsync($"Dynamic five type audio {suffix}", TestContext.Current.CancellationToken);
+        var image = await owner.CreateImageAsync($"Dynamic five type image {suffix}", TestContext.Current.CancellationToken);
+        var text = await owner.CreateTextAsync($"Dynamic five type text {suffix}", TestContext.Current.CancellationToken);
         var segment = await owner.CreateVideoSegmentAsync(video, new SegmentCreateDto(
             StartSec: 2,
             EndSec: 5,
@@ -234,18 +234,18 @@ public sealed class GroupItemBranchCoverageApiTests(
             SourceRunId: null,
             Confidence: null,
             Title: $"Dynamic five type segment {suffix}",
-            ColorHint: null));
-        var group = await owner.CreateGroupAsync($"Dynamic five type group {suffix}");
+            ColorHint: null), TestContext.Current.CancellationToken);
+        var group = await owner.CreateGroupAsync($"Dynamic five type group {suffix}", TestContext.Current.CancellationToken);
         await member.UpdateGroupQueryAsync(group.Id, new GroupQueryUpdateDto(
             "filter",
-            FilterQuery(suffix, ["video", "audio", "image", "text", "segment"])));
-        var dynamicGroup = await owner.GetGroupByIdAsync(group.Id);
+            FilterQuery(suffix, ["video", "audio", "image", "text", "segment"])), TestContext.Current.CancellationToken);
+        var dynamicGroup = await owner.GetGroupByIdAsync(group.Id, TestContext.Current.CancellationToken);
 
-        var listed = await member.GetGroupItemsAsync(dynamicGroup);
-        var firstPage = await member.GetGroupItemsPageAsync(group.Id, page: 1, perPage: 2);
-        var secondPage = await member.GetGroupItemsPageAsync(group.Id, page: 2, perPage: 2);
-        var thirdPage = await member.GetGroupItemsPageAsync(group.Id, page: 3, perPage: 2);
-        var manifest = await member.GetGroupPlaybackManifestAsync(group.Id);
+        var listed = await member.GetGroupItemsAsync(dynamicGroup, TestContext.Current.CancellationToken);
+        var firstPage = await member.GetGroupItemsPageAsync(group.Id, page: 1, perPage: 2, cancellationToken: TestContext.Current.CancellationToken);
+        var secondPage = await member.GetGroupItemsPageAsync(group.Id, page: 2, perPage: 2, cancellationToken: TestContext.Current.CancellationToken);
+        var thirdPage = await member.GetGroupItemsPageAsync(group.Id, page: 3, perPage: 2, cancellationToken: TestContext.Current.CancellationToken);
+        var manifest = await member.GetGroupPlaybackManifestAsync(group.Id, TestContext.Current.CancellationToken);
 
         dynamicGroup.Kind.Should().Be(GroupKind.Dynamic);
         dynamicGroup.AllowedHostTypes.Should().Equal("video", "audio", "image", "text", "segment");

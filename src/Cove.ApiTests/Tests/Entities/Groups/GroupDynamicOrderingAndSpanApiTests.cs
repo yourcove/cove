@@ -19,9 +19,9 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var matching = await owner.CreateVideoAsync($"Matching dynamic video {suffix}");
-        var excluded = await owner.CreateVideoAsync($"Excluded dynamic video {Guid.NewGuid():N}");
-        var group = await owner.CreateGroupAsync($"Dynamic group {suffix}");
+        var matching = await owner.CreateVideoAsync($"Matching dynamic video {suffix}", TestContext.Current.CancellationToken);
+        var excluded = await owner.CreateVideoAsync($"Excluded dynamic video {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var group = await owner.CreateGroupAsync($"Dynamic group {suffix}", TestContext.Current.CancellationToken);
         var queryJson = JsonSerializer.Serialize(new
         {
             entityTypes = new[] { "video" },
@@ -31,9 +31,9 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
             },
         });
 
-        var sources = await member.GetDynamicGroupSourcesAsync();
-        await member.UpdateGroupQueryAsync(group.Id, new GroupQueryUpdateDto("  filter  ", queryJson));
-        var dynamicGroup = await owner.GetGroupByIdAsync(group.Id);
+        var sources = await member.GetDynamicGroupSourcesAsync(TestContext.Current.CancellationToken);
+        await member.UpdateGroupQueryAsync(group.Id, new GroupQueryUpdateDto("  filter  ", queryJson), TestContext.Current.CancellationToken);
+        var dynamicGroup = await owner.GetGroupByIdAsync(group.Id, TestContext.Current.CancellationToken);
 
         sources.Should().Equal(
             new DynamicGroupSourceDto("continue-watching", "Continue Watching"),
@@ -48,9 +48,9 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
         dynamicGroup.VideoCount.Should().Be(1);
         dynamicGroup.CachedItemCount.Should().BeNull();
 
-        await member.SnapshotGroupAsync(group.Id);
-        var snapshotted = await owner.GetGroupByIdAsync(group.Id);
-        var items = await owner.GetGroupItemsAsync(snapshotted);
+        await member.SnapshotGroupAsync(group.Id, TestContext.Current.CancellationToken);
+        var snapshotted = await owner.GetGroupByIdAsync(group.Id, TestContext.Current.CancellationToken);
+        var items = await owner.GetGroupItemsAsync(snapshotted, TestContext.Current.CancellationToken);
 
         snapshotted.Kind.Should().Be(GroupKind.Static);
         snapshotted.QuerySourceKey.Should().BeNull();
@@ -77,12 +77,12 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
     public async Task GivenGroupsWithManualOrder_WhenMemberReordersSelection_ThenRequestOrderAndControlArePreserved()
     {
         var owner = AsUser();
-        var first = await owner.CreateGroupAsync(GroupRequest($"First ordered group {Guid.NewGuid():N}", 1));
-        var second = await owner.CreateGroupAsync(GroupRequest($"Second ordered group {Guid.NewGuid():N}", 2));
-        var third = await owner.CreateGroupAsync(GroupRequest($"Third ordered group {Guid.NewGuid():N}", 3));
-        var control = await owner.CreateGroupAsync(GroupRequest($"Control ordered group {Guid.NewGuid():N}", 90));
+        var first = await owner.CreateGroupAsync(GroupRequest($"First ordered group {Guid.NewGuid():N}", 1), TestContext.Current.CancellationToken);
+        var second = await owner.CreateGroupAsync(GroupRequest($"Second ordered group {Guid.NewGuid():N}", 2), TestContext.Current.CancellationToken);
+        var third = await owner.CreateGroupAsync(GroupRequest($"Third ordered group {Guid.NewGuid():N}", 3), TestContext.Current.CancellationToken);
+        var control = await owner.CreateGroupAsync(GroupRequest($"Control ordered group {Guid.NewGuid():N}", 90), TestContext.Current.CancellationToken);
 
-        await AsUser(ApiTestUsers.Eva).ReorderGroupsAsync(new GroupItemsReorderDto([third.Id, first.Id, second.Id], StartIndex: 30));
+        await AsUser(ApiTestUsers.Eva).ReorderGroupsAsync(new GroupItemsReorderDto([third.Id, first.Id, second.Id], StartIndex: 30), TestContext.Current.CancellationToken);
         var reordered = await Task.WhenAll(new[] { first, second, third, control }.Select(group => owner.GetGroupByIdAsync(group.Id)));
         var byId = reordered.ToDictionary(group => group.Id);
 
@@ -98,23 +98,23 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
     {
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
-        var parent = await owner.CreateGroupAsync($"Reordered subgroup parent {Guid.NewGuid():N}");
-        var first = await owner.CreateGroupAsync($"First reordered subgroup {Guid.NewGuid():N}");
-        var second = await owner.CreateGroupAsync($"Second reordered subgroup {Guid.NewGuid():N}");
-        var third = await owner.CreateGroupAsync($"Third reordered subgroup {Guid.NewGuid():N}");
-        var controlParent = await owner.CreateGroupAsync($"Control subgroup parent {Guid.NewGuid():N}");
-        var controlChild = await owner.CreateGroupAsync($"Control subgroup child {Guid.NewGuid():N}");
-        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(first.Id, 0));
-        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(second.Id, 1));
-        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(third.Id, 2));
-        await member.AddSubGroupAsync(controlParent.Id, new AddSubGroupDto(controlChild.Id, 0));
+        var parent = await owner.CreateGroupAsync($"Reordered subgroup parent {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var first = await owner.CreateGroupAsync($"First reordered subgroup {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var second = await owner.CreateGroupAsync($"Second reordered subgroup {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var third = await owner.CreateGroupAsync($"Third reordered subgroup {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var controlParent = await owner.CreateGroupAsync($"Control subgroup parent {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var controlChild = await owner.CreateGroupAsync($"Control subgroup child {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(first.Id, 0), TestContext.Current.CancellationToken);
+        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(second.Id, 1), TestContext.Current.CancellationToken);
+        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(third.Id, 2), TestContext.Current.CancellationToken);
+        await member.AddSubGroupAsync(controlParent.Id, new AddSubGroupDto(controlChild.Id, 0), TestContext.Current.CancellationToken);
 
-        await member.ReorderSubGroupsAsync(parent.Id, new ReorderSubGroupsDto([third.Id, first.Id, second.Id]));
+        await member.ReorderSubGroupsAsync(parent.Id, new ReorderSubGroupsDto([third.Id, first.Id, second.Id]), TestContext.Current.CancellationToken);
 
-        (await owner.GetSubGroupsAsync(parent.Id)).Select(group => group.Id).Should().Equal(third.Id, first.Id, second.Id);
-        (await owner.GetSubGroupsAsync(controlParent.Id)).Select(group => group.Id).Should().Equal(controlChild.Id);
-        (await owner.GetGroupByIdAsync(parent.Id)).SubGroupCount.Should().Be(3);
-        (await owner.GetGroupByIdAsync(controlParent.Id)).SubGroupCount.Should().Be(1);
+        (await owner.GetSubGroupsAsync(parent.Id, TestContext.Current.CancellationToken)).Select(group => group.Id).Should().Equal(third.Id, first.Id, second.Id);
+        (await owner.GetSubGroupsAsync(controlParent.Id, TestContext.Current.CancellationToken)).Select(group => group.Id).Should().Equal(controlChild.Id);
+        (await owner.GetGroupByIdAsync(parent.Id, TestContext.Current.CancellationToken)).SubGroupCount.Should().Be(3);
+        (await owner.GetGroupByIdAsync(controlParent.Id, TestContext.Current.CancellationToken)).SubGroupCount.Should().Be(1);
     }
 
     [Fact]
@@ -124,18 +124,18 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
         var owner = AsUser();
         var member = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var video = await owner.CreateVideoAsync($"Group span video {suffix}");
-        var retainedVideo = await owner.CreateVideoAsync($"Retained group video {suffix}");
-        var tag = await owner.CreateTagAsync($"Group span tag {suffix}");
-        var group = await owner.CreateGroupAsync($"Group span snapshot {suffix}");
-        var retainedItem = await owner.AddVideoToGroupAsync(retainedVideo, group);
-        var profile = await member.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Group span profile {suffix}", null, false));
+        var video = await owner.CreateVideoAsync($"Group span video {suffix}", TestContext.Current.CancellationToken);
+        var retainedVideo = await owner.CreateVideoAsync($"Retained group video {suffix}", TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync($"Group span tag {suffix}", TestContext.Current.CancellationToken);
+        var group = await owner.CreateGroupAsync($"Group span snapshot {suffix}", TestContext.Current.CancellationToken);
+        var retainedItem = await owner.AddVideoToGroupAsync(retainedVideo, group, TestContext.Current.CancellationToken);
+        var profile = await member.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Group span profile {suffix}", null, false), TestContext.Current.CancellationToken);
         await member.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto(
             "group-span", "chapter", tag.Id, null, SegmentHostType.Video, true,
-            null, null, 1, false, "#224466", 2, 100));
-        await owner.CreateVideoSegmentAsync(video, Segment(2, 4, tag.Id, "First span"));
-        await owner.CreateVideoSegmentAsync(video, Segment(4.5, 7, tag.Id, "Second span"));
-        var resolved = (await member.GetVideoResolvedSpansAsync(video, profile.Id)).Spans.Should().ContainSingle().Which;
+            null, null, 1, false, "#224466", 2, 100), TestContext.Current.CancellationToken);
+        await owner.CreateVideoSegmentAsync(video, Segment(2, 4, tag.Id, "First span"), TestContext.Current.CancellationToken);
+        await owner.CreateVideoSegmentAsync(video, Segment(4.5, 7, tag.Id, "Second span"), TestContext.Current.CancellationToken);
+        var resolved = (await member.GetVideoResolvedSpansAsync(video, profile.Id, TestContext.Current.CancellationToken)).Spans.Should().ContainSingle().Which;
         var derivedQuery = new SegmentSpanDerivedQueryDto(
             "union",
             [new SegmentSpanOperandDto("group-span", "chapter", [tag.Id], null)],
@@ -146,7 +146,7 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
             derivedQuery.Operator,
             derivedQuery.Operands,
             derivedQuery.MergeGapSec,
-            derivedQuery.MinDurationSec));
+            derivedQuery.MinDurationSec), TestContext.Current.CancellationToken);
         derived.Spans.Should().HaveCount(2);
         var request = new GroupItemsFromSpansDto([
             new GroupItemSpanInputDto(resolved.SpanKey, video.Id, null, null, "Resolved snapshot", profile.Id),
@@ -156,8 +156,8 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
             new GroupItemSpanInputDto(null, video.Id, null, null, "Manual whole video", null),
         ]);
 
-        var created = await member.CreateGroupItemsFromSpansAsync(group.Id, request);
-        var persisted = await owner.GetGroupItemsAsync(group);
+        var created = await member.CreateGroupItemsFromSpansAsync(group.Id, request, TestContext.Current.CancellationToken);
+        var persisted = await owner.GetGroupItemsAsync(group, TestContext.Current.CancellationToken);
 
         created.Should().HaveCount(6);
         created.Select(item => item.OrderIndex).Should().Equal(1, 2, 3, 4, 5, 6);
@@ -224,23 +224,23 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
     public async Task GivenNormalAndProtectedGroups_WhenBulkDeleteIsRequested_ThenMemberIsForbiddenAndOwnerSkipsBuiltIn()
     {
         var owner = AsUser();
-        var normal = await owner.CreateGroupAsync($"Bulk delete group {Guid.NewGuid():N}");
-        var retained = await owner.CreateGroupAsync($"Retained bulk delete group {Guid.NewGuid():N}");
-        var builtIn = (await owner.GetGroupsAsync()).Single(group => group.QuerySourceKey == "save-for-later");
+        var normal = await owner.CreateGroupAsync($"Bulk delete group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var retained = await owner.CreateGroupAsync($"Retained bulk delete group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var builtIn = (await owner.GetGroupsAsync(TestContext.Current.CancellationToken)).Single(group => group.QuerySourceKey == "save-for-later");
         var request = new BatchDeleteDto([normal.Id, normal.Id, builtIn.Id, 0, int.MaxValue]);
         var forbidden = () => AsUser(ApiTestUsers.Eva).BulkDeleteGroupsAsync(request);
 
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetGroupByIdAsync(normal.Id)).Id.Should().Be(normal.Id);
-        (await owner.GetGroupByIdAsync(builtIn.Id)).Id.Should().Be(builtIn.Id);
+        (await owner.GetGroupByIdAsync(normal.Id, TestContext.Current.CancellationToken)).Id.Should().Be(normal.Id);
+        (await owner.GetGroupByIdAsync(builtIn.Id, TestContext.Current.CancellationToken)).Id.Should().Be(builtIn.Id);
 
-        var result = await owner.BulkDeleteGroupsAsync(request);
+        var result = await owner.BulkDeleteGroupsAsync(request, TestContext.Current.CancellationToken);
 
         result.Should().Be(new GroupBulkDeleteResponse(Deleted: 1, Skipped: 1));
         var deleted = () => owner.GetGroupByIdAsync(normal.Id);
         await deleted.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
-        (await owner.GetGroupByIdAsync(builtIn.Id)).QuerySourceKey.Should().Be("save-for-later");
-        (await owner.GetGroupByIdAsync(retained.Id)).Id.Should().Be(retained.Id);
+        (await owner.GetGroupByIdAsync(builtIn.Id, TestContext.Current.CancellationToken)).QuerySourceKey.Should().Be("save-for-later");
+        (await owner.GetGroupByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
     }
 
     private static GroupCreateDto GroupRequest(string name, int sortOrder) => new(

@@ -14,8 +14,8 @@ public sealed class PerformerMergeApiTests(
     public async Task GivenComplementaryPerformers_WhenOwnerMergesThem_ThenMetadataRelationshipsAndControlsAreExact()
     {
         var suffix = Guid.NewGuid().ToString("N");
-        var targetTag = await AsUser().CreateTagAsync($"Merge target tag {suffix}");
-        var sourceTag = await AsUser().CreateTagAsync($"Merge source tag {suffix}");
+        var targetTag = await AsUser().CreateTagAsync($"Merge target tag {suffix}", TestContext.Current.CancellationToken);
+        var sourceTag = await AsUser().CreateTagAsync($"Merge source tag {suffix}", TestContext.Current.CancellationToken);
         var target = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Merge target performer {suffix}")
             .WithDisambiguation("Target identity")
@@ -25,7 +25,7 @@ public sealed class PerformerMergeApiTests(
             .WithUrl($"https://performer.example/target/{suffix}")
             .WithRemoteId("https://metadata.example/merge", $"target-{suffix}")
             .WithTag(targetTag)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var source = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Merge source performer {suffix}")
             .WithGender("Male")
@@ -37,78 +37,78 @@ public sealed class PerformerMergeApiTests(
             .WithUrl($"https://performer.example/source/{suffix}")
             .WithRemoteId("https://metadata.example/merge", $"source-{suffix}")
             .WithTag(sourceTag)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var control = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Merge control performer {suffix}")
             .WithDetails("Control details")
             .WithAlias("Control alias")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var sourceOnlyVideo = await AsUser().CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Source-only merge video {suffix}")
             .WithPerformers([source])
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var sharedVideo = await AsUser().CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Shared merge video {suffix}")
             .WithPerformers([target, source])
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var controlVideo = await AsUser().CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Control merge video {suffix}")
             .WithPerformers([control])
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var sourceImage = await AsUser().CreateImageAsync(new ImageBuilder()
             .WithTitle($"Source merge image {suffix}")
             .WithPerformer(source)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var sourceGallery = await AsUser().CreateGalleryAsync(new GalleryBuilder()
             .WithTitle($"Source merge gallery {suffix}")
             .WithPerformer(source)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var sourceAudio = await AsUser().CreateAudioAsync(new AudioBuilder()
             .WithTitle($"Source merge audio {suffix}")
             .WithPerformer(source)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var sourceText = await AsUser().CreateTextAsync(new TextDocumentBuilder()
             .WithTitle($"Source merge text {suffix}")
             .WithPerformer(source)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
 
         var missingTarget = () => AsUser().MergePerformersAsync(int.MaxValue, [source.Id]);
         await missingTarget.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
-        (await AsUser().GetPerformerByIdAsync(source.Id)).Id.Should().Be(source.Id);
+        (await AsUser().GetPerformerByIdAsync(source.Id, TestContext.Current.CancellationToken)).Id.Should().Be(source.Id);
 
         var forbidden = () => AsUser(ApiTestUsers.Eva).MergePerformersAsync(target.Id, [source.Id]);
         await forbidden.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
         AssertUnmerged(
-            await AsUser().GetPerformerByIdAsync(target.Id),
-            await AsUser().GetPerformerByIdAsync(source.Id),
+            await AsUser().GetPerformerByIdAsync(target.Id, TestContext.Current.CancellationToken),
+            await AsUser().GetPerformerByIdAsync(source.Id, TestContext.Current.CancellationToken),
             target,
             source,
             targetTag,
             sourceTag);
-        (await AsUser().GetVideoByIdAsync(sourceOnlyVideo.Id)).Performers.Select(performer => performer.Id).Should().Equal(source.Id);
-        (await AsUser().GetVideoByIdAsync(sharedVideo.Id)).Performers.Select(performer => performer.Id).Should().BeEquivalentTo([target.Id, source.Id]);
+        (await AsUser().GetVideoByIdAsync(sourceOnlyVideo.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(source.Id);
+        (await AsUser().GetVideoByIdAsync(sharedVideo.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().BeEquivalentTo([target.Id, source.Id]);
 
-        var merged = await AsUser().MergePerformersAsync(target.Id, [source.Id, int.MaxValue]);
+        var merged = await AsUser().MergePerformersAsync(target.Id, [source.Id, int.MaxValue], TestContext.Current.CancellationToken);
 
         AssertMerged(merged, target, source, targetTag, sourceTag, suffix);
-        AssertMerged(await AsUser().GetPerformerByIdAsync(target.Id), target, source, targetTag, sourceTag, suffix);
+        AssertMerged(await AsUser().GetPerformerByIdAsync(target.Id, TestContext.Current.CancellationToken), target, source, targetTag, sourceTag, suffix);
         var sourceMissing = () => AsUser().GetPerformerByIdAsync(source.Id);
         await sourceMissing.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
-        (await AsUser().GetPerformersAsync()).Should().NotContain(performer => performer.Id == source.Id);
-        (await AsUser().GetVideoByIdAsync(sourceOnlyVideo.Id)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
-        (await AsUser().GetVideoByIdAsync(sharedVideo.Id)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
-        (await AsUser().GetImageByIdAsync(sourceImage.Id)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
-        (await AsUser().GetGalleryByIdAsync(sourceGallery.Id)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
-        (await AsUser().GetAudioByIdAsync(sourceAudio.Id)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
-        (await AsUser().GetTextByIdAsync(sourceText.Id)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
-        var controlAfter = await AsUser().GetPerformerByIdAsync(control.Id);
+        (await AsUser().GetPerformersAsync(TestContext.Current.CancellationToken)).Should().NotContain(performer => performer.Id == source.Id);
+        (await AsUser().GetVideoByIdAsync(sourceOnlyVideo.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
+        (await AsUser().GetVideoByIdAsync(sharedVideo.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
+        (await AsUser().GetImageByIdAsync(sourceImage.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
+        (await AsUser().GetGalleryByIdAsync(sourceGallery.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
+        (await AsUser().GetAudioByIdAsync(sourceAudio.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
+        (await AsUser().GetTextByIdAsync(sourceText.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(target.Id);
+        var controlAfter = await AsUser().GetPerformerByIdAsync(control.Id, TestContext.Current.CancellationToken);
         controlAfter.Name.Should().Be(control.Name);
         controlAfter.Details.Should().Be("Control details");
         controlAfter.Aliases.Should().Equal("Control alias");
-        (await AsUser().GetVideoByIdAsync(controlVideo.Id)).Performers.Select(performer => performer.Id).Should().Equal(control.Id);
+        (await AsUser().GetVideoByIdAsync(controlVideo.Id, TestContext.Current.CancellationToken)).Performers.Select(performer => performer.Id).Should().Equal(control.Id);
     }
 
     private static void AssertUnmerged(

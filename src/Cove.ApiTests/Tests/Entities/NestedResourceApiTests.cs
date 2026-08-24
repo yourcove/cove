@@ -15,14 +15,14 @@ public sealed class NestedResourceApiTests(
     public async Task GivenGroupAndVideo_WhenVideoIsAdded_ThenGroupContainsVideoItem()
     {
         // Arrange
-        var group = await AsUser().CreateGroupAsync("API test group");
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.MuchAdoAboutNothinOn.Title);
+        var group = await AsUser().CreateGroupAsync("API test group", TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.MuchAdoAboutNothinOn.Title, TestContext.Current.CancellationToken);
 
         // Act
-        var createdItem = await AsUser().AddVideoToGroupAsync(video, group);
+        var createdItem = await AsUser().AddVideoToGroupAsync(video, group, TestContext.Current.CancellationToken);
 
         // Assert
-        var items = await AsUser().GetGroupItemsAsync(group);
+        var items = await AsUser().GetGroupItemsAsync(group, TestContext.Current.CancellationToken);
         items.Should().ContainSingle();
         items.Single().Id.Should().Be(createdItem.Id);
         items.Single().Kind.Should().Be(GroupItemKind.Video);
@@ -35,13 +35,13 @@ public sealed class NestedResourceApiTests(
     public async Task GivenImage_WhenDetectionIsCreated_ThenImageContainsDetection()
     {
         // Arrange
-        var image = await AsUser().CreateImageAsync("API test detection image");
+        var image = await AsUser().CreateImageAsync("API test detection image", TestContext.Current.CancellationToken);
 
         // Act
-        var createdDetection = await AsUser().CreateImageDetectionAsync(image, "subject");
+        var createdDetection = await AsUser().CreateImageDetectionAsync(image, "subject", TestContext.Current.CancellationToken);
 
         // Assert
-        var detections = await AsUser().GetImageDetectionsAsync(image);
+        var detections = await AsUser().GetImageDetectionsAsync(image, TestContext.Current.CancellationToken);
         detections.Should().ContainSingle();
         detections.Single().Id.Should().Be(createdDetection.Id);
         detections.Single().HostType.Should().Be(DetectionHostType.Image);
@@ -54,13 +54,13 @@ public sealed class NestedResourceApiTests(
     public async Task GivenVideo_WhenDetectionIsCreated_ThenVideoContainsDetection()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheGoodTheBadAndTheShirtless.Title);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheGoodTheBadAndTheShirtless.Title, TestContext.Current.CancellationToken);
 
         // Act
-        var createdDetection = await AsUser().CreateVideoDetectionAsync(video, "subject");
+        var createdDetection = await AsUser().CreateVideoDetectionAsync(video, "subject", TestContext.Current.CancellationToken);
 
         // Assert
-        var detections = await AsUser().GetVideoDetectionsAsync(video);
+        var detections = await AsUser().GetVideoDetectionsAsync(video, TestContext.Current.CancellationToken);
         detections.Should().ContainSingle();
         detections.Single().Id.Should().Be(createdDetection.Id);
         detections.Single().HostType.Should().Be(DetectionHostType.Video);
@@ -73,13 +73,13 @@ public sealed class NestedResourceApiTests(
     public async Task GivenVideo_WhenSegmentIsCreated_ThenVideoContainsSegment()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheFastAndTheFlirtatious.Title);
+        var video = await AsUser().CreateVideoAsync(TestCatalog.Movies.TheFastAndTheFlirtatious.Title, TestContext.Current.CancellationToken);
 
         // Act
-        var createdSegment = await AsUser().CreateVideoSegmentAsync(video, "Opening");
+        var createdSegment = await AsUser().CreateVideoSegmentAsync(video, "Opening", TestContext.Current.CancellationToken);
 
         // Assert
-        var segments = await AsUser().GetVideoSegmentsAsync(video);
+        var segments = await AsUser().GetVideoSegmentsAsync(video, TestContext.Current.CancellationToken);
         segments.Should().ContainSingle();
         segments.Single().Id.Should().Be(createdSegment.Id);
         segments.Single().HostType.Should().Be(SegmentHostType.Video);
