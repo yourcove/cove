@@ -31,7 +31,7 @@ public sealed class VideoMergeApiTests(
         await AsUser().AddVideoToGroupAsync(source, group, TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
         var persisted = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
         var groupItems = await AsUser().GetGroupItemsAsync(group, TestContext.Current.CancellationToken);
 
@@ -57,7 +57,7 @@ public sealed class VideoMergeApiTests(
         var child = await AsUser().CreateVideoAsync(childRequest, TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
         var persistedChild = await AsUser().GetVideoByIdAsync(child.Id, TestContext.Current.CancellationToken);
         var persistedTarget = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
 
@@ -90,8 +90,8 @@ public sealed class VideoMergeApiTests(
         await AsDbUser().SetVideoParentAsync(grandchild.Id, child.Id, TestContext.Current.CancellationToken);
 
         // Act
-        var directMerge = () => AsUser().MergeVideosAsync(child, source);
-        var deepMerge = () => AsUser().MergeVideosAsync(grandchild, source);
+        var directMerge = () => AsUser().MergeVideosAsync(child, TestContext.Current.CancellationToken, source);
+        var deepMerge = () => AsUser().MergeVideosAsync(grandchild, TestContext.Current.CancellationToken, source);
 
         // Assert
         await directMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
@@ -123,7 +123,7 @@ public sealed class VideoMergeApiTests(
         (await eva.GetVideoResolvedSpansAsync(target, profile.Id, TestContext.Current.CancellationToken)).Spans.Should().BeEmpty();
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
         var targetSegments = await AsUser().GetVideoSegmentsAsync(target, TestContext.Current.CancellationToken);
         var targetDetections = await AsUser().GetVideoDetectionsAsync(target, TestContext.Current.CancellationToken);
         var targetSpans = await eva.GetVideoResolvedSpansAsync(target, profile.Id, TestContext.Current.CancellationToken);
@@ -155,7 +155,7 @@ public sealed class VideoMergeApiTests(
             .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
         var persisted = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
 
         // Assert
@@ -213,7 +213,8 @@ public sealed class VideoMergeApiTests(
             .WithGallery(sourceGallery)
             .WithUrl(sourceUrl)
             .Build(), TestContext.Current.CancellationToken);
-        var forbiddenMerge = () => AsUser(ApiTestUsers.Eva).MergeVideosAsync(target, firstSource, secondSource);
+        var forbiddenMerge = () => AsUser(ApiTestUsers.Eva).MergeVideosAsync(
+            target, TestContext.Current.CancellationToken, firstSource, secondSource);
         await forbiddenMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         var memberRole = (await AsUser().GetRolesAsync(TestContext.Current.CancellationToken)).Single(role => role.Name == BuiltinRoles.Member);
         await AsUser().UpdateRoleAsync(memberRole.Id, new UpdateRoleRequest(
@@ -228,7 +229,8 @@ public sealed class VideoMergeApiTests(
             AppliesTo: "read"), TestContext.Current.CancellationToken);
 
         // Act
-        var merged = await AsUser(ApiTestUsers.Eva).MergeVideosAsync(target, firstSource, secondSource);
+        var merged = await AsUser(ApiTestUsers.Eva).MergeVideosAsync(
+            target, TestContext.Current.CancellationToken, firstSource, secondSource);
         var persisted = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
         var controlAfter = await AsUser().GetVideoByIdAsync(control.Id, TestContext.Current.CancellationToken);
 
