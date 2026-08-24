@@ -12,6 +12,7 @@ jobs:
     outputs:
       backend: ${{ steps.classify.outputs.backend || steps.all.outputs.backend }}
       frontend: ${{ steps.classify.outputs.frontend || steps.all.outputs.frontend }}
+      cli: ${{ steps.classify.outputs.cli || steps.all.outputs.cli }}
     steps:
       - name: Run all checks outside pull requests
         id: all
@@ -19,6 +20,7 @@ jobs:
         run: |
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "frontend=true" >> "$GITHUB_OUTPUT"
+          echo "cli=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         if: github.event_name == 'pull_request'
@@ -34,6 +36,7 @@ jobs:
         run: |
           backend=false
           frontend=false
+          cli=false
           changed_paths=$(mktemp)
           trap 'rm -f "$changed_paths"' EXIT
 
@@ -44,12 +47,16 @@ jobs:
               ui/*)
                 frontend=true
                 ;;
+              cli/*)
+                cli=true
+                ;;
               src/*|scripts/*|.config/*|Directory.Build.props|Directory.Build.targets|global.json|NuGet.config)
                 backend=true
                 ;;
               .github/workflows/ci.yml)
                 backend=true
                 frontend=true
+                cli=true
                 ;;
               docs/*|docs-site/*|.github/workflows/docs-site.yml|*.md)
                 # Documentation does not affect app CI; docs-site has its own workflow.
@@ -67,6 +74,7 @@ jobs:
 
           echo "backend=$backend" >> "$GITHUB_OUTPUT"
           echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+          echo "cli=$cli" >> "$GITHUB_OUTPUT"
 
   backend:
     needs: changes
@@ -224,6 +232,8 @@ jobs:
         run: npx vitest run --passWithNoTests
 
   cli:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.cli == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
