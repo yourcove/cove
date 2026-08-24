@@ -1,4 +1,4 @@
-import type { Audio, GalleryRecord, GlobalSearchResponse, GroupRecord, ImageRecord, MetadataServerSummary, Performer, PerformerSummary, RemoteId, SavedFilter, SegmentRecord, SimilarImageResult, SimilarVideoResult, StudioRecord, Tag, TagReference, TextRecord, Video } from "./types";
+import type { Audio, GalleryRecord, GlobalSearchResponse, GroupItem, GroupRecord, ImageRecord, MetadataServerSummary, Performer, PerformerSummary, RemoteId, SavedFilter, SegmentRecord, SimilarImageResult, SimilarVideoResult, StudioRecord, Tag, TagReference, TextRecord, Video } from "./types";
 import { savedFilterDefaultSort } from "./saved-filters";
 import { cleanInline as clean, colorizeHex, stripTerminalSequences, terminalColorsEnabled, terminalHyperlinksEnabled, uiPalette } from "./ui";
 import type { UiColor, UiPalette } from "./ui";
@@ -785,6 +785,24 @@ function scalarFrom(record: Record<string, unknown>, key: string): string | unde
 
 export function renderGroups(items: GroupRecord[], context: RenderContext = {}): string {
   return renderSimpleCatalog("Groups", ["group", "groups"], items, item => item.name || `Group ${item.id}`, item => String(item.itemCount ?? 0), "Items", "group", context);
+}
+
+export function renderGroupItems(items: GroupItem[], context: RenderContext = {}): string {
+  const resolved = resolveRenderContext(context);
+  const title = (item: GroupItem): string => {
+    const label = item.title || item.videoTitle || item.imageTitle || item.childGroupName || `${item.kind} ${item.hostId}`;
+    if (item.startSec == null && item.endSec == null) return label;
+    return `${label} · ${item.startSec == null ? "start" : duration(item.startSec)}–${item.endSec == null ? "end" : duration(item.endSec)}`;
+  };
+  const positioned = items.map(item => ({ item, position: item.orderIndex + 1 }));
+  const columns: Column<(typeof positioned)[number]>[] = [
+    { label: "Position", width: 8, value: entry => String(entry.position) },
+    { label: "Title", width: 14, value: entry => title(entry.item) },
+  ];
+  if (resolved.terminalWidth >= 52) columns.push({ label: "Kind", width: 10, value: entry => entry.item.kind });
+  if (resolved.terminalWidth >= 72) columns.push({ label: "Host", width: 12, value: entry => `${entry.item.hostType} #${entry.item.hostId}` });
+  columns.push({ label: "Group item ID", width: 13, value: entry => String(entry.item.id) });
+  return renderCompactList("Group items", ["item", "items"], positioned, positioned.length, columns, resolved, "This group has no items.");
 }
 
 export function renderTexts(items: TextRecord[], context: RenderContext = {}): string {

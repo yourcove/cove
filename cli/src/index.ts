@@ -13,14 +13,14 @@ import { CliError, toCliError } from "./errors";
 import { listEntities, mergeObjectFilters } from "./entity-list";
 import { filterByCompletionValues, filterByObjectFilter } from "./filter-by";
 import type { FilterByResource } from "./filter-by";
-import { renderAudio, renderAudios, renderAuthSummary, renderCatalogDetail, renderGalleries, renderGlobalSearch, renderGroups, renderImages, renderLoginSummary, renderLogoutSummary, renderPerformer, renderPerformers, renderProfileChange, renderProfiles, renderSavedFilters, renderSegments, renderSimilarImages, renderSimilarVideos, renderStudios, renderTags, renderTexts, renderVideo, renderVideoResults } from "./output";
+import { renderAudio, renderAudios, renderAuthSummary, renderCatalogDetail, renderGalleries, renderGlobalSearch, renderGroupItems, renderGroups, renderImages, renderLoginSummary, renderLogoutSummary, renderPerformer, renderPerformers, renderProfileChange, renderProfiles, renderSavedFilters, renderSegments, renderSimilarImages, renderSimilarVideos, renderStudios, renderTags, renderTexts, renderVideo, renderVideoResults } from "./output";
 import type { CatalogEntityKind, RenderContext } from "./output";
 import { resolveResultWindow } from "./pagination";
 import type { ResultWindowOptions } from "./pagination";
 import { defaultSavedFilter, listSavedFilters, queryForSavedFilter, resolveSavedFilter, savedFilterSummary } from "./saved-filters";
 import { isSegmentRecord, listSegments } from "./segments";
 import { fetchThemeAccent } from "./theme";
-import type { Audio, GalleryRecord, GlobalSearchResponse, GroupRecord, ImageRecord, JobInfo, ListQueryOptions, LoginResponse, MeResponse, MetadataServerSummary, Performer, SavedFilter, SegmentRecord, SimilarImageResult, SimilarVideoResult, StoredProfile, StudioRecord, SystemStatus, Tag, TextRecord, Video } from "./types";
+import type { Audio, GalleryRecord, GlobalSearchResponse, GroupItem, GroupRecord, ImageRecord, JobInfo, ListQueryOptions, LoginResponse, MeResponse, MetadataServerSummary, Performer, SavedFilter, SegmentRecord, SimilarImageResult, SimilarVideoResult, StoredProfile, StudioRecord, SystemStatus, Tag, TextRecord, Video } from "./types";
 import { cleanInline, configureCliHelp, DEFAULT_ACCENT, terminalColorsEnabled, terminalHyperlinksEnabled, uiPalette } from "./ui";
 import type { UiColor } from "./ui";
 import { resolvePerformer, resolveTag, videosForCriteria } from "./videos";
@@ -45,10 +45,12 @@ interface CatalogListOptions extends ResultWindowOptions { query?: string; filte
 interface TagFilterOptions extends CatalogListOptions { tag: string[]; excludeTag: string[] }
 interface EntityFilterOptions extends CatalogListOptions { tag: string[]; excludeTag: string[]; performer: string[]; excludePerformer: string[] }
 interface SimilarOptions { by: "visual" | "audio"; type?: "videos" | "images"; limit: number }
+interface GroupItemMoveOptions { first?: boolean; last?: boolean; toPosition?: number }
 
 interface ExtendedHelp { fields: string[]; heading: string }
 
 const extendedHelp = new WeakMap<Command, ExtendedHelp>();
+const invocationArguments = new WeakMap<Command, string[]>();
 
 function globals(command: Command): GlobalOptions {
   const options = command.optsWithGlobals<GlobalOptions>();
@@ -191,6 +193,23 @@ function entityId(value: string): number {
   return positiveInteger("ID", 2_147_483_647)(value);
 }
 
+function singlePositiveInteger(option: string, maximum?: number): (value: string, previous?: number) => number {
+  return (value, previous) => {
+    if (previous !== undefined) throw new CliError("INVALID_ARGUMENT", `${option} may only be specified once.`);
+    return positiveInteger(option, maximum)(value);
+  };
+}
+
+function rejectRepeatedOptions(command: Command, options: string[]): void {
+  let root = command;
+  while (root.parent) root = root.parent;
+  const args = invocationArguments.get(root) ?? process.argv;
+  for (const option of options) {
+    const count = args.filter(value => value === option || value.startsWith(`${option}=`)).length;
+    if (count > 1) throw new CliError("INVALID_ARGUMENT", `${option} may only be specified once.`);
+  }
+}
+
 const MUTABLE_RESOURCES = new Set(["videos", "audios", "images", "galleries", "tags", "performers", "studios", "groups", "texts"]);
 const MERGEABLE_RESOURCES = new Set(["videos", "tags", "performers", "studios"]);
 
@@ -234,6 +253,18 @@ function commaSeparatedIds(value: string, option = "IDs"): number[] {
   const ids = value.split(",").map(item => item.trim()).filter(Boolean).map(entityId);
   if (!ids.length) throw new CliError("INVALID_ARGUMENT", `${option} must contain at least one ID.`);
   return [...new Set(ids)];
+}
+
+function groupItemMove(items: GroupItem[], movingIds: number[], options: GroupItemMoveOptions): Record<string, unknown> {
+  const destinations = [options.first === true, options.last === true, options.toPosition !== undefined].filter(Boolean).length;
+  if (destinations !== 1) throw new CliError("INVALID_ARGUMENT", "Choose exactly one destination: --first, --last, or --to-position.");
+  if (new Set(movingIds).size !== movingIds.length) throw new CliError("INVALID_ARGUMENT", "Each group item ID may only be moved once.");
+
+  const itemsById = new Map(items.map(item => [item.id, item]));
+  const missing = movingIds.filter(id => !itemsById.has(id));
+  if (missing.length) throw new CliError("INVALID_ARGUMENT", `Group item ${missing.length === 1 ? "ID" : "IDs"} ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not in this group.`);
+  const startIndex = options.first ? 0 : options.last ? 2_147_483_647 : options.toPosition! - 1;
+  return { ids: movingIds, startIndex };
 }
 
 function mutationBody(value: string): Record<string, unknown> {
@@ -1160,6 +1191,46 @@ export function createProgram(store = new ConfigStore(), helpColor = terminalCol
       print({ groups: result.items, totalCount: result.totalCount }, global, () => renderGroups(result.items, renderFor(global, listRenderContext(client.server, result.totalCount, options, 25, queryOptions.defaultFilterApplied, queryOptions.appliedFilterSummary))), result.items);
     });
   addIdShowCommand<GroupRecord>(store, groupCommands, "group", isGroupRecord, renderCatalogDetail, accent);
+  const groupItemCommands = groupCommands.command("items").description("List and reorder items in a group");
+  withExamples(groupItemCommands.command("list <group-id>").description("List a group's items in their current order"), [
+    "cove-cli groups items list 42 --profile personal",
+    "cove-cli groups items list 42 --json",
+  ]).action(async (groupReference: string, _options, command: Command) => {
+    const global = globals(command);
+    const groupId = entityId(groupReference);
+    const { client } = await clientFor(store, global);
+    const items = await client.get<unknown>(`groups/${groupId}/items`);
+    if (!isGroupItemList(items, groupId)) throw new CliError("INVALID_RESPONSE", "Cove returned an invalid group item list.");
+    print({ groupId, items }, global, () => renderGroupItems(items, presentationFor(global, accent, { server: client.server })), items);
+  });
+  withExamples(groupItemCommands.command("move <group-id> <item-id...>").description("Move one or more group items as an ordered block")
+    .option("--first", "place the block at the beginning")
+    .option("--last", "place the block at the end")
+    .option("--to-position <number>", "place at this 1-based absolute position; positions past the final insertion slot place the block last", singlePositiveInteger("--to-position", 2_147_483_647)), [
+      "cove-cli groups items move 42 103 --first",
+      "cove-cli groups items move 42 103 107 109 --to-position 5",
+      "cove-cli groups items move 42 103 --to-position 3 --json",
+    ]).action(async (groupReference: string, itemReferences: string[], options: GroupItemMoveOptions, command: Command) => {
+      const global = globals(command);
+      const groupId = entityId(groupReference);
+      rejectRepeatedOptions(command, ["--first", "--last", "--to-position"]);
+      const destinationCount = [options.first === true, options.last === true, options.toPosition !== undefined].filter(Boolean).length;
+      if (destinationCount !== 1) throw new CliError("INVALID_ARGUMENT", "Choose exactly one destination: --first, --last, or --to-position.");
+      const { client } = await clientFor(store, global);
+      const group = await client.get<unknown>(`groups/${groupId}`);
+      if (!isGroupRecord(group)) throw new CliError("INVALID_RESPONSE", "Cove returned an invalid group.");
+      if (group.kind === "dynamic" || group.kind === 2) throw new CliError("FEATURE_UNAVAILABLE", "Dynamic groups cannot be reordered.");
+      const movingIds = itemReferences.map(entityId);
+      if (new Set(movingIds).size !== movingIds.length) throw new CliError("INVALID_ARGUMENT", "Each group item ID may only be moved once.");
+      const current = await client.get<unknown>(`groups/${groupId}/items`);
+      if (!isGroupItemList(current, groupId)) throw new CliError("INVALID_RESPONSE", "Cove returned an invalid group item list.");
+      const move = groupItemMove(current, movingIds, options);
+      await client.put(`groups/${groupId}/items/reorder`, move);
+      const refreshed = await client.get<unknown>(`groups/${groupId}/items`);
+      if (!isGroupItemList(refreshed, groupId)) throw new CliError("INVALID_RESPONSE", "Cove returned an invalid group item list after reordering.");
+      const items = refreshed;
+      print({ groupId, items }, global, () => renderGroupItems(items, presentationFor(global, accent, { server: client.server })), items);
+    });
   addSavedFilterCommands(groupCommands, "groups", "group");
 
   const textCommands = program.command("texts").description("Browse Cove texts").helpGroup("Explore:");
@@ -1376,6 +1447,34 @@ function isStudioRecord(value: unknown): value is StudioRecord {
 function isGroupRecord(value: unknown): value is GroupRecord {
   const item = value as Partial<GroupRecord> | undefined;
   return !!item && typeof item.id === "number" && typeof item.name === "string" && namedRecords(item.tags);
+}
+
+function isGroupItem(value: unknown, groupId: number): value is GroupItem {
+  const item = value as Partial<GroupItem> | undefined;
+  return !!item && Number.isInteger(item.id) && item.groupId === groupId && Number.isInteger(item.orderIndex) && (item.orderIndex as number) >= 0
+    && typeof item.kind === "string" && typeof item.hostType === "string" && Number.isInteger(item.hostId)
+    && optionalNullableInteger(item.videoId) && optionalNullableString(item.videoTitle)
+    && optionalNullableInteger(item.imageId) && optionalNullableString(item.imageTitle)
+    && optionalNullableInteger(item.childGroupId) && optionalNullableString(item.childGroupName)
+    && optionalNullableNumber(item.startSec) && optionalNullableNumber(item.endSec)
+    && optionalNullableString(item.title) && optionalNullableString(item.notes)
+    && typeof item.createdAt === "string" && typeof item.updatedAt === "string";
+}
+
+function isGroupItemList(value: unknown, groupId: number): value is GroupItem[] {
+  return Array.isArray(value) && value.every(item => isGroupItem(item, groupId)) && new Set(value.map(item => item.id)).size === value.length;
+}
+
+function optionalNullableString(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "string";
+}
+
+function optionalNullableInteger(value: unknown): boolean {
+  return value === undefined || value === null || Number.isInteger(value);
+}
+
+function optionalNullableNumber(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "number" && Number.isFinite(value);
 }
 
 function isTextRecord(value: unknown): value is TextRecord {
@@ -1613,6 +1712,7 @@ export async function main(argv = process.argv): Promise<number> {
   const store = new ConfigStore();
   const accent = invocationNeedsTheme(argv, stdoutColor || stderrColor) ? await accentForInvocation(store, argv) : DEFAULT_ACCENT;
   const program = createProgram(store, stdoutColor, accent);
+  invocationArguments.set(program, argv);
   silenceCommanderErrors(program);
   try {
     const bareGroup = bareGroupTarget(program, argv);

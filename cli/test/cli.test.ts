@@ -788,6 +788,222 @@ test("groups list keeps random sorting singular", async () => {
   expect(JSON.parse(stdout).totalCount).toBe(1);
 });
 
+test("group items list preserves membership identities in machine output", async () => {
+  const items = [
+    { id: 103, groupId: 42, orderIndex: 0, kind: "video", videoId: 7, videoTitle: "First", hostType: "video", hostId: 7, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+    { id: 107, groupId: 42, orderIndex: 1, kind: "image", imageId: 8, imageTitle: "Second", hostType: "image", hostId: 8, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+  ];
+  const running = startServer(request => {
+    expect(new URL(request.url).pathname).toBe("/api/groups/42/items");
+    return json(items);
+  });
+  servers.push(running.server);
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  const processResult = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "list", "42", "--json"], {
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(processResult.stdout).text(), new Response(processResult.stderr).text(), processResult.exited]);
+  expect(exitCode).toBe(0);
+  expect(stderr).toBe("");
+  expect(JSON.parse(stdout)).toEqual({ groupId: 42, items });
+});
+
+test("group items move sends one ordered block and renders the refreshed order", async () => {
+  const initial = [
+    { id: 101, groupId: 42, orderIndex: 0, kind: "video", videoTitle: "One", hostType: "video", hostId: 1, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+    { id: 103, groupId: 42, orderIndex: 1, kind: "video", videoTitle: "Three", hostType: "video", hostId: 3, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+    { id: 107, groupId: 42, orderIndex: 2, kind: "video", videoTitle: "Seven", hostType: "video", hostId: 7, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+    { id: 120, groupId: 42, orderIndex: 3, kind: "video", videoTitle: "Anchor", hostType: "video", hostId: 20, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+  ];
+  const refreshed = [initial[1], initial[2], initial[0], initial[3]].map((item, orderIndex) => ({ ...item, orderIndex }));
+  let getCount = 0;
+  const running = startServer(async request => {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/groups/42") return json({ id: 42, name: "Static", kind: "static", tags: [] });
+    if (request.method === "GET") {
+      expect(url.pathname).toBe("/api/groups/42/items");
+      return json(getCount++ === 0 ? initial : refreshed);
+    }
+    expect(request.method).toBe("PUT");
+    expect(url.pathname).toBe("/api/groups/42/items/reorder");
+    expect(await request.json()).toEqual({ ids: [103, 107], startIndex: 0 });
+    return json(null);
+  });
+  servers.push(running.server);
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  const processResult = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "103", "107", "--first", "--json"], {
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(processResult.stdout).text(), new Response(processResult.stderr).text(), processResult.exited]);
+  expect(exitCode).toBe(0);
+  expect(stderr).toBe("");
+  expect(getCount).toBe(2);
+  expect(JSON.parse(stdout)).toEqual({ groupId: 42, items: refreshed });
+});
+
+test("group items move calculates first, last, and 1-based absolute destinations", async () => {
+  const item = (id: number, orderIndex: number) => ({ id, groupId: 42, orderIndex, kind: "video", videoTitle: `Video ${id}`, hostType: "video", hostId: id, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" });
+  const initial = [item(1, 0), item(2, 1), item(3, 2), item(4, 3)];
+  const cases = [
+    { args: ["3", "--first"], body: { ids: [3], startIndex: 0 }, final: [3, 1, 2, 4] },
+    { args: ["2", "--last"], body: { ids: [2], startIndex: 2_147_483_647 }, final: [1, 3, 4, 2] },
+    { args: ["4", "--to-position", "2"], body: { ids: [4], startIndex: 1 }, final: [1, 4, 2, 3] },
+    { args: ["4", "--to-position", "99"], body: { ids: [4], startIndex: 98 }, final: [1, 2, 3, 4] },
+  ];
+  for (const testCase of cases) {
+    let getCount = 0;
+    const refreshed = testCase.final.map((id, orderIndex) => item(id, orderIndex));
+    const running = startServer(async request => {
+      const url = new URL(request.url);
+      if (url.pathname === "/api/groups/42") return json({ id: 42, name: "Static", kind: "static", tags: [] });
+      if (request.method === "GET") return json(getCount++ === 0 ? initial : refreshed);
+      expect(url.pathname).toBe("/api/groups/42/items/reorder");
+      expect(await request.json()).toEqual(testCase.body);
+      return json(null);
+    });
+    servers.push(running.server);
+    const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+    directories.push(directory);
+    const processResult = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", ...testCase.args, "--json"], {
+      cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(processResult.stdout).text(), new Response(processResult.stderr).text(), processResult.exited]);
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(JSON.parse(stdout).items.map((entry: { id: number }) => entry.id)).toEqual(testCase.final);
+  }
+});
+
+test("group items move rejects ambiguous destinations before contacting Cove", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  for (const args of [["--first", "--last"], []]) {
+    const processResult = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "103", ...args, "--json"], {
+      cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: "https://unused.example", COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(processResult.stdout).text(), new Response(processResult.stderr).text(), processResult.exited]);
+    expect(exitCode).toBe(2);
+    expect(stdout).toBe("");
+    expect(JSON.parse(stderr)).toMatchObject({ error: { code: "INVALID_ARGUMENT", message: "Choose exactly one destination: --first, --last, or --to-position." } });
+  }
+
+  const unsupported = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "103", "--before", "120", "--json"], {
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: "https://unused.example", COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+  });
+  const [unsupportedStdout, unsupportedStderr, unsupportedExitCode] = await Promise.all([new Response(unsupported.stdout).text(), new Response(unsupported.stderr).text(), unsupported.exited]);
+  expect(unsupportedExitCode).toBe(2);
+  expect(unsupportedStdout).toBe("");
+  expect(JSON.parse(unsupportedStderr)).toMatchObject({ error: { code: "INVALID_ARGUMENT" } });
+
+  const outOfRange = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "103", "--to-position", "2147483648", "--json"], {
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: "https://unused.example", COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+  });
+  const [rangeStdout, rangeStderr, rangeExitCode] = await Promise.all([new Response(outOfRange.stdout).text(), new Response(outOfRange.stderr).text(), outOfRange.exited]);
+  expect(rangeExitCode).toBe(2);
+  expect(rangeStdout).toBe("");
+  expect(JSON.parse(rangeStderr)).toMatchObject({ error: { code: "INVALID_ARGUMENT", message: "--to-position must be between 1 and 2147483647." } });
+
+  for (const option of ["--first", "--last"]) {
+    const repeated = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "103", option, "107", option, "--json"], {
+      cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: "https://unused.example", COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(repeated.stdout).text(), new Response(repeated.stderr).text(), repeated.exited]);
+    expect(exitCode).toBe(2);
+    expect(stdout).toBe("");
+    expect(JSON.parse(stderr)).toMatchObject({ error: { code: "INVALID_ARGUMENT", message: `${option} may only be specified once.` } });
+  }
+});
+
+test("group items move submits visible no-ops and validates membership IDs", async () => {
+  const items = [1, 2, 3].map((id, orderIndex) => ({ id, groupId: 42, orderIndex, kind: "video", videoTitle: `Video ${id}`, hostType: "video", hostId: id, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }));
+  let requestCount = 0;
+  let itemGetCount = 0;
+  const running = startServer(async request => {
+    requestCount += 1;
+    const url = new URL(request.url);
+    if (url.pathname === "/api/groups/42") return json({ id: 42, name: "Static", kind: "static", tags: [] });
+    if (url.pathname === "/api/groups/42/items/reorder") {
+      expect(request.method).toBe("PUT");
+      expect(await request.json()).toEqual({ ids: [1], startIndex: 0 });
+      return json(null);
+    }
+    expect(url.pathname).toBe("/api/groups/42/items");
+    itemGetCount += 1;
+    return json(items);
+  });
+  servers.push(running.server);
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  const environment = { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory };
+
+  const noOp = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "1", "--first", "--json"], { cwd: join(import.meta.dir, ".."), env: environment, stdout: "pipe", stderr: "pipe" });
+  const [noOpStdout, noOpStderr, noOpExit] = await Promise.all([new Response(noOp.stdout).text(), new Response(noOp.stderr).text(), noOp.exited]);
+  expect(noOpExit).toBe(0);
+  expect(noOpStderr).toBe("");
+  expect(JSON.parse(noOpStdout)).toEqual({ groupId: 42, items });
+  expect(requestCount).toBe(4);
+  expect(itemGetCount).toBe(2);
+
+  const invalidCases = [
+    { args: ["9", "--last"], message: "Group item ID 9 is not in this group." },
+    { args: ["1", "1", "--last"], message: "Each group item ID may only be moved once." },
+  ];
+  for (const testCase of invalidCases) {
+    const attempt = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", ...testCase.args, "--json"], { cwd: join(import.meta.dir, ".."), env: environment, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(attempt.stdout).text(), new Response(attempt.stderr).text(), attempt.exited]);
+    expect(exitCode).toBe(2);
+    expect(stdout).toBe("");
+    expect(JSON.parse(stderr)).toMatchObject({ error: { code: "INVALID_ARGUMENT", message: testCase.message } });
+  }
+  expect(requestCount).toBe(7);
+});
+
+test("group items move uses the existing reorder contract without capability negotiation", async () => {
+  let putCount = 0;
+  const item = { id: 1, groupId: 42, orderIndex: 0, kind: "video", hostType: "video", hostId: 1, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
+  const running = startServer(request => {
+    const url = new URL(request.url);
+    if (request.method === "PUT") putCount += 1;
+    if (url.pathname === "/api/groups/42") return json({ id: 42, name: "Static", kind: "static", tags: [] });
+    if (url.pathname === "/api/groups/42/items/reorder") return json(null);
+    return json([item]);
+  });
+  servers.push(running.server);
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  const processResult = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "1", "--last", "--json"], {
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(processResult.stdout).text(), new Response(processResult.stderr).text(), processResult.exited]);
+  expect(exitCode).toBe(0);
+  expect(stderr).toBe("");
+  expect(putCount).toBe(1);
+  expect(JSON.parse(stdout)).toEqual({ groupId: 42, items: [item] });
+});
+
+test("group items move clearly rejects an empty dynamic group", async () => {
+  let putCount = 0;
+  const running = startServer(request => {
+    const url = new URL(request.url);
+    if (request.method === "PUT") putCount += 1;
+    if (url.pathname === "/api/groups/42") return json({ id: 42, name: "Dynamic", kind: "dynamic", tags: [] });
+    return json([]);
+  });
+  servers.push(running.server);
+  const directory = await mkdtemp(join(tmpdir(), "cove-cli-"));
+  directories.push(directory);
+  const processResult = Bun.spawn([process.execPath, "src/index.ts", "groups", "items", "move", "42", "1", "--last", "--json"], {
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, COVE_SERVER: running.url, COVE_TOKEN: "test-token", COVE_CONFIG_DIR: directory }, stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(processResult.stdout).text(), new Response(processResult.stderr).text(), processResult.exited]);
+  expect(exitCode).toBe(1);
+  expect(stdout).toBe("");
+  expect(putCount).toBe(0);
+  expect(JSON.parse(stderr)).toMatchObject({ error: { code: "FEATURE_UNAVAILABLE", message: "Dynamic groups cannot be reordered." } });
+});
+
 test("segments list sends filters and preserves the JSON envelope", async () => {
   const running = startServer(request => {
     const url = new URL(request.url);
@@ -1314,6 +1530,8 @@ test("every actionable command shows inherited options and generic examples", as
     { command: ["studios", "show"], example: "cove-cli studios show 42 --profile personal" },
     { command: ["groups", "list"], example: "cove-cli groups list --query \"Example\"" },
     { command: ["groups", "show"], example: "cove-cli groups show 42 --profile personal" },
+    { command: ["groups", "items", "list"], example: "cove-cli groups items list 42 --profile personal" },
+    { command: ["groups", "items", "move"], example: "cove-cli groups items move 42 103 --first" },
     { command: ["texts", "list"], example: "cove-cli texts list --query \"Example\"" },
     { command: ["texts", "show"], example: "cove-cli texts show 42 --profile personal" },
     { command: ["segments", "list"], example: "cove-cli segments list --video 42" },

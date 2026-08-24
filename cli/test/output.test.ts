@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { renderAudio, renderAudios, renderCatalogDetail, renderGalleries, renderGlobalSearch, renderGroups, renderImages, renderPerformer, renderPerformers, renderProfiles, renderSavedFilters, renderSegments, renderSimilarImages, renderSimilarVideos, renderStudios, renderTags, renderTexts, renderVideo, renderVideoResults, renderVideos } from "../src/output";
+import { renderAudio, renderAudios, renderCatalogDetail, renderGalleries, renderGlobalSearch, renderGroupItems, renderGroups, renderImages, renderPerformer, renderPerformers, renderProfiles, renderSavedFilters, renderSegments, renderSimilarImages, renderSimilarVideos, renderStudios, renderTags, renderTexts, renderVideo, renderVideoResults, renderVideos } from "../src/output";
 import { stripTerminalSequences } from "../src/ui";
 
 test("renders a dependency-free, bounded Unicode video list", () => {
@@ -13,6 +13,21 @@ test("renders a dependency-free, bounded Unicode video list", () => {
   expect(rendered).toContain("…");
   expect(rendered).not.toMatch(/[┌┬┐├┼┤└┴┘│]/);
   for (const line of rendered.split("\n").slice(1)) expect(Bun.stringWidth(line)).toBeLessThanOrEqual(100);
+});
+
+test("group item lists distinguish positions, memberships, hosts, and ranges", () => {
+  const rendered = renderGroupItems([
+    { id: 103, groupId: 42, orderIndex: 0, kind: "videoRange", videoId: 7, videoTitle: "Example\nVideo", hostType: "video", hostId: 7, startSec: 65, endSec: 80, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+    { id: 107, groupId: 42, orderIndex: 2, kind: "image", imageId: 8, imageTitle: "Still", hostType: "image", hostId: 8, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+  ], { color: false, terminalWidth: 100 });
+  expect(rendered).toContain("Group items · 2 items");
+  expect(rendered).toContain("POSITION");
+  expect(rendered).toContain("GROUP ITEM ID");
+  expect(rendered).toContain("Example Video · 1:05–1:20");
+  expect(rendered).toContain("video #7");
+  expect(rendered).toMatch(/\n3\s+Still/);
+  expect(rendered).not.toContain("Example\nVideo");
+  for (const line of rendered.split("\n")) expect(Bun.stringWidth(line)).toBeLessThanOrEqual(100);
 });
 
 test("video lists mirror Cove's dense two-line card hierarchy", () => {

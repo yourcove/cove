@@ -229,6 +229,31 @@ export interface GroupRecord extends CoveRecord {
   urls?: string[];
 }
 
+export interface GroupItem extends CoveRecord {
+  id: number;
+  groupId: number;
+  orderIndex: number;
+  kind: string;
+  videoId?: number | null;
+  videoTitle?: string | null;
+  hostType: string;
+  hostId: number;
+  imageId?: number | null;
+  imageTitle?: string | null;
+  childGroupId?: number | null;
+  childGroupName?: string | null;
+  startSec?: number | null;
+  endSec?: number | null;
+  title?: string | null;
+  notes?: string | null;
+  sourceSpanKey?: string | null;
+  sourceProfileId?: number | null;
+  sourceQueryJson?: string | null;
+  snapshotAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TextRecord extends CoveRecord {
   id: number;
   title?: string | null;
