@@ -2138,7 +2138,7 @@ public class SegmentCoreControllerTests
         Assert.Contains(manifest.Items, item => item.AudioId == audio.Id && item.Src == $"/api/audios/{audio.Id}/stream");
         Assert.Contains(manifest.Items, item => item.TextId == text.Id && item.Src == $"/api/texts/{text.Id}/file");
         Assert.Contains(manifest.Items, item => item.ImageId == image.Id && item.Src == $"/api/stream/image/{image.Id}");
-        var segmentManifestItem = Assert.Single(manifest.Items.Where(item => item.SegmentId == segment.Id));
+        var segmentManifestItem = Assert.Single(manifest.Items, item => item.SegmentId == segment.Id);
         Assert.Equal("segment", segmentManifestItem.HostType);
         Assert.Equal(video.Id, segmentManifestItem.VideoId);
         Assert.Equal(30, segmentManifestItem.StartSec);
