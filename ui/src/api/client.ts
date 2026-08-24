@@ -61,6 +61,11 @@ import type {
   FindFilter,
   FileBackedCreate,
   DeleteEntityOptions,
+  BulkDeletionJobStart,
+  DuplicateSearchRequest,
+  DuplicateSearchStart,
+  DuplicateSearchInfo,
+  DuplicateSearchGroupPage,
   CustomFieldDefinition, CustomFieldDefinitionCreate, CustomFieldDefinitionUpdate, CustomFieldCriterion,
   SavedFilter,
   SavedFilterCreate,
@@ -455,7 +460,7 @@ export const videos = {
   bulkDelete: (ids: number[], options?: boolean | DeleteEntityOptions) => {
     const deleteFiles = typeof options === "boolean" ? options : options?.deleteFile ?? false;
     const deleteGenerated = typeof options === "boolean" ? false : options?.deleteGenerated ?? false;
-    return request<{ deleted: number }>("/videos/destroy", { method: "POST", body: JSON.stringify({ ids, deleteFiles, deleteGenerated }) });
+    return request<BulkDeletionJobStart>("/videos/destroy", { method: "POST", body: JSON.stringify({ ids, deleteFiles, deleteGenerated }) });
   },
   merge: (targetId: number, sourceIds: number[]) =>
     request<Video>("/videos/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
@@ -626,7 +631,7 @@ export const faces: {
   update: (id: number, data: FaceUpdate) => Promise<Face>;
   delete: (id: number) => Promise<void>;
   batchLinkTopSuggestion: (data: FaceBatchLinkTopSuggestionRequest) => Promise<FaceBatchOperationResult>;
-  batchDelete: (data: FaceBatchDeleteRequest) => Promise<FaceBatchOperationResult>;
+  batchDelete: (data: FaceBatchDeleteRequest) => Promise<BulkDeletionJobStart>;
   createPerformer: (id: number, data: FaceCreatePerformer) => Promise<Face>;
   link: (id: number, data: FaceLink) => Promise<Face>;
   mergeInto: (id: number, data: FaceMerge) => Promise<Face>;
@@ -698,7 +703,7 @@ export const faces: {
   batchLinkTopSuggestion: (data: FaceBatchLinkTopSuggestionRequest) =>
     request<FaceBatchOperationResult>("/faces/batch/link-top-suggestion", { method: "POST", body: JSON.stringify(data) }),
   batchDelete: (data: FaceBatchDeleteRequest) =>
-    request<FaceBatchOperationResult>("/faces/batch/delete", { method: "POST", body: JSON.stringify(data) }),
+    request<BulkDeletionJobStart>("/faces/batch/delete", { method: "POST", body: JSON.stringify(data) }),
   createPerformer: (id: number, data: FaceCreatePerformer) => request<Face>(`/faces/${id}/create-performer`, { method: "POST", body: JSON.stringify(data) }),
   link: (id: number, data: FaceLink) => request<Face>(`/faces/${id}/link`, { method: "POST", body: JSON.stringify(data) }),
   mergeInto: (id: number, data: FaceMerge) => request<Face>(`/faces/${id}/merge-into`, { method: "POST", body: JSON.stringify(data) }),
@@ -762,7 +767,7 @@ export const performers = {
   applyScraped: (id: number, data: { scraped: import("./types").ScrapedPerformer; createMissingTags?: boolean; replaceFields?: string[]; collectionModes?: Record<string, string> }) => request<Performer>(`/performers/${id}/apply-scraped`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
   bulkUpdate: (data: BulkPerformerUpdate) => request<void>("/performers/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/performers/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<void>("/performers/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/performers/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
     request<Performer>("/performers/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
@@ -791,7 +796,7 @@ export const tags = {
   update: (id: number, data: TagUpdate) => request<TagDetail>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkTagUpdate) => request<void>("/tags/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/tags/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<void>("/tags/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/tags/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
     request<TagDetail>("/tags/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
@@ -882,7 +887,7 @@ export const studios = {
   update: (id: number, data: StudioUpdate) => request<Studio>(`/studios/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkStudioUpdate) => request<void>("/studios/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/studios/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<void>("/studios/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/studios/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
     request<Studio>("/studios/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) => {
@@ -917,7 +922,7 @@ export const galleries = {
   bulkUpdate: (data: BulkGalleryUpdate) => request<void>("/galleries/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/galleries/${id}`, { method: "DELETE" }),
   rescan: (id: number) => request<{ jobId: string }>(`/galleries/${id}/rescan`, { method: "POST" }),
-  bulkDelete: (ids: number[]) => request<void>("/galleries/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/galleries/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   chapters: (id: number) => request<GalleryChapter[]>(`/galleries/${id}/chapters`),
   createChapter: (id: number, data: GalleryChapterCreate) =>
     request<GalleryChapter>(`/galleries/${id}/chapters`, { method: "POST", body: JSON.stringify(data) }),
@@ -964,7 +969,7 @@ export const images = {
   bulkDelete: (ids: number[], options?: boolean | DeleteEntityOptions) => {
     const deleteFiles = typeof options === "boolean" ? options : options?.deleteFile ?? false;
     const deleteGenerated = typeof options === "boolean" ? false : options?.deleteGenerated ?? false;
-    return request<void>("/images/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles, deleteGenerated }) });
+    return request<BulkDeletionJobStart>("/images/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles, deleteGenerated }) });
   },
   incrementLike: (id: number) => request<number>(`/images/${id}/like`, { method: "POST" }),
   addHistoricalLike: (id: number, at: string) => request<number>(`/images/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
@@ -1002,7 +1007,7 @@ export const audios = {
   delete: (id: number, options?: DeleteEntityOptions) =>
     request<void>(`/audios/${id}${buildQuery(undefined, { deleteFile: options?.deleteFile, deleteGenerated: options?.deleteGenerated })}`, { method: "DELETE" }),
   bulkDelete: (ids: number[], options?: DeleteEntityOptions) =>
-    request<void>("/audios/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
+    request<BulkDeletionJobStart>("/audios/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
   getHistory: (id: number) => request<VideoHistory>(`/audios/${id}/history`),
   incrementLike: (id: number) => request<number>(`/audios/${id}/like`, { method: "POST" }),
   addHistoricalLike: (id: number, at: string) => request<number>(`/audios/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
@@ -1031,7 +1036,7 @@ export const texts = {
   delete: (id: number, options?: DeleteEntityOptions) =>
     request<void>(`/texts/${id}${buildQuery(undefined, { deleteFile: options?.deleteFile, deleteGenerated: options?.deleteGenerated })}`, { method: "DELETE" }),
   bulkDelete: (ids: number[], options?: DeleteEntityOptions) =>
-    request<void>("/texts/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
+    request<BulkDeletionJobStart>("/texts/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
   getHistory: (id: number) => request<VideoHistory>(`/texts/${id}/history`),
   incrementLike: (id: number) => request<number>(`/texts/${id}/like`, { method: "POST" }),
   addHistoricalLike: (id: number, at: string) => request<number>(`/texts/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
@@ -1052,7 +1057,7 @@ export const groups = {
   update: (id: number, data: GroupUpdate) => request<Group>(`/groups/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkGroupUpdate) => request<void>("/groups/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/groups/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<void>("/groups/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/groups/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   reorder: (data: GroupReorder) => request<void>("/groups/reorder", { method: "PUT", body: JSON.stringify(data) }),
   dynamicSources: () => request<DynamicGroupSource[]>("/groups/dynamic-sources"),
   subGroups: (id: number) => request<Group[]>(`/groups/${id}/subgroups`),

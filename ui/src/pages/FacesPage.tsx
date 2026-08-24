@@ -288,33 +288,6 @@ function patchFaceListCache(data: unknown, updatedFace: Face, keepFace: boolean)
   return data;
 }
 
-function removeFacesFromListCache(data: unknown, deletedFaceIds: Set<number>) {
-  if (!data || typeof data !== "object" || deletedFaceIds.size === 0) return data;
-
-  if ("pages" in data && Array.isArray((data as InfiniteData<PaginatedResponse<Face>>).pages)) {
-    const infiniteData = data as InfiniteData<PaginatedResponse<Face>>;
-    return {
-      ...infiniteData,
-      pages: infiniteData.pages.map((page) => ({
-        ...page,
-        items: page.items.filter((item) => !deletedFaceIds.has(item.id)),
-        totalCount: Math.max(0, page.totalCount - deletedFaceIds.size),
-      })),
-    };
-  }
-
-  if ("items" in data && Array.isArray((data as PaginatedResponse<Face>).items)) {
-    const page = data as PaginatedResponse<Face>;
-    return {
-      ...page,
-      items: page.items.filter((item) => !deletedFaceIds.has(item.id)),
-      totalCount: Math.max(0, page.totalCount - deletedFaceIds.size),
-    };
-  }
-
-  return data;
-}
-
 export function FacesPage({ onNavigate }: Props) {
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
@@ -483,11 +456,9 @@ export function FacesPage({ onNavigate }: Props) {
 
   const batchDeleteMutation = useMutation({
     mutationFn: () => faces.batchDelete({ faceIds: selectedFaceIds }),
-    onSuccess: (result) => {
-      const deletedFaceIds = new Set(result.succeeded);
-      queryClient.setQueriesData({ queryKey: ["faces", query] }, (data) => removeFacesFromListCache(data, deletedFaceIds));
+    onSuccess: () => {
+      setConfirmBatchDelete(false);
       selectNone();
-      queryClient.invalidateQueries({ queryKey: ["faces"] });
     },
   });
 
@@ -590,7 +561,7 @@ export function FacesPage({ onNavigate }: Props) {
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-900/20 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                {batchDeleteMutation.isPending ? "Deleting..." : "Delete"}
+                {batchDeleteMutation.isPending ? "Queueing..." : "Delete"}
               </button>
             ) : null}
           </div>
@@ -660,12 +631,11 @@ export function FacesPage({ onNavigate }: Props) {
         open={confirmBatchDelete}
         title="Delete selected faces?"
         message={`Delete ${selectedFaceIds.length} selected face${selectedFaceIds.length === 1 ? "" : "s"} and their AI artifacts. This cannot be undone.`}
-        confirmLabel="Delete faces"
+        confirmLabel={batchDeleteMutation.isPending ? "Queueing..." : "Queue deletion"}
         onCancel={() => setConfirmBatchDelete(false)}
-        onConfirm={() => {
-          setConfirmBatchDelete(false);
-          batchDeleteMutation.mutate();
-        }}
+        onConfirm={() => batchDeleteMutation.mutate()}
+        isPending={batchDeleteMutation.isPending}
+        errorMessage={batchDeleteMutation.error instanceof Error ? batchDeleteMutation.error.message : null}
       />
 
       {confirmBatchLink ? (

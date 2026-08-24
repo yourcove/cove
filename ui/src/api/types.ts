@@ -784,6 +784,61 @@ export interface DeleteEntityOptions {
   deleteGenerated?: boolean;
 }
 
+export interface BulkDeletionJobStart {
+  jobId: string;
+  itemCount: number;
+}
+
+export type DuplicateSearchStatus = "pending" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+
+export interface DuplicateSearchRequest {
+  matchType: "fingerprint" | "phash" | "title" | "remoteId";
+  distance?: number;
+  durationDiff?: number | null;
+}
+
+export interface DuplicateSearchStart {
+  searchId: string;
+  jobId: string;
+  candidateCount: number;
+}
+
+export interface DuplicateSearchInfo {
+  id: string;
+  jobId?: string | null;
+  matchType: string;
+  distance: number;
+  durationDiff: number;
+  status: DuplicateSearchStatus;
+  error?: string | null;
+  candidateCount: number;
+  groupCount: number;
+  videoCount: number;
+  unkeptVideoCount: number;
+  unkeptFileCount: number;
+  unkeptBytes: number;
+  deletionJobId?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  expiresAt: string;
+}
+
+export interface DuplicateSearchGroup {
+  id: number;
+  position: number;
+  videos: Video[];
+  keepVideoIds: number[];
+}
+
+export interface DuplicateSearchGroupPage {
+  items: DuplicateSearchGroup[];
+  totalCount: number;
+  page: number;
+  perPage: number;
+  hasMore: boolean;
+}
+
 export type GroupKind = "static" | "dynamic";
 
 export interface Group {
@@ -2174,6 +2229,8 @@ export interface JobInfo {
   etaSeconds?: number | null;
   /** UTC timestamp the ETA was computed at, so the client can count it down smoothly. */
   updatedAt?: string | null;
+  /** Internal application route for durable job output. */
+  resultUrl?: string | null;
 }
 
 export interface SortClause {
