@@ -33,10 +33,12 @@ public class ScanService : IScanService
         ExtensionManager extensionManager,
         IMediaProbeService mediaProbeService,
         IScanFileValidator fileValidator,
-        ILogger<ScanService> logger)
+        ILogger<ScanService> logger,
+        PhysicalFileAccessCoordinator? physicalFileCoordinator = null)
     {
         _scopeFactory = scopeFactory;
         _eventBus = eventBus;
+        _physicalFileCoordinator = physicalFileCoordinator ?? PhysicalFileAccessCoordinator.Shared;
 
         var folderResolver = new ScanFolderResolver(logger);
         var fileIdentity = new ScanFileIdentityService(fingerprintService);
@@ -63,10 +65,19 @@ public class ScanService : IScanService
             _galleryProcessor,
             _audioProcessor,
             _textProcessor,
-            logger);
+            logger,
+            _physicalFileCoordinator);
     }
 
+    private readonly PhysicalFileAccessCoordinator _physicalFileCoordinator;
+
     public async Task<int> ImportDownloadedVideoAsync(string path, int? videoId, CancellationToken ct = default)
+    {
+        using var pathLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
+        return await ImportDownloadedVideoWithinProducerLeaseAsync(path, videoId, ct);
+    }
+
+    internal async Task<int> ImportDownloadedVideoWithinProducerLeaseAsync(string path, int? videoId, CancellationToken ct)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException("Downloaded video file not found", path);
@@ -90,6 +101,12 @@ public class ScanService : IScanService
 
     public async Task<int> ImportDownloadedImageAsync(string path, int? imageId, CancellationToken ct = default)
     {
+        using var pathLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
+        return await ImportDownloadedImageWithinProducerLeaseAsync(path, imageId, ct);
+    }
+
+    internal async Task<int> ImportDownloadedImageWithinProducerLeaseAsync(string path, int? imageId, CancellationToken ct)
+    {
         if (!File.Exists(path))
             throw new FileNotFoundException("Downloaded image file not found", path);
 
@@ -110,6 +127,12 @@ public class ScanService : IScanService
     }
 
     public async Task<int> ImportDownloadedGalleryAsync(string path, int? galleryId, CancellationToken ct = default)
+    {
+        using var pathLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
+        return await ImportDownloadedGalleryWithinProducerLeaseAsync(path, galleryId, ct);
+    }
+
+    internal async Task<int> ImportDownloadedGalleryWithinProducerLeaseAsync(string path, int? galleryId, CancellationToken ct)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException("Downloaded gallery file not found", path);
@@ -132,6 +155,12 @@ public class ScanService : IScanService
 
     public async Task<int> ImportDownloadedAudioAsync(string path, int? audioId, CancellationToken ct = default)
     {
+        using var pathLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
+        return await ImportDownloadedAudioWithinProducerLeaseAsync(path, audioId, ct);
+    }
+
+    internal async Task<int> ImportDownloadedAudioWithinProducerLeaseAsync(string path, int? audioId, CancellationToken ct)
+    {
         if (!File.Exists(path))
             throw new FileNotFoundException("Downloaded audio file not found", path);
 
@@ -152,6 +181,12 @@ public class ScanService : IScanService
     }
 
     public async Task<int> ImportDownloadedTextAsync(string path, int? textDocumentId, CancellationToken ct = default)
+    {
+        using var pathLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
+        return await ImportDownloadedTextWithinProducerLeaseAsync(path, textDocumentId, ct);
+    }
+
+    internal async Task<int> ImportDownloadedTextWithinProducerLeaseAsync(string path, int? textDocumentId, CancellationToken ct)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException("Downloaded text file not found", path);
