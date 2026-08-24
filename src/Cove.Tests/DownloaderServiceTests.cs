@@ -382,7 +382,7 @@ public class DownloaderServiceTests
             using (var scope = services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                audioId = await db.Audios.Select(item => item.Id).SingleAsync();
+                audioId = await db.Audios.Select(item => item.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             }
 
             var applied = await service.ApplyAudioMetadataAsync(
@@ -416,7 +416,7 @@ public class DownloaderServiceTests
                 .Include(item => item.AudioTags).ThenInclude(item => item.Tag)
                 .Include(item => item.AudioPerformers).ThenInclude(item => item.Performer)
                 .Include(item => item.Studio)
-                .SingleAsync(item => item.Id == audioId);
+                .SingleAsync(item => item.Id == audioId, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal("Merged Audio Title", audio.Title);
             Assert.Equal("Merged details from source and mirror", audio.Details);
@@ -460,7 +460,7 @@ public class DownloaderServiceTests
             using (var scope = services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                audioId = await db.Audios.Select(item => item.Id).SingleAsync();
+                audioId = await db.Audios.Select(item => item.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             }
 
             var applied = await service.ApplyAudioMetadataAsync(
@@ -482,15 +482,15 @@ public class DownloaderServiceTests
                 .Include(item => item.AudioTags).ThenInclude(item => item.Tag)
                 .Include(item => item.AudioPerformers).ThenInclude(item => item.Performer)
                 .Include(item => item.Studio)
-                .SingleAsync(item => item.Id == audioId);
+                .SingleAsync(item => item.Id == audioId, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal("After", audio.Title);
             Assert.Null(audio.Studio);
             Assert.Equal(["Existing Tag"], audio.AudioTags.Select(item => item.Tag!.Name).ToArray());
             Assert.Equal(["Existing Performer"], audio.AudioPerformers.Select(item => item.Performer!.Name).ToArray());
-            Assert.False(await verifyDb.Tags.AnyAsync(item => item.Name == "Missing Tag"));
-            Assert.False(await verifyDb.Performers.AnyAsync(item => item.Name == "Missing Performer"));
-            Assert.False(await verifyDb.Studios.AnyAsync(item => item.Name == "Missing Studio"));
+            Assert.False(await verifyDb.Tags.AnyAsync(item => item.Name == "Missing Tag", cancellationToken: TestContext.Current.CancellationToken));
+            Assert.False(await verifyDb.Performers.AnyAsync(item => item.Name == "Missing Performer", cancellationToken: TestContext.Current.CancellationToken));
+            Assert.False(await verifyDb.Studios.AnyAsync(item => item.Name == "Missing Studio", cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -919,11 +919,11 @@ public class DownloaderServiceTests
 
             using var scope = services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            var importedVideo = await db.Videos.SingleAsync(video => video.Title == "Imported From Batch");
+            var importedVideo = await db.Videos.SingleAsync(video => video.Title == "Imported From Batch", cancellationToken: TestContext.Current.CancellationToken);
             Assert.NotEqual(0, importedVideo.Id);
             Assert.Equal(importedVideo.Id, scanService.VideoId);
-            Assert.True(await db.Set<VideoUrl>().AnyAsync(item => item.VideoId == importedVideo.Id && item.Url == "https://example.com/watch/new-import"));
-            Assert.False(await db.Videos.AnyAsync(video => video.Title == "Should Not Exist"));
+            Assert.True(await db.Set<VideoUrl>().AnyAsync(item => item.VideoId == importedVideo.Id && item.Url == "https://example.com/watch/new-import", cancellationToken: TestContext.Current.CancellationToken));
+            Assert.False(await db.Videos.AnyAsync(video => video.Title == "Should Not Exist", cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -1032,7 +1032,7 @@ public class DownloaderServiceTests
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
             var audios = await db.Audios
                 .Include(audio => audio.Urls)
-                .ToListAsync();
+                .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
             var firstAudio = Assert.Single(audios, audio => audio.Urls.Any(url => url.Url == "https://audio.example.net/track/one"));
             var secondAudio = Assert.Single(audios, audio => audio.Urls.Any(url => url.Url == "https://audio.example.net/track/two"));
             Assert.Equal(
@@ -1045,7 +1045,7 @@ public class DownloaderServiceTests
             var urls = await db.Set<AudioUrl>()
                 .Select(item => item.Url)
                 .OrderBy(item => item)
-                .ToListAsync();
+                .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(
                 ["https://audio.example.net/track/one", "https://audio.example.net/track/two", sourceUrl, sourceUrl],
@@ -1113,7 +1113,7 @@ public class DownloaderServiceTests
                 .Include(audio => audio.Urls)
                 .Include(audio => audio.AudioTags)
                 .ThenInclude(audioTag => audioTag.Tag)
-                .ToListAsync();
+                .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             var firstAudio = Assert.Single(audios, audio => audio.Urls.Any(url => url.Url == "https://audio.example.net/track/one"));
             var secondAudio = Assert.Single(audios, audio => audio.Urls.Any(url => url.Url == "https://audio.example.net/track/two"));

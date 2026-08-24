@@ -36,7 +36,7 @@ public class ScraperServiceTests
             },
             new FakeTextScraperProvider());
 
-        var result = await service.ScrapeUrlAutoAsync("https://literotica.com/s/example-story", "text");
+        var result = await service.ScrapeUrlAutoAsync("https://literotica.com/s/example-story", "text", TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("fake.literotica/text", result?.ScraperId);
@@ -87,7 +87,7 @@ public class ScraperServiceTests
                 """,
         });
 
-        var result = await service.ScrapeUrlAutoAsync("https://example.com/story/chapter-1", "text");
+        var result = await service.ScrapeUrlAutoAsync("https://example.com/story/chapter-1", "text", TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("builtin.generic:text", result?.ScraperId);
@@ -110,7 +110,7 @@ public class ScraperServiceTests
                 """,
         });
 
-        var result = await service.ScrapeUrlAutoAsync("https://example.com/story/chapter-2", "text");
+        var result = await service.ScrapeUrlAutoAsync("https://example.com/story/chapter-2", "text", TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("Example Story - Sample Site", Assert.IsType<string>(result?.Result["title"]));
@@ -121,7 +121,7 @@ public class ScraperServiceTests
     {
         var service = CreateService();
 
-        var result = await service.ScrapeUrlAutoAsync("https://audio.example.net/track/example", "audio");
+        var result = await service.ScrapeUrlAutoAsync("https://audio.example.net/track/example", "audio", TestContext.Current.CancellationToken);
 
         Assert.Null(result);
     }
@@ -147,7 +147,7 @@ public class ScraperServiceTests
             Assert.Contains("URL", scraper.SupportedScrapes);
             Assert.Equal(["example.com/watch/"], scraper.Urls);
 
-            var result = await service.ScrapeUrlAsync($"{YamlScraperPackId}/Example:video", "video", "https://example.com/watch/123");
+            var result = await service.ScrapeUrlAsync($"{YamlScraperPackId}/Example:video", "video", "https://example.com/watch/123", TestContext.Current.CancellationToken);
 
             Assert.NotNull(result);
             Assert.Equal("Pack Video", Assert.IsType<string>(result?["Title"]));
@@ -167,7 +167,7 @@ public class ScraperServiceTests
         try
         {
             var extensionManager = await CreateYamlScraperPackExtensionManagerAsync(root);
-            await extensionManager.DisableExtensionAsync(YamlScraperPackId);
+            await extensionManager.DisableExtensionAsync(YamlScraperPackId, TestContext.Current.CancellationToken);
 
             var service = CreateService(extensionManager: extensionManager);
 

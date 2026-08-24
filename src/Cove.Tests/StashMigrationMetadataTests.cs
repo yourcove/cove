@@ -26,9 +26,7 @@ public class StashMigrationMetadataTests
             var service = CreateService(context);
 
             var exception = await Assert.ThrowsAsync<StashMigrationOwnerRequiredException>(
-                () => service.ImportAsync(
-                    dbPath,
-                    new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false)));
+                () => service.ImportAsync(dbPath, new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false), TestContext.Current.CancellationToken));
 
             Assert.Contains("Owner", exception.Message, StringComparison.Ordinal);
         }
@@ -45,9 +43,7 @@ public class StashMigrationMetadataTests
         var service = CreateService(context);
 
         var exception = await Assert.ThrowsAsync<StashMigrationOwnerRequiredException>(
-            () => service.StartImportAsync(
-                "/path/that-must-not-be-queued.sqlite",
-                new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false)));
+            () => service.StartImportAsync("/path/that-must-not-be-queued.sqlite", new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false), TestContext.Current.CancellationToken));
 
         Assert.Contains("Owner", exception.Message, StringComparison.Ordinal);
     }
@@ -66,7 +62,7 @@ public class StashMigrationMetadataTests
         };
 
         context.Videos.Add(scene);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(createdAt, scene.CreatedAt);
         Assert.Equal(updatedAt, scene.UpdatedAt);
@@ -78,10 +74,10 @@ public class StashMigrationMetadataTests
         await using var context = CreateContext();
         var tag = new Tag { Name = "Imported Tag" };
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE performers (
   id INTEGER PRIMARY KEY,
@@ -130,7 +126,7 @@ INSERT INTO performers_tags (performer_id, tag_id) VALUES (1, 7);
             1d,
             CancellationToken.None);
 
-        var performer = await context.Performers.Include(p => p.PerformerTags).SingleAsync();
+        var performer = await context.Performers.Include(p => p.PerformerTags).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Tagged Performer", performer.Name);
         Assert.Equal([tag.Id], performer.PerformerTags.Select(pt => pt.TagId).ToArray());
     }
@@ -141,7 +137,7 @@ INSERT INTO performers_tags (performer_id, tag_id) VALUES (1, 7);
         await using var context = CreateContext();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE performers (
   id INTEGER PRIMARY KEY,
@@ -188,7 +184,7 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag) VALUES (1, 'Legacy 
             1d,
             CancellationToken.None);
 
-        var performer = await context.Performers.SingleAsync();
+        var performer = await context.Performers.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Legacy Performer", performer.Name);
         Assert.Null(performer.CareerStart);
         Assert.Null(performer.CareerEnd);
@@ -200,7 +196,7 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag) VALUES (1, 'Legacy 
         await using var context = CreateContext();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE performers (
   id INTEGER PRIMARY KEY,
@@ -249,7 +245,7 @@ INSERT INTO performers (id, name, career_length, career_start, career_end, favor
             1d,
             CancellationToken.None);
 
-        var performers = await context.Performers.ToDictionaryAsync(performer => performer.Name);
+        var performers = await context.Performers.ToDictionaryAsync(performer => performer.Name, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(new DateOnly(2008, 1, 1), performers["Current Performer"].CareerStart);
         Assert.Equal(new DateOnly(2020, 1, 1), performers["Current Performer"].CareerEnd);
         Assert.Equal(new DateOnly(1995, 1, 1), performers["Partial Current Performer"].CareerStart);
@@ -262,7 +258,7 @@ INSERT INTO performers (id, name, career_length, career_start, career_end, favor
                 await using var context = CreateContext();
 
                 await using var stash = new SqliteConnection("Data Source=:memory:");
-                await stash.OpenAsync();
+                await stash.OpenAsync(TestContext.Current.CancellationToken);
                 await ExecuteSqlAsync(stash, @"
 CREATE TABLE performers (
     id INTEGER PRIMARY KEY,
@@ -319,7 +315,7 @@ INSERT INTO performer_urls (performer_id, url) VALUES
                 var performers = await context.Performers
                         .Include(performer => performer.Urls)
                         .OrderBy(performer => performer.Name)
-                        .ToListAsync();
+                        .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
                 Assert.Equal(2, performers.Count);
                 Assert.Equal(["https://performer-a.local"], performers[0].Urls.Select(url => url.Url).ToArray());
@@ -332,7 +328,7 @@ INSERT INTO performer_urls (performer_id, url) VALUES
         await using var context = CreateContext();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE tags (
   id INTEGER PRIMARY KEY,
@@ -404,15 +400,15 @@ VALUES (1, 'Imported Performer', 0, 0, '2021-01-02T03:04:05Z', '2022-02-03T04:05
         await InvokePrivateAsync(service, "ImportStudiosAsync", stash, new Dictionary<string, string>(), NullJobProgress.Instance, 0d, 1d, CancellationToken.None);
         await InvokePrivateAsync(service, "ImportPerformersAsync", stash, new Dictionary<string, string>(), new Dictionary<int, int>(), NullJobProgress.Instance, 0d, 1d, CancellationToken.None);
 
-        var tag = await context.Tags.SingleAsync();
+        var tag = await context.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(new DateTime(2021, 5, 6, 7, 8, 9, DateTimeKind.Utc), tag.CreatedAt);
         Assert.Equal(new DateTime(2022, 6, 7, 8, 9, 10, DateTimeKind.Utc), tag.UpdatedAt);
 
-        var studio = await context.Studios.SingleAsync();
+        var studio = await context.Studios.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(new DateTime(2021, 3, 4, 5, 6, 7, DateTimeKind.Utc), studio.CreatedAt);
         Assert.Equal(new DateTime(2022, 4, 5, 6, 7, 8, DateTimeKind.Utc), studio.UpdatedAt);
 
-        var performer = await context.Performers.SingleAsync();
+        var performer = await context.Performers.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(new DateTime(2021, 1, 2, 3, 4, 5, DateTimeKind.Utc), performer.CreatedAt);
         Assert.Equal(new DateTime(2022, 2, 3, 4, 5, 6, DateTimeKind.Utc), performer.UpdatedAt);
     }
@@ -427,10 +423,10 @@ VALUES (1, 'Imported Performer', 0, 0, '2021-01-02T03:04:05Z', '2022-02-03T04:05
             Aliases = [new TagAlias { Alias = "Alternate" }],
         };
         context.Tags.Add(existing);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, """
 CREATE TABLE tags (
   id INTEGER PRIMARY KEY,
@@ -474,11 +470,11 @@ INSERT INTO tag_stash_ids (tag_id, endpoint, stash_id) VALUES
         Assert.Equal(existing.Id, idMap[1]);
         Assert.Equal(idMap[2], idMap[3]);
         context.ChangeTracker.Clear();
-        Assert.Equal(2, await context.Tags.CountAsync());
+        Assert.Equal(2, await context.Tags.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         var mergedExisting = await context.Tags
             .Include(tag => tag.Aliases)
             .Include(tag => tag.RemoteIds)
-            .SingleAsync(tag => tag.Id == existing.Id);
+            .SingleAsync(tag => tag.Id == existing.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Existing import sort", mergedExisting.SortName);
         Assert.Equal("Existing import description", mergedExisting.Description);
         Assert.True(mergedExisting.Favorite);
@@ -489,7 +485,7 @@ INSERT INTO tag_stash_ids (tag_id, endpoint, stash_id) VALUES
         var imported = await context.Tags
             .Include(tag => tag.Aliases)
             .Include(tag => tag.RemoteIds)
-            .SingleAsync(tag => tag.Id == idMap[2]);
+            .SingleAsync(tag => tag.Id == idMap[2], cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("New", imported.Name);
         Assert.Equal("New import sort", imported.SortName);
         Assert.Equal("New import description", imported.Description);
@@ -506,7 +502,7 @@ INSERT INTO tag_stash_ids (tag_id, endpoint, stash_id) VALUES
         var recordingBlobService = new RecordingBlobService();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, """
 CREATE TABLE blobs (checksum TEXT PRIMARY KEY, blob BLOB);
 CREATE TABLE performers (id INTEGER PRIMARY KEY, image_blob TEXT);
@@ -524,7 +520,7 @@ INSERT INTO performers (id, image_blob) VALUES (1, 'avif-checksum');
                 0x61, 0x76, 0x69, 0x66,
                 0x00, 0x00, 0x00, 0x00,
             };
-            await command.ExecuteNonQueryAsync();
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
 
         var service = CreateService(context, recordingBlobService);
@@ -548,7 +544,7 @@ INSERT INTO performers (id, image_blob) VALUES (1, 'avif-checksum');
         var recordingBlobService = new RecordingBlobService();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, """
 CREATE TABLE blobs (checksum TEXT PRIMARY KEY, blob BLOB);
 CREATE TABLE performers (id INTEGER PRIMARY KEY, image_blob TEXT);
@@ -597,7 +593,7 @@ stash_boxes:
     api_key: secret-key
     name: Example Box
     max_requests_per_minute: 123
-""");
+""", TestContext.Current.CancellationToken);
 
             var stashConfig = InvokePrivateStatic(typeof(StashMigrationService), "ParseStashConfig", configPath);
             Assert.NotNull(stashConfig);
@@ -644,7 +640,7 @@ generated: /root/.stash/generated
 blobs_path: /root/.stash/blobs
 stash:
   - path: /root/.stash/library
-""");
+""", TestContext.Current.CancellationToken);
 
             var stashConfig = InvokePrivateStatic(typeof(StashMigrationService), "ParseStashConfig", configPath);
             Assert.NotNull(stashConfig);
@@ -675,7 +671,7 @@ stash:
         {
             await File.WriteAllTextAsync(configPath, """
 blobs_path: /root/.stash/blobs
-""");
+""", TestContext.Current.CancellationToken);
 
             var stashConfig = InvokePrivateStatic(typeof(StashMigrationService), "ParseStashConfig", configPath);
             Assert.NotNull(stashConfig);
@@ -826,7 +822,7 @@ stash:
         var recordingBlobService = new RecordingBlobService();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE performers (
   id INTEGER PRIMARY KEY,
@@ -865,7 +861,7 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag, image_blob) VALUES 
         var tempDir = Path.Combine(Path.GetTempPath(), $"performer-fallback-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         var imagePath = Path.Combine(tempDir, "fallback.png");
-        await File.WriteAllBytesAsync(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        await File.WriteAllBytesAsync(imagePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], TestContext.Current.CancellationToken);
 
         try
         {
@@ -882,7 +878,7 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag, image_blob) VALUES 
                 1d,
                 CancellationToken.None);
 
-            var performer = await context.Performers.SingleAsync();
+            var performer = await context.Performers.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal("blob-1", performer.ImageBlobId);
             Assert.Equal(["image/png"], recordingBlobService.ContentTypes);
         }
@@ -898,10 +894,10 @@ INSERT INTO performers (id, name, favorite, ignore_auto_tag, image_blob) VALUES 
         await using var context = CreateContext();
         var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
         context.Folders.Add(folder);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE scenes (
   id INTEGER PRIMARY KEY,
@@ -987,14 +983,14 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
             1d,
             CancellationToken.None);
 
-        var scene = await context.Videos.Include(s => s.Files).ThenInclude(file => file.Captions).SingleAsync();
+        var scene = await context.Videos.Include(s => s.Files).ThenInclude(file => file.Captions).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         var file = Assert.Single(scene.Files);
         Assert.Equal(
             [("en", "clip.en.vtt", "vtt"), ("es", "clip.es.srt", "srt")],
             file.Captions.OrderBy(caption => caption.LanguageCode)
                 .Select(caption => (caption.LanguageCode, caption.Filename, caption.CaptionType))
                 .ToArray());
-        var affinity = await context.UserEntityAffinities.SingleAsync(item => item.HostType == AffinityHostType.Video && item.HostId == scene.Id);
+        var affinity = await context.UserEntityAffinities.SingleAsync(item => item.HostType == AffinityHostType.Video && item.HostId == scene.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc), affinity.LastConsumedAt);
         Assert.Equal(1, affinity.ViewCount);
         Assert.Equal(2, affinity.LikeCount);
@@ -1012,7 +1008,7 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
                     && item.Kind == InteractionKind.LikeCount)
                 .OrderBy(item => item.At)
                 .Select(item => item.At)
-                .ToListAsync());
+                .ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), scene.CreatedAt);
         Assert.Equal(new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc), scene.UpdatedAt);
         Assert.Equal("cove-scene-cover", scene.ImageBlobId);
@@ -1041,10 +1037,10 @@ INSERT INTO video_captions (file_id, language_code, filename, caption_type) VALU
             ],
         };
         context.Videos.Add(existingVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE scenes (
   id INTEGER PRIMARY KEY, title TEXT, details TEXT, date TEXT, rating INTEGER, studio_id INTEGER,
@@ -1100,7 +1096,7 @@ VALUES (10, '00', 'sample-captioned-video.srt', 'srt');
             1d,
             CancellationToken.None);
 
-        var file = await context.Set<VideoFile>().Include(item => item.Captions).SingleAsync();
+        var file = await context.Set<VideoFile>().Include(item => item.Captions).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         var caption = Assert.Single(file.Captions);
         Assert.Equal("00", caption.LanguageCode);
         Assert.Equal("sample-captioned-video.srt", caption.Filename);
@@ -1113,10 +1109,10 @@ VALUES (10, '00', 'sample-captioned-video.srt', 'srt');
                 await using var context = CreateContext();
                 var folder = new Folder { Path = @"C:\library", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
                 context.Folders.Add(folder);
-                await context.SaveChangesAsync();
+                await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
                 await using var stash = new SqliteConnection("Data Source=:memory:");
-                await stash.OpenAsync();
+                await stash.OpenAsync(TestContext.Current.CancellationToken);
                 await ExecuteSqlAsync(stash, @"
 CREATE TABLE scenes (
     id INTEGER PRIMARY KEY,
@@ -1189,7 +1185,7 @@ INSERT INTO files_fingerprints (file_id, type, fingerprint) VALUES (10, 'phash',
                         1d,
                         CancellationToken.None);
 
-                var fingerprint = await context.FileFingerprints.SingleAsync();
+                var fingerprint = await context.FileFingerprints.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
                 Assert.Equal("phash", fingerprint.Type);
                 Assert.Equal("aa", fingerprint.Value);
@@ -1201,10 +1197,10 @@ INSERT INTO files_fingerprints (file_id, type, fingerprint) VALUES (10, 'phash',
         await using var context = CreateContext();
         var folder = new Folder { Path = @"C:\galleries\Summer Set", ModTime = new DateTime(2024, 1, 4, 0, 0, 0, DateTimeKind.Utc) };
         context.Folders.Add(folder);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE folders (id INTEGER PRIMARY KEY, path TEXT NOT NULL);
 CREATE TABLE galleries (
@@ -1257,7 +1253,7 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
 
                 var galleryImport = Assert.IsType<(int Count, Dictionary<int, int> GalleryFileIdMap, Dictionary<int, int> GalleryIdMap)>(result);
                 Assert.Equal(1, galleryImport.Count);
-        var gallery = await context.Galleries.SingleAsync();
+        var gallery = await context.Galleries.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Summer Set", gallery.Title);
     }
 
@@ -1268,10 +1264,10 @@ VALUES (1, 50, NULL, 0, '2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z');
         var image = new Image { Title = "Selected Cover" };
         var otherImage = new Image { Title = "Other Image" };
         context.Images.AddRange(image, otherImage);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE galleries (
   id INTEGER PRIMARY KEY,
@@ -1316,7 +1312,7 @@ INSERT INTO galleries_images (gallery_id, image_id, cover) VALUES (10, 20, 1), (
             1d,
             CancellationToken.None);
 
-        var gallery = await context.Galleries.Include(item => item.ImageGalleries).SingleAsync();
+        var gallery = await context.Galleries.Include(item => item.ImageGalleries).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(image.Id, gallery.CoverImageId);
         Assert.Equal([image.Id, otherImage.Id], gallery.ImageGalleries.Select(link => link.ImageId).Order().ToArray());
     }
@@ -1535,23 +1531,21 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
         {
             var recordingBlobService = new RecordingBlobService();
             var service = CreateService(context, recordingBlobService);
-            var result = await service.ImportAsync(
-                dbPath,
-                new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false));
+            var result = await service.ImportAsync(dbPath, new StashImportOptions(CoveGeneratedPath: null, MigrateGeneratedContent: false), TestContext.Current.CancellationToken);
 
             Assert.Equal(1, result.Videos);
             Assert.Equal(1, result.Galleries);
             context.ChangeTracker.Clear();
-            var video = await context.Videos.SingleAsync();
-            var gallery = await context.Galleries.SingleAsync();
-            var relationship = await context.Set<VideoGallery>().SingleAsync();
+            var video = await context.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            var gallery = await context.Galleries.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            var relationship = await context.Set<VideoGallery>().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(video.Id, relationship.VideoId);
             Assert.Equal(gallery.Id, relationship.GalleryId);
             var studio = await context.Studios
                 .Include(item => item.Urls)
                 .Include(item => item.Aliases)
                 .Include(item => item.RemoteIds)
-                .SingleAsync();
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal("Imported Studio", studio.Name);
             Assert.Equal("Metadata from collapsed studio", studio.Details);
             Assert.True(studio.Favorite);
@@ -1562,7 +1556,7 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
                 .Include(item => item.Urls)
                 .Include(item => item.Aliases)
                 .Include(item => item.RemoteIds)
-                .SingleAsync();
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal("Imported Performer", performer.Name);
             Assert.Equal("Same identity", performer.Disambiguation);
             Assert.Equal("Metadata from collapsed performer", performer.Details);
@@ -1570,16 +1564,16 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
             Assert.Contains(performer.Urls, item => item.Url == "https://collapsed-performer.local");
             Assert.Contains(performer.Aliases, item => item.Alias == "Collapsed performer alias");
             Assert.Contains(performer.RemoteIds, item => item.Endpoint == "fixture" && item.RemoteId == "collapsed-performer");
-            var tag = await context.Tags.SingleAsync();
-            var studioTag = await context.Set<StudioTag>().SingleAsync();
+            var tag = await context.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            var studioTag = await context.Set<StudioTag>().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(studio.Id, studioTag.StudioId);
             Assert.Equal(tag.Id, studioTag.TagId);
-            var group = await context.Groups.SingleAsync(item => item.Name == "Containing Group");
-            var groupTag = await context.Set<GroupTag>().SingleAsync();
+            var group = await context.Groups.SingleAsync(item => item.Name == "Containing Group", cancellationToken: TestContext.Current.CancellationToken);
+            var groupTag = await context.Set<GroupTag>().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(group.Id, groupTag.GroupId);
             Assert.Equal(tag.Id, groupTag.TagId);
-            var subGroup = await context.Groups.SingleAsync(item => item.Name == "Sub Group");
-            var groupRelation = await context.Set<GroupRelation>().SingleAsync();
+            var subGroup = await context.Groups.SingleAsync(item => item.Name == "Sub Group", cancellationToken: TestContext.Current.CancellationToken);
+            var groupRelation = await context.Set<GroupRelation>().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(group.Id, groupRelation.ContainingGroupId);
             Assert.Equal(subGroup.Id, groupRelation.SubGroupId);
             Assert.Equal(3, groupRelation.OrderIndex);
@@ -1607,11 +1601,11 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
         try
         {
             const string generatedHash = "scene-hash";
-            await File.WriteAllBytesAsync(Path.Combine(stashScreenshotsPath, $"{generatedHash}.jpg"), [1, 2, 3]);
-            await File.WriteAllBytesAsync(Path.Combine(stashScreenshotsPath, $"{generatedHash}.mp4"), [4, 5, 6]);
+            await File.WriteAllBytesAsync(Path.Combine(stashScreenshotsPath, $"{generatedHash}.jpg"), [1, 2, 3], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(Path.Combine(stashScreenshotsPath, $"{generatedHash}.mp4"), [4, 5, 6], TestContext.Current.CancellationToken);
 
             var configPath = Path.Combine(tempRoot, "config.yml");
-            await File.WriteAllTextAsync(configPath, $"generated: {stashGeneratedPath}\nvideo_file_naming_algorithm: MD5\n");
+            await File.WriteAllTextAsync(configPath, $"generated: {stashGeneratedPath}\nvideo_file_naming_algorithm: MD5\n", TestContext.Current.CancellationToken);
 
             var stashConfig = InvokePrivateStatic(typeof(StashMigrationService), "ParseStashConfig", configPath);
             Assert.NotNull(stashConfig);
@@ -1661,10 +1655,10 @@ INSERT INTO scenes_galleries (scene_id, gallery_id) VALUES
             UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
         };
         context.Folders.Add(existingFolder);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE folders (
   id INTEGER PRIMARY KEY,
@@ -1690,10 +1684,10 @@ INSERT INTO folders (id, path, parent_folder_id, mod_time, created_at) VALUES
             CancellationToken.None));
 
         Assert.Equal(existingFolder.Id, folderIdMap[1]);
-        Assert.Equal(2, await context.Folders.CountAsync());
-        Assert.Equal(1, await context.Folders.CountAsync(folder => folder.Path == "C:/library"));
+        Assert.Equal(2, await context.Folders.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, await context.Folders.CountAsync(folder => folder.Path == "C:/library", cancellationToken: TestContext.Current.CancellationToken));
 
-        var importedChild = await context.Folders.SingleAsync(folder => folder.Id == folderIdMap[2]);
+        var importedChild = await context.Folders.SingleAsync(folder => folder.Id == folderIdMap[2], cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("C:/library/clips", importedChild.Path);
         Assert.Equal(existingFolder.Id, importedChild.ParentFolderId);
     }
@@ -1704,7 +1698,7 @@ INSERT INTO folders (id, path, parent_folder_id, mod_time, created_at) VALUES
         await using var context = CreateContext();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE studios (
   id INTEGER PRIMARY KEY,
@@ -1741,7 +1735,7 @@ INSERT INTO studio_stash_ids (studio_id, endpoint, stash_id) VALUES
 
         var importedStudio = await context.Studios
             .Include(studio => studio.RemoteIds)
-            .SingleAsync(studio => studio.Id == studioIdMap[1]);
+            .SingleAsync(studio => studio.Id == studioIdMap[1], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Imported Studio", importedStudio.Name);
         Assert.Equal(2, importedStudio.RemoteIds.Count);
@@ -1754,7 +1748,7 @@ INSERT INTO studio_stash_ids (studio_id, endpoint, stash_id) VALUES
     {
         await using var context = CreateContext();
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, """
 CREATE TABLE studios (
   id INTEGER PRIMARY KEY,
@@ -1788,8 +1782,8 @@ INSERT INTO studios (id, name, parent_id, favorite) VALUES
         context.ChangeTracker.Clear();
 
         Assert.Equal(idMap[1], idMap[2]);
-        var first = await context.Studios.SingleAsync(studio => studio.Id == idMap[1]);
-        var second = await context.Studios.SingleAsync(studio => studio.Id == idMap[3]);
+        var first = await context.Studios.SingleAsync(studio => studio.Id == idMap[1], cancellationToken: TestContext.Current.CancellationToken);
+        var second = await context.Studios.SingleAsync(studio => studio.Id == idMap[3], cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(second.Id, first.ParentId);
         Assert.Null(second.ParentId);
     }
@@ -1800,7 +1794,7 @@ INSERT INTO studios (id, name, parent_id, favorite) VALUES
         await using var context = CreateContext();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE groups (
   id INTEGER PRIMARY KEY,
@@ -1835,7 +1829,7 @@ INSERT INTO groups (id, name, front_image_blob, back_image_blob) VALUES (1, 'Imp
             1d,
             CancellationToken.None));
 
-        var importedGroup = await context.Groups.SingleAsync(group => group.Id == groupIdMap[1]);
+        var importedGroup = await context.Groups.SingleAsync(group => group.Id == groupIdMap[1], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Imported Group", importedGroup.Name);
         Assert.Equal("cove-front", importedGroup.FrontImageBlobId);
@@ -1848,7 +1842,7 @@ INSERT INTO groups (id, name, front_image_blob, back_image_blob) VALUES (1, 'Imp
         await using var context = CreateContext();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE groups (
   id INTEGER PRIMARY KEY,
@@ -1892,7 +1886,7 @@ INSERT INTO groups_scenes (scene_id, group_id, scene_index) VALUES (10, 1, 1);
 
         Assert.Equal(groupIdMap[1], groupIdMap[2]);
 
-        var importedGroup = await context.Groups.Include(group => group.Urls).SingleAsync();
+        var importedGroup = await context.Groups.Include(group => group.Urls).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(groupIdMap[1], importedGroup.Id);
         Assert.Equal("Imported Group", importedGroup.Name);
         Assert.Equal("cove-front", importedGroup.FrontImageBlobId);
@@ -1908,7 +1902,7 @@ INSERT INTO groups_scenes (scene_id, group_id, scene_index) VALUES (10, 1, 1);
         await using var context = CreateContext();
 
         await using var stash = new SqliteConnection("Data Source=:memory:");
-        await stash.OpenAsync();
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
         await ExecuteSqlAsync(stash, @"
 CREATE TABLE groups (
   id INTEGER PRIMARY KEY,
@@ -1948,7 +1942,7 @@ INSERT INTO groups_scenes (scene_id, group_id, scene_index) VALUES (10, 1, 1);
 
         Assert.Equal(groupIdMap[1], groupIdMap[2]);
 
-        var importedGroup = await context.Groups.SingleAsync();
+        var importedGroup = await context.Groups.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Imported Group", importedGroup.Name);
         Assert.Equal("Alias", importedGroup.Aliases);
         Assert.Equal(120, importedGroup.Duration);
@@ -1963,7 +1957,7 @@ INSERT INTO groups_scenes (scene_id, group_id, scene_index) VALUES (10, 1, 1);
                 await using var context = CreateContext();
 
                 await using var stash = new SqliteConnection("Data Source=:memory:");
-                await stash.OpenAsync();
+                await stash.OpenAsync(TestContext.Current.CancellationToken);
                 var legacyLikeCounterColumn = "o" + "_counter";
                 await ExecuteSqlAsync(stash, $@"
 CREATE TABLE folders (
@@ -2089,9 +2083,9 @@ INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1)
                         galleryImport.GalleryFileIdMap,
                         CancellationToken.None);
 
-                var importedImageFile = await context.ImageFiles.SingleAsync();
-                var importedFolder = await context.Folders.SingleAsync(folder => folder.Path.Contains("archive.zip"));
-                var importedGalleryFile = await context.GalleryFiles.SingleAsync();
+                var importedImageFile = await context.ImageFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+                var importedFolder = await context.Folders.SingleAsync(folder => folder.Path.Contains("archive.zip"), cancellationToken: TestContext.Current.CancellationToken);
+                var importedGalleryFile = await context.GalleryFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
                 Assert.Equal(importedGalleryFile.Id, importedImageFile.ZipFileId);
                 Assert.Equal(importedGalleryFile.Id, importedFolder.ZipFileId);
@@ -2105,10 +2099,10 @@ INSERT INTO galleries_files (gallery_id, file_id, [primary]) VALUES (200, 10, 1)
                 var primaryTag = new Tag { Name = "Favorite" };
                 var secondaryTag = new Tag { Name = "Extra" };
                 context.AddRange(scene, primaryTag, secondaryTag);
-                await context.SaveChangesAsync();
+                await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
                 await using var stash = new SqliteConnection("Data Source=:memory:");
-                await stash.OpenAsync();
+                await stash.OpenAsync(TestContext.Current.CancellationToken);
                 await ExecuteSqlAsync(stash, @"
 CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE scene_markers (
@@ -2142,7 +2136,7 @@ INSERT INTO scene_markers_tags (scene_marker_id, tag_id) VALUES (1, 9);
 
                 Assert.Equal(1, imported);
 
-                var segment = await context.Segments.SingleAsync();
+                var segment = await context.Segments.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
                 Assert.Equal(SegmentHostType.Video, segment.HostType);
                 Assert.Equal(scene.Id, segment.HostId);
                 Assert.Equal(12.5, segment.StartSec);
@@ -2169,10 +2163,10 @@ INSERT INTO scene_markers_tags (scene_marker_id, tag_id) VALUES (1, 9);
                 var aiChildTag = new Tag { Name = "AI Child" };
                 var manualTag = new Tag { Name = "Manual" };
                 context.AddRange(scene, aiTag, aiChildTag, manualTag);
-                await context.SaveChangesAsync();
+                await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
                 await using var stash = new SqliteConnection("Data Source=:memory:");
-                await stash.OpenAsync();
+                await stash.OpenAsync(TestContext.Current.CancellationToken);
                 await ExecuteSqlAsync(stash, @"
 CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE tags_relations (parent_id INTEGER NOT NULL, child_id INTEGER NOT NULL);
@@ -2209,7 +2203,7 @@ VALUES
 
                 Assert.Equal(1, imported);
 
-                var segments = await context.Segments.ToListAsync();
+                var segments = await context.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
                 var segment = Assert.Single(segments);
                 Assert.Equal(manualTag.Id, segment.TagId);
                 Assert.Equal(3L, segment.RefId);

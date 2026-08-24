@@ -35,7 +35,7 @@ public class StreamServiceTests
                         }
                     }
                 });
-                await sprite.SaveAsJpegAsync(spritePath);
+                await sprite.SaveAsJpegAsync(spritePath, cancellationToken: TestContext.Current.CancellationToken);
             }
 
             await File.WriteAllTextAsync(vttPath, """
@@ -46,7 +46,7 @@ public class StreamServiceTests
 
                 00:00:05.000 --> 00:00:10.000
                 stashhash_sprite.jpg#xywh=160,0,160,90
-                """);
+                """, TestContext.Current.CancellationToken);
 
             var service = new StreamService(null!, new FakeThumbnailService(timestampPath, animatedPath, spritePath, vttPath), null!);
 
@@ -59,7 +59,7 @@ public class StreamServiceTests
             Assert.Equal("image/jpeg", segmentPreview.Value.contentType);
 
             await using var stream = screenshot.Value.stream;
-            using var image = await Image.LoadAsync<Rgba32>(stream);
+            using var image = await Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
 
             Assert.Equal(160, image.Width);
             Assert.Equal(90, image.Height);

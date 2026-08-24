@@ -18,7 +18,7 @@ public class PerformerScrapeServiceTests
         await using var context = CreateContext();
         var performer = new Performer { Name = "Original Name" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new PerformerScrapeService(context, null!);
         var scraped = new ScrapedPerformerDto
@@ -31,15 +31,15 @@ public class PerformerScrapeServiceTests
             TagNames = ["Tag One", "Tag Two"],
         };
 
-        await service.ApplyAsync(performer, scraped, createMissingTags: true);
-        await context.SaveChangesAsync();
+        await service.ApplyAsync(performer, scraped, createMissingTags: true, ct: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var updated = await context.Performers
             .Include(item => item.Urls)
             .Include(item => item.Aliases)
             .Include(item => item.PerformerTags)
             .ThenInclude(item => item.Tag)
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Updated Name", updated.Name);
         Assert.Equal("US", updated.Country);
@@ -47,7 +47,7 @@ public class PerformerScrapeServiceTests
         Assert.Contains(updated.Urls, item => item.Url == "https://site.example/models/updated-name");
         Assert.Contains(updated.Aliases, item => item.Alias == "Alt Name");
         Assert.Equal(2, updated.PerformerTags.Count);
-        Assert.Equal(2, await context.Tags.CountAsync());
+        Assert.Equal(2, await context.Tags.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class PerformerScrapeServiceTests
         await using var context = CreateContext();
         var performer = new Performer { Name = "Original Name" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new PerformerScrapeService(context, null!);
         var scraped = new ScrapedPerformerDto
@@ -65,13 +65,13 @@ public class PerformerScrapeServiceTests
             Urls = ["https://site.example/models/original-name"],
         };
 
-        await service.ApplyAsync(performer, scraped, createMissingTags: false);
-        await context.SaveChangesAsync();
+        await service.ApplyAsync(performer, scraped, createMissingTags: false, ct: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var updated = await context.Performers
             .Include(item => item.PerformerTags)
             .Include(item => item.Urls)
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Empty(updated.PerformerTags);
         Assert.Empty(context.Tags);
@@ -84,7 +84,7 @@ public class PerformerScrapeServiceTests
         await using var context = CreateContext();
         var performer = new Performer { Name = "Original Name" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var fieldProvenance = new FieldProvenanceService(context);
         var tagProvenance = new TagProvenanceService(context);
@@ -99,10 +99,10 @@ public class PerformerScrapeServiceTests
             TagNames = ["Tag One"],
         };
 
-        await service.ApplyAsync(performer, scraped, createMissingTags: true);
-        await context.SaveChangesAsync();
+        await service.ApplyAsync(performer, scraped, createMissingTags: true, ct: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var rows = await fieldProvenance.GetForHostAsync(AffinityHostType.Performer, performer.Id);
+        var rows = await fieldProvenance.GetForHostAsync(AffinityHostType.Performer, performer.Id, TestContext.Current.CancellationToken);
         Assert.Contains(rows, row => row.FieldKey == "name" && row.Value.HasValue && row.Value.Value.GetString() == "Updated Name");
         Assert.Contains(rows, row => row.FieldKey == "details" && row.Value.HasValue && row.Value.Value.GetString() == "Imported biography");
         Assert.Contains(rows, row => row.FieldKey == "birthdate" && row.Value.HasValue && row.Value.Value.GetString() == "2024-05-01");
@@ -112,8 +112,8 @@ public class PerformerScrapeServiceTests
         Assert.True(urls.Value.HasValue);
         Assert.Contains(urls.Value.Value.EnumerateArray(), value => value.GetString() == "https://site.example/models/updated-name");
 
-        var tag = await context.Tags.SingleAsync();
-        var application = await context.TagApplications.SingleAsync();
+        var tag = await context.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var application = await context.TagApplications.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(AffinityHostType.Performer, application.HostType);
         Assert.Equal(performer.Id, application.HostId);
         Assert.Equal(tag.Id, application.TagId);
@@ -126,7 +126,7 @@ public class PerformerScrapeServiceTests
         await using var context = CreateContext();
         var performer = new Performer { Name = "Original Name", ImageBlobId = "old-blob" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var blobService = new FakeBlobService();
         var httpClientFactory = new FakeHttpClientFactory(new HttpClient(new StubHttpMessageHandler(() =>
@@ -145,7 +145,7 @@ public class PerformerScrapeServiceTests
             ImageUrl = "https://site.example/images/updated.jpg",
         };
 
-        await service.ApplyAsync(performer, scraped, createMissingTags: false);
+        await service.ApplyAsync(performer, scraped, createMissingTags: false, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal("blob-1", performer.ImageBlobId);
         Assert.Contains("old-blob", blobService.DeletedBlobIds);
