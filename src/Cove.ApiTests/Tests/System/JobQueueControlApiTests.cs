@@ -21,36 +21,34 @@ public sealed class JobQueueControlApiTests(
     {
         var remotePerformer = AsMetadataService().CreatePerformer(
             new MetadataServicePerformerBuilder().Build());
-        var localPerformer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var localPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(remotePerformer.Performer.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
         var viewerUsername = $"job-control-viewer-{Guid.NewGuid():N}";
         const string viewerPassword = "Job control viewer password 123!";
         await AsUser().CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
 
         using var requestGate = AsMetadataService().HoldNextRequestContaining("query SearchPerformer");
-        var blockingJob = await AsUser(ApiTestUsers.Eva).StartPerformerMetadataBatchTagAsync(
-            new MetadataServerPerformerBatchTagRequestDto
+        var blockingJob = await AsUser(ApiTestUsers.Eva).StartPerformerMetadataBatchTagAsync(new MetadataServerPerformerBatchTagRequestDto
             {
                 Endpoint = remotePerformer.Endpoint.AbsoluteUri,
                 Ids = [localPerformer.Id],
                 RefreshAlreadyTagged = true,
-            });
+            }, TestContext.Current.CancellationToken);
         blockingJob.ItemCount.Should().Be(1);
-        await requestGate.WaitUntilBlockedAsync();
-        (await AsUser().GetJobAsync(blockingJob.JobId)).Status.Should().Be(JobStatus.Running);
+        await requestGate.WaitUntilBlockedAsync(TestContext.Current.CancellationToken);
+        (await AsUser().GetJobAsync(blockingJob.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Running);
 
-        var scanJobId = await AsUser(ApiTestUsers.Eva).StartLibraryScanJobAsync();
-        var thumbnailJobId = await AsUser(ApiTestUsers.Eva).StartThumbnailGenerationJobAsync();
-        var phashJobId = await AsUser(ApiTestUsers.Eva).StartImagePhashGenerationJobAsync();
+        var scanJobId = await AsUser(ApiTestUsers.Eva).StartLibraryScanJobAsync(TestContext.Current.CancellationToken);
+        var thumbnailJobId = await AsUser(ApiTestUsers.Eva).StartThumbnailGenerationJobAsync(TestContext.Current.CancellationToken);
+        var phashJobId = await AsUser(ApiTestUsers.Eva).StartImagePhashGenerationJobAsync(TestContext.Current.CancellationToken);
 
         AssertLiveQueue(
-            await AsUser().GetJobsAsync(),
+            await AsUser().GetJobsAsync(TestContext.Current.CancellationToken),
             (blockingJob.JobId, JobStatus.Running),
             (scanJobId, JobStatus.Pending),
             (thumbnailJobId, JobStatus.Pending),
@@ -78,25 +76,25 @@ public sealed class JobQueueControlApiTests(
             new { BeforeJobId = scanJobId })).Should().Be(HttpStatusCode.NotFound);
 
         AssertLiveQueue(
-            await AsUser().GetJobsAsync(),
+            await AsUser().GetJobsAsync(TestContext.Current.CancellationToken),
             (blockingJob.JobId, JobStatus.Running),
             (scanJobId, JobStatus.Pending),
             (thumbnailJobId, JobStatus.Pending),
             (phashJobId, JobStatus.Pending));
-        (await AsUser().GetJobHistoryAsync()).Should().BeEmpty();
+        (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
 
-        await AsUser().ReorderJobAsync(phashJobId, scanJobId);
+        await AsUser().ReorderJobAsync(phashJobId, scanJobId, TestContext.Current.CancellationToken);
         AssertLiveQueue(
-            await AsUser().GetJobsAsync(),
+            await AsUser().GetJobsAsync(TestContext.Current.CancellationToken),
             (blockingJob.JobId, JobStatus.Running),
             (phashJobId, JobStatus.Pending),
             (scanJobId, JobStatus.Pending),
             (thumbnailJobId, JobStatus.Pending));
 
-        await AsUser().CancelJobAsync(scanJobId);
+        await AsUser().CancelJobAsync(scanJobId, TestContext.Current.CancellationToken);
         AssertCancelled(await WaitForHistoryEntryAsync(scanJobId), scanJobId, "scan");
         AssertLiveQueue(
-            await AsUser().GetJobsAsync(),
+            await AsUser().GetJobsAsync(TestContext.Current.CancellationToken),
             (blockingJob.JobId, JobStatus.Running),
             (phashJobId, JobStatus.Pending),
             (thumbnailJobId, JobStatus.Pending));
@@ -111,7 +109,7 @@ public sealed class JobQueueControlApiTests(
             $"/api/jobs/{scanJobId}/reorder",
             new { BeforeJobId = thumbnailJobId })).Should().Be(HttpStatusCode.NotFound);
 
-        await AsUser().CancelJobAsync(blockingJob.JobId);
+        await AsUser().CancelJobAsync(blockingJob.JobId, TestContext.Current.CancellationToken);
         requestGate.Release();
         AssertCancelled(
             await WaitForHistoryEntryAsync(blockingJob.JobId),
@@ -123,8 +121,8 @@ public sealed class JobQueueControlApiTests(
         var completedThumbnail = await WaitForHistoryEntryAsync(thumbnailJobId);
         AssertCompleted(completedThumbnail, thumbnailJobId, "generate_thumbnails");
 
-        (await AsUser().GetJobsAsync()).Should().BeEmpty();
-        var history = await AsUser().GetJobHistoryAsync();
+        (await AsUser().GetJobsAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        var history = await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken);
         history.Select(job => job.Id).Should().Equal(
             thumbnailJobId,
             phashJobId,
@@ -135,10 +133,10 @@ public sealed class JobQueueControlApiTests(
             JobStatus.Completed,
             JobStatus.Cancelled,
             JobStatus.Cancelled);
-        (await viewerSession.Client.GetJobHistoryAsync()).Select(job => job.Id)
+        (await viewerSession.Client.GetJobHistoryAsync(TestContext.Current.CancellationToken)).Select(job => job.Id)
             .Should().Equal(history.Select(job => job.Id));
 
-        var unchangedPerformer = await AsUser().GetPerformerByIdAsync(localPerformer.Id);
+        var unchangedPerformer = await AsUser().GetPerformerByIdAsync(localPerformer.Id, TestContext.Current.CancellationToken);
         unchangedPerformer.Name.Should().Be(localPerformer.Name);
         unchangedPerformer.RemoteIds.Should().BeEmpty();
     }

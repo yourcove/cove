@@ -16,15 +16,15 @@ public sealed class SystemFfmpegCapabilitiesApiTests(
         var noReadRole = $"No system read {suffix}";
         var noReadUsername = $"ffmpeg-capabilities-none-{suffix}";
         const string noReadPassword = "FFmpeg capabilities no access 123!";
-        await AsUser().CreateRoleAsync(new CreateRoleRequest(noReadRole, "API test role without system read", []));
-        await AsUser().CreateUserAsync(new CreateUserRequest(noReadUsername, noReadPassword, Roles: [noReadRole]));
-        using var noReadSession = await AsUser().CreateAuthSessionAsync(noReadUsername, noReadPassword);
+        await AsUser().CreateRoleAsync(new CreateRoleRequest(noReadRole, "API test role without system read", []), TestContext.Current.CancellationToken);
+        await AsUser().CreateUserAsync(new CreateUserRequest(noReadUsername, noReadPassword, Roles: [noReadRole]), TestContext.Current.CancellationToken);
+        using var noReadSession = await AsUser().CreateAuthSessionAsync(noReadUsername, noReadPassword, TestContext.Current.CancellationToken);
 
         var forbidden = () => noReadSession.Client.GetFfmpegCapabilitiesAsync();
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
 
-        var first = await AsUser().GetFfmpegCapabilitiesAsync();
-        var second = await AsUser().GetFfmpegCapabilitiesAsync();
+        var first = await AsUser().GetFfmpegCapabilitiesAsync(TestContext.Current.CancellationToken);
+        var second = await AsUser().GetFfmpegCapabilitiesAsync(TestContext.Current.CancellationToken);
 
         second.Should().BeEquivalentTo(first);
         first.ProbedAtUtc.Should().BeOnOrBefore(DateTime.UtcNow).And.BeAfter(DateTime.UtcNow.AddMinutes(-5));

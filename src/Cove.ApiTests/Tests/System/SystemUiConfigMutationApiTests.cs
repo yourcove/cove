@@ -16,12 +16,12 @@ public sealed class SystemUiConfigMutationApiTests(
     [CoversEndpoint("PUT", "/api/system/config/ui/{key}")]
     public async Task GivenTaskLocalUiConfiguration_WhenOwnerMergesAndSetsValues_ThenChangesPersistWithoutReplacingOtherValues()
     {
-        var original = await AsUser().GetSystemConfigAsync();
+        var original = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
         var dataRoot = Path.GetDirectoryName(AsTestFileSystem().GeneratedPath)
             ?? throw new InvalidOperationException("The generated path has no data-root parent.");
         var configPath = Path.Combine(dataRoot, "cove-config.json");
         var configExisted = File.Exists(configPath);
-        var priorBytes = configExisted ? await File.ReadAllBytesAsync(configPath) : null;
+        var priorBytes = configExisted ? await File.ReadAllBytesAsync(configPath, TestContext.Current.CancellationToken) : null;
         var mergedTitle = $"API test UI {Guid.NewGuid():N}";
         var mergedAbbreviation = !original.Ui.AbbreviateCounters;
         var individualAbLoop = !original.Ui.ShowAbLoopControls;
@@ -72,24 +72,18 @@ public sealed class SystemUiConfigMutationApiTests(
             await forbiddenSetting.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 403 (Forbidden)*");
             await AssertConfigFileStateAsync(configPath, configExisted, priorBytes);
-            AssertUiUnchanged(await AsUser().GetSystemConfigAsync(), original);
+            AssertUiUnchanged(await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken), original);
 
-            var mergedResult = await AsUser().ConfigureSystemUiAsync(mergeInput);
-            var afterMerge = await AsUser().GetSystemConfigAsync();
-            var settingResult = await AsUser().ConfigureSystemUiSettingAsync(
-                "showAbLoopControls",
-                individualAbLoop);
-            var afterSetting = await AsUser().GetSystemConfigAsync();
-            var nestedResult = await AsUser().ConfigureSystemUiSettingAsync(
-                "RatingSystemOptions.StarPrecision",
-                nestedPrecision);
-            var afterNested = await AsUser().GetSystemConfigAsync();
-            var openDictionaryResult = await AsUser().ConfigureSystemUiSettingAsync(
-                $"keybindingOverrides.{dottedBindingKey}",
-                dottedBindingValue);
-            var afterOpenDictionary = await AsUser().GetSystemConfigAsync();
+            var mergedResult = await AsUser().ConfigureSystemUiAsync(mergeInput, TestContext.Current.CancellationToken);
+            var afterMerge = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
+            var settingResult = await AsUser().ConfigureSystemUiSettingAsync("showAbLoopControls", individualAbLoop, TestContext.Current.CancellationToken);
+            var afterSetting = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
+            var nestedResult = await AsUser().ConfigureSystemUiSettingAsync("RatingSystemOptions.StarPrecision", nestedPrecision, TestContext.Current.CancellationToken);
+            var afterNested = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
+            var openDictionaryResult = await AsUser().ConfigureSystemUiSettingAsync($"keybindingOverrides.{dottedBindingKey}", dottedBindingValue, TestContext.Current.CancellationToken);
+            var afterOpenDictionary = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
 
-            var beforeInvalidBytes = await File.ReadAllBytesAsync(configPath);
+            var beforeInvalidBytes = await File.ReadAllBytesAsync(configPath, TestContext.Current.CancellationToken);
             async Task AssertInvalidAsync(Func<Task> request)
             {
                 await request.Should().ThrowAsync<InvalidOperationException>()
@@ -136,12 +130,12 @@ public sealed class SystemUiConfigMutationApiTests(
                 .ConfigureSystemUiSettingAsync("keybindingOverrides", duplicateBindings));
             await AssertInvalidAsync(() => AsUser()
                 .ConfigureSystemUiSettingAsync("showAbLoopControls", "not-a-boolean"));
-            var afterInvalid = await AsUser().GetSystemConfigAsync();
+            var afterInvalid = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
 
             File.Exists(configPath).Should().BeTrue();
-            (await File.ReadAllBytesAsync(configPath)).Should().Equal(beforeInvalidBytes);
+            (await File.ReadAllBytesAsync(configPath, TestContext.Current.CancellationToken)).Should().Equal(beforeInvalidBytes);
             var persisted = JsonSerializer.Deserialize<CoveConfigDto>(
-                await File.ReadAllTextAsync(configPath),
+                await File.ReadAllTextAsync(configPath, TestContext.Current.CancellationToken),
                 ApiJson.Options);
             persisted.Should().NotBeNull();
 
@@ -201,13 +195,13 @@ public sealed class SystemUiConfigMutationApiTests(
         {
             try
             {
-                await AsUser().SaveSystemConfigAsync(original);
-                AssertUiUnchanged(await AsUser().GetSystemConfigAsync(), original);
+                await AsUser().SaveSystemConfigAsync(original, TestContext.Current.CancellationToken);
+                AssertUiUnchanged(await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken), original);
             }
             finally
             {
                 if (configExisted)
-                    await File.WriteAllBytesAsync(configPath, priorBytes!);
+                    await File.WriteAllBytesAsync(configPath, priorBytes!, TestContext.Current.CancellationToken);
                 else if (File.Exists(configPath))
                     File.Delete(configPath);
             }

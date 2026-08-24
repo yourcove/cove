@@ -13,12 +13,12 @@ public sealed class SystemConfigMutationApiTests(
     [CoversEndpoint("PUT", "/api/system/config")]
     public async Task GivenTaskLocalConfiguration_WhenOwnerUpdatesIt_ThenPermissionsPersistenceAndRestorationAreExact()
     {
-        var original = await AsUser().GetSystemConfigAsync();
+        var original = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
         var dataRoot = Path.GetDirectoryName(AsTestFileSystem().GeneratedPath)
             ?? throw new InvalidOperationException("The generated path has no data-root parent.");
         var configPath = Path.Combine(dataRoot, "cove-config.json");
         var configExisted = File.Exists(configPath);
-        var priorBytes = configExisted ? await File.ReadAllBytesAsync(configPath) : null;
+        var priorBytes = configExisted ? await File.ReadAllBytesAsync(configPath, TestContext.Current.CancellationToken) : null;
         var title = $"API test config {Guid.NewGuid():N}";
         var maxConcurrentDownloads = original.MaxConcurrentDownloads == int.MaxValue
             ? original.MaxConcurrentDownloads - 1
@@ -40,19 +40,19 @@ public sealed class SystemConfigMutationApiTests(
             await forbidden.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 403 (Forbidden)*");
             await AssertConfigFileStateAsync(configPath, configExisted, priorBytes);
-            AssertSafeFields(await AsUser().GetSystemConfigAsync(), original);
+            AssertSafeFields(await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken), original);
 
-            var response = await AsUser().SaveSystemConfigAsync(update);
+            var response = await AsUser().SaveSystemConfigAsync(update, TestContext.Current.CancellationToken);
             AssertUpdated(response, title, maxConcurrentDownloads, language, !original.DeleteGeneratedDefault);
 
-            var fresh = await AsUser().GetSystemConfigAsync();
+            var fresh = await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken);
             AssertUpdated(fresh, title, maxConcurrentDownloads, language, !original.DeleteGeneratedDefault);
             fresh.Scraping.MetadataServers.Select(server => server.Endpoint)
                 .Should().Equal(original.Scraping.MetadataServers.Select(server => server.Endpoint));
 
             File.Exists(configPath).Should().BeTrue();
             var persisted = JsonSerializer.Deserialize<CoveConfigDto>(
-                await File.ReadAllTextAsync(configPath),
+                await File.ReadAllTextAsync(configPath, TestContext.Current.CancellationToken),
                 ApiJson.Options);
             persisted.Should().NotBeNull();
             AssertUpdated(
@@ -66,13 +66,13 @@ public sealed class SystemConfigMutationApiTests(
         {
             try
             {
-                await AsUser().SaveSystemConfigAsync(original);
-                AssertSafeFields(await AsUser().GetSystemConfigAsync(), original);
+                await AsUser().SaveSystemConfigAsync(original, TestContext.Current.CancellationToken);
+                AssertSafeFields(await AsUser().GetSystemConfigAsync(TestContext.Current.CancellationToken), original);
             }
             finally
             {
                 if (configExisted)
-                    await File.WriteAllBytesAsync(configPath, priorBytes!);
+                    await File.WriteAllBytesAsync(configPath, priorBytes!, TestContext.Current.CancellationToken);
                 else if (File.Exists(configPath))
                     File.Delete(configPath);
             }

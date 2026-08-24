@@ -23,18 +23,18 @@ public sealed class FileRevealApiTests(
         var filePath = AsTestFileSystem().CreateLibraryNestedFile(
             Path.Combine(revealDirectoryName, $"file target {suffix}.txt"),
             Encoding.UTF8.GetBytes("file reveal fixture"));
-        var video = await AsUser().CreateVideoFromFileAsync(filePath);
+        var video = await AsUser().CreateVideoFromFileAsync(filePath, TestContext.Current.CancellationToken);
         var file = video.Files.Should().ContainSingle().Which;
-        var folderId = await AsDbUser().GetFileParentFolderIdAsync(file.Id);
+        var folderId = await AsDbUser().GetFileParentFolderIdAsync(file.Id, TestContext.Current.CancellationToken);
 
         var missingDirectoryName = $"missing-reveal-{suffix}";
         var missingDirectory = AsTestFileSystem().CreateLibraryDirectory(missingDirectoryName);
         var missingFilePath = AsTestFileSystem().CreateLibraryNestedFile(
             Path.Combine(missingDirectoryName, "missing.txt"),
             Encoding.UTF8.GetBytes("missing reveal fixture"));
-        var missingVideo = await AsUser().CreateVideoFromFileAsync(missingFilePath);
+        var missingVideo = await AsUser().CreateVideoFromFileAsync(missingFilePath, TestContext.Current.CancellationToken);
         var missingFile = missingVideo.Files.Should().ContainSingle().Which;
-        var missingFolderId = await AsDbUser().GetFileParentFolderIdAsync(missingFile.Id);
+        var missingFolderId = await AsDbUser().GetFileParentFolderIdAsync(missingFile.Id, TestContext.Current.CancellationToken);
         AsTestFileSystem().DeleteLibraryFile(missingFilePath);
         Directory.Delete(missingDirectory);
 
@@ -44,8 +44,8 @@ public sealed class FileRevealApiTests(
             viewerUsername,
             viewerPassword,
             DisplayName: "File Reveal Viewer",
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
         var forbiddenFile = () => viewerSession.Client.RevealFileInManagerAsync(file.Id);
         var forbiddenFolder = () => viewerSession.Client.RevealFolderInManagerAsync(folderId);
         await forbiddenFile.Should().ThrowAsync<InvalidOperationException>()
@@ -53,14 +53,14 @@ public sealed class FileRevealApiTests(
         await forbiddenFolder.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
 
-        var memberRole = (await AsUser().GetRolesAsync())
+        var memberRole = (await AsUser().GetRolesAsync(TestContext.Current.CancellationToken))
             .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
         var readDeny = await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.File,
             file.Id.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
             "deny",
-            "read"));
+            "read"), TestContext.Current.CancellationToken);
         try
         {
             var entityForbidden = () => AsUser(ApiTestUsers.Eva).RevealFileInManagerAsync(file.Id);
@@ -69,7 +69,7 @@ public sealed class FileRevealApiTests(
         }
         finally
         {
-            await AsUser().DeleteEntityOverrideAsync(readDeny.Id);
+            await AsUser().DeleteEntityOverrideAsync(readDeny.Id, TestContext.Current.CancellationToken);
         }
 
         var missingFileId = () => AsUser(ApiTestUsers.Eva).RevealFileInManagerAsync(int.MaxValue);
@@ -86,12 +86,12 @@ public sealed class FileRevealApiTests(
             .WithMessage("*returned 404 (NotFound)*");
         AsFileManagerRecorder().ReadInvocations().Should().BeEmpty();
 
-        await AsUser(ApiTestUsers.Eva).RevealFileInManagerAsync(file.Id);
-        (await AsFileManagerRecorder().WaitForInvocationsAsync(1)).Should().Equal(
+        await AsUser(ApiTestUsers.Eva).RevealFileInManagerAsync(file.Id, TestContext.Current.CancellationToken);
+        (await AsFileManagerRecorder().WaitForInvocationsAsync(1, TestContext.Current.CancellationToken)).Should().Equal(
             new FileManagerInvocation("file", filePath));
 
-        await AsUser(ApiTestUsers.Eva).RevealFolderInManagerAsync(folderId);
-        (await AsFileManagerRecorder().WaitForInvocationsAsync(2)).Should().Equal(
+        await AsUser(ApiTestUsers.Eva).RevealFolderInManagerAsync(folderId, TestContext.Current.CancellationToken);
+        (await AsFileManagerRecorder().WaitForInvocationsAsync(2, TestContext.Current.CancellationToken)).Should().Equal(
             new FileManagerInvocation("file", filePath),
             new FileManagerInvocation("folder", folderPath));
     }

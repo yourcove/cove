@@ -16,17 +16,16 @@ public sealed class FileAndMigrationEndpointApiTests(
     public async Task GivenPerformer_WhenImageIsUploaded_ThenImageCanBeRead()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
         var image = ApiTestImages.OnePixelPng();
 
         // Act
-        await AsUser().UploadPerformerImageAsync(performer, image);
+        await AsUser().UploadPerformerImageAsync(performer, image, TestContext.Current.CancellationToken);
 
         // Assert
-        var uploaded = await AsUser().GetPerformerImageAsync(performer);
+        var uploaded = await AsUser().GetPerformerImageAsync(performer, TestContext.Current.CancellationToken);
         uploaded.MediaType.Should().Be("image/png");
         uploaded.Content.Should().Equal(image);
     }
@@ -39,7 +38,7 @@ public sealed class FileAndMigrationEndpointApiTests(
         var filePath = AsTestFileSystem().CreateTextFile("API test file");
 
         // Act
-        var entries = await AsUser().BrowseDirectoryAsync(AsTestFileSystem().LibraryPath);
+        var entries = await AsUser().BrowseDirectoryAsync(AsTestFileSystem().LibraryPath, TestContext.Current.CancellationToken);
 
         // Assert
         entries.Should().Contain(entry => entry.Path == filePath && !entry.IsDirectory);
@@ -50,10 +49,10 @@ public sealed class FileAndMigrationEndpointApiTests(
     public async Task GivenEmptyStashDatabase_WhenMigrationIsPreviewed_ThenPreviewIsValidAndEmpty()
     {
         // Arrange
-        var databasePath = await AsTestFileSystem().CreateEmptyStashDatabaseAsync();
+        var databasePath = await AsTestFileSystem().CreateEmptyStashDatabaseAsync(TestContext.Current.CancellationToken);
 
         // Act
-        var preview = await AsUser().PreviewStashMigrationAsync(databasePath);
+        var preview = await AsUser().PreviewStashMigrationAsync(databasePath, TestContext.Current.CancellationToken);
 
         // Assert
         preview.IsValid.Should().BeTrue();
@@ -75,9 +74,9 @@ public sealed class FileAndMigrationEndpointApiTests(
     [CoversEndpoint("GET", "/api/stash-migration/import/{jobid}")]
     public async Task GivenImportableEmptyStashDatabase_WhenImportRuns_ThenJobResultAndExistingStateAreExact()
     {
-        var databasePath = await AsTestFileSystem().CreateImportableEmptyStashDatabaseAsync();
-        var control = await AsUser().CreateVideoAsync($"Stash import control {Guid.NewGuid():N}");
-        var historyBefore = (await AsUser().GetJobHistoryAsync()).Select(job => job.Id).ToArray();
+        var databasePath = await AsTestFileSystem().CreateImportableEmptyStashDatabaseAsync(TestContext.Current.CancellationToken);
+        var control = await AsUser().CreateVideoAsync($"Stash import control {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var historyBefore = (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Select(job => job.Id).ToArray();
 
         var forbidden = () => AsUser(ApiTestUsers.Eva).StartStashImportAsync(
             databasePath,
@@ -89,13 +88,11 @@ public sealed class FileAndMigrationEndpointApiTests(
             .WithMessage("*returned 403 (Forbidden)*");
         await invalid.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 400 (BadRequest)*");
-        (await AsUser().GetJobHistoryAsync()).Select(job => job.Id).Should().Equal(historyBefore);
-        (await AsUser().GetVideoByIdAsync(control.Id)).Title.Should().Be(control.Title);
+        (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Select(job => job.Id).Should().Equal(historyBefore);
+        (await AsUser().GetVideoByIdAsync(control.Id, TestContext.Current.CancellationToken)).Title.Should().Be(control.Title);
 
-        var jobId = await AsUser().StartStashImportAsync(
-            databasePath,
-            migrateGeneratedContent: false);
-        var completed = await AsUser().WaitForTerminalJobAsync(jobId);
+        var jobId = await AsUser().StartStashImportAsync(databasePath, migrateGeneratedContent: false, cancellationToken: TestContext.Current.CancellationToken);
+        var completed = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
         completed.Id.Should().Be(jobId);
         completed.Type.Should().Be("stash-import");
         completed.Status.Should().Be(JobStatus.Completed);
@@ -109,7 +106,7 @@ public sealed class FileAndMigrationEndpointApiTests(
         await missingResult.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
 
-        var result = await AsUser().GetStashImportResultAsync(jobId);
+        var result = await AsUser().GetStashImportResultAsync(jobId, TestContext.Current.CancellationToken);
         new[]
         {
             result.Videos,
@@ -120,8 +117,8 @@ public sealed class FileAndMigrationEndpointApiTests(
             result.Images,
             result.Galleries,
         }.Should().OnlyContain(count => count == 0);
-        (await AsUser().GetVideoByIdAsync(control.Id)).Title.Should().Be(control.Title);
-        (await AsUser().GetJobHistoryAsync()).Select(job => job.Id)
+        (await AsUser().GetVideoByIdAsync(control.Id, TestContext.Current.CancellationToken)).Title.Should().Be(control.Title);
+        (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Select(job => job.Id)
             .Should().Equal([jobId, .. historyBefore]);
     }
 }

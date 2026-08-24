@@ -32,29 +32,29 @@ public sealed class DatabaseMaintenanceApiTests(
         await forbiddenBackupJob.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         await forbiddenLatest.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         (await ReadLatestBackupAsync(AsUser())).Should().Be(beforeLatest);
-        (await AsUser().GetJobHistoryAsync()).Should().BeEmpty();
-        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs)).EnumerateArray().Should().BeEmpty();
+        (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs, TestContext.Current.CancellationToken)).EnumerateArray().Should().BeEmpty();
 
-        var migration = await AsUser().MigrateDatabaseAsync();
+        var migration = await AsUser().MigrateDatabaseAsync(TestContext.Current.CancellationToken);
         migration.Message.Should().Be("Database is already up to date");
         migration.AppliedMigrations.Should().BeEmpty();
         migration.PendingMigrations.Should().BeEmpty();
         migration.PreMigrationBackupPath.Should().BeNull();
         migration.MigrationRequired.Should().BeFalse();
 
-        (await AsUser().OptimizeDatabaseAsync()).Message.Should().Be("Database optimized");
+        (await AsUser().OptimizeDatabaseAsync(TestContext.Current.CancellationToken)).Message.Should().Be("Database optimized");
 
         var startedAt = DateTime.UtcNow.AddSeconds(-1);
-        var backup = await AsUser().BackupDatabaseAsync();
+        var backup = await AsUser().BackupDatabaseAsync(TestContext.Current.CancellationToken);
         AssertBackupFile(backup.BackupPath, backup.SizeBytes, backup.Timestamp, startedAt);
 
-        var latestAfterDirect = await AsUser().GetLatestDatabaseBackupAsync();
+        var latestAfterDirect = await AsUser().GetLatestDatabaseBackupAsync(TestContext.Current.CancellationToken);
         latestAfterDirect.Path.Should().Be(backup.BackupPath);
 
         await WaitForNextBackupTimestampAsync(backup.Timestamp);
         var jobStartedAt = DateTime.UtcNow.AddSeconds(-1);
-        var backupJobId = await AsUser().StartDatabaseBackupJobAsync();
-        var completed = await AsUser().WaitForTerminalJobAsync(backupJobId);
+        var backupJobId = await AsUser().StartDatabaseBackupJobAsync(TestContext.Current.CancellationToken);
+        var completed = await AsUser().WaitForTerminalJobAsync(backupJobId, TestContext.Current.CancellationToken);
         completed.Id.Should().Be(backupJobId);
         completed.Type.Should().Be("backup");
         completed.Description.Should().Be("Backing up database");
@@ -63,7 +63,7 @@ public sealed class DatabaseMaintenanceApiTests(
         completed.Error.Should().BeNull();
         completed.CompletedAt.Should().NotBeNull().And.BeOnOrAfter(completed.StartedAt);
 
-        var latestAfterJob = await AsUser().GetLatestDatabaseBackupAsync();
+        var latestAfterJob = await AsUser().GetLatestDatabaseBackupAsync(TestContext.Current.CancellationToken);
         latestAfterJob.Path.Should().NotBe(backup.BackupPath);
         File.Exists(latestAfterJob.Path).Should().BeTrue();
         var latestFile = new FileInfo(latestAfterJob.Path);
@@ -71,14 +71,14 @@ public sealed class DatabaseMaintenanceApiTests(
         latestFile.LastWriteTimeUtc.Should().BeOnOrAfter(jobStartedAt).And.BeOnOrBefore(DateTime.UtcNow.AddSeconds(1));
         Path.GetDirectoryName(latestAfterJob.Path).Should().Be(Path.GetDirectoryName(backup.BackupPath));
         Path.GetFileName(latestAfterJob.Path).Should().StartWith("cove_backup_").And.EndWith("_manual.sql");
-        var historyJob = (await AsUser().GetJobHistoryAsync()).Should().ContainSingle().Which;
+        var historyJob = (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().ContainSingle().Which;
         historyJob.Id.Should().Be(backupJobId);
         historyJob.Type.Should().Be("backup");
         historyJob.Description.Should().Be("Backing up database");
         historyJob.Status.Should().Be(JobStatus.Completed);
         historyJob.Progress.Should().Be(1);
         historyJob.Error.Should().BeNull();
-        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs)).EnumerateArray().Should().BeEmpty();
+        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs, TestContext.Current.CancellationToken)).EnumerateArray().Should().BeEmpty();
     }
 
     private static async Task<(HttpStatusCode Status, string? Path)> ReadLatestBackupAsync(CoveClient client)

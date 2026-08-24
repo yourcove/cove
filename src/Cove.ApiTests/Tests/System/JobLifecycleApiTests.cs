@@ -26,45 +26,45 @@ public sealed class JobLifecycleApiTests(
         await AsUser().CreateUserAsync(new CreateUserRequest(
             viewerUsername,
             viewerPassword,
-            Roles: [BuiltinRoles.Viewer]));
-        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword);
+            Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
+        using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
 
-        (await AsUser().GetJobHistoryAsync()).Should().BeEmpty();
-        (await viewerSession.Client.GetJobHistoryAsync()).Should().BeEmpty();
-        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs)).EnumerateArray().Should().BeEmpty();
+        (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await viewerSession.Client.GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs, TestContext.Current.CancellationToken)).EnumerateArray().Should().BeEmpty();
 
         (await SendForStatusAsync(viewerSession.Client, "/api/jobs/scan"))
             .Should().Be(HttpStatusCode.Forbidden);
         (await SendForStatusAsync(AsUser(ApiTestUsers.Eva), "/api/jobs/clean?dryRun=true"))
             .Should().Be(HttpStatusCode.Forbidden);
-        (await AsUser().GetJobHistoryAsync()).Should().BeEmpty();
-        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs)).EnumerateArray().Should().BeEmpty();
+        (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await AsUser().ReadEndpointAsync(ReadEndpoint.Jobs, TestContext.Current.CancellationToken)).EnumerateArray().Should().BeEmpty();
 
         var completed = new List<JobInfo>();
         completed.Add(await WaitForCompletedJobAsync(
-            await AsUser(ApiTestUsers.Eva).StartLibraryScanJobAsync(),
+            await AsUser(ApiTestUsers.Eva).StartLibraryScanJobAsync(TestContext.Current.CancellationToken),
             "scan",
             "Scanning library"));
         completed.Add(await WaitForCompletedJobAsync(
-            await AsUser(ApiTestUsers.Eva).StartThumbnailGenerationJobAsync(),
+            await AsUser(ApiTestUsers.Eva).StartThumbnailGenerationJobAsync(TestContext.Current.CancellationToken),
             "generate_thumbnails",
             "Generating thumbnails"));
         completed.Add(await WaitForCompletedJobAsync(
-            await AsUser(ApiTestUsers.Eva).StartVideoPhashGenerationJobAsync(),
+            await AsUser(ApiTestUsers.Eva).StartVideoPhashGenerationJobAsync(TestContext.Current.CancellationToken),
             "generate_video_phashes",
             "Generating video pHashes"));
         completed.Add(await WaitForCompletedJobAsync(
-            await AsUser(ApiTestUsers.Eva).StartImagePhashGenerationJobAsync(),
+            await AsUser(ApiTestUsers.Eva).StartImagePhashGenerationJobAsync(TestContext.Current.CancellationToken),
             "generate_image_phashes",
             "Generating image pHashes"));
         completed.Add(await WaitForCompletedJobAsync(
-            await AsUser().StartLibraryCleanJobAsync(dryRun: true),
+            await AsUser().StartLibraryCleanJobAsync(dryRun: true, cancellationToken: TestContext.Current.CancellationToken),
             "clean",
             "Cleaning (dry run)"));
 
         var expectedHistory = completed.AsEnumerable().Reverse().ToArray();
-        AssertHistory(await AsUser().GetJobHistoryAsync(), expectedHistory);
-        AssertHistory(await viewerSession.Client.GetJobHistoryAsync(), expectedHistory);
+        AssertHistory(await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken), expectedHistory);
+        AssertHistory(await viewerSession.Client.GetJobHistoryAsync(TestContext.Current.CancellationToken), expectedHistory);
     }
 
     private async Task<JobInfo> WaitForCompletedJobAsync(

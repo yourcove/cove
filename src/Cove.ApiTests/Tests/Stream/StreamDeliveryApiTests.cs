@@ -28,7 +28,7 @@ public sealed class StreamDeliveryApiTests(
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/hls/master.m3u8")]
     public async Task GivenVideoSourcesAndGeneratedAssets_WhenStreamRoutesAreRead_ThenBytesRangesCachesAndPlaylistAreExact()
     {
-        var video = await AsUser().CreateVideoAsync($"Stream delivery {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Stream delivery {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var sourceBytes = "api-test-video-source"u8.ToArray();
         var previewBytes = "api-test-preview"u8.ToArray();
         var screenshotBytes = await CreateImageAsync("jpeg", 12, 8);
@@ -43,22 +43,22 @@ public sealed class StreamDeliveryApiTests(
         fileSystem.CreateVideoSegmentPreview(video.Id, 7, segmentPreviewBytes);
         fileSystem.CreateVideoSprite(video.Id, spriteBytes);
         fileSystem.CreateVideoSpriteVtt(video.Id, vtt);
-        await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12);
-        await AsUser().UploadVideoImageAsync(video, customScreenshot);
+        await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12, cancellationToken: TestContext.Current.CancellationToken);
+        await AsUser().UploadVideoImageAsync(video, customScreenshot, cancellationToken: TestContext.Current.CancellationToken);
 
         using var client = AsUser().CreateHttpClient();
         using var videoRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/video/{video.Id}");
         videoRequest.Headers.Range = new RangeHeaderValue(1, 4);
-        using var videoResponse = await client.SendAsync(videoRequest);
-        (await videoResponse.Content.ReadAsByteArrayAsync()).Should().Equal(sourceBytes[1..5]);
+        using var videoResponse = await client.SendAsync(videoRequest, TestContext.Current.CancellationToken);
+        (await videoResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(sourceBytes[1..5]);
         videoResponse.StatusCode.Should().Be(HttpStatusCode.PartialContent);
         videoResponse.Content.Headers.ContentType?.MediaType.Should().Be("video/mp4");
         videoResponse.Content.Headers.ContentRange?.ToString().Should().Be($"bytes 1-4/{sourceBytes.Length}");
         videoResponse.Headers.AcceptRanges.Should().Equal("bytes");
 
-        using var customResponse = await client.GetAsync($"/api/stream/video/{video.Id}/screenshot");
+        using var customResponse = await client.GetAsync($"/api/stream/video/{video.Id}/screenshot", TestContext.Current.CancellationToken);
         customResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await customResponse.Content.ReadAsByteArrayAsync()).Should().Equal(customScreenshot);
+        (await customResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(customScreenshot);
         customResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
         customResponse.Headers.CacheControl.Should().NotBeNull();
         customResponse.Headers.CacheControl!.NoStore.Should().BeTrue();
@@ -66,53 +66,52 @@ public sealed class StreamDeliveryApiTests(
         customResponse.Headers.CacheControl.MustRevalidate.Should().BeTrue();
         customResponse.Headers.CacheControl.MaxAge.Should().Be(TimeSpan.Zero);
 
-        using var generatedResponse = await client.GetAsync($"/api/stream/video/{video.Id}/screenshot?seconds=7");
+        using var generatedResponse = await client.GetAsync($"/api/stream/video/{video.Id}/screenshot?seconds=7", TestContext.Current.CancellationToken);
         generatedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await generatedResponse.Content.ReadAsByteArrayAsync()).Should().Equal(screenshotBytes);
+        (await generatedResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(screenshotBytes);
         generatedResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/jpeg");
         generatedResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
-        using var segmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/segment-preview?seconds=7");
+        using var segmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/segment-preview?seconds=7", TestContext.Current.CancellationToken);
         segmentResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await segmentResponse.Content.ReadAsByteArrayAsync()).Should().Equal(segmentPreviewBytes);
+        (await segmentResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(segmentPreviewBytes);
         segmentResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/webp");
         segmentResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
         using var previewRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/video/{video.Id}/preview");
         previewRequest.Headers.Range = new RangeHeaderValue(2, 5);
-        using var previewResponse = await client.SendAsync(previewRequest);
+        using var previewResponse = await client.SendAsync(previewRequest, TestContext.Current.CancellationToken);
         previewResponse.StatusCode.Should().Be(HttpStatusCode.PartialContent);
-        (await previewResponse.Content.ReadAsByteArrayAsync()).Should().Equal(previewBytes[2..6]);
+        (await previewResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(previewBytes[2..6]);
         previewResponse.Content.Headers.ContentType?.MediaType.Should().Be("video/mp4");
         previewResponse.Content.Headers.ContentRange?.ToString().Should().Be($"bytes 2-5/{previewBytes.Length}");
         previewResponse.Headers.AcceptRanges.Should().Equal("bytes");
         previewResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
         using var headRequest = new HttpRequestMessage(HttpMethod.Head, $"/api/stream/video/{video.Id}/preview");
-        using var headResponse = await client.SendAsync(headRequest);
+        using var headResponse = await client.SendAsync(headRequest, TestContext.Current.CancellationToken);
         headResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         headResponse.Content.Headers.ContentType?.MediaType.Should().Be("video/mp4");
         headResponse.Content.Headers.ContentLength.Should().Be(previewBytes.Length);
-        (await headResponse.Content.ReadAsByteArrayAsync()).Should().BeEmpty();
+        (await headResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
         headResponse.Headers.AcceptRanges.Should().Equal("bytes");
         headResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
-        using var spriteResponse = await client.GetAsync($"/api/stream/video/{video.Id}/sprite");
+        using var spriteResponse = await client.GetAsync($"/api/stream/video/{video.Id}/sprite", TestContext.Current.CancellationToken);
         spriteResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await spriteResponse.Content.ReadAsByteArrayAsync()).Should().Equal(spriteBytes);
+        (await spriteResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(spriteBytes);
         spriteResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/jpeg");
         spriteResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
-        using var vttResponse = await client.GetAsync($"/api/stream/video/{video.Id}/vtt/thumbs");
+        using var vttResponse = await client.GetAsync($"/api/stream/video/{video.Id}/vtt/thumbs", TestContext.Current.CancellationToken);
         vttResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await vttResponse.Content.ReadAsStringAsync()).Should().Be(vtt);
+        (await vttResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Be(vtt);
         vttResponse.Content.Headers.ContentType?.MediaType.Should().Be("text/vtt");
         vttResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
         var propagatedQuery = $"access_token={Uri.EscapeDataString(AsUser().AccessToken)}";
-        using var hlsResponse = await client.GetAsync(
-            $"/api/stream/video/{video.Id}/hls/master.m3u8?{propagatedQuery}&ignored=secret");
-        var playlist = await hlsResponse.Content.ReadAsStringAsync();
+        using var hlsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/master.m3u8?{propagatedQuery}&ignored=secret", TestContext.Current.CancellationToken);
+        var playlist = await hlsResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         hlsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         hlsResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/vnd.apple.mpegurl");
         hlsResponse.Headers.CacheControl?.ToString().Should().Be("no-cache");
@@ -129,8 +128,8 @@ public sealed class StreamDeliveryApiTests(
     [CoversEndpoint("GET", "/api/stream/video/{videoid:int}/resolutions")]
     public async Task GivenVideoCaptionSidecarsAndCachedSegment_WhenEncoderFreeStreamRoutesAreRead_ThenVisibilityContentAndProfilesAreExact()
     {
-        var video = await AsUser().CreateVideoAsync($"Stream caption video {Guid.NewGuid():N}");
-        var otherVideo = await AsUser().CreateVideoAsync($"Other stream caption video {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Stream caption video {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var otherVideo = await AsUser().CreateVideoAsync($"Other stream caption video {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var fileSystem = AsTestFileSystem();
         var sourcePath = fileSystem.CreateLibraryFile($"stream-caption-{video.Id}.mp4", "stream-caption-source"u8.ToArray());
         var vttFilename = $"stream-caption-{video.Id}.en.vtt";
@@ -139,24 +138,24 @@ public sealed class StreamDeliveryApiTests(
         const string srt = "1\n00:00:00,000 --> 00:00:01,000\nSpanish fixture caption\n";
         fileSystem.CreateLibraryFile(vttFilename, Encoding.UTF8.GetBytes(vtt));
         var srtPath = fileSystem.CreateLibraryFile(srtFilename, Encoding.UTF8.GetBytes(srt));
-        await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12);
-        var vttCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, vttFilename, "en", "vtt");
-        var srtCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, srtFilename, "es", "srt");
+        await AsDbUser().AttachStreamVideoFileAsync(video.Id, sourcePath, width: 1280, height: 720, duration: 12, cancellationToken: TestContext.Current.CancellationToken);
+        var vttCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, vttFilename, "en", "vtt", TestContext.Current.CancellationToken);
+        var srtCaptionId = await AsDbUser().AttachStreamVideoCaptionAsync(video.Id, srtFilename, "es", "srt", TestContext.Current.CancellationToken);
         const string segment = "720p_0000.ts";
         var segmentBytes = "api-test-hls-segment"u8.ToArray();
         fileSystem.CreateGeneratedFile(
             Path.Combine("transcodes", "hls", video.Id.ToString(CultureInfo.InvariantCulture), segment),
             segmentBytes);
 
-        var memberRole = (await AsUser().GetRolesAsync())
+        var memberRole = (await AsUser().GetRolesAsync(TestContext.Current.CancellationToken))
             .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
         var readDeny = await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.Video,
             video.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
-            "read"));
-        using (var memberSession = await AsUser().CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
+            "read"), TestContext.Current.CancellationToken);
+        using (var memberSession = await AsUser().CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password, TestContext.Current.CancellationToken))
         using (var memberClient = memberSession.Client.CreateHttpClient())
         {
             await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/captions", "application/json");
@@ -164,13 +163,13 @@ public sealed class StreamDeliveryApiTests(
             await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/hls/segment/{segment}", "video/mp2t");
             await AssertHiddenAsync(memberClient, $"/api/stream/video/{video.Id}/resolutions", "application/json");
         }
-        await AsUser().DeleteEntityOverrideAsync(readDeny.Id);
+        await AsUser().DeleteEntityOverrideAsync(readDeny.Id, TestContext.Current.CancellationToken);
 
         using var client = AsUser().CreateHttpClient();
-        using var captionsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/captions");
+        using var captionsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/captions", TestContext.Current.CancellationToken);
         captionsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         captionsResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
-        var captions = await captionsResponse.Content.ReadFromJsonAsync<List<StreamCaptionResponse>>();
+        var captions = await captionsResponse.Content.ReadFromJsonAsync<List<StreamCaptionResponse>>(cancellationToken: TestContext.Current.CancellationToken);
         captions.Should().NotBeNull();
         captions.Should().BeEquivalentTo(
         [
@@ -178,58 +177,58 @@ public sealed class StreamDeliveryApiTests(
             new StreamCaptionResponse(srtCaptionId, "es", "srt", srtFilename),
         ]);
 
-        using var vttResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{vttCaptionId}");
+        using var vttResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{vttCaptionId}", TestContext.Current.CancellationToken);
         vttResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await vttResponse.Content.ReadAsStringAsync()).Should().Be(vtt);
+        (await vttResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Be(vtt);
         vttResponse.Content.Headers.ContentType?.MediaType.Should().Be("text/vtt");
         vttResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=3600");
 
-        using (var srtResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{srtCaptionId}"))
+        using (var srtResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{srtCaptionId}", TestContext.Current.CancellationToken))
         {
             srtResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            (await srtResponse.Content.ReadAsStringAsync()).Should().Be(srt);
+            (await srtResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Be(srt);
             srtResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/x-subrip");
             srtResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=3600");
         }
         fileSystem.DeleteLibraryFile(srtPath);
-        using var missingSidecarResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{srtCaptionId}");
+        using var missingSidecarResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{srtCaptionId}", TestContext.Current.CancellationToken);
         missingSidecarResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
-        using var segmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/segment/{segment}");
+        using var segmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/segment/{segment}", TestContext.Current.CancellationToken);
         segmentResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await segmentResponse.Content.ReadAsByteArrayAsync()).Should().Equal(segmentBytes);
+        (await segmentResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(segmentBytes);
         segmentResponse.Content.Headers.ContentType?.MediaType.Should().Be("video/mp2t");
         segmentResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
-        using var resolutionsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/resolutions");
+        using var resolutionsResponse = await client.GetAsync($"/api/stream/video/{video.Id}/resolutions", TestContext.Current.CancellationToken);
         resolutionsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         resolutionsResponse.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
-        (await resolutionsResponse.Content.ReadFromJsonAsync<string[]>()).Should().Equal("240p", "360p", "480p", "720p");
+        (await resolutionsResponse.Content.ReadFromJsonAsync<string[]>(cancellationToken: TestContext.Current.CancellationToken)).Should().Equal("240p", "360p", "480p", "720p");
 
-        using var wrongParentCaptionResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/caption/{vttCaptionId}");
+        using var wrongParentCaptionResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/caption/{vttCaptionId}", TestContext.Current.CancellationToken);
         wrongParentCaptionResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var missingCaptionResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{int.MaxValue}");
+        using var missingCaptionResponse = await client.GetAsync($"/api/stream/video/{video.Id}/caption/{int.MaxValue}", TestContext.Current.CancellationToken);
         missingCaptionResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var otherCaptionsResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/captions");
+        using var otherCaptionsResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/captions", TestContext.Current.CancellationToken);
         otherCaptionsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await otherCaptionsResponse.Content.ReadFromJsonAsync<List<StreamCaptionResponse>>()).Should().BeEmpty();
-        using var missingCaptionsResponse = await client.GetAsync($"/api/stream/video/{int.MaxValue}/captions");
+        (await otherCaptionsResponse.Content.ReadFromJsonAsync<List<StreamCaptionResponse>>(cancellationToken: TestContext.Current.CancellationToken)).Should().BeEmpty();
+        using var missingCaptionsResponse = await client.GetAsync($"/api/stream/video/{int.MaxValue}/captions", TestContext.Current.CancellationToken);
         missingCaptionsResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var missingSegmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/segment/missing.ts");
+        using var missingSegmentResponse = await client.GetAsync($"/api/stream/video/{video.Id}/hls/segment/missing.ts", TestContext.Current.CancellationToken);
         missingSegmentResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var otherSegmentResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/hls/segment/{segment}");
+        using var otherSegmentResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/hls/segment/{segment}", TestContext.Current.CancellationToken);
         otherSegmentResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var missingResolutionsResponse = await client.GetAsync($"/api/stream/video/{int.MaxValue}/resolutions");
+        using var missingResolutionsResponse = await client.GetAsync($"/api/stream/video/{int.MaxValue}/resolutions", TestContext.Current.CancellationToken);
         missingResolutionsResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        using var filelessResolutionsResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/resolutions");
+        using var filelessResolutionsResponse = await client.GetAsync($"/api/stream/video/{otherVideo.Id}/resolutions", TestContext.Current.CancellationToken);
         filelessResolutionsResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         var noPermissionUsername = $"stream-video-no-permission-{Guid.NewGuid():N}";
         const string noPermissionPassword = "Stream video password 123!";
-        await AsUser().CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []));
-        using var noPermissionSession = await AsUser().CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword);
+        await AsUser().CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []), TestContext.Current.CancellationToken);
+        using var noPermissionSession = await AsUser().CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword, TestContext.Current.CancellationToken);
         using var noPermissionClient = noPermissionSession.Client.CreateHttpClient();
-        using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/video/{video.Id}/captions");
+        using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/video/{video.Id}/captions", TestContext.Current.CancellationToken);
         forbiddenResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
@@ -239,10 +238,10 @@ public sealed class StreamDeliveryApiTests(
     [CoversEndpoint("GET", "/api/stream/detection/{detectionid:int}/crop")]
     public async Task GivenImageSourceAndDetection_WhenStreamRoutesAreRead_ThenRangeAndDecodableCropAreReturned()
     {
-        var image = await AsUser().CreateImageAsync($"Stream image {Guid.NewGuid():N}");
+        var image = await AsUser().CreateImageAsync($"Stream image {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var imageBytes = await CreateImageAsync("png", 160, 120);
         var imagePath = AsTestFileSystem().CreateLibraryFile($"stream-{image.Id}.png", imageBytes);
-        await AsDbUser().AttachStreamImageFileAsync(image.Id, imagePath, width: 160, height: 120);
+        await AsDbUser().AttachStreamImageFileAsync(image.Id, imagePath, width: 160, height: 120, cancellationToken: TestContext.Current.CancellationToken);
         var detection = await AsUser().CreateImageDetectionAsync(image, new DetectionCreateDto(
             ObservedAtSec: null,
             FrameWidth: 160,
@@ -258,43 +257,43 @@ public sealed class StreamDeliveryApiTests(
             RefId: null,
             GroupKey: null,
             SourceKey: "api-test",
-            SourceRunId: null));
+            SourceRunId: null), TestContext.Current.CancellationToken);
 
-        var memberRole = (await AsUser().GetRolesAsync())
+        var memberRole = (await AsUser().GetRolesAsync(TestContext.Current.CancellationToken))
             .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
         var readDeny = await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.Image,
             image.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
-            "read"));
-        using (var memberSession = await AsUser().CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password))
+            "read"), TestContext.Current.CancellationToken);
+        using (var memberSession = await AsUser().CreateAuthSessionAsync(ApiTestUsers.Eva, ApiTestUsers.Password, TestContext.Current.CancellationToken))
         using (var memberClient = memberSession.Client.CreateHttpClient())
         {
-            using var deniedImageResponse = await memberClient.GetAsync($"/api/stream/image/{image.Id}");
+            using var deniedImageResponse = await memberClient.GetAsync($"/api/stream/image/{image.Id}", TestContext.Current.CancellationToken);
             deniedImageResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
             deniedImageResponse.Content.Headers.ContentType?.MediaType.Should().NotBe("image/png");
 
-            using var deniedThumbnailResponse = await memberClient.GetAsync($"/api/stream/image/{image.Id}/thumbnail?max=64");
+            using var deniedThumbnailResponse = await memberClient.GetAsync($"/api/stream/image/{image.Id}/thumbnail?max=64", TestContext.Current.CancellationToken);
             deniedThumbnailResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
             deniedThumbnailResponse.Content.Headers.ContentType?.MediaType.Should().NotBe("image/png");
         }
         Directory.EnumerateFiles(AsTestFileSystem().GeneratedPath, "*", SearchOption.AllDirectories).Should().BeEmpty();
-        await AsUser().DeleteEntityOverrideAsync(readDeny.Id);
+        await AsUser().DeleteEntityOverrideAsync(readDeny.Id, TestContext.Current.CancellationToken);
 
         using var client = AsUser().CreateHttpClient();
         using var imageRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/image/{image.Id}");
         imageRequest.Headers.Range = new RangeHeaderValue(0, 7);
-        using var imageResponse = await client.SendAsync(imageRequest);
+        using var imageResponse = await client.SendAsync(imageRequest, TestContext.Current.CancellationToken);
         imageResponse.StatusCode.Should().Be(HttpStatusCode.PartialContent);
-        (await imageResponse.Content.ReadAsByteArrayAsync()).Should().Equal(imageBytes[..8]);
+        (await imageResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(imageBytes[..8]);
         imageResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
         imageResponse.Content.Headers.ContentRange?.ToString().Should().Be($"bytes 0-7/{imageBytes.Length}");
         imageResponse.Headers.AcceptRanges.Should().Equal("bytes");
         imageResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
-        using var thumbnailResponse = await client.GetAsync($"/api/stream/image/{image.Id}/thumbnail?max=64");
-        var thumbnailBytes = await thumbnailResponse.Content.ReadAsByteArrayAsync();
+        using var thumbnailResponse = await client.GetAsync($"/api/stream/image/{image.Id}/thumbnail?max=64", TestContext.Current.CancellationToken);
+        var thumbnailBytes = await thumbnailResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
         thumbnailResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         thumbnailResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
         thumbnailResponse.Headers.AcceptRanges.Should().Equal("bytes");
@@ -307,16 +306,16 @@ public sealed class StreamDeliveryApiTests(
 
         using var thumbnailRangeRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/stream/image/{image.Id}/thumbnail?max=64");
         thumbnailRangeRequest.Headers.Range = new RangeHeaderValue(1, 4);
-        using var thumbnailRangeResponse = await client.SendAsync(thumbnailRangeRequest);
+        using var thumbnailRangeResponse = await client.SendAsync(thumbnailRangeRequest, TestContext.Current.CancellationToken);
         thumbnailRangeResponse.StatusCode.Should().Be(HttpStatusCode.PartialContent);
-        (await thumbnailRangeResponse.Content.ReadAsByteArrayAsync()).Should().Equal(thumbnailBytes[1..5]);
+        (await thumbnailRangeResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)).Should().Equal(thumbnailBytes[1..5]);
         thumbnailRangeResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
         thumbnailRangeResponse.Content.Headers.ContentRange?.ToString().Should().Be($"bytes 1-4/{thumbnailBytes.Length}");
         thumbnailRangeResponse.Headers.AcceptRanges.Should().Equal("bytes");
         thumbnailRangeResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
 
-        using var cropResponse = await client.GetAsync($"/api/stream/detection/{detection.Id}/crop?max=64");
-        var cropBytes = await cropResponse.Content.ReadAsByteArrayAsync();
+        using var cropResponse = await client.GetAsync($"/api/stream/detection/{detection.Id}/crop?max=64", TestContext.Current.CancellationToken);
+        var cropBytes = await cropResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
         cropResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         cropResponse.Content.Headers.ContentType?.MediaType.Should().Be("image/jpeg");
         cropResponse.Headers.CacheControl?.ToString().Should().Be("public, max-age=86400");
@@ -325,15 +324,15 @@ public sealed class StreamDeliveryApiTests(
         crop.Width.Should().Be(64);
         crop.Height.Should().Be(64);
 
-        using var missingResponse = await client.GetAsync("/api/stream/image/2147483647");
+        using var missingResponse = await client.GetAsync("/api/stream/image/2147483647", TestContext.Current.CancellationToken);
         missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         var noPermissionUsername = $"stream-no-permission-{Guid.NewGuid():N}";
         const string noPermissionPassword = "Stream password 123!";
-        await AsUser().CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []));
-        using var noPermissionSession = await AsUser().CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword);
+        await AsUser().CreateUserAsync(new CreateUserRequest(noPermissionUsername, noPermissionPassword, Roles: []), TestContext.Current.CancellationToken);
+        using var noPermissionSession = await AsUser().CreateAuthSessionAsync(noPermissionUsername, noPermissionPassword, TestContext.Current.CancellationToken);
         using var noPermissionClient = noPermissionSession.Client.CreateHttpClient();
-        using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/image/{image.Id}");
+        using var forbiddenResponse = await noPermissionClient.GetAsync($"/api/stream/image/{image.Id}", TestContext.Current.CancellationToken);
         forbiddenResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 

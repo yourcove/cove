@@ -38,48 +38,47 @@ public sealed class FileOpsApiTests(
             new MoveFilesDto([moved.File.Id], missingDestination));
         await invalidDestination.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 400 (BadRequest)*");
-        AssertSingleFile(await owner.GetVideoByIdAsync(moved.Video.Id), moved, moved.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(moved.Video.Id, TestContext.Current.CancellationToken), moved, moved.Path);
         fileSystem.LibraryFileExists(moved.Path).Should().BeTrue();
 
         fileSystem.DeleteLibraryFile(missing.Path);
-        var missingMove = await member.MoveFilesAsync(new MoveFilesDto([missing.File.Id], destination));
+        var missingMove = await member.MoveFilesAsync(new MoveFilesDto([missing.File.Id], destination), TestContext.Current.CancellationToken);
         missingMove.Moved.Should().Be(0);
         missingMove.Total.Should().Be(1);
-        AssertSingleFile(await owner.GetVideoByIdAsync(missing.Video.Id), missing, missing.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(missing.Video.Id, TestContext.Current.CancellationToken), missing, missing.Path);
         fileSystem.LibraryFileExists(missing.Path).Should().BeFalse();
 
-        var collisionMove = await member.MoveFilesAsync(new MoveFilesDto([collision.File.Id], destination));
+        var collisionMove = await member.MoveFilesAsync(new MoveFilesDto([collision.File.Id], destination), TestContext.Current.CancellationToken);
         collisionMove.Moved.Should().Be(0);
         collisionMove.Total.Should().Be(1);
-        AssertSingleFile(await owner.GetVideoByIdAsync(collision.Video.Id), collision, collision.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(collision.Video.Id, TestContext.Current.CancellationToken), collision, collision.Path);
         fileSystem.LibraryFileExists(collision.Path).Should().BeTrue();
         File.ReadAllBytes(collisionDestination).Should().Equal(collisionBytes);
 
-        var movedResult = await member.MoveFilesAsync(
-            new MoveFilesDto([moved.File.Id, moved.File.Id, int.MaxValue], destination));
+        var movedResult = await member.MoveFilesAsync(new MoveFilesDto([moved.File.Id, moved.File.Id, int.MaxValue], destination), TestContext.Current.CancellationToken);
         movedResult.Moved.Should().Be(1);
         movedResult.Total.Should().Be(1);
         var movedPath = Path.Combine(destination, moved.File.Basename);
-        AssertSingleFile(await owner.GetVideoByIdAsync(moved.Video.Id), moved, movedPath);
+        AssertSingleFile(await owner.GetVideoByIdAsync(moved.Video.Id, TestContext.Current.CancellationToken), moved, movedPath);
         fileSystem.LibraryFileExists(moved.Path).Should().BeFalse();
         fileSystem.LibraryFileExists(movedPath).Should().BeTrue();
         File.ReadAllBytes(movedPath).Should().Equal(Encoding.UTF8.GetBytes("move source"));
-        AssertSingleFile(await owner.GetVideoByIdAsync(control.Video.Id), control, control.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(control.Video.Id, TestContext.Current.CancellationToken), control, control.Path);
         fileSystem.LibraryFileExists(control.Path).Should().BeTrue();
 
         var added = await member.SetFileFingerprintsAsync(new FileSetFingerprintsDto(
             moved.File.Id,
-            [new FingerprintEntryDto("md5", "initial-md5"), new FingerprintEntryDto("oshash", "preserved-oshash")]));
+            [new FingerprintEntryDto("md5", "initial-md5"), new FingerprintEntryDto("oshash", "preserved-oshash")]), TestContext.Current.CancellationToken);
         added.Updated.Should().Be(2);
         var updated = await member.SetFileFingerprintsAsync(new FileSetFingerprintsDto(
             moved.File.Id,
-            [new FingerprintEntryDto("MD5", "updated-md5")]));
+            [new FingerprintEntryDto("MD5", "updated-md5")]), TestContext.Current.CancellationToken);
         updated.Updated.Should().Be(1);
-        var fingerprints = await AsDbUser().GetFileFingerprintsAsync(moved.File.Id);
+        var fingerprints = await AsDbUser().GetFileFingerprintsAsync(moved.File.Id, TestContext.Current.CancellationToken);
         fingerprints.Should().HaveCount(2);
         fingerprints["md5"].Should().Be("updated-md5");
         fingerprints["oshash"].Should().Be("preserved-oshash");
-        var publicFingerprints = (await owner.GetVideoByIdAsync(moved.Video.Id)).Files
+        var publicFingerprints = (await owner.GetVideoByIdAsync(moved.Video.Id, TestContext.Current.CancellationToken)).Files
             .Should().ContainSingle().Which.Fingerprints
             .ToDictionary(fingerprint => fingerprint.Type, fingerprint => fingerprint.Value, StringComparer.OrdinalIgnoreCase);
         publicFingerprints.Should().HaveCount(2);
@@ -91,14 +90,14 @@ public sealed class FileOpsApiTests(
         await missingFingerprintFile.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");
 
-        var memberRole = (await owner.GetRolesAsync())
+        var memberRole = (await owner.GetRolesAsync(TestContext.Current.CancellationToken))
             .Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
         var writeDeny = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.File,
             moved.File.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
-            "write"));
+            "write"), TestContext.Current.CancellationToken);
         var deniedDestination = fileSystem.CreateLibraryDirectory($"file-ops-denied-{suffix}");
         Func<Task> deniedFingerprints = () => member.SetFileFingerprintsAsync(new FileSetFingerprintsDto(
             moved.File.Id,
@@ -110,17 +109,17 @@ public sealed class FileOpsApiTests(
             .WithMessage("*returned 403 (Forbidden)*");
         await deniedMove.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        var afterDeniedFingerprints = (await owner.GetVideoByIdAsync(moved.Video.Id)).Files
+        var afterDeniedFingerprints = (await owner.GetVideoByIdAsync(moved.Video.Id, TestContext.Current.CancellationToken)).Files
             .Should().ContainSingle().Which.Fingerprints
             .ToDictionary(fingerprint => fingerprint.Type, fingerprint => fingerprint.Value, StringComparer.OrdinalIgnoreCase);
         afterDeniedFingerprints.Should().HaveCount(2);
         afterDeniedFingerprints["md5"].Should().Be("updated-md5");
         afterDeniedFingerprints["oshash"].Should().Be("preserved-oshash");
-        AssertSingleFile(await owner.GetVideoByIdAsync(moved.Video.Id), moved, movedPath);
-        AssertSingleFile(await owner.GetVideoByIdAsync(control.Video.Id), control, control.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(moved.Video.Id, TestContext.Current.CancellationToken), moved, movedPath);
+        AssertSingleFile(await owner.GetVideoByIdAsync(control.Video.Id, TestContext.Current.CancellationToken), control, control.Path);
         fileSystem.LibraryFileExists(Path.Combine(deniedDestination, moved.File.Basename)).Should().BeFalse();
         fileSystem.LibraryFileExists(Path.Combine(deniedDestination, control.File.Basename)).Should().BeFalse();
-        await owner.DeleteEntityOverrideAsync(writeDeny.Id);
+        await owner.DeleteEntityOverrideAsync(writeDeny.Id, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -138,26 +137,26 @@ public sealed class FileOpsApiTests(
         Func<Task> deniedDelete = () => member.DeleteFilesAsync(new DeleteFilesDto([recordOnly.File.Id], DeleteFromDisk: true));
         await deniedDelete.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        AssertSingleFile(await owner.GetVideoByIdAsync(recordOnly.Video.Id), recordOnly, recordOnly.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(recordOnly.Video.Id, TestContext.Current.CancellationToken), recordOnly, recordOnly.Path);
         fileSystem.LibraryFileExists(recordOnly.Path).Should().BeTrue();
 
-        var deletedUnknown = await owner.DeleteFilesAsync(new DeleteFilesDto([int.MaxValue], DeleteFromDisk: false));
+        var deletedUnknown = await owner.DeleteFilesAsync(new DeleteFilesDto([int.MaxValue], DeleteFromDisk: false), TestContext.Current.CancellationToken);
         deletedUnknown.Deleted.Should().Be(0);
-        AssertSingleFile(await owner.GetVideoByIdAsync(recordOnly.Video.Id), recordOnly, recordOnly.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(recordOnly.Video.Id, TestContext.Current.CancellationToken), recordOnly, recordOnly.Path);
 
         var deletedRecordOnly = await owner.DeleteFilesAsync(new DeleteFilesDto(
             [recordOnly.File.Id, recordOnly.File.Id, int.MaxValue],
-            DeleteFromDisk: false));
+            DeleteFromDisk: false), TestContext.Current.CancellationToken);
         deletedRecordOnly.Deleted.Should().Be(1);
-        (await owner.GetVideoByIdAsync(recordOnly.Video.Id)).Files.Should().BeEmpty();
+        (await owner.GetVideoByIdAsync(recordOnly.Video.Id, TestContext.Current.CancellationToken)).Files.Should().BeEmpty();
         fileSystem.LibraryFileExists(recordOnly.Path).Should().BeTrue();
 
-        var deletedPhysical = await owner.DeleteFilesAsync(new DeleteFilesDto([physical.File.Id], DeleteFromDisk: true));
+        var deletedPhysical = await owner.DeleteFilesAsync(new DeleteFilesDto([physical.File.Id], DeleteFromDisk: true), TestContext.Current.CancellationToken);
         deletedPhysical.Deleted.Should().Be(1);
-        (await owner.GetVideoByIdAsync(physical.Video.Id)).Files.Should().BeEmpty();
+        (await owner.GetVideoByIdAsync(physical.Video.Id, TestContext.Current.CancellationToken)).Files.Should().BeEmpty();
         fileSystem.LibraryFileExists(physical.Path).Should().BeFalse();
 
-        AssertSingleFile(await owner.GetVideoByIdAsync(control.Video.Id), control, control.Path);
+        AssertSingleFile(await owner.GetVideoByIdAsync(control.Video.Id, TestContext.Current.CancellationToken), control, control.Path);
         fileSystem.LibraryFileExists(control.Path).Should().BeTrue();
     }
 

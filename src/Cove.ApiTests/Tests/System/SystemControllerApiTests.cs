@@ -19,18 +19,18 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
     {
         var source = AsDownloadSource().CreateFile("page.html", "text/html", Encoding.UTF8.GetBytes("<html><head><title>Local [Tag One] page</title><meta name=\"description\" content=\"Local description\"></head><body></body></html>"));
         var eva = AsUser(ApiTestUsers.Eva);
-        (await eva.GetScrapersAsync()).Should().Contain(scraper => scraper.Id == "builtin.generic:text");
-        (await AsUser().ReloadScrapersAsync()).Should().Contain(scraper => scraper.Id == "builtin.generic:text");
-        (await eva.MatchScrapersAsync(new ScraperMatchUrlRequest(source.Uri.AbsoluteUri, "text"))).Select(scraper => scraper.Id).Should().Equal("builtin.generic:text");
+        (await eva.GetScrapersAsync(TestContext.Current.CancellationToken)).Should().Contain(scraper => scraper.Id == "builtin.generic:text");
+        (await AsUser().ReloadScrapersAsync(TestContext.Current.CancellationToken)).Should().Contain(scraper => scraper.Id == "builtin.generic:text");
+        (await eva.MatchScrapersAsync(new ScraperMatchUrlRequest(source.Uri.AbsoluteUri, "text"), TestContext.Current.CancellationToken)).Select(scraper => scraper.Id).Should().Equal("builtin.generic:text");
         var forbiddenReload = () => eva.ReloadScrapersAsync();
         await forbiddenReload.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await eva.GetScrapersAsync()).Should().ContainSingle(scraper => scraper.Id == "builtin.generic:text");
-        var scraped = await eva.ScrapeUrlAsync(new ScrapeUrlRequest("builtin.generic:text", "text", source.Uri.AbsoluteUri));
+        (await eva.GetScrapersAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(scraper => scraper.Id == "builtin.generic:text");
+        var scraped = await eva.ScrapeUrlAsync(new ScrapeUrlRequest("builtin.generic:text", "text", source.Uri.AbsoluteUri), TestContext.Current.CancellationToken);
         scraped.GetProperty("title").GetString().Should().Be("Local page");
         scraped.GetProperty("details").GetString().Should().Be("Local description");
         scraped.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).Should().Equal("Tag One");
         scraped.GetProperty("urls").EnumerateArray().Select(url => url.GetString()).Should().Equal(source.Uri.AbsoluteUri);
-        var automatic = await eva.ScrapeUrlAutoAsync(new ScraperMatchUrlRequest(source.Uri.AbsoluteUri, "text"));
+        var automatic = await eva.ScrapeUrlAutoAsync(new ScraperMatchUrlRequest(source.Uri.AbsoluteUri, "text"), TestContext.Current.CancellationToken);
         automatic.GetProperty("scraperId").GetString().Should().Be("builtin.generic:text");
         var automaticResult = automatic.GetProperty("result");
         automaticResult.GetProperty("title").GetString().Should().Be("Local page");
@@ -48,11 +48,11 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
     [CoversEndpoint("POST", "/api/system/metadata-servers/validate")]
     public async Task GivenLocalMetadataServer_WhenOwnerValidatesIt_ThenAuthenticatedIdentityIsReturned()
     {
-        var result = await AsUser().ValidateMetadataServerAsync(new MetadataServerDto { Endpoint = AsMetadataService().Endpoint.AbsoluteUri, ApiKey = MetadataServiceSimulator.ApiKey, Name = "Local metadata" });
+        var result = await AsUser().ValidateMetadataServerAsync(new MetadataServerDto { Endpoint = AsMetadataService().Endpoint.AbsoluteUri, ApiKey = MetadataServiceSimulator.ApiKey, Name = "Local metadata" }, TestContext.Current.CancellationToken);
         result.Valid.Should().BeTrue();
         result.Username.Should().Be("API test metadata user");
         result.Status.Should().Contain("Successfully authenticated");
-        var invalid = await AsUser().ValidateMetadataServerAsync(new MetadataServerDto { Endpoint = AsMetadataService().Endpoint.AbsoluteUri, ApiKey = "invalid", Name = "Local metadata" });
+        var invalid = await AsUser().ValidateMetadataServerAsync(new MetadataServerDto { Endpoint = AsMetadataService().Endpoint.AbsoluteUri, ApiKey = "invalid", Name = "Local metadata" }, TestContext.Current.CancellationToken);
         invalid.Valid.Should().BeFalse();
         invalid.Username.Should().BeNull();
         invalid.Status.Should().NotBeNullOrWhiteSpace();
@@ -66,7 +66,7 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
         var owner = AsUser();
         var eva = AsUser(ApiTestUsers.Eva);
 
-        var config = await owner.GetSystemConfigAsync();
+        var config = await owner.GetSystemConfigAsync(TestContext.Current.CancellationToken);
         config.Security.Enabled.Should().BeTrue();
         config.CovePaths.Count.Should().Be(1);
         config.CovePaths.All(path => !string.IsNullOrWhiteSpace(path.Path)).Should().BeTrue();
@@ -83,21 +83,21 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
         Uri.TryCreate(ownerMetadataServer.Endpoint, UriKind.Absolute, out var metadataServerUri).Should().BeTrue();
         metadataServerUri!.IsLoopback.Should().BeTrue();
 
-        var memberConfig = await eva.GetSystemConfigAsync();
+        var memberConfig = await eva.GetSystemConfigAsync(TestContext.Current.CancellationToken);
         AssertSensitiveConfigurationIsRedacted(memberConfig, config);
 
-        var baseline = await eva.GetSystemStatsAsync();
-        await owner.CreateVideoAsync(new VideoBuilder().WithTitle($"System stats video {Guid.NewGuid():N}").Build());
-        await owner.CreateImageAsync(new ImageBuilder().WithTitle($"System stats image {Guid.NewGuid():N}").Build());
-        await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"System stats gallery {Guid.NewGuid():N}").Build());
-        await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"System stats performer {Guid.NewGuid():N}").Build());
-        await owner.CreateStudioAsync($"System stats studio {Guid.NewGuid():N}");
-        await owner.CreateTagAsync($"System stats tag {Guid.NewGuid():N}");
-        await owner.CreateGroupAsync($"System stats group {Guid.NewGuid():N}");
-        await owner.CreateAudioAsync(new AudioBuilder().WithTitle($"System stats audio {Guid.NewGuid():N}").Build());
-        await owner.CreateTextAsync(new TextDocumentBuilder().WithTitle($"System stats text {Guid.NewGuid():N}").Build());
+        var baseline = await eva.GetSystemStatsAsync(TestContext.Current.CancellationToken);
+        await owner.CreateVideoAsync(new VideoBuilder().WithTitle($"System stats video {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        await owner.CreateImageAsync(new ImageBuilder().WithTitle($"System stats image {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        await owner.CreateGalleryAsync(new GalleryBuilder().WithTitle($"System stats gallery {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"System stats performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        await owner.CreateStudioAsync($"System stats studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        await owner.CreateTagAsync($"System stats tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        await owner.CreateGroupAsync($"System stats group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        await owner.CreateAudioAsync(new AudioBuilder().WithTitle($"System stats audio {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        await owner.CreateTextAsync(new TextDocumentBuilder().WithTitle($"System stats text {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
 
-        var after = await eva.GetSystemStatsAsync();
+        var after = await eva.GetSystemStatsAsync(TestContext.Current.CancellationToken);
         after.VideoCount.Should().Be(baseline.VideoCount + 1);
         after.ImageCount.Should().Be(baseline.ImageCount + 1);
         after.GalleryCount.Should().Be(baseline.GalleryCount + 1);
@@ -130,48 +130,48 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
     {
         var owner = AsUser();
         var eva = AsUser(ApiTestUsers.Eva);
-        var original = await owner.GetSystemLogLevelAsync();
+        var original = await owner.GetSystemLogLevelAsync(TestContext.Current.CancellationToken);
         var restorationLevel = original.ConfiguredLevel.Equals("Trace", StringComparison.OrdinalIgnoreCase)
             ? "Info"
             : original.ConfiguredLevel;
 
         try
         {
-            var normalized = await owner.SetSystemLogLevelAsync(restorationLevel);
+            var normalized = await owner.SetSystemLogLevelAsync(restorationLevel, TestContext.Current.CancellationToken);
             normalized.Level.Should().Be(restorationLevel);
             normalized.ConfiguredLevel.Should().Be(restorationLevel);
             normalized.TraceExpiresAt.Should().BeNull();
 
             var invalid = () => owner.SetSystemLogLevelAsync("not-a-log-level");
             await invalid.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-            (await owner.GetSystemLogLevelAsync()).Should().BeEquivalentTo(normalized);
+            (await owner.GetSystemLogLevelAsync(TestContext.Current.CancellationToken)).Should().BeEquivalentTo(normalized);
 
             var forbidden = () => eva.SetSystemLogLevelAsync("Warning");
             await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            (await owner.GetSystemLogLevelAsync()).Should().BeEquivalentTo(normalized);
+            (await owner.GetSystemLogLevelAsync(TestContext.Current.CancellationToken)).Should().BeEquivalentTo(normalized);
 
-            var warning = await owner.SetSystemLogLevelAsync("Warning");
+            var warning = await owner.SetSystemLogLevelAsync("Warning", TestContext.Current.CancellationToken);
             warning.Level.Should().Be("Warning");
             warning.ConfiguredLevel.Should().Be("Warning");
             warning.TraceExpiresAt.Should().BeNull();
-            (await owner.GetSystemLogLevelAsync()).Should().BeEquivalentTo(warning);
+            (await owner.GetSystemLogLevelAsync(TestContext.Current.CancellationToken)).Should().BeEquivalentTo(warning);
 
-            var debug = await owner.SetSystemLogLevelAsync("Debug");
+            var debug = await owner.SetSystemLogLevelAsync("Debug", TestContext.Current.CancellationToken);
             debug.Level.Should().Be("Debug");
             debug.ConfiguredLevel.Should().Be("Debug");
             debug.TraceExpiresAt.Should().BeNull();
-            (await owner.GetSystemLogLevelAsync()).Should().BeEquivalentTo(debug);
+            (await owner.GetSystemLogLevelAsync(TestContext.Current.CancellationToken)).Should().BeEquivalentTo(debug);
 
             var traceStartedAt = DateTimeOffset.UtcNow;
-            var trace = await owner.SetSystemLogLevelAsync("Trace");
+            var trace = await owner.SetSystemLogLevelAsync("Trace", TestContext.Current.CancellationToken);
             trace.Level.Should().Be("Trace");
             trace.ConfiguredLevel.Should().Be("Debug");
             trace.TraceExpiresAt.Should().BeAfter(traceStartedAt);
-            (await owner.GetSystemLogLevelAsync()).Should().BeEquivalentTo(trace);
+            (await owner.GetSystemLogLevelAsync(TestContext.Current.CancellationToken)).Should().BeEquivalentTo(trace);
         }
         finally
         {
-            await owner.SetSystemLogLevelAsync(restorationLevel);
+            await owner.SetSystemLogLevelAsync(restorationLevel, TestContext.Current.CancellationToken);
         }
     }
 
@@ -191,8 +191,8 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
         await forbiddenFavicon.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         await forbiddenLogo.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
 
-        var favicon = await owner.UploadFaviconAsync(faviconBytes, $"source-favicon-{Guid.NewGuid():N}.png");
-        var logo = await owner.UploadLogoAsync(logoBytes, $"source-logo-{Guid.NewGuid():N}.png");
+        var favicon = await owner.UploadFaviconAsync(faviconBytes, $"source-favicon-{Guid.NewGuid():N}.png", cancellationToken: TestContext.Current.CancellationToken);
+        var logo = await owner.UploadLogoAsync(logoBytes, $"source-logo-{Guid.NewGuid():N}.png", cancellationToken: TestContext.Current.CancellationToken);
 
         favicon.FileName.Should().StartWith("favicon-").And.EndWith(".png");
         favicon.Path.Should().Be($"/api/system/ui-assets/{favicon.FileName}");
@@ -216,28 +216,27 @@ public sealed class SystemControllerApiTests(ITestOutputHelper output, CoveApiTe
     {
         var owner = AsUser();
         var eva = AsUser(ApiTestUsers.Eva);
-        var studioWithVideo = await owner.CreateStudioAsync($"Recompute source studio {Guid.NewGuid():N}");
-        var studioWithoutVideo = await owner.CreateStudioAsync($"Recompute stale studio {Guid.NewGuid():N}");
-        await owner.CreateVideoAsync(
-            new VideoBuilder()
+        var studioWithVideo = await owner.CreateStudioAsync($"Recompute source studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var studioWithoutVideo = await owner.CreateStudioAsync($"Recompute stale studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        await owner.CreateVideoAsync(new VideoBuilder()
                 .WithTitle($"Recompute source video {Guid.NewGuid():N}")
                 .WithStudio(studioWithVideo)
-                .Build());
-        await AsDbUser().SetStoredStudioVideoCountsAsync(studioWithVideo.Id, studioWithoutVideo.Id);
+                .Build(), TestContext.Current.CancellationToken);
+        await AsDbUser().SetStoredStudioVideoCountsAsync(studioWithVideo.Id, studioWithoutVideo.Id, TestContext.Current.CancellationToken);
 
-        var staleOrder = await eva.GetStudiosAsync("video_count", "desc");
+        var staleOrder = await eva.GetStudiosAsync("video_count", "desc", TestContext.Current.CancellationToken);
         IndexOf(staleOrder, studioWithoutVideo.Id).Should().BeLessThan(IndexOf(staleOrder, studioWithVideo.Id));
         staleOrder.Single(studio => studio.Id == studioWithVideo.Id).VideoCount.Should().Be(1);
         staleOrder.Single(studio => studio.Id == studioWithoutVideo.Id).VideoCount.Should().Be(0);
 
         var forbidden = () => eva.RecomputeDerivedCountsAsync();
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        var stillStale = await eva.GetStudiosAsync("video_count", "desc");
+        var stillStale = await eva.GetStudiosAsync("video_count", "desc", TestContext.Current.CancellationToken);
         IndexOf(stillStale, studioWithoutVideo.Id).Should().BeLessThan(IndexOf(stillStale, studioWithVideo.Id));
 
-        var result = await owner.RecomputeDerivedCountsAsync();
+        var result = await owner.RecomputeDerivedCountsAsync(TestContext.Current.CancellationToken);
         result.EntitiesRecomputed.Should().BeGreaterThan(0);
-        var repairedOrder = await eva.GetStudiosAsync("video_count", "desc");
+        var repairedOrder = await eva.GetStudiosAsync("video_count", "desc", TestContext.Current.CancellationToken);
         IndexOf(repairedOrder, studioWithVideo.Id).Should().BeLessThan(IndexOf(repairedOrder, studioWithoutVideo.Id));
         repairedOrder.Single(studio => studio.Id == studioWithVideo.Id).VideoCount.Should().Be(1);
         repairedOrder.Single(studio => studio.Id == studioWithoutVideo.Id).VideoCount.Should().Be(0);
