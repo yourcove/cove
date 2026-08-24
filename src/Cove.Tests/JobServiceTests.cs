@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
 using Cove.Api.Hubs;
 using Cove.Api.Services;
+using Cove.Core.Auth;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 
@@ -204,6 +205,188 @@ public class JobServiceTests
     }
 
     [Fact]
+    public async Task RunBatchAsync_SchedulesConfiguredWorkersBeforeSynchronousWorkRuns()
+    {
+        IJobService jobs = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        using var bothWorkersEntered = new ManualResetEventSlim();
+        var activeWorkers = 0;
+        var maximumActiveWorkers = 0;
+
+        var result = await jobs.RunBatchAsync(
+            units: new[] { 1, 2 },
+            maxInFlight: 2,
+            work: (_, unit, _) =>
+            {
+                var active = Interlocked.Increment(ref activeWorkers);
+                UpdateMaximum(ref maximumActiveWorkers, active);
+                if (active == 2)
+                    bothWorkersEntered.Set();
+
+                try
+                {
+                    if (!bothWorkersEntered.Wait(TimeSpan.FromSeconds(5)))
+                        throw new TimeoutException("The configured workers did not overlap.");
+                    unit.Complete(JobUnitOutcome.Succeeded);
+                    return Task.CompletedTask;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref activeWorkers);
+                }
+            },
+            progress: new NoOpJobProgress());
+
+        Assert.Equal(2, maximumActiveWorkers);
+        Assert.Equal(2, result.SucceededUnits);
+        Assert.Equal(0, result.FailedUnits);
+    }
+
+    [Fact]
+    public async Task DeclaredUnitsExposeStableTotalsBeforeTheFirstUnitStarts()
+    {
+        var hub = new FakeHubContext();
+        var service = new JobService(new EventBus(), hub, NullLogger<JobService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            var declared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var jobId = service.Enqueue("delete", "Deleting images", async (progress, ct) =>
+            {
+                progress.DeclareUnits(Enumerable.Range(1, 5_000).Select(id => (id.ToString(), (string?)"Deleting image")));
+                declared.SetResult();
+                await release.Task.WaitAsync(ct);
+                foreach (var id in Enumerable.Range(1, 5_000))
+                {
+                    using var unit = progress.StartUnit(id.ToString(), "Deleting image");
+                    unit.Complete(JobUnitOutcome.Succeeded);
+                }
+            });
+
+            await declared.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var running = service.GetJob(jobId);
+            Assert.NotNull(running);
+            Assert.Equal(5_000, running.UnitsTotal);
+            Assert.Equal(0, running.UnitsCompleted);
+            Assert.Equal(0d, running.Progress);
+
+            release.SetResult();
+            var completed = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+            Assert.Equal(5_000, completed?.UnitsCompleted);
+            Assert.InRange(hub.SendCount, 1, 20);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task DeclaredUnitCountExposesStableTotalsWithoutPreallocatingUnitRecords()
+    {
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            var declared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var jobId = service.Enqueue("delete", "Deleting library entities", async (progress, ct) =>
+            {
+                progress.DeclareUnitCount(250_000);
+                declared.SetResult();
+                await release.Task.WaitAsync(ct);
+            });
+
+            await declared.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var running = service.GetJob(jobId);
+            Assert.NotNull(running);
+            Assert.Equal(250_000, running.UnitsTotal);
+            Assert.Equal(0, running.UnitsCompleted);
+            Assert.Equal(0, service.GetTrackedUnitCountForTests(jobId));
+
+            release.SetResult();
+            await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task OwnedJobsAreVisibleOnlyToTheirOwnerUnlessGlobalAccessIsGranted()
+    {
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            var owner = new JobOwner("user:41");
+            var otherOwner = new JobOwner("user:73");
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var jobId = service.EnqueueOwned(
+                owner,
+                "duplicate-search",
+                "Finding duplicate videos",
+                async (_, ct) => await release.Task.WaitAsync(ct),
+                resultUrl: "/duplicates?search=test-search");
+
+            Assert.NotNull(service.GetJobFor(owner, jobId, includeAll: false));
+            Assert.Null(service.GetJobFor(otherOwner, jobId, includeAll: false));
+            Assert.Equal(jobId, Assert.Single(service.GetAllJobsFor(owner, includeAll: false)).Id);
+            Assert.Empty(service.GetAllJobsFor(otherOwner, includeAll: false));
+
+            var globallyVisible = service.GetJobFor(otherOwner, jobId, includeAll: true);
+            Assert.NotNull(globallyVisible);
+            Assert.Equal("/duplicates?search=test-search", globallyVisible.ResultUrl);
+
+            release.SetResult();
+            await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+            Assert.Equal(jobId, Assert.Single(service.GetJobHistoryFor(owner, includeAll: false)).Id);
+            Assert.Empty(service.GetJobHistoryFor(otherOwner, includeAll: false));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task LegacyEnqueueOwnsARequestOriginatedJobFromTheAmbientPrincipal()
+    {
+        var principals = new CurrentPrincipalAccessor();
+        principals.Set(new CovePrincipal
+        {
+            UserId = 41,
+            Username = "request-user",
+            Kind = PrincipalKind.User,
+            Roles = new HashSet<string>(),
+            Permissions = new HashSet<string>(),
+        });
+        var service = new JobService(
+            new EventBus(),
+            new FakeHubContext(),
+            NullLogger<JobService>.Instance,
+            principals);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await service.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var jobId = service.Enqueue("request-job", "Request job", (_, _) => release.Task);
+            var owner = new JobOwner("user:41");
+
+            Assert.NotNull(service.GetJobFor(owner, jobId, includeAll: false));
+            Assert.Null(service.GetJobFor(new JobOwner("user:42"), jobId, includeAll: false));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+            principals.Set(null);
+        }
+    }
+
+    [Fact]
     public async Task CancellingJob_MarksCancelled_AndProcessorKeepsRunning()
     {
         var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
@@ -242,6 +425,57 @@ public class JobServiceTests
             var next = await WaitForTerminalStateAsync(service, nextId, TimeSpan.FromSeconds(5));
             Assert.NotNull(next);
             Assert.Equal(JobStatus.Completed, next.Status);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task RunningCancellationRemainsActiveUntilInFlightWorkUnwinds()
+    {
+        var service = new JobService(new EventBus(), new FakeHubContext(), NullLogger<JobService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cancellationObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var jobId = service.Enqueue(
+                "image-bulk-delete",
+                "Deleting images",
+                async (_, ct) =>
+                {
+                    started.SetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.Infinite, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        cancellationObserved.SetResult();
+                        await release.Task;
+                        throw;
+                    }
+                });
+
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(service.Cancel(jobId));
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var stillRunning = Assert.Single(service.GetAllJobs());
+            Assert.Equal(jobId, stillRunning.Id);
+            Assert.Equal(JobStatus.Running, stillRunning.Status);
+            Assert.Equal("Cancellation requested", stillRunning.SubTask);
+            Assert.Null(stillRunning.CompletedAt);
+            Assert.Empty(service.GetJobHistory());
+
+            release.SetResult();
+            var cancelled = await WaitForTerminalStateAsync(service, jobId, TimeSpan.FromSeconds(5));
+            Assert.Equal(JobStatus.Cancelled, cancelled?.Status);
+            Assert.NotNull(cancelled?.CompletedAt);
         }
         finally
         {
@@ -329,38 +563,66 @@ public class JobServiceTests
 
     private sealed class FakeHubContext : IHubContext<JobHub>
     {
-        public IHubClients Clients { get; } = new FakeHubClients();
+        private readonly FakeClientProxy _proxy = new();
+        public FakeHubContext() => Clients = new FakeHubClients(_proxy);
+        public int SendCount => _proxy.SendCount;
+        public IHubClients Clients { get; }
 
         public IGroupManager Groups { get; } = new FakeGroupManager();
     }
 
+    private static void UpdateMaximum(ref int target, int candidate)
+    {
+        var current = Volatile.Read(ref target);
+        while (candidate > current)
+        {
+            var observed = Interlocked.CompareExchange(ref target, candidate, current);
+            if (observed == current)
+                return;
+            current = observed;
+        }
+    }
+
+    private sealed class NoOpJobProgress : IJobProgress
+    {
+        public void Report(double progress, string? subTask = null)
+        {
+        }
+    }
+
     private sealed class FakeHubClients : IHubClients
     {
-        private static readonly IClientProxy Proxy = new FakeClientProxy();
+        private readonly IClientProxy _proxy;
+        public FakeHubClients(IClientProxy proxy) => _proxy = proxy;
 
-        public IClientProxy All => Proxy;
+        public IClientProxy All => _proxy;
 
-        public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => Proxy;
+        public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => _proxy;
 
-        public IClientProxy Client(string connectionId) => Proxy;
+        public IClientProxy Client(string connectionId) => _proxy;
 
-        public IClientProxy Clients(IReadOnlyList<string> connectionIds) => Proxy;
+        public IClientProxy Clients(IReadOnlyList<string> connectionIds) => _proxy;
 
-        public IClientProxy Group(string groupName) => Proxy;
+        public IClientProxy Group(string groupName) => _proxy;
 
-        public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => Proxy;
+        public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => _proxy;
 
-        public IClientProxy Groups(IReadOnlyList<string> groupNames) => Proxy;
+        public IClientProxy Groups(IReadOnlyList<string> groupNames) => _proxy;
 
-        public IClientProxy User(string userId) => Proxy;
+        public IClientProxy User(string userId) => _proxy;
 
-        public IClientProxy Users(IReadOnlyList<string> userIds) => Proxy;
+        public IClientProxy Users(IReadOnlyList<string> userIds) => _proxy;
     }
 
     private sealed class FakeClientProxy : IClientProxy
     {
+        private int _sendCount;
+        public int SendCount => Volatile.Read(ref _sendCount);
         public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            Interlocked.Increment(ref _sendCount);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeGroupManager : IGroupManager
