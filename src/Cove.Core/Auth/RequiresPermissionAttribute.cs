@@ -28,6 +28,19 @@ public sealed class RequiresPermissionAttribute : Attribute
 }
 
 /// <summary>
+/// Requires an additional permission when a model-bound boolean action argument (or one of its
+/// properties) is true. The corresponding action filter runs before entity-level authorization so
+/// dangerous physical-file intent is rejected before a large id set is inspected.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+public sealed class RequiresPermissionWhenTrueAttribute(string permission) : Attribute
+{
+    public string Permission { get; } = permission;
+    public string ActionArgumentName { get; init; } = string.Empty;
+    public string? PropertyName { get; init; }
+}
+
+/// <summary>
 /// Marks a controller or action as exempt from the global default-deny filter.
 /// The action still goes through standard authentication, but no permission check
 /// is required (e.g. /api/auth/login, /api/system/status).
@@ -51,6 +64,11 @@ public sealed class RequiresEntityAccessAttribute : Attribute
     public string? RouteValueName { get; init; } = "id";
     public string? ActionArgumentName { get; init; }
     public string? PropertyName { get; init; }
+    /// <summary>
+    /// For video deletion endpoints, also requires access to every descendant that deleting a
+    /// parent video would remove through the video hierarchy.
+    /// </summary>
+    public bool IncludeDescendants { get; init; }
     public EntityAccessDeniedBehavior DeniedBehavior { get; init; }
 
     public RequiresEntityAccessAttribute(string entityKind, string permission)
