@@ -738,7 +738,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, audio => audio.Files);
         query = ApplyAudioFileStringCriterion(query, filter.FormatCriterion, "format");
         query = ApplyAudioFileStringCriterion(query, filter.AudioCodecCriterion, "audioCodec");
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, audio => audio.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasVideoFilesCriterion, audio => audio.HasVideoFiles);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, audio => audio.ImageBlobId != null && audio.ImageBlobId != string.Empty);
@@ -749,7 +749,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FilterHelpers.ApplyNullableTimestamp(query, filter.FileModTimeCriterion, audio => audio.MaxFileModTime);
         query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, audio => audio.FileCount);
         query = FilterHelpers.ApplyInt(query, filter.TrackCountCriterion, audio => audio.Tracks.Count);
-        query = FilterHelpers.ApplyString(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title));
         query = FilterHelpers.ApplyInt(query, filter.SampleRateCriterion, audio => audio.Files.Max(file => file.SampleRate) ?? 0);
         query = FilterHelpers.ApplyInt(query, filter.ChannelsCriterion, audio => audio.Files.Max(file => file.Channels) ?? 0);
         query = ApplyEffectiveTagCountCriterion(query, filter.TagCountCriterion);
@@ -770,33 +770,10 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
     private static IQueryable<Audio> ApplyAudioFileStringCriterion(IQueryable<Audio> query, StringCriterion? criterion, string field)
     {
-        if (criterion == null)
-            return query;
-
-        var value = criterion.Value.Trim();
-        var lowered = value.ToLowerInvariant();
         return field switch
         {
-            "format" => criterion.Modifier switch
-            {
-                CriterionModifier.Equals => query.Where(audio => audio.Files.Any(file => file.Format == value)),
-                CriterionModifier.NotEquals => query.Where(audio => !audio.Files.Any(file => file.Format == value)),
-                CriterionModifier.Includes => query.Where(audio => audio.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-                CriterionModifier.Excludes => query.Where(audio => !audio.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-                CriterionModifier.IsNull => query.Where(audio => !audio.Files.Any(file => file.Format != string.Empty)),
-                CriterionModifier.NotNull => query.Where(audio => audio.Files.Any(file => file.Format != string.Empty)),
-                _ => query,
-            },
-            "audioCodec" => criterion.Modifier switch
-            {
-                CriterionModifier.Equals => query.Where(audio => audio.Files.Any(file => file.AudioCodec == value)),
-                CriterionModifier.NotEquals => query.Where(audio => !audio.Files.Any(file => file.AudioCodec == value)),
-                CriterionModifier.Includes => query.Where(audio => audio.Files.Any(file => file.AudioCodec != null && file.AudioCodec.ToLower().Contains(lowered))),
-                CriterionModifier.Excludes => query.Where(audio => !audio.Files.Any(file => file.AudioCodec != null && file.AudioCodec.ToLower().Contains(lowered))),
-                CriterionModifier.IsNull => query.Where(audio => !audio.Files.Any(file => file.AudioCodec != string.Empty)),
-                CriterionModifier.NotNull => query.Where(audio => audio.Files.Any(file => file.AudioCodec != string.Empty)),
-                _ => query,
-            },
+            "format" => FilterHelpers.ApplyStringCollection(query, criterion, audio => audio.Files.Select(file => file.Format)),
+            "audioCodec" => FilterHelpers.ApplyStringCollection(query, criterion, audio => audio.Files.Select(file => file.AudioCodec)),
             _ => query,
         };
     }

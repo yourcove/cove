@@ -358,18 +358,7 @@ public class VideoRepository : IVideoRepository
                 query = ApplyMultiIdCriterion(query, filter.GalleriesCriterion, s => s.VideoGalleries.Select(sg => sg.GalleryId));
 
             // URL criterion
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(s => s.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.Urls.Count > 0),
-                    _ => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, s => s.Urls.Select(u => u.Url));
 
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, s => s.CreatedAt);

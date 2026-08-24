@@ -707,7 +707,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FilterHelpers.ApplyString(query, filter.ContentCriterion, text => text.SearchText);
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, text => text.Files);
         query = ApplyTextFileStringCriterion(query, filter.FormatCriterion);
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, text => text.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, text => text.ImageBlobId != null && text.ImageBlobId != string.Empty);
         query = FilterHelpers.ApplyDate(query, filter.DateCriterion, text => text.Date);
@@ -733,23 +733,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     private static IQueryable<TextDocument> ApplyTextFileStringCriterion(IQueryable<TextDocument> query, StringCriterion? criterion)
-    {
-        if (criterion == null)
-            return query;
-
-        var value = criterion.Value.Trim();
-        var lowered = value.ToLowerInvariant();
-        return criterion.Modifier switch
-        {
-            CriterionModifier.Equals => query.Where(text => text.Files.Any(file => file.Format == value)),
-            CriterionModifier.NotEquals => query.Where(text => !text.Files.Any(file => file.Format == value)),
-            CriterionModifier.Includes => query.Where(text => text.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-            CriterionModifier.Excludes => query.Where(text => !text.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-            CriterionModifier.IsNull => query.Where(text => !text.Files.Any(file => file.Format != string.Empty)),
-            CriterionModifier.NotNull => query.Where(text => text.Files.Any(file => file.Format != string.Empty)),
-            _ => query,
-        };
-    }
+        => FilterHelpers.ApplyStringCollection(query, criterion, text => text.Files.Select(file => file.Format));
 
     private static int[] GetIncludedPerformerIds(TextDocumentFilter filter)
     {
