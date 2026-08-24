@@ -1,322 +1,431 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Check, Copy, Loader2, Search, Trash2 } from "lucide-react";
 import { videos } from "../api/client";
-import type { Video } from "../api/types";
-import { formatDuration, formatFileSize, getResolutionLabel } from "../components/shared";
-import { Copy, Trash2, Loader2, Search, AlertTriangle, Check } from "lucide-react";
-import { createRouteLinkProps } from "../components/cardNavigation";
+import type { DeleteEntityOptions, DuplicateSearchGroup, DuplicateSearchRequest, Video } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
+import { canDeleteEntity } from "../auth/visibility";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { createRouteLinkProps } from "../components/cardNavigation";
+import { formatDuration, formatFileSize, getResolutionLabel } from "../components/shared";
 
 interface Props {
-  onNavigate: (r: any) => void;
+  onNavigate: (route: any) => void;
 }
 
-type DuplicateMatchType = "fingerprint" | "phash" | "title" | "remoteId";
+type DuplicateMatchType = DuplicateSearchRequest["matchType"];
+
+const GROUP_PAGE_SIZE = 10;
 
 const MATCH_OPTIONS: Array<{ value: DuplicateMatchType; label: string; description: string }> = [
   { value: "fingerprint", label: "Exact file fingerprint", description: "Groups videos that share an MD5 or OSHash." },
-  { value: "phash", label: "Similar visual pHash", description: "Finds visually similar videos within a pHash distance." },
+  { value: "phash", label: "Similar visual pHash", description: "Finds visually similar videos within a pHash distance and duration window." },
   { value: "title", label: "Same title", description: "Groups videos with the same normalized title." },
   { value: "remoteId", label: "Same remote ID", description: "Groups videos that share a scraper or metadata-server ID." },
 ];
+
+function getSearchIdFromUrl() {
+  return new URLSearchParams(window.location.search).get("search");
+}
+
+function replaceSearchIdInUrl(searchId: string | null) {
+  const url = new URL(window.location.href);
+  if (searchId) url.searchParams.set("search", searchId);
+  else url.searchParams.delete("search");
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
 
 export function DuplicateFinderPage({ onNavigate }: Props) {
   const [matchType, setMatchType] = useState<DuplicateMatchType>("fingerprint");
   const [phashDistance, setPhashDistance] = useState(8);
   const [durationDiff, setDurationDiff] = useState(10);
-  const [groups, setGroups] = useState<Video[][] | null>(null);
-  const [selectedPerGroup, setSelectedPerGroup] = useState<Map<number, Set<number>>>(new Map());
-  const [pendingDelete, setPendingDelete] = useState<{
-    groupIdx: number;
-    ids: number[];
-    keepCount: number;
-    fileCount: number;
-    totalBytes: number;
-  } | null>(null);
+  const [searchId, setSearchId] = useState<string | null>(getSearchIdFromUrl);
+  const [keeperChoices, setKeeperChoices] = useState<Map<number, Set<number>>>(new Map());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const queryClient = useQueryClient();
+  const { hasPermission } = useAuth();
+  const canRunDuplicateSearch = hasPermission("jobs.run");
+  const canDeleteVideos = canDeleteEntity("video", hasPermission);
+  const canDeleteVideoFiles = hasPermission("videos.delete.file");
 
-  const findMut = useMutation({
+  const searchQuery = useQuery({
+    queryKey: ["duplicate-search", searchId],
+    queryFn: () => videos.getDuplicateSearch(searchId!),
+    enabled: searchId != null,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "pending" || status === "running" ? 1_000 : false;
+    },
+  });
+
+  const completed = searchQuery.data?.status === "completed";
+  const groupsQuery = useInfiniteQuery({
+    queryKey: ["duplicate-search-groups", searchId],
+    queryFn: ({ pageParam }) => videos.getDuplicateSearchGroups(searchId!, pageParam, GROUP_PAGE_SIZE),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
+    enabled: searchId != null && completed,
+  });
+
+  const groups = useMemo(
+    () => groupsQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [groupsQuery.data],
+  );
+
+  useEffect(() => {
+    setKeeperChoices(new Map());
+  }, [searchId]);
+
+  useEffect(() => {
+    if (groups.length === 0) return;
+    setKeeperChoices((current) => {
+      const next = new Map(current);
+      let changed = false;
+      for (const group of groups) {
+        if (next.has(group.id)) continue;
+        next.set(group.id, new Set(group.keepVideoIds));
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [groups]);
+
+  const startMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: () => videos.findDuplicates({
+    mutationFn: () => videos.startDuplicateSearch({
       matchType,
       distance: matchType === "phash" ? phashDistance : 0,
-      durationDiff: matchType === "phash" && durationDiff >= 0 ? durationDiff : undefined,
+      durationDiff: matchType === "phash" ? durationDiff : null,
     }),
-    onSuccess: (data) => {
-      setGroups(data);
-      setSelectedPerGroup(new Map(data.map((group, index) => {
-        const keeper = chooseRecommendedKeeper(group);
-        return [index, keeper ? new Set([keeper.id]) : new Set<number>()];
-      })));
+    onSuccess: (result) => {
+      replaceSearchIdInUrl(result.searchId);
+      setSearchId(result.searchId);
+      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
     },
   });
 
-  const deleteMut = useMutation({
-    mutationFn: ({ ids, options }: { ids: number[]; options?: { deleteFile?: boolean; deleteGenerated?: boolean } }) => videos.bulkDelete(ids, options),
+  const decisionMutation = useMutation({
+    mutationFn: ({ groupId, keepVideoIds }: { groupId: number; keepVideoIds: number[] }) =>
+      videos.updateDuplicateSearchDecision(searchId!, groupId, keepVideoIds),
+    onMutate: ({ groupId, keepVideoIds }) => {
+      const previous = keeperChoices.get(groupId);
+      setKeeperChoices((current) => {
+        const next = new Map(current);
+        next.set(groupId, new Set(keepVideoIds));
+        return next;
+      });
+      return { groupId, previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (!context) return;
+      setKeeperChoices((current) => {
+        const next = new Map(current);
+        if (context.previous) next.set(context.groupId, context.previous);
+        else next.delete(context.groupId);
+        return next;
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["duplicate-search", searchId] });
+      queryClient.invalidateQueries({ queryKey: ["duplicate-search-groups", searchId] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    meta: { suppressGlobalError: true },
+    mutationFn: (options?: DeleteEntityOptions) => videos.deleteUnkeptDuplicates(searchId!, options),
     onSuccess: () => {
-      setPendingDelete(null);
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
-      findMut.mutate();
+      setShowDeleteConfirm(false);
+      queryClient.invalidateQueries({ queryKey: ["duplicate-search", searchId] });
+      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
     },
   });
 
-  const toggleSelected = (groupIdx: number, videoId: number) => {
-    setSelectedPerGroup((prev) => {
-      const next = new Map(prev);
-      const set = new Set(next.get(groupIdx) ?? []);
-      if (set.has(videoId)) set.delete(videoId);
-      else set.add(videoId);
-      next.set(groupIdx, set);
-      return next;
-    });
+  const toggleKeeper = (group: DuplicateSearchGroup, videoId: number) => {
+    const current = keeperChoices.get(group.id) ?? new Set(group.keepVideoIds);
+    if (current.has(videoId) && current.size === 1) return;
+    const next = new Set(current);
+    if (next.has(videoId)) next.delete(videoId);
+    else next.add(videoId);
+    decisionMutation.mutate({ groupId: group.id, keepVideoIds: [...next] });
   };
 
-  const keepSelected = (groupIdx: number) => {
-    if (!groups) return;
-    const group = groups[groupIdx];
-    const kept = selectedPerGroup.get(groupIdx) ?? new Set();
-    const toDelete = group.filter((s) => !kept.has(s.id)).map((s) => s.id);
-    if (toDelete.length === 0) return;
-    const deleteVideos = group.filter((video) => toDelete.includes(video.id));
-    setPendingDelete({
-      groupIdx,
-      ids: toDelete,
-      keepCount: kept.size,
-      fileCount: deleteVideos.reduce((total, video) => total + video.files.length, 0),
-      totalBytes: deleteVideos.reduce((total, video) => total + video.files.reduce((sum, file) => sum + (file.size ?? 0), 0), 0),
-    });
-  };
+  const search = searchQuery.data;
+  const resultError = searchQuery.error ?? groupsQuery.error;
+  const isRunning = search?.status === "pending" || search?.status === "running";
+  const terminalFailure = search?.status === "failed" || search?.status === "cancelled" || search?.status === "interrupted";
 
   return (
     <>
-    <div>
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <Copy className="w-6 h-6 text-accent" />
-        <h1 className="text-xl font-semibold text-foreground">Duplicate Finder</h1>
-      </div>
-
-      {/* Controls */}
-      <div className="mb-6 rounded-lg border border-border bg-card p-4">
-        <div className="grid gap-4 lg:grid-cols-[minmax(16rem,1fr)_minmax(10rem,0.45fr)_minmax(10rem,0.45fr)_auto] lg:items-end">
-        <div>
-          <label className="block text-xs font-medium text-secondary mb-1">
-            Match type
-          </label>
-          <select
-            value={matchType}
-            onChange={(event) => setMatchType(event.target.value as DuplicateMatchType)}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-          >
-            {MATCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-          <p className="mt-1 text-xs text-muted">{MATCH_OPTIONS.find((option) => option.value === matchType)?.description}</p>
+      <div>
+        <div className="mb-6 flex items-center gap-3">
+          <Copy className="h-6 w-6 text-accent" />
+          <h1 className="text-xl font-semibold text-foreground">Duplicate Finder</h1>
         </div>
-        <label className={`block text-xs font-medium text-secondary ${matchType === "phash" ? "" : "opacity-50"}`}>
-          pHash distance
-          <input
-            type="number"
-            min={0}
-            max={64}
-            value={phashDistance}
-            disabled={matchType !== "phash"}
-            onChange={(event) => setPhashDistance(Math.max(0, Math.min(64, Number(event.target.value) || 0)))}
-            className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:border-accent focus:outline-none"
-          />
-        </label>
-        <label className={`block text-xs font-medium text-secondary ${matchType === "phash" ? "" : "opacity-50"}`}>
-          Max duration delta
-          <input
-            type="number"
-            min={0}
-            value={durationDiff}
-            disabled={matchType !== "phash"}
-            onChange={(event) => setDurationDiff(Math.max(0, Number(event.target.value) || 0))}
-            className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:border-accent focus:outline-none"
-          />
-        </label>
-        <button
-          onClick={() => findMut.mutate()}
-          disabled={findMut.isPending}
-          className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium bg-accent hover:bg-accent-hover text-white disabled:opacity-50"
-        >
-          {findMut.isPending ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Search className="w-4 h-4" />
-          )}
-          {findMut.isPending ? "Searching..." : "Find Duplicates"}
-        </button>
-        </div>
-      </div>
 
-      {/* Error */}
-      {findMut.isError && (
-        <div className="flex items-center gap-2 p-3 mb-4 bg-red-900/20 border border-red-800 rounded text-red-300 text-sm">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          {(findMut.error as Error).message}
+        <div className="mb-6 rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(16rem,1fr)_minmax(10rem,0.45fr)_minmax(10rem,0.45fr)_auto] lg:items-end">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-secondary">Match type</label>
+              <select
+                value={matchType}
+                onChange={(event) => setMatchType(event.target.value as DuplicateMatchType)}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+              >
+                {MATCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-muted">{MATCH_OPTIONS.find((option) => option.value === matchType)?.description}</p>
+            </div>
+            <label className={`block text-xs font-medium text-secondary ${matchType === "phash" ? "" : "opacity-50"}`}>
+              pHash distance
+              <input
+                type="number"
+                min={0}
+                max={16}
+                value={phashDistance}
+                disabled={matchType !== "phash"}
+                onChange={(event) => setPhashDistance(Math.max(0, Math.min(16, Number(event.target.value) || 0)))}
+                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:border-accent focus:outline-none"
+              />
+            </label>
+            <label className={`block text-xs font-medium text-secondary ${matchType === "phash" ? "" : "opacity-50"}`}>
+              Max duration delta
+              <input
+                type="number"
+                min={0}
+                value={durationDiff}
+                disabled={matchType !== "phash"}
+                onChange={(event) => setDurationDiff(Math.max(0, Number(event.target.value) || 0))}
+                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:border-accent focus:outline-none"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => startMutation.mutate()}
+              disabled={startMutation.isPending || !canRunDuplicateSearch}
+              title={canRunDuplicateSearch ? undefined : "You do not have permission to run jobs"}
+              className="flex items-center justify-center gap-2 rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {startMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              {startMutation.isPending ? "Queueing…" : searchId ? "Start New Search" : "Find Duplicates"}
+            </button>
+          </div>
         </div>
-      )}
 
-      {/* Results summary */}
-      {groups !== null && (
-        <div className="mb-4 text-sm text-secondary">
-          Found <span className="font-semibold text-foreground">{groups.length}</span> duplicate group{groups.length !== 1 ? "s" : ""}
-          {groups.length > 0 && (
-            <span>
-              {" "}containing{" "}
-              <span className="font-semibold text-foreground">
-                {groups.reduce((n, g) => n + g.length, 0)}
-              </span>{" "}
-              total videos
-            </span>
-          )}
-        </div>
-      )}
+        {(startMutation.error || resultError) && <ErrorBanner error={startMutation.error ?? resultError} />}
 
-      {/* No results */}
-      {groups !== null && groups.length === 0 && (
-        <div className="text-center py-16">
-          <Check className="w-12 h-12 mx-auto mb-3 text-green-400" />
-          <p className="text-secondary">No duplicates found</p>
-          <p className="mt-1 text-sm text-muted">Try a visual pHash search if exact file hashes are unavailable for this library.</p>
-        </div>
-      )}
+        {searchQuery.isLoading && searchId && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-4 text-sm text-secondary">
+            <Loader2 className="h-4 w-4 animate-spin text-accent" />
+            Loading duplicate search…
+          </div>
+        )}
 
-      {/* Duplicate groups */}
-      {groups && groups.length > 0 && (
-        <div className="space-y-4">
-          {groups.map((group, gi) => {
-            const selected = selectedPerGroup.get(gi) ?? new Set();
-            return (
-              <div key={gi} className="border border-border rounded-lg overflow-hidden">
-                {/* Group header */}
-                <div className="flex items-center justify-between px-4 py-2 bg-card border-b border-border">
-                  <span className="text-sm font-medium text-foreground">
-                    Group {gi + 1} — {group.length} videos
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted">
-                      {selected.size > 0
-                        ? `${selected.size} selected to keep`
-                        : "Select videos to keep"}
-                    </span>
+        {search && isRunning && (
+          <div className="rounded-lg border border-border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-accent" />
+              <div>
+                <p className="font-medium text-foreground">Searching {search.candidateCount.toLocaleString()} videos</p>
+                <p className="text-sm text-muted">This runs as a background job. You can leave this page and open the results from Jobs when it finishes.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {search && terminalFailure && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-800 bg-red-900/20 p-4 text-sm text-red-300">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium capitalize">Search {search.status}</p>
+              <p>{search.error || (search.status === "interrupted" ? "The server restarted while this search was running. Start a new search to try again." : "Start a new search to try again.")}</p>
+            </div>
+          </div>
+        )}
+
+        {search && completed && (
+          <>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+              <div className="text-sm text-secondary">
+                Found <strong className="text-foreground">{search.groupCount.toLocaleString()}</strong> duplicate group{search.groupCount === 1 ? "" : "s"} containing <strong className="text-foreground">{search.videoCount.toLocaleString()}</strong> videos.
+              </div>
+              {canDeleteVideos && search.unkeptVideoCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={Boolean(search.deletionJobId) || deleteMutation.isPending || decisionMutation.isPending}
+                  className="inline-flex items-center gap-2 rounded bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {search.deletionJobId ? "Deletion queued" : `Remove ${search.unkeptVideoCount.toLocaleString()} unwanted`}
+                </button>
+              )}
+            </div>
+
+            {decisionMutation.isError && <ErrorBanner error={decisionMutation.error} />}
+
+            {search.groupCount === 0 && (
+              <div className="py-16 text-center">
+                <Check className="mx-auto mb-3 h-12 w-12 text-green-400" />
+                <p className="text-secondary">No duplicates found</p>
+                <p className="mt-1 text-sm text-muted">Try a visual pHash search if exact file hashes are unavailable for this library.</p>
+              </div>
+            )}
+
+            {groupsQuery.isLoading && search.groupCount > 0 && (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-secondary">
+                <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                Loading duplicate groups…
+              </div>
+            )}
+
+            {groups.length > 0 && (
+              <div className="space-y-4">
+                {groups.map((group) => (
+                  <DuplicateGroupCard
+                    key={group.id}
+                    group={group}
+                    keepVideoIds={keeperChoices.get(group.id) ?? new Set(group.keepVideoIds)}
+                    decisionPending={decisionMutation.isPending || Boolean(search.deletionJobId)}
+                    onToggleKeeper={(videoId) => toggleKeeper(group, videoId)}
+                    onNavigate={onNavigate}
+                  />
+                ))}
+                {groupsQuery.hasNextPage && (
+                  <div className="flex justify-center py-2">
                     <button
-                      onClick={() => keepSelected(gi)}
-                      disabled={selected.size === 0 || selected.size === group.length || deleteMut.isPending}
-                      className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-600 hover:bg-red-500 text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                      type="button"
+                      onClick={() => groupsQuery.fetchNextPage()}
+                      disabled={groupsQuery.isFetchingNextPage}
+                      className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-foreground hover:border-accent disabled:opacity-50"
                     >
-                      <Trash2 className="w-3 h-3" />
-                      Delete Others
+                      {groupsQuery.isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {groupsQuery.isFetchingNextPage ? "Loading…" : `Load more (${groups.length.toLocaleString()} of ${search.groupCount.toLocaleString()})`}
                     </button>
                   </div>
-                </div>
-
-                {/* Video cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-0">
-                  {group.map((video) => {
-                    const file = video.files[0];
-                    const isSelected = selected.has(video.id);
-                    const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () => onNavigate({ page: "video", id: video.id }));
-                    return (
-                      <div
-                        key={video.id}
-                        className={`relative border-r border-b border-border last:border-r-0 ${
-                          isSelected ? "bg-green-900/20 ring-inset ring-2 ring-green-500/50" : "bg-background"
-                        }`}
-                      >
-                        {/* Selection overlay */}
-                        <button
-                          onClick={() => toggleSelected(gi, video.id)}
-                          className="absolute top-2 left-2 z-10"
-                        >
-                          <div
-                            className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                              isSelected
-                                ? "bg-green-500 border-green-500"
-                                : "border-muted bg-black/40"
-                            }`}
-                          >
-                            {isSelected && <Check className="w-3 h-3 text-white" />}
-                          </div>
-                        </button>
-
-                        {/* Thumbnail */}
-                        <a
-                          {...linkProps}
-                          className="aspect-video bg-card cursor-pointer block w-full overflow-hidden"
-                        >
-                          {/** Use an empty alt when there is no uploaded cover so Firefox doesn't render the title inside broken images. */}
-                          <img
-                            src={videos.screenshotUrl(video.id)}
-                            alt={video.imagePath ? video.title || "" : ""}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = "none";
-                            }}
-                          />
-                        </a>
-
-                        {/* Details */}
-                        <div className="p-2 space-y-1">
-                          <a
-                            {...linkProps}
-                            className="block max-w-full truncate text-left text-xs font-medium text-foreground hover:text-accent"
-                          >
-                            {video.title || file?.basename || `Video #${video.id}`}
-                          </a>
-                          {file && (
-                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted">
-                              <span>{file.width}×{file.height}</span>
-                              <span>{getResolutionLabel(file.width, file.height)}</span>
-                              <span>{formatDuration(file.duration)}</span>
-                              <span>{formatFileSize(file.size)}</span>
-                              <span>{file.videoCodec}</span>
-                              <span>{Math.round(file.bitRate / 1000)} kbps</span>
-                            </div>
-                          )}
-                          {file?.path && (
-                            <p className="text-[9px] text-muted truncate" title={file.path}>
-                              {file.path}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-    <ConfirmDialog
-      open={pendingDelete != null}
-      title="Delete duplicate videos"
-      message={pendingDelete
-        ? `Delete ${pendingDelete.ids.length} duplicate video record(s) from group ${pendingDelete.groupIdx + 1} and keep ${pendingDelete.keepCount}. This affects ${pendingDelete.fileCount} file record(s) totaling ${formatFileSize(pendingDelete.totalBytes)}. Physical files are only deleted if you enable the checkbox below.`
-        : ""}
-      confirmLabel={deleteMut.isPending ? "Deleting..." : "Delete duplicates"}
-      onConfirm={(options) => {
-        if (!pendingDelete || deleteMut.isPending) return;
-        deleteMut.mutate({ ids: pendingDelete.ids, options });
-      }}
-      onCancel={() => setPendingDelete(null)}
-      showDeleteFile
-      showDeleteGenerated
-    />
+            )}
+          </>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete unwanted duplicate videos"
+        message={search
+          ? `Queue deletion of ${search.unkeptVideoCount.toLocaleString()} video record(s). They reference ${search.unkeptFileCount.toLocaleString()} file record(s) totaling ${formatFileSize(search.unkeptBytes)}. Your keeper choices are saved with this search.`
+          : ""}
+        confirmLabel="Queue deletion"
+        onConfirm={(options) => deleteMutation.mutate(options)}
+        onCancel={() => setShowDeleteConfirm(false)}
+        isPending={deleteMutation.isPending}
+        errorMessage={deleteMutation.error instanceof Error ? deleteMutation.error.message : null}
+        showDeleteFile={canDeleteVideoFiles}
+        showDeleteGenerated
+      />
     </>
   );
 }
 
-function chooseRecommendedKeeper(group: Video[]) {
-  return [...group].sort((left, right) => scoreVideo(right) - scoreVideo(left) || left.id - right.id)[0];
+function ErrorBanner({ error }: { error: unknown }) {
+  return (
+    <div className="mb-4 flex items-center gap-2 rounded border border-red-800 bg-red-900/20 p-3 text-sm text-red-300">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      {error instanceof Error ? error.message : "The request failed."}
+    </div>
+  );
 }
 
-function scoreVideo(video: Video) {
+function DuplicateGroupCard({
+  group,
+  keepVideoIds,
+  decisionPending,
+  onToggleKeeper,
+  onNavigate,
+}: {
+  group: DuplicateSearchGroup;
+  keepVideoIds: Set<number>;
+  decisionPending: boolean;
+  onToggleKeeper: (videoId: number) => void;
+  onNavigate: Props["onNavigate"];
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-2">
+        <span className="text-sm font-medium text-foreground">Group {group.position + 1} — {group.videos.length} videos</span>
+        <span className="text-xs text-muted">{keepVideoIds.size} selected to keep</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {group.videos.map((video) => (
+          <DuplicateVideoCard
+            key={video.id}
+            video={video}
+            keep={keepVideoIds.has(video.id)}
+            disableToggle={decisionPending || (keepVideoIds.has(video.id) && keepVideoIds.size === 1)}
+            onToggle={() => onToggleKeeper(video.id)}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DuplicateVideoCard({
+  video,
+  keep,
+  disableToggle,
+  onToggle,
+  onNavigate,
+}: {
+  video: Video;
+  keep: boolean;
+  disableToggle: boolean;
+  onToggle: () => void;
+  onNavigate: Props["onNavigate"];
+}) {
   const file = video.files[0];
-  if (!file) return 0;
-  return (file.width ?? 0) * (file.height ?? 0) + Math.min(file.size ?? 0, 100_000_000_000) / 100_000;
+  const route = { page: "video", id: video.id };
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
+  return (
+    <div className={`relative border-b border-r border-border ${keep ? "bg-green-900/20 ring-2 ring-inset ring-green-500/50" : "bg-background"}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disableToggle}
+        title={disableToggle && keep ? "Every group must keep at least one video" : keep ? "Do not keep this video" : "Keep this video"}
+        className="absolute left-2 top-2 z-10 disabled:cursor-not-allowed"
+      >
+        <span className={`flex h-5 w-5 items-center justify-center rounded border-2 ${keep ? "border-green-500 bg-green-500" : "border-muted bg-black/40"}`}>
+          {keep && <Check className="h-3 w-3 text-white" />}
+        </span>
+      </button>
+      <a {...linkProps} className="block aspect-video w-full cursor-pointer overflow-hidden bg-card">
+        <img
+          src={videos.screenshotUrl(video.id)}
+          alt={video.imagePath ? video.title || "" : ""}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={(event) => { event.currentTarget.style.display = "none"; }}
+        />
+      </a>
+      <div className="space-y-1 p-2">
+        <a {...linkProps} className="block max-w-full truncate text-xs font-medium text-foreground hover:text-accent">
+          {video.title || file?.basename || `Video #${video.id}`}
+        </a>
+        {file && (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted">
+            <span>{file.width}×{file.height}</span>
+            <span>{getResolutionLabel(file.width, file.height)}</span>
+            <span>{formatDuration(file.duration)}</span>
+            <span>{formatFileSize(file.size)}</span>
+          </div>
+        )}
+        {file?.path && <p className="truncate text-[9px] text-muted" title={file.path}>{file.path}</p>}
+      </div>
+    </div>
+  );
 }

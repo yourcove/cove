@@ -527,16 +527,25 @@ export const videos = {
     delete: (videoId: number, id: number) =>
       request<void>(`/videos/${videoId}/detections/${id}`, { method: "DELETE" }),
   },
-  findDuplicates: (options?: number | { matchType?: string; distance?: number; durationDiff?: number }) => {
-    const params = new URLSearchParams();
-    const distance = typeof options === "number" ? options : options?.distance ?? 0;
-    const durationDiff = typeof options === "number" ? undefined : options?.durationDiff;
-    const matchType = typeof options === "number" ? undefined : options?.matchType;
-    params.set("distance", String(distance));
-    if (durationDiff !== undefined) params.set("durationDiff", String(durationDiff));
-    if (matchType) params.set("matchType", matchType);
-    return request<Video[][]>(`/videos/duplicates?${params.toString()}`);
-  },
+  startDuplicateSearch: (options: DuplicateSearchRequest) =>
+    request<DuplicateSearchStart>("/videos/duplicate-searches", { method: "POST", body: JSON.stringify(options) }),
+  getDuplicateSearch: (searchId: string) =>
+    request<DuplicateSearchInfo>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}`),
+  getDuplicateSearchGroups: (searchId: string, page: number, perPage: number) =>
+    request<DuplicateSearchGroupPage>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, { page, perPage })}`),
+  updateDuplicateSearchDecision: (searchId: string, groupId: number, keepVideoIds: number[]) =>
+    request<void>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups/${groupId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ keepVideoIds }),
+    }),
+  deleteUnkeptDuplicates: (searchId: string, options?: DeleteEntityOptions) =>
+    request<BulkDeletionJobStart>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/delete-unkept`, {
+      method: "POST",
+      body: JSON.stringify({
+        deleteFiles: options?.deleteFile ?? false,
+        deleteGenerated: options?.deleteGenerated ?? false,
+      }),
+    }),
 };
 
 export const fileOps = {
