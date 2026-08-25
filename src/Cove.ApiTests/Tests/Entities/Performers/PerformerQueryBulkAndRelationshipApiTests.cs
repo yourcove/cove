@@ -287,9 +287,13 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         (await owner.GetPerformerByIdAsync(first.Id, TestContext.Current.CancellationToken)).Id.Should().Be(first.Id);
         (await owner.GetPerformerByIdAsync(second.Id, TestContext.Current.CancellationToken)).Id.Should().Be(second.Id);
-        var deleted = await owner.BulkDeletePerformersAsync(request, TestContext.Current.CancellationToken);
+        var queued = await owner.BulkDeletePerformersAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
-        deleted.Should().Be(2);
         foreach (var performer in new[] { first, second })
         {
             var missing = () => owner.GetPerformerByIdAsync(performer.Id);

@@ -1,5 +1,6 @@
 using Cove.Core.DTOs;
 using Cove.Core.Auth;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -85,6 +86,19 @@ public abstract class ApiTest : IAsyncLifetime, IClassFixture<CoveApiTestFixture
 
     protected void RetireApiInstanceAfterClass()
         => _fixture.RetireAfterClass();
+
+    protected static void AssertCompletedBulkDeletion(
+        JobInfo job,
+        int succeeded,
+        int skipped)
+    {
+        job.Status.Should().Be(JobStatus.Completed);
+        job.UnitsTotal.Should().Be(succeeded + skipped);
+        job.UnitsCompleted.Should().Be(succeeded + skipped);
+        job.UnitsSucceeded.Should().Be(succeeded);
+        job.UnitsFailed.Should().Be(0);
+        job.UnitsSkipped.Should().Be(skipped);
+    }
 
     public async ValueTask InitializeAsync()
     {

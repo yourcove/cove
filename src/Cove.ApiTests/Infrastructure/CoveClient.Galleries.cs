@@ -120,17 +120,15 @@ public sealed partial class CoveClient
             new { },
             cancellationToken);
 
-    public async Task<int> BulkDeleteGalleriesAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteGalleriesAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Delete,
             "/api/galleries/bulk",
             request,
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
-        return response.GetProperty("deleted").GetInt32();
-    }
 
     public async Task<int> RemoveGalleryImagesAsync(
         GalleryDto gallery,

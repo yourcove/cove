@@ -136,12 +136,13 @@ public sealed partial class CoveClient
             $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
     }
 
-    public Task BulkDeleteTextsAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteTextsAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-        => SendForNoContentAsync(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Delete,
             "/api/texts/bulk",
             request,
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
 }

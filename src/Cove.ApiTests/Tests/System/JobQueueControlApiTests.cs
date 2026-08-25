@@ -4,6 +4,7 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 
@@ -31,6 +32,26 @@ public sealed class JobQueueControlApiTests(
             Roles: [BuiltinRoles.Viewer]), TestContext.Current.CancellationToken);
         using var viewerSession = await AsUser().CreateAuthSessionAsync(viewerUsername, viewerPassword, TestContext.Current.CancellationToken);
 
+        var restrictedRoleName = $"Owner-scoped jobs {Guid.NewGuid():N}";
+        var restrictedTag = await AsUser().CreateTagAsync($"Owner-scoped jobs {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var restrictedRole = await AsUser().CreateRoleAsync(new CreateRoleRequest(
+            restrictedRoleName,
+            "Can control owned jobs without reading the global stream.",
+            [Permissions.JobsCancel]), TestContext.Current.CancellationToken);
+        await AsUser().CreateContentRuleAsync(new CreateContentRuleRequest(
+            restrictedRole.Id,
+            EntityKinds.Video,
+            "deny",
+            "tag",
+            $"{{\"tagId\":{restrictedTag.Id}}}",
+            "read"), TestContext.Current.CancellationToken);
+        var restrictedUsername = $"owner-scoped-jobs-{Guid.NewGuid():N}";
+        await AsUser().CreateUserAsync(new CreateUserRequest(
+            restrictedUsername,
+            viewerPassword,
+            Roles: [restrictedRoleName]), TestContext.Current.CancellationToken);
+        using var restrictedSession = await AsUser().CreateAuthSessionAsync(restrictedUsername, viewerPassword, TestContext.Current.CancellationToken);
+
         using var requestGate = AsMetadataService().HoldNextRequestContaining("query SearchPerformer");
         var blockingJob = await AsUser(ApiTestUsers.Eva).StartPerformerMetadataBatchTagAsync(new MetadataServerPerformerBatchTagRequestDto
             {
@@ -52,6 +73,23 @@ public sealed class JobQueueControlApiTests(
             (scanJobId, JobStatus.Pending),
             (thumbnailJobId, JobStatus.Pending),
             (phashJobId, JobStatus.Pending));
+
+        (await restrictedSession.Client.GetJobsAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await restrictedSession.Client.GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().BeEmpty();
+        await restrictedSession.Client.AssertResponseAsync(
+            $"/api/jobs/{blockingJob.JobId}",
+            HttpStatusCode.NotFound,
+            TestContext.Current.CancellationToken);
+        (await SendJobControlForStatusAsync(
+            restrictedSession.Client,
+            HttpMethod.Delete,
+            $"/api/jobs/{blockingJob.JobId}",
+            payload: null)).Should().Be(HttpStatusCode.NotFound);
+        (await SendJobControlForStatusAsync(
+            restrictedSession.Client,
+            HttpMethod.Put,
+            $"/api/jobs/{phashJobId}/reorder",
+            new { BeforeJobId = scanJobId })).Should().Be(HttpStatusCode.NotFound);
 
         (await SendJobControlForStatusAsync(
             viewerSession.Client,

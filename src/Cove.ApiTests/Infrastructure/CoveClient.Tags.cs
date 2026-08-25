@@ -149,13 +149,15 @@ public sealed partial class CoveClient
             new VideoRatingDto(rating, "overall"),
             cancellationToken);
 
-    public async Task<int> BulkDeleteTagsAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteTagsAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(HttpMethod.Delete, "/api/tags/bulk", request, cancellationToken);
-        return response.GetProperty("deleted").GetInt32();
-    }
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
+            HttpMethod.Delete,
+            "/api/tags/bulk",
+            request,
+            System.Net.HttpStatusCode.Accepted,
+            cancellationToken);
 
     public async Task DeleteTagAsync(
         TagDetailDto tag,

@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 
 namespace Cove.ApiTests.Infrastructure;
 
+public sealed record BulkDeletionJobStartResponse(string JobId, int ItemCount);
+
 public sealed partial class CoveClient : IDisposable
 {
     private readonly HttpClient _client;

@@ -288,17 +288,22 @@ public sealed class VideoLifecycleAndQueryApiTests(
         var retained = await AsUser().CreateVideoAsync($"Batch delete retained {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
 
         // Act
-        var deletedCount = await AsUser().DestroyVideosAsync(new BatchDeleteDto([first.Id, int.MaxValue, second.Id]), TestContext.Current.CancellationToken);
+        var owner = AsUser();
+        var queued = await owner.DestroyVideosAsync(new BatchDeleteDto([first.Id, int.MaxValue, second.Id]), TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
         // Assert
-        deletedCount.Should().Be(2);
         foreach (var deleted in new[] { first, second })
         {
-            var read = () => AsUser().GetVideoByIdAsync(deleted.Id);
+            var read = () => owner.GetVideoByIdAsync(deleted.Id);
             await read.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 404 (NotFound)*");
         }
-        (await AsUser().GetVideoByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
+        (await owner.GetVideoByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
     }
 
     [Fact]

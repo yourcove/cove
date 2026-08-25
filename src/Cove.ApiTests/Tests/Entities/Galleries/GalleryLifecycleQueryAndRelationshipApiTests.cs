@@ -380,9 +380,13 @@ public sealed class GalleryLifecycleQueryAndRelationshipApiTests(
 
         await forbiddenBulk.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        var deleted = await owner.BulkDeleteGalleriesAsync(request, TestContext.Current.CancellationToken);
+        var queued = await owner.BulkDeleteGalleriesAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
-        deleted.Should().Be(2);
         foreach (var gallery in new[] { first, second })
         {
             var read = () => owner.GetGalleryByIdAsync(gallery.Id);

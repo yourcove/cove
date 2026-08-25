@@ -60,7 +60,7 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
             [
                 Permissions.VideosRead, Permissions.SegmentsRead,
                 Permissions.EmbeddingsRead, Permissions.AiRunsRead, Permissions.AiDataRead,
-                Permissions.SystemRead, Permissions.JobsRead, Permissions.JobsCancel, Permissions.AuditRead,
+                Permissions.SystemRead, Permissions.JobsRun, Permissions.JobsCancel, Permissions.AuditRead,
             ]), TestContext.Current.CancellationToken);
         await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
             role.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"), TestContext.Current.CancellationToken);
@@ -82,8 +82,8 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
         using var allowOnlySession = await owner.CreateAuthSessionAsync(allowOnlyUsername, password, TestContext.Current.CancellationToken);
         await allowOnlySession.Client.AssertResponseAsync("/api/ai-data/summary", HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
         await allowOnlySession.Client.AssertResponseAsync("/api/system/stats", HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
-        await allowOnlySession.Client.AssertResponseAsync("/api/jobs", HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
-        (await GetHubConnectionOutcomeAsync(allowOnlySession.Client, "/hubs/jobs")).Should().Be(HubConnectionOutcome.Rejected);
+        await allowOnlySession.Client.AssertResponseAsync("/api/jobs", HttpStatusCode.OK, TestContext.Current.CancellationToken);
+        (await GetHubConnectionOutcomeAsync(allowOnlySession.Client, "/hubs/jobs")).Should().Be(HubConnectionOutcome.Established);
         (await GetHubConnectionOutcomeAsync(allowOnlySession.Client, "/hubs/logs")).Should().Be(HubConnectionOutcome.Rejected);
 
         var wall = await user.GetVideoWallAsync(suffix, 100, TestContext.Current.CancellationToken);
@@ -94,6 +94,13 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
         duplicateGroup.Select(video => video.Id).Should().BeEquivalentTo([visibleDuplicateOne.Id, visibleDuplicateTwo.Id]);
         (await user.FindDuplicateVideosAsync("phash", distance: 1, cancellationToken: TestContext.Current.CancellationToken))
             .Should().NotContain(group => group.Any(video => video.Id == visiblePHashLeft.Id || video.Id == visiblePHashRight.Id));
+        var ownedDuplicateSearchJobs = (await user.GetJobHistoryAsync(TestContext.Current.CancellationToken))
+            .Where(job => job.Type == "duplicate-search")
+            .ToArray();
+        ownedDuplicateSearchJobs.Should().HaveCount(2);
+        ownedDuplicateSearchJobs.Should().OnlyContain(job => job.Status == JobStatus.Completed);
+        foreach (var ownedJob in ownedDuplicateSearchJobs)
+            (await user.GetJobAsync(ownedJob.Id, TestContext.Current.CancellationToken)).Id.Should().Be(ownedJob.Id);
         var sourceKeys = await user.GetDistinctSegmentSourceKeysAsync(TestContext.Current.CancellationToken);
         sourceKeys.Should().ContainSingle(item => item.Value == visibleSourceKey && item.Count == 1);
         sourceKeys.Should().NotContain(item => item.Value == hiddenSourceKey);
@@ -114,11 +121,11 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
         await user.AssertResponseAsync("/api/ai-runs/2147483647", HttpStatusCode.NotFound, TestContext.Current.CancellationToken);
         await user.AssertResponseAsync("/api/ai-data/summary", HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
         await user.AssertResponseAsync("/api/system/stats", HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
-        await user.AssertResponseAsync("/api/jobs", HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
-        await user.AssertResponseAsync("/api/jobs/history", HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
-        await user.AssertResponseAsync(HttpMethod.Delete, "/api/jobs/scoped-job", HttpStatusCode.Forbidden, cancellationToken: TestContext.Current.CancellationToken);
-        await user.AssertResponseAsync(HttpMethod.Put, "/api/jobs/scoped-job/reorder", HttpStatusCode.Forbidden, new { }, TestContext.Current.CancellationToken);
-        (await GetHubConnectionOutcomeAsync(user, "/hubs/jobs")).Should().Be(HubConnectionOutcome.Rejected);
+        await user.AssertResponseAsync("/api/jobs", HttpStatusCode.OK, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync("/api/jobs/history", HttpStatusCode.OK, TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Delete, "/api/jobs/scoped-job", HttpStatusCode.NotFound, cancellationToken: TestContext.Current.CancellationToken);
+        await user.AssertResponseAsync(HttpMethod.Put, "/api/jobs/scoped-job/reorder", HttpStatusCode.NotFound, new { }, TestContext.Current.CancellationToken);
+        (await GetHubConnectionOutcomeAsync(user, "/hubs/jobs")).Should().Be(HubConnectionOutcome.Established);
         (await GetHubConnectionOutcomeAsync(user, "/hubs/logs")).Should().Be(HubConnectionOutcome.Rejected);
         (await GetHubConnectionOutcomeAsync(AsAnonymous(), "/hubs/logs")).Should().Be(HubConnectionOutcome.Rejected);
 
