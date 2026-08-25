@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, Copy, Loader2, Search, Trash2 } from "lucide-react";
 import { videos } from "../api/client";
@@ -42,6 +42,7 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
   const [searchId, setSearchId] = useState<string | null>(getSearchIdFromUrl);
   const [keeperChoices, setKeeperChoices] = useState<Map<number, Set<number>>>(new Map());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const hydratedSearchIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const { hasPermission } = useAuth();
   const canRunDuplicateSearch = hasPermission("jobs.run");
@@ -57,6 +58,19 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
       return status === "pending" || status === "running" ? 1_000 : false;
     },
   });
+
+  useEffect(() => {
+    const persistedSearch = searchQuery.data;
+    if (!persistedSearch || persistedSearch.id !== searchId || hydratedSearchIdRef.current === searchId) return;
+
+    const persistedMatchType = MATCH_OPTIONS.find((option) => option.value === persistedSearch.matchType)?.value;
+    if (persistedMatchType) setMatchType(persistedMatchType);
+    if (persistedMatchType === "phash") {
+      setPhashDistance(Math.max(0, Math.min(16, persistedSearch.distance)));
+      setDurationDiff(Math.max(0, persistedSearch.durationDiff));
+    }
+    hydratedSearchIdRef.current = searchId;
+  }, [searchId, searchQuery.data]);
 
   const completed = searchQuery.data?.status === "completed";
   const groupsQuery = useInfiniteQuery({
