@@ -49,6 +49,7 @@ public sealed class DuplicateSearchGroup
     public int Id { get; set; }
     public Guid SearchId { get; set; }
     public int Position { get; set; }
+    public Guid? LastDecisionOperationId { get; set; }
     public DuplicateSearch? Search { get; set; }
     public ICollection<DuplicateSearchItem> Items { get; set; } = [];
 }

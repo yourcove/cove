@@ -3,7 +3,9 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Cove.Tests;
 
@@ -215,10 +217,16 @@ public sealed class DuplicateSearchJobTests
                 null),
         };
         var service = new DuplicateSearchJobService(db, jobs, null!);
+        var originalExpiry = await db.DuplicateSearches
+            .Where(item => item.Id == search.Id)
+            .Select(item => item.ExpiresAt)
+            .SingleAsync();
 
         Assert.False(await service.ReconcileTerminalDeletionAsync(search, CancellationToken.None));
 
-        Assert.Equal("completed-delete-job", (await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id)).DeletionJobId);
+        var reconciled = await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id);
+        Assert.Equal("completed-delete-job", reconciled.DeletionJobId);
+        Assert.Equal(originalExpiry, reconciled.ExpiresAt);
         Assert.False(await db.DuplicateDeletionKeeperReservations.AnyAsync(item => item.VideoId == keeper.Id));
     }
 
@@ -260,6 +268,141 @@ public sealed class DuplicateSearchJobTests
         Assert.Null((await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id)).DeletionJobId);
         Assert.False(await db.DuplicateDeletionKeeperReservations.AnyAsync(item => item.VideoId == keeper.Id));
         Assert.True(await db.Videos.AnyAsync(item => item.Id == unwanted.Id));
+    }
+
+    [Fact]
+    public async Task TerminalReconciliationRetryDoesNotDeleteANewerJobsKeeperReservation()
+    {
+        var databaseName = $"terminal-reconcile-{Guid.NewGuid():N}";
+        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
+        await using var anchor = new SqliteConnection(connectionString);
+        await anchor.OpenAsync();
+        var commitAmbiguity = new CommitAmbiguityInterceptor();
+        var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+            .AddInterceptors(commitAmbiguity)
+            .Options;
+        var ordinaryOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .Options;
+        await using var db = new CoveContext(retryingOptions);
+        await db.Database.EnsureCreatedAsync();
+        var (search, keeper, _) = await AddClaimedSearchAsync(db, "terminal-job-a");
+        commitAmbiguity.Arm(async () =>
+        {
+            await using var newerDb = new CoveContext(ordinaryOptions);
+            await newerDb.DuplicateSearches
+                .Where(item => item.Id == search.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.DeletionJobId, "terminal-job-b"));
+            newerDb.DuplicateDeletionKeeperReservations.Add(new DuplicateDeletionKeeperReservation
+            {
+                SearchId = search.Id,
+                VideoId = keeper.Id,
+            });
+            await newerDb.SaveChangesAsync();
+        });
+        var service = new DuplicateSearchJobService(db, new CapturingJobService(), null!);
+
+        Assert.True(await service.ReconcileDeletionAsync(search.Id, "terminal-job-a", CancellationToken.None));
+
+        db.ChangeTracker.Clear();
+        Assert.Equal("terminal-job-b", await db.DuplicateSearches
+            .Where(item => item.Id == search.Id)
+            .Select(item => item.DeletionJobId)
+            .SingleAsync());
+        Assert.True(await db.DuplicateDeletionKeeperReservations
+            .AnyAsync(item => item.SearchId == search.Id && item.VideoId == keeper.Id));
+    }
+
+    [Fact]
+    public async Task CancelReconciliationRetryDoesNotDeleteANewerJobsKeeperReservation()
+    {
+        var databaseName = $"cancel-reconcile-{Guid.NewGuid():N}";
+        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
+        await using var anchor = new SqliteConnection(connectionString);
+        await anchor.OpenAsync();
+        var commitAmbiguity = new CommitAmbiguityInterceptor();
+        var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+            .AddInterceptors(commitAmbiguity)
+            .Options;
+        var ordinaryOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .Options;
+        await using var db = new CoveContext(retryingOptions);
+        await db.Database.EnsureCreatedAsync();
+        var (search, keeper, _) = await AddClaimedSearchAsync(db, "cancel-job-a");
+        commitAmbiguity.Arm(async () =>
+        {
+            await using var newerDb = new CoveContext(ordinaryOptions);
+            await newerDb.DuplicateSearches
+                .Where(item => item.Id == search.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.DeletionJobId, "cancel-job-b"));
+            newerDb.DuplicateDeletionKeeperReservations.Add(new DuplicateDeletionKeeperReservation
+            {
+                SearchId = search.Id,
+                VideoId = keeper.Id,
+            });
+            await newerDb.SaveChangesAsync();
+        });
+        var service = new DuplicateSearchJobService(db, new CapturingJobService(), null!);
+
+        Assert.Equal(0, await service.ReleaseCancelledPendingDeletionAsync("cancel-job-a", CancellationToken.None));
+
+        db.ChangeTracker.Clear();
+        Assert.Equal("cancel-job-b", await db.DuplicateSearches
+            .Where(item => item.Id == search.Id)
+            .Select(item => item.DeletionJobId)
+            .SingleAsync());
+        Assert.True(await db.DuplicateDeletionKeeperReservations
+            .AnyAsync(item => item.SearchId == search.Id && item.VideoId == keeper.Id));
+    }
+
+    [Fact]
+    public async Task PreEnqueueReleaseRetryDoesNotDeleteANewerJobsKeeperReservation()
+    {
+        var databaseName = $"claim-release-{Guid.NewGuid():N}";
+        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
+        await using var anchor = new SqliteConnection(connectionString);
+        await anchor.OpenAsync();
+        var commitAmbiguity = new CommitAmbiguityInterceptor();
+        var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+            .AddInterceptors(commitAmbiguity)
+            .Options;
+        var ordinaryOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .Options;
+        await using var db = new CoveContext(retryingOptions);
+        await db.Database.EnsureCreatedAsync();
+        var (search, keeper, _) = await AddClaimedSearchAsync(db, "claim-a");
+        commitAmbiguity.Arm(async () =>
+        {
+            await using var newerDb = new CoveContext(ordinaryOptions);
+            await newerDb.DuplicateSearches
+                .Where(item => item.Id == search.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.DeletionJobId, "claim-job-b"));
+            newerDb.DuplicateDeletionKeeperReservations.Add(new DuplicateDeletionKeeperReservation
+            {
+                SearchId = search.Id,
+                VideoId = keeper.Id,
+            });
+            await newerDb.SaveChangesAsync();
+        });
+        var service = new DuplicateSearchJobService(db, new CapturingJobService(), null!);
+
+        Assert.False(await service.ReleaseDeletionClaimAsync(search.Id, "claim-a", CancellationToken.None));
+
+        db.ChangeTracker.Clear();
+        Assert.Equal("claim-job-b", await db.DuplicateSearches
+            .Where(item => item.Id == search.Id)
+            .Select(item => item.DeletionJobId)
+            .SingleAsync());
+        Assert.True(await db.DuplicateDeletionKeeperReservations
+            .AnyAsync(item => item.SearchId == search.Id && item.VideoId == keeper.Id));
     }
 
     [Fact]
@@ -309,6 +452,7 @@ public sealed class DuplicateSearchJobTests
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseSqlite("Data Source=:memory:")
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
             .Options;
         var context = new CoveContext(options);
         context.Database.OpenConnection();

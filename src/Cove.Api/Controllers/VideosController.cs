@@ -1332,38 +1332,77 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (!string.IsNullOrWhiteSpace(search.DeletionJobId))
             return Conflict(new { message = "Keeper choices cannot be changed after deletion is queued." });
 
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        // Writing the search row takes a row lock until the keeper update commits. A deletion claim
-        // writes the same row, so it either sees this completed decision or prevents it entirely.
-        var decisionClaimed = await db.DuplicateSearches
-            .Where(item => item.Id == searchId
-                && item.Status == DuplicateSearchStatus.Completed
-                && item.DeletionJobId == null)
-            .ExecuteUpdateAsync(update => update
-                .SetProperty(item => item.ExpiresAt, DateTime.UtcNow.AddDays(7)), ct);
-        if (decisionClaimed == 0)
-            return Conflict(new { message = "Keeper choices cannot be changed after deletion is queued." });
+        var decisionOperationId = Guid.NewGuid();
+        Guid? originalDecisionOperationId = null;
+        var observedOriginalDecision = false;
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            // Writing the search row takes a row lock until the keeper update commits. A deletion claim
+            // writes the same row, so it either sees this completed decision or prevents it entirely.
+            var decisionClaimed = await db.DuplicateSearches
+                .Where(item => item.Id == searchId
+                    && item.Status == DuplicateSearchStatus.Completed
+                    && item.DeletionJobId == null)
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(item => item.ExpiresAt, DateTime.UtcNow.AddDays(7)), ct);
+            if (decisionClaimed == 0)
+            {
+                var ownDecisionCommitted = await db.DuplicateSearchGroups
+                    .AsNoTracking()
+                    .AnyAsync(item => item.SearchId == searchId
+                        && item.Id == groupId
+                        && item.LastDecisionOperationId == decisionOperationId, ct);
+                if (ownDecisionCommitted)
+                {
+                    await transaction.CommitAsync(ct);
+                    return (IActionResult)NoContent();
+                }
+                return Conflict(new { message = "Keeper choices cannot be changed after deletion is queued." });
+            }
 
-        var group = await db.DuplicateSearchGroups
-            .Include(item => item.Items)
-            .FirstOrDefaultAsync(item => item.SearchId == searchId && item.Id == groupId, ct);
-        if (group is null)
-            return NotFound();
-        var keepIds = request.KeepVideoIds.Where(id => id > 0).Distinct().ToHashSet();
-        if (keepIds.Count == 0)
-            return BadRequest("Keep at least one video in every duplicate group.");
-        var memberIds = group.Items.Select(item => item.VideoId).ToHashSet();
-        if (!keepIds.IsSubsetOf(memberIds))
-            return BadRequest("A keeper does not belong to this duplicate group.");
-        var visibleKeeperCount = await db.Videos.CountAsync(video => keepIds.Contains(video.Id), ct);
-        if (visibleKeeperCount != keepIds.Count)
-            return Forbid();
+            var group = await db.DuplicateSearchGroups
+                .Include(item => item.Items)
+                .FirstOrDefaultAsync(item => item.SearchId == searchId && item.Id == groupId, ct);
+            if (group is null)
+                return NotFound();
+            if (!observedOriginalDecision)
+            {
+                originalDecisionOperationId = group.LastDecisionOperationId;
+                observedOriginalDecision = true;
+            }
+            else if (group.LastDecisionOperationId == decisionOperationId)
+            {
+                // The previous commit succeeded and only its acknowledgement was lost.
+                await transaction.CommitAsync(ct);
+                return NoContent();
+            }
+            else if (group.LastDecisionOperationId != originalDecisionOperationId)
+            {
+                // A later request won while the execution strategy was deciding whether to replay.
+                // Never overwrite that newer choice with this request's stale body.
+                await transaction.CommitAsync(ct);
+                return Conflict(new { message = "Keeper choices changed while this update was being retried. Review the duplicate group and try again." });
+            }
+            var keepIds = request.KeepVideoIds.Where(id => id > 0).Distinct().ToHashSet();
+            if (keepIds.Count == 0)
+                return BadRequest("Keep at least one video in every duplicate group.");
+            var memberIds = group.Items.Select(item => item.VideoId).ToHashSet();
+            if (!keepIds.IsSubsetOf(memberIds))
+                return BadRequest("A keeper does not belong to this duplicate group.");
+            var visibleKeeperCount = await db.Videos.CountAsync(video => keepIds.Contains(video.Id), ct);
+            if (visibleKeeperCount != keepIds.Count)
+                return Forbid();
 
-        foreach (var item in group.Items)
-            item.Keep = keepIds.Contains(item.VideoId);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return NoContent();
+            foreach (var item in group.Items)
+                item.Keep = keepIds.Contains(item.VideoId);
+            group.LastDecisionOperationId = decisionOperationId;
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return NoContent();
+        });
     }
 
     [HttpPost("duplicate-searches/{searchId:guid}/delete-unkept")]
@@ -1387,47 +1426,59 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             return Conflict(new { message = "Deletion has already been queued for this duplicate search." });
 
         var reservation = DuplicateSearchDeletionClaim.Create();
-        int[] ids;
-        try
-        {
-            await using var claimTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-            {
-                var claimed = await db.DuplicateSearches
-                    .Where(item => item.Id == searchId
-                        && item.Status == DuplicateSearchStatus.Completed
-                        && item.DeletionJobId == null)
-                    .ExecuteUpdateAsync(update => update
-                        .SetProperty(item => item.DeletionJobId, reservation)
-                        .SetProperty(item => item.ExpiresAt, DateTime.UtcNow.AddDays(7)), ct);
-                if (claimed == 0)
-                    return Conflict(new { message = "Deletion has already been queued for this duplicate search." });
-
-                ids = await DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, searchId)
-                    .Join(db.Videos, id => id, video => video.Id, (id, _) => id)
-                    .ToArrayAsync(ct);
-                if (ids.Length == 0)
-                    return BadRequest("There are no unwanted duplicate videos to delete.");
-
-                var keeperIds = await db.DuplicateSearchItems
-                    .Where(item => item.Group != null && item.Group.SearchId == searchId && item.Keep)
-                    .Select(item => item.VideoId)
-                    .Distinct()
-                    .ToArrayAsync(ct);
-                db.DuplicateDeletionKeeperReservations.AddRange(keeperIds.Select(videoId =>
-                    new DuplicateDeletionKeeperReservation { SearchId = searchId, VideoId = videoId }));
-                await db.SaveChangesAsync(ct);
-                await claimTransaction.CommitAsync(ct);
-            }
-        }
-        catch (DbUpdateException)
-        {
-            db.ChangeTracker.Clear();
-            return Conflict(new { message = "A selected keeper changed while deletion was being queued. Review the duplicate groups and try again." });
-        }
-
         var releaseClaim = true;
         try
         {
+            int[] ids;
+            try
+            {
+                var executionStrategy = db.Database.CreateExecutionStrategy();
+                var claim = await executionStrategy.ExecuteAsync(async () =>
+                {
+                    db.ChangeTracker.Clear();
+                    await using var claimTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+                    var claimed = await db.DuplicateSearches
+                        .Where(item => item.Id == searchId
+                            && item.Status == DuplicateSearchStatus.Completed
+                            && (item.DeletionJobId == null || item.DeletionJobId == reservation))
+                        .ExecuteUpdateAsync(update => update
+                            .SetProperty(item => item.DeletionJobId, reservation)
+                            .SetProperty(item => item.ExpiresAt, DateTime.UtcNow.AddDays(7)), ct);
+                    if (claimed == 0)
+                        return (Failure: (IActionResult?)Conflict(new { message = "Deletion has already been queued for this duplicate search." }), VideoIds: Array.Empty<int>());
+
+                    var claimedIds = await DuplicateSearchJobService.EffectiveUnkeptVideoIds(db, searchId)
+                        .Join(db.Videos, id => id, video => video.Id, (id, _) => id)
+                        .ToArrayAsync(ct);
+                    if (claimedIds.Length == 0)
+                        return (Failure: (IActionResult?)BadRequest("There are no unwanted duplicate videos to delete."), VideoIds: Array.Empty<int>());
+
+                    var keeperIds = await db.DuplicateSearchItems
+                        .Where(item => item.Group != null && item.Group.SearchId == searchId && item.Keep)
+                        .Select(item => item.VideoId)
+                        .Distinct()
+                        .ToArrayAsync(ct);
+                    // A retry after an ambiguous commit reuses this request's reservation token. Replace
+                    // its keeper rows so replaying the whole transaction stays idempotent.
+                    await db.DuplicateDeletionKeeperReservations
+                        .Where(item => item.SearchId == searchId)
+                        .ExecuteDeleteAsync(ct);
+                    db.DuplicateDeletionKeeperReservations.AddRange(keeperIds.Select(videoId =>
+                        new DuplicateDeletionKeeperReservation { SearchId = searchId, VideoId = videoId }));
+                    await db.SaveChangesAsync(ct);
+                    await claimTransaction.CommitAsync(ct);
+                    return (Failure: (IActionResult?)null, VideoIds: claimedIds);
+                });
+                if (claim.Failure is not null)
+                    return claim.Failure;
+                ids = claim.VideoIds;
+            }
+            catch (DbUpdateException)
+            {
+                db.ChangeTracker.Clear();
+                return Conflict(new { message = "A selected keeper changed while deletion was being queued. Review the duplicate groups and try again." });
+            }
+
             var deletionScopeIds = await VideoHierarchyQueries.ExpandDeletionScopeAsync(db, ids, ct);
             foreach (var chunk in deletionScopeIds.Chunk(4_000))
             {
@@ -1459,12 +1510,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         {
             if (releaseClaim)
             {
-                await db.DuplicateDeletionKeeperReservations
-                    .Where(item => item.SearchId == searchId)
-                    .ExecuteDeleteAsync(CancellationToken.None);
-                await db.DuplicateSearches
-                    .Where(item => item.Id == searchId && item.DeletionJobId == reservation)
-                    .ExecuteUpdateAsync(update => update.SetProperty(item => item.DeletionJobId, (string?)null), CancellationToken.None);
+                if (duplicateSearchJobService is null)
+                    throw new InvalidOperationException("Duplicate search deletion recovery is unavailable.");
+                await duplicateSearchJobService.ReleaseDeletionClaimAsync(searchId, reservation, CancellationToken.None);
             }
         }
     }

@@ -89,22 +89,46 @@ public sealed class DuplicateSearchJobService(
         if (string.IsNullOrWhiteSpace(expectedJobId))
             return false;
 
-        var unwantedVideoIds = EffectiveUnkeptVideoIds(db, searchId);
-        if (!await db.Videos.AnyAsync(video => unwantedVideoIds.Contains(video.Id), ct))
-            return false;
-
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var reconciled = await db.DuplicateSearches
-            .Where(search => search.Id == searchId && search.DeletionJobId == expectedJobId)
-            .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct) > 0;
-        if (reconciled)
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
         {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            // The conditional write both proves that this reconciliation still owns the claim and
+            // locks the search row until its keeper reservations have been removed. A newer claim
+            // cannot appear between the ownership check and reservation cleanup.
+            var owned = await db.DuplicateSearches
+                .Where(search => search.Id == searchId && search.DeletionJobId == expectedJobId)
+                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, expectedJobId), ct);
+            if (owned == 0)
+            {
+                var current = await db.DuplicateSearches
+                    .Where(search => search.Id == searchId)
+                    .Select(search => new { search.DeletionJobId })
+                    .SingleOrDefaultAsync(ct);
+                await transaction.CommitAsync(ct);
+                // A retry after an ambiguously acknowledged successful release only needs its caller
+                // to reload. Most importantly, it must not touch reservations belonging to a newer job.
+                return current is not null && current.DeletionJobId != expectedJobId;
+            }
+
+            var unwantedVideoIds = EffectiveUnkeptVideoIds(db, searchId);
+            var hasUnwantedVideos = await db.Videos.AnyAsync(video => unwantedVideoIds.Contains(video.Id), ct);
+            if (hasUnwantedVideos)
+            {
+                var released = await db.DuplicateSearches
+                    .Where(search => search.Id == searchId && search.DeletionJobId == expectedJobId)
+                    .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
+                if (released != 1)
+                    throw new DbUpdateConcurrencyException("The duplicate deletion claim changed while it was being reconciled.");
+            }
+
             await db.DuplicateDeletionKeeperReservations
                 .Where(item => item.SearchId == searchId)
                 .ExecuteDeleteAsync(ct);
-        }
-        await transaction.CommitAsync(ct);
-        return reconciled;
+            await transaction.CommitAsync(ct);
+            return hasUnwantedVideos;
+        });
     }
 
     public async Task<bool> ReconcileTerminalDeletionAsync(DuplicateSearch search, CancellationToken ct)
@@ -119,9 +143,6 @@ public sealed class DuplicateSearchJobService(
             || job is { CompletedAt: null })
             return false;
 
-        await db.DuplicateDeletionKeeperReservations
-            .Where(item => item.SearchId == search.Id)
-            .ExecuteDeleteAsync(ct);
         return await ReconcileDeletionAsync(search.Id, deletionJobId, ct);
     }
 
@@ -134,25 +155,63 @@ public sealed class DuplicateSearchJobService(
         if (string.IsNullOrWhiteSpace(deletionJobId))
             return 0;
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var searchIds = await db.DuplicateSearches
-            .Where(search => search.DeletionJobId == deletionJobId)
-            .Select(search => search.Id)
-            .ToArrayAsync(ct);
-        if (searchIds.Length == 0)
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
         {
-            await transaction.CommitAsync(ct);
-            return 0;
-        }
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var owned = await db.DuplicateSearches
+                .Where(search => search.DeletionJobId == deletionJobId)
+                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, deletionJobId), ct);
+            if (owned == 0)
+            {
+                await transaction.CommitAsync(ct);
+                return 0;
+            }
 
-        await db.DuplicateDeletionKeeperReservations
-            .Where(item => searchIds.Contains(item.SearchId))
-            .ExecuteDeleteAsync(ct);
-        var released = await db.DuplicateSearches
-            .Where(search => searchIds.Contains(search.Id) && search.DeletionJobId == deletionJobId)
-            .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
-        await transaction.CommitAsync(ct);
-        return released;
+            var searchIds = await db.DuplicateSearches
+                .Where(search => search.DeletionJobId == deletionJobId)
+                .Select(search => search.Id)
+                .ToArrayAsync(ct);
+            await db.DuplicateDeletionKeeperReservations
+                .Where(item => searchIds.Contains(item.SearchId))
+                .ExecuteDeleteAsync(ct);
+            var released = await db.DuplicateSearches
+                .Where(search => searchIds.Contains(search.Id) && search.DeletionJobId == deletionJobId)
+                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
+            if (released != owned)
+                throw new DbUpdateConcurrencyException("A duplicate deletion claim changed while cancellation was being reconciled.");
+            await transaction.CommitAsync(ct);
+            return released;
+        });
+    }
+
+    /// <summary>
+    /// Releases one pre-enqueue reservation only while the supplied request token still owns it.
+    /// The row lock is held through keeper cleanup so a later deletion claim cannot lose its guards.
+    /// </summary>
+    public async Task<bool> ReleaseDeletionClaimAsync(Guid searchId, string expectedClaim, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(expectedClaim))
+            return false;
+
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var released = await db.DuplicateSearches
+                .Where(search => search.Id == searchId && search.DeletionJobId == expectedClaim)
+                .ExecuteUpdateAsync(update => update.SetProperty(search => search.DeletionJobId, (string?)null), ct);
+            if (released == 1)
+            {
+                await db.DuplicateDeletionKeeperReservations
+                    .Where(item => item.SearchId == searchId)
+                    .ExecuteDeleteAsync(ct);
+            }
+            await transaction.CommitAsync(ct);
+            return released == 1;
+        });
     }
 
     internal static IQueryable<int> EffectiveUnkeptVideoIds(CoveContext context, Guid searchId)
