@@ -80,6 +80,81 @@ public class ExtensionBundleSupportTests
     }
 
     [Fact]
+    public void Manifest_builder_owner_stamps_dashboard_widgets_and_keeps_editor_metadata()
+    {
+        var configuration = JsonSerializer.SerializeToElement(new { metrics = new[] { "videos", "groups" } });
+        var manifest = new UIManifestBuilder("catalog.extension")
+            .AddDashboardWidget(new UIDashboardWidgetContribution(
+                "library-pulse", "Library Pulse", "spoofed.extension", "LibraryPulseWidget",
+                EditorComponentName: "LibraryPulseEditor",
+                DefaultConfiguration: configuration,
+                AllowMultiple: false)
+            {
+                RequiredPermissions = ["extensions.read", "videos.read"],
+                RequiredPermissionMode = PermissionMode.All,
+                SupportedPresentations = [DashboardWidgetPresentation.Canvas],
+                DefaultPresentation = DashboardWidgetPresentation.Canvas,
+            })
+            .Build();
+
+        var widget = Assert.Single(manifest.DashboardWidgets);
+        Assert.Equal("catalog.extension", widget.ExtensionId);
+        Assert.Equal("LibraryPulseWidget", widget.ComponentName);
+        Assert.Equal("LibraryPulseEditor", widget.EditorComponentName);
+        Assert.False(widget.AllowMultiple);
+        Assert.Equal("videos", widget.DefaultConfiguration?.GetProperty("metrics")[0].GetString());
+        Assert.Equal(["extensions.read", "videos.read"], Assert.IsType<string[]>(widget.RequiredPermissions));
+        Assert.Equal([DashboardWidgetPresentation.Canvas], widget.SupportedPresentations);
+        Assert.Equal(DashboardWidgetPresentation.Canvas, widget.DefaultPresentation);
+    }
+
+    [Fact]
+    public void Manifest_builder_rejects_an_unsupported_default_widget_presentation()
+    {
+        var builder = new UIManifestBuilder("catalog.extension");
+        var widget = new UIDashboardWidgetContribution("feed", "Feed", "", "FeedWidget")
+        {
+            SupportedPresentations = [DashboardWidgetPresentation.Flow],
+            DefaultPresentation = DashboardWidgetPresentation.Canvas,
+        };
+
+        var error = Assert.Throws<ArgumentException>(() => builder.AddDashboardWidget(widget));
+
+        Assert.Contains("default", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Manifest_builder_registers_flow_and_explicitly_presented_widgets_through_one_method()
+    {
+        var manifest = new UIManifestBuilder("catalog.extension")
+            .AddDashboardWidget("flow", "Flow", "FlowWidget")
+            .AddDashboardWidget(
+                "canvas",
+                "Canvas",
+                "CanvasWidget",
+                defaultPresentation: DashboardWidgetPresentation.Canvas,
+                supportedPresentations: [DashboardWidgetPresentation.Canvas])
+            .Build();
+
+        Assert.Equal(DashboardWidgetPresentation.Flow, manifest.DashboardWidgets[0].DefaultPresentation);
+        Assert.Equal([DashboardWidgetPresentation.Canvas], manifest.DashboardWidgets[1].SupportedPresentations);
+    }
+
+    [Fact]
+    public void Manifest_builder_scalar_overload_requires_supported_presentations_for_a_non_flow_default()
+    {
+        var builder = new UIManifestBuilder("catalog.extension");
+
+        var error = Assert.Throws<ArgumentException>(() => builder.AddDashboardWidget(
+            "canvas",
+            "Canvas",
+            "CanvasWidget",
+            defaultPresentation: DashboardWidgetPresentation.Canvas));
+
+        Assert.Contains("default", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Permission_mode_serializes_with_the_browser_contract_value()
     {
         var page = new UIPageDefinition("catalog", "Catalog")

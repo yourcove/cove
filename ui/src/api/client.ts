@@ -112,6 +112,9 @@ import type {
   DownloaderPreflightResponse,
   UserUiPreferences,
   PlaybackIntervalsRequest,
+  Dashboard,
+  DashboardSummary,
+  DashboardWidget,
 } from "./types";
 
 const API_BASE = "/api";
@@ -1501,6 +1504,21 @@ export const savedFilters = {
   create: (data: SavedFilterCreate) => request<SavedFilter>("/savedfilters", { method: "POST", body: JSON.stringify(data) }),
   update: (id: number, data: SavedFilterUpdate) => request<SavedFilter>(`/savedfilters/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/savedfilters/${id}`, { method: "DELETE" }),
+};
+
+// ===== Personal Dashboards =====
+export const dashboards = {
+  bootstrap: (widgets?: DashboardWidget[]) =>
+    request<Dashboard>("/dashboards/bootstrap", { method: "POST", body: JSON.stringify({ widgets }) }),
+  list: () => request<DashboardSummary[]>("/dashboards"),
+  get: (id: number) => request<Dashboard>(`/dashboards/${id}`),
+  create: (name: string) => request<Dashboard>("/dashboards", { method: "POST", body: JSON.stringify({ name }) }),
+  update: (id: number, data: { name: string; expectedVersion: number; widgets: DashboardWidget[] }) =>
+    request<Dashboard>(`/dashboards/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  duplicate: (id: number, name: string) =>
+    request<Dashboard>(`/dashboards/${id}/duplicate`, { method: "POST", body: JSON.stringify({ name }) }),
+  setDefault: (id: number) => request<Dashboard>(`/dashboards/${id}/default`, { method: "PUT" }),
+  delete: (id: number) => request<void>(`/dashboards/${id}`, { method: "DELETE" }),
 };
 
 // ===== Plugins =====

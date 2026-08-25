@@ -162,7 +162,7 @@ export default function App() {
     } else {
       // Store the full route (including non-URL-serializable fields) in history.state
       // so the location change handler can recover it without URL round-tripping.
-      navigateToUrl(nextUrl, { state: r });
+      if (!navigateToUrl(nextUrl, { state: r })) return;
       setRoute(r);
       // Forward navigation to a different page should start at the top. Without this the
       // window keeps the previous page's scroll offset (e.g. a deep scroll position in the
@@ -545,6 +545,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
   return (
     <>
       {route.page === "home" && <HomePage onNavigate={navigate} />}
+      {route.page === "dashboard" && route.id !== undefined && <HomePage dashboardId={route.id} onNavigate={navigate} />}
       {route.page === "manual" && <HomePage onNavigate={navigate} />}
       {route.page === "videos" && <VideosPage onNavigate={navigate} />}
       {route.page === "video" && route.id !== undefined && <VideoDetailPage id={route.id} initialSeekTo={route.seekTo} initialTab={route.videoTab} onNavigate={navigate} />}

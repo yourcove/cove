@@ -104,6 +104,7 @@ export function EntityReferenceSelector({
   placeholder,
   disabled = false,
   inputClassName,
+  inputId,
   excludeIds,
   creatable = true,
   resultsMaxHeight,
@@ -118,6 +119,8 @@ export function EntityReferenceSelector({
   placeholder?: string;
   disabled?: boolean;
   inputClassName?: string;
+  /** Associates the selector input with an external label. */
+  inputId?: string;
   excludeIds?: Iterable<number>;
   creatable?: boolean;
   resultsMaxHeight?: number;
@@ -242,6 +245,7 @@ export function EntityReferenceSelector({
         <input
           ref={autocomplete.inputRef}
           {...autocomplete.inputProps}
+          id={inputId}
           type="text"
           value={showSelectedInInput ? selectedInputLabel : searchText}
           onFocus={(event) => {

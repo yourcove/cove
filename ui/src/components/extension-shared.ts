@@ -115,6 +115,8 @@ export type { ImageSelectionActionsProps } from "./ImageSelectionActions";
 export { getDefaultFilter } from "./SavedFilterMenu";
 export { Pager } from "./Pager";
 export { VIDEO_SORT_OPTIONS } from "./videoSortOptions";
+export { GroupItemFeed } from "./GroupItemFeed";
+export type { GroupItemFeedProps } from "./GroupItemFeed";
 
 // ─── Hooks ────────────────────────────────────────────────────────────────
 export { useMultiSelect, toggleOptionsFromEvent, withOrderedToggle } from "../hooks/useMultiSelect";

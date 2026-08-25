@@ -3244,6 +3244,7 @@ export interface ExtensionManifest {
   tutorialTopics?: ExtensionTutorialTopic[];
   listFilters?: ExtensionListFilterContribution[];
   listSorts?: ExtensionListSortContribution[];
+  dashboardWidgets?: ExtensionDashboardWidgetContribution[];
   frontendRuntimeVersion?: string;
   jsBundleUrl?: string;
   cssBundleUrl?: string;
@@ -3275,6 +3276,48 @@ export interface ExtensionKeyboardAction {
 export interface ExtensionKeyboardShortcutPreset extends KeyboardShortcutPresetDocument {
   extensionId: string;
   order: number;
+}
+
+export interface ExtensionDashboardWidgetContribution {
+  id: string;
+  label: string;
+  extensionId: string;
+  componentName: string;
+  editorComponentName?: string;
+  description?: string;
+  icon?: string;
+  defaultConfiguration?: unknown;
+  allowMultiple: boolean;
+  order: number;
+  requiredPermission?: string;
+  requiredPermissions?: string[];
+  requiredPermissionMode?: "all" | "any";
+  supportedPresentations?: DashboardWidgetPresentation[];
+  defaultPresentation?: DashboardWidgetPresentation;
+}
+
+export type DashboardWidgetPresentation = "flow" | "canvas";
+
+export interface DashboardWidget {
+  instanceId: string;
+  owner: string;
+  widgetKey: string;
+  label: string;
+  configuration: unknown;
+  presentation?: DashboardWidgetPresentation;
+}
+
+export interface DashboardSummary {
+  id: number;
+  name: string;
+  isDefault: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Dashboard extends DashboardSummary {
+  widgets: DashboardWidget[];
 }
 
 export interface ExtensionUiBundle {
