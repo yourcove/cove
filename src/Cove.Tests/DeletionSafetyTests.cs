@@ -7,6 +7,7 @@ using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Pgvector;
 
@@ -455,10 +456,11 @@ public sealed class DeletionSafetyTests
     }
 
     [Fact]
-    public async Task VideoDeletionWithArtworkCoordinatesTheExplicitDatabaseTransaction()
+    public async Task VideoDeletionCompletesPostCommitWorkAfterAnAmbiguousCommit()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
+        var commitAmbiguity = new CommitAmbiguityInterceptor();
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBlobReferenceCoordinator, BlobReferenceCoordinator>();
@@ -466,7 +468,10 @@ public sealed class DeletionSafetyTests
         services.AddScoped<BlobReferenceSaveChangesInterceptor>();
         services.AddDbContext<CoveContext>((provider, options) =>
             options.UseSqlite(connection)
-                .AddInterceptors(provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>()));
+                .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+                .AddInterceptors(
+                    provider.GetRequiredService<BlobReferenceSaveChangesInterceptor>(),
+                    commitAmbiguity));
         await using var provider = services.BuildServiceProvider();
         await using var scope = provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
@@ -477,14 +482,22 @@ public sealed class DeletionSafetyTests
         var thumbnails = new RecordingThumbnailService();
         var blobs = new ReferenceAwareBlobService(db);
         var customFields = new CustomFieldService(db);
+        var eventBus = new EventBus();
+        var deletedEventIds = new List<int>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+        {
+            if (evt.Type == EventType.VideoDeleted)
+                deletedEventIds.Add(evt.EntityId);
+        });
         var service = new BulkEntityDeletionService(
             db,
             customFields,
             new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
             thumbnails,
             blobs,
-            new EventBus(),
+            eventBus,
             blobReferenceTransactions: scope.ServiceProvider.GetRequiredService<BlobReferenceTransactionCoordinator>());
+        commitAmbiguity.Arm();
 
         Assert.True(await service.DeleteAsync(
             BulkDeletionEntityKind.Video,
@@ -496,6 +509,74 @@ public sealed class DeletionSafetyTests
 
         Assert.Empty(await db.Videos.IgnoreQueryFilters().ToArrayAsync());
         Assert.Contains("video-artwork", blobs.DeletedBlobIds);
+        Assert.Equal([video.Id], deletedEventIds);
+        Assert.Equal(1, commitAmbiguity.FailuresRaised);
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task RolledBackVideoDeletionDoesNotUseAConcurrentRootDeletionAsCommitProof()
+    {
+        var databaseName = $"video-delete-rollback-{Guid.NewGuid():N}";
+        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
+        await using var anchor = new SqliteConnection(connectionString);
+        await anchor.OpenAsync();
+        var preCommitFailure = new PreCommitFailureInterceptor();
+        var retryingOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+            .AddInterceptors(preCommitFailure)
+            .Options;
+        var ordinaryOptions = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite(connectionString)
+            .Options;
+        await using var db = new CoveContext(retryingOptions);
+        await db.Database.EnsureCreatedAsync();
+        var root = new Video { Title = "Deletion attempt that rolls back" };
+        var child = new Video { Title = "Reparented during retry", ParentVideo = root };
+        db.AddRange(root, child);
+        await db.SaveChangesAsync();
+        preCommitFailure.Arm(async () =>
+        {
+            await using var concurrentDb = new CoveContext(ordinaryOptions);
+            var concurrentChild = await concurrentDb.Videos.SingleAsync(video => video.Id == child.Id);
+            concurrentChild.ParentVideoId = null;
+            await concurrentDb.SaveChangesAsync();
+            concurrentDb.Videos.Remove(await concurrentDb.Videos.SingleAsync(video => video.Id == root.Id));
+            await concurrentDb.SaveChangesAsync();
+        });
+        var eventBus = new EventBus();
+        var deletedEventIds = new List<int>();
+        using var subscription = eventBus.Subscribe<EntityEvent>(evt =>
+        {
+            if (evt.Type == EventType.VideoDeleted)
+                deletedEventIds.Add(evt.EntityId);
+        });
+        var thumbnails = new RecordingThumbnailService();
+        var blobs = new ReferenceAwareBlobService(db);
+        var customFields = new CustomFieldService(db);
+        var service = new BulkEntityDeletionService(
+            db,
+            customFields,
+            new ImageDeletionService(db, customFields, thumbnails, blobService: blobs),
+            thumbnails,
+            blobs,
+            eventBus);
+
+        Assert.False(await service.DeleteAsync(
+            BulkDeletionEntityKind.Video,
+            root.Id,
+            new BulkDeletionExecutionContext(),
+            deleteFiles: false,
+            deleteGenerated: true,
+            CancellationToken.None));
+
+        db.ChangeTracker.Clear();
+        Assert.False(await db.Videos.IgnoreQueryFilters().AnyAsync(video => video.Id == root.Id));
+        Assert.True(await db.Videos.IgnoreQueryFilters().AnyAsync(video => video.Id == child.Id));
+        Assert.Empty(thumbnails.DeletedVideoIds);
+        Assert.Empty(deletedEventIds);
+        Assert.Empty(await db.VideoDeletionCommitMarkers.ToArrayAsync());
     }
 
     [Fact]
@@ -652,12 +733,17 @@ public sealed class DeletionSafetyTests
     private sealed class RecordingThumbnailService : IThumbnailService
     {
         public List<string> DeletedBlobIds { get; } = [];
+        public List<int> DeletedVideoIds { get; } = [];
         public Task<string?> GetVideoThumbnailPathAsync(int videoId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<string?> GetImageFilePathAsync(int imageId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageStreamAsync(int imageId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetImageThumbnailStreamAsync(int imageId, int maxDimension, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<(Stream stream, string contentType, bool supportsRangeRequests)?> GetBlobImageThumbnailStreamAsync(string blobId, int maxDimension, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task DeleteVideoGeneratedFilesAsync(int videoId, CancellationToken ct = default) => Task.CompletedTask;
+        public Task DeleteVideoGeneratedFilesAsync(int videoId, CancellationToken ct = default)
+        {
+            DeletedVideoIds.Add(videoId);
+            return Task.CompletedTask;
+        }
         public Task DeleteImageGeneratedFilesAsync(int imageId, CancellationToken ct = default) => Task.CompletedTask;
         public Task DeleteBlobGeneratedFilesAsync(string blobId, CancellationToken ct = default)
         {

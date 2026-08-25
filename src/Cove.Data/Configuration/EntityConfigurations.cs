@@ -1082,6 +1082,16 @@ public class PendingPhysicalFileDeletionConfiguration : IEntityTypeConfiguration
     }
 }
 
+public class VideoDeletionCommitMarkerConfiguration : IEntityTypeConfiguration<VideoDeletionCommitMarker>
+{
+    public void Configure(EntityTypeBuilder<VideoDeletionCommitMarker> builder)
+    {
+        builder.ToTable("video_deletion_commit_markers");
+        builder.HasKey(item => new { item.BatchId, item.VideoId });
+        builder.HasIndex(item => item.CreatedAt);
+    }
+}
+
 public class VideoFileConfiguration : IEntityTypeConfiguration<VideoFile>
 {
     public void Configure(EntityTypeBuilder<VideoFile> builder)
