@@ -622,7 +622,8 @@ public class SystemController(
         }
 
         var permissions = BuildDownloaderPermissions(dto.Url);
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principalAccessor.Current),
             "download",
             $"Downloading {dto.Url}",
             async (progress, ct) =>
@@ -689,7 +690,8 @@ public class SystemController(
         if (itemsToQueue.Count == 0)
             return Accepted(new { jobId = (string?)null, queuedCount = 0, issues });
 
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principalAccessor.Current),
             "download-batch",
             $"Downloading {itemsToQueue.Count} item{(itemsToQueue.Count == 1 ? string.Empty : "s")}",
             async (progress, ct) =>

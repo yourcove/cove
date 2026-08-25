@@ -17,9 +17,12 @@ public class FileOpsController(
     CoveContext db,
     IEventBus eventBus,
     ILogger<FileOpsController> logger,
-    IFileManagerLauncher? fileManagerLauncher = null) : ControllerBase
+    IFileManagerLauncher? fileManagerLauncher = null,
+    PhysicalFileAccessCoordinator? physicalFileCoordinator = null,
+    PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
     private static readonly IFileManagerLauncher DefaultFileManagerLauncher = new FileManagerLauncher();
+    private readonly PhysicalFileAccessCoordinator _physicalFileCoordinator = physicalFileCoordinator ?? PhysicalFileAccessCoordinator.Shared;
 
     [HttpPost("move")]
     [RequiresPermission(Permissions.FilesWrite)]
@@ -30,6 +33,7 @@ public class FileOpsController(
         if (!Directory.Exists(dto.DestinationPath))
             return BadRequest("Destination directory does not exist");
 
+        using var moveLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
         var files = await db.Set<BaseFileEntity>()
             .Include(f => f.ParentFolder)
             .Where(f => dto.FileIds.Contains(f.Id))
@@ -105,27 +109,30 @@ public class FileOpsController(
             .ToListAsync(ct);
 
         var deletedCount = 0;
-        var deletedFromDisk = 0;
+        var physicalPaths = new List<string>();
         foreach (var file in files)
         {
             if (dto.DeleteFromDisk)
             {
-                var path = Path.Combine(file.ParentFolder?.Path ?? "", file.Basename);
-                if (System.IO.File.Exists(path))
-                {
-                    System.IO.File.Delete(path);
-                    deletedFromDisk++;
-                    logger.LogDebug("Deleted file from disk: {Path}", path);
-                }
+                physicalPaths.Add(!string.IsNullOrWhiteSpace(file.Path)
+                    ? file.Path
+                    : Path.Combine(file.ParentFolder?.Path ?? "", file.Basename));
             }
 
             db.Set<BaseFileEntity>().Remove(file);
             deletedCount++;
         }
 
+        var deletionContext = new BulkDeletionExecutionContext();
+        deletionContext.StagePhysicalFiles(db, physicalPaths);
         await db.SaveChangesAsync(ct);
+        if (dto.DeleteFromDisk && physicalPaths.Count > 0)
+            physicalFileDeletionRecoverySignal?.Notify();
         PublishOwnerUpdates(files);
-        logger.LogInformation("Deleted {Count} file record(s) ({DiskCount} also removed from disk)", deletedCount, deletedFromDisk);
+        logger.LogInformation(
+            "Deleted {Count} file record(s); {DiskCount} physical deletion(s) were staged",
+            deletedCount,
+            physicalPaths.Count);
         return Ok(new { deleted = deletedCount });
     }
 

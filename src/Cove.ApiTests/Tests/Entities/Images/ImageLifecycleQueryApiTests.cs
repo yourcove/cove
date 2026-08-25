@@ -246,7 +246,12 @@ public sealed class ImageLifecycleQueryApiTests(
         foreach (var image in new[] { first, second })
             (await owner.GetImageByIdAsync(image.Id, TestContext.Current.CancellationToken)).Id.Should().Be(image.Id);
 
-        await owner.BulkDeleteImagesAsync(request, TestContext.Current.CancellationToken);
+        var queued = await owner.BulkDeleteImagesAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
         foreach (var image in new[] { first, second })
         {

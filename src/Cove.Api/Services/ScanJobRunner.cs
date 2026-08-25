@@ -28,7 +28,8 @@ internal sealed class ScanJobRunner(
     ScanGalleryProcessor galleryProcessor,
     ScanAudioProcessor audioProcessor,
     ScanTextProcessor textProcessor,
-    ILogger logger)
+    ILogger logger,
+    PhysicalFileAccessCoordinator physicalFileCoordinator)
 {
     private const int ScanSaveBatchSize = 50;
     private static readonly TimeSpan ScanCommandTimeout = TimeSpan.FromMinutes(5);
@@ -47,6 +48,7 @@ internal sealed class ScanJobRunner(
 
         return jobService.Enqueue("scan", "Scanning library", async (progress, ct) =>
         {
+            using var scanLease = await physicalFileCoordinator.AcquireReadAsync(ct);
             var cfg = config;
             var scanStopwatch = Stopwatch.StartNew();
             var discovery = await discoveryService.DiscoverAsync(options, progress, ct);

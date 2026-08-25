@@ -2,6 +2,7 @@ using System.Text.Json;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Groups;
 
@@ -233,9 +234,13 @@ public sealed class GroupDynamicOrderingAndSpanApiTests(
         (await owner.GetGroupByIdAsync(normal.Id, TestContext.Current.CancellationToken)).Id.Should().Be(normal.Id);
         (await owner.GetGroupByIdAsync(builtIn.Id, TestContext.Current.CancellationToken)).Id.Should().Be(builtIn.Id);
 
-        var result = await owner.BulkDeleteGroupsAsync(request, TestContext.Current.CancellationToken);
+        var queued = await owner.BulkDeleteGroupsAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 1,
+            skipped: 2);
 
-        result.Should().Be(new GroupBulkDeleteResponse(Deleted: 1, Skipped: 1));
         var deleted = () => owner.GetGroupByIdAsync(normal.Id);
         await deleted.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
         (await owner.GetGroupByIdAsync(builtIn.Id, TestContext.Current.CancellationToken)).QuerySourceKey.Should().Be("save-for-later");

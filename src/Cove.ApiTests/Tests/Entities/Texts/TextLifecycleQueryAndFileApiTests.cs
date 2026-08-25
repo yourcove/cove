@@ -274,6 +274,7 @@ public sealed class TextLifecycleQueryAndFileApiTests(
         await AsUser().DeleteTextAsync(deletedFileText.Id, deleteFile: true, cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
+        await WaitForFileDeletionAsync(deletedPath, TestContext.Current.CancellationToken);
         File.Exists(retainedPath).Should().BeTrue();
         File.Exists(deletedPath).Should().BeFalse();
         foreach (var deleted in new[] { retainedFileText, deletedFileText })
@@ -315,24 +316,47 @@ public sealed class TextLifecycleQueryAndFileApiTests(
             .WithMessage("*returned 403 (Forbidden)*");
         File.Exists(firstPath).Should().BeTrue();
         File.Exists(secondPath).Should().BeTrue();
-        await AsUser().BulkDeleteTextsAsync(request, TestContext.Current.CancellationToken);
+        var owner = AsUser();
+        var queued = await owner.BulkDeleteTextsAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
         // Assert
         foreach (var deleted in new[] { first, second })
         {
-            var read = () => AsUser().GetTextByIdAsync(deleted.Id);
+            var read = () => owner.GetTextByIdAsync(deleted.Id);
             await read.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 404 (NotFound)*");
         }
         File.Exists(firstPath).Should().BeFalse();
         File.Exists(secondPath).Should().BeFalse();
         File.Exists(retainedPath).Should().BeTrue();
-        (await AsUser().GetTextByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
+        (await owner.GetTextByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
     }
 
     private async Task<TextDocumentDto> ImportTextAsync(string contents)
     {
         var path = AsTestFileSystem().CreateTextFile(contents);
         return await AsUser().CreateTextFromFileAsync(path);
+    }
+
+    private static async Task WaitForFileDeletionAsync(string path, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (File.Exists(path))
+        {
+            try
+            {
+                await Task.Delay(50, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"File deletion did not complete within 10 seconds: {path}");
+            }
+        }
     }
 }

@@ -153,6 +153,7 @@ public sealed class FileOpsApiTests(
         var deletedPhysical = await owner.DeleteFilesAsync(new DeleteFilesDto([physical.File.Id], DeleteFromDisk: true), TestContext.Current.CancellationToken);
         deletedPhysical.Deleted.Should().Be(1);
         (await owner.GetVideoByIdAsync(physical.Video.Id, TestContext.Current.CancellationToken)).Files.Should().BeEmpty();
+        await WaitForLibraryFileDeletionAsync(fileSystem, physical.Path, TestContext.Current.CancellationToken);
         fileSystem.LibraryFileExists(physical.Path).Should().BeFalse();
 
         AssertSingleFile(await owner.GetVideoByIdAsync(control.Video.Id, TestContext.Current.CancellationToken), control, control.Path);
@@ -177,6 +178,26 @@ public sealed class FileOpsApiTests(
         file.Id.Should().Be(expected.File.Id);
         file.Basename.Should().Be(expected.File.Basename);
         file.Path.Should().Be(expectedPath);
+    }
+
+    private static async Task WaitForLibraryFileDeletionAsync(
+        ApiTestFileSystem fileSystem,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (fileSystem.LibraryFileExists(path))
+        {
+            try
+            {
+                await Task.Delay(50, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"File deletion did not complete within 10 seconds: {path}");
+            }
+        }
     }
 
     private sealed record FixtureFile(VideoDto Video, VideoFileDto File, string Path);

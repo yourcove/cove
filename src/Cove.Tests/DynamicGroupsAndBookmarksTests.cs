@@ -267,6 +267,35 @@ public class DynamicGroupsAndBookmarksTests
     }
 
     [Fact]
+    public async Task DeletingEntity_RemovesEngagementRowsOwnedByOtherUsers()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var audio = new Audio { Title = "Delete across principals" };
+        context.Audios.Add(audio);
+        await context.SaveChangesAsync();
+        foreach (var userId in new[] { 7, 8 })
+        {
+            context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = userId, HostType = AffinityHostType.Audio, HostId = audio.Id });
+            context.UserBookmarks.Add(new UserBookmark { UserId = userId, HostType = AffinityHostType.Audio, HostId = audio.Id, CreatedAt = DateTime.UtcNow });
+            context.Interactions.Add(new Interaction { UserId = userId, HostType = InteractionHostType.Audio, HostId = audio.Id, Kind = InteractionKind.PageVisit });
+            context.PlaybackSessions.Add(new PlaybackSession { UserId = userId, HostType = InteractionHostType.Audio, HostId = audio.Id, SessionId = Guid.NewGuid() });
+            context.Ratings.Add(new Rating { UserId = userId, HostType = RatingHostType.Audio, HostId = audio.Id, Aspect = "overall", Value = 80 });
+        }
+        await context.SaveChangesAsync();
+        scope.PrincipalAccessor.Set(CreatePrincipal(7));
+
+        context.Audios.Remove(audio);
+        await context.SaveChangesAsync();
+
+        Assert.Empty(await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await context.UserBookmarks.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await context.Interactions.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await context.Ratings.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
     public async Task DeletingUser_RemovesTheirEngagementRowsAndBookmarks()
     {
         await using var scope = CreateContext();

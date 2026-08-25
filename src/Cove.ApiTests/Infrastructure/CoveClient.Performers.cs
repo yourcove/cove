@@ -127,13 +127,15 @@ public sealed partial class CoveClient
         return response.GetProperty("updated").GetInt32();
     }
 
-    public async Task<int> BulkDeletePerformersAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeletePerformersAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(HttpMethod.Delete, "/api/performers/bulk", request, cancellationToken);
-        return response.GetProperty("deleted").GetInt32();
-    }
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
+            HttpMethod.Delete,
+            "/api/performers/bulk",
+            request,
+            System.Net.HttpStatusCode.Accepted,
+            cancellationToken);
 
     public Task<PaginatedResponse<GroupDto>> GetPerformerGroupsAsync(
         int performerId,

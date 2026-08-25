@@ -5,6 +5,7 @@ using System.Text.Json;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
 using Cove.Core.Entities;
+using Cove.Api.Services;
 using Cove.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -119,14 +120,21 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
 
         foreach (var requirement in requirements)
         {
-            var ids = ResolveIds(requirement, context);
-            foreach (var id in ids)
-            {
-                var result = await AuthorizeEntityAsync(
+            var ids = await ResolveAuthorizationIdsAsync(
+                requirement,
+                context,
+                context.HttpContext.RequestAborted);
+            var decisions = ids.Length > 1 && !string.Equals(requirement.EntityKind, EntityKinds.File, StringComparison.OrdinalIgnoreCase)
+                ? await _authz.AuthorizeManyAsync(
                     principal,
-                    requirement,
-                    id,
-                    context.HttpContext.RequestAborted);
+                    requirement.Permission,
+                    ids.Select(id => new EntityRef(requirement.EntityKind, id)).ToArray(),
+                    context.HttpContext.RequestAborted)
+                : null;
+            for (var index = 0; index < ids.Length; index++)
+            {
+                var id = ids[index];
+                var result = decisions?[index] ?? await AuthorizeEntityAsync(principal, requirement, id, context.HttpContext.RequestAborted);
 
                 if (result.Allowed)
                     continue;
@@ -165,6 +173,32 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
         }
 
         await next();
+    }
+
+    private async Task<string[]> ResolveAuthorizationIdsAsync(
+        RequiresEntityAccessAttribute requirement,
+        ActionExecutingContext context,
+        CancellationToken cancellationToken)
+    {
+        var ids = ResolveIds(requirement, context).ToList();
+        if (!requirement.IncludeDescendants
+            || !string.Equals(requirement.EntityKind, EntityKinds.Video, StringComparison.OrdinalIgnoreCase))
+            return [.. ids];
+
+        var rootIds = ids
+            .Select(id => int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0)
+            .Where(id => id > 0)
+            .ToArray();
+        var deletionScope = await VideoHierarchyQueries.ExpandDeletionScopeAsync(_db, rootIds, cancellationToken);
+        var seen = ids.ToHashSet(StringComparer.Ordinal);
+        foreach (var videoId in deletionScope)
+        {
+            var id = videoId.ToString(CultureInfo.InvariantCulture);
+            if (seen.Add(id))
+                ids.Add(id);
+        }
+
+        return [.. ids];
     }
 
     private async Task<AuthorizationResult> AuthorizeEntityAsync(

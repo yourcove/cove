@@ -291,6 +291,89 @@ public class DownloaderServiceTests
     }
 
     [Fact]
+    public async Task DownloadAndIngestAsync_HoldsProducerLeaseUntilTheFileReferenceIsCommitted()
+    {
+        var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-race-tests", Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(libraryRoot);
+        var coordinator = new PhysicalFileAccessCoordinator();
+        var movedPath = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowReferenceCommit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var scanService = new FakeScanService();
+        var service = CreateService(
+            out var services,
+            new CoveConfiguration { CovePaths = [new CovePath { Path = libraryRoot }] },
+            scanService,
+            physicalFileAccessCoordinator: coordinator);
+
+        scanService.VideoImportHandler = async (path, _, ct) =>
+        {
+            movedPath.TrySetResult(path);
+            await allowReferenceCommit.Task.WaitAsync(ct);
+            using var producerScope = services.CreateScope();
+            var producerDb = producerScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var video = new Video { Title = "Downloader race fixture" };
+            producerDb.VideoFiles.Add(new VideoFile
+            {
+                Video = video,
+                Basename = Path.GetFileName(path),
+                ParentFolder = new Folder { Path = Path.GetDirectoryName(path)!, ModTime = DateTime.UtcNow },
+                Path = path,
+                Size = new FileInfo(path).Length,
+                ModTime = File.GetLastWriteTimeUtc(path),
+            });
+            await producerDb.SaveChangesAsync(ct);
+            return video.Id;
+        };
+
+        Task<(DownloaderResult? Result, int? ImportedEntityId)>? ingestTask = null;
+        try
+        {
+            ingestTask = service.DownloadAndIngestAsync(
+                new DownloaderRequest(
+                    "tests.fake-downloader/example",
+                    "https://example.com/watch/producer-race",
+                    DownloaderEntity.Video,
+                    new DownloaderPermissions(["example.com"])),
+                entityId: null,
+                progress: null,
+                CancellationToken.None);
+
+            var path = await movedPath.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            using var deletionScope = services.CreateScope();
+            var deletionDb = deletionScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var deletionContext = new BulkDeletionExecutionContext();
+            deletionContext.StagePhysicalFiles(deletionDb, [path]);
+            await deletionDb.SaveChangesAsync();
+            var deletionTask = new PhysicalFileDeletionService(deletionDb, coordinator)
+                .ProcessPendingAsync(deletionContext.PhysicalDeletionBatchId, 1, CancellationToken.None);
+
+            await Task.Delay(50);
+            Assert.False(deletionTask.IsCompleted);
+            allowReferenceCommit.TrySetResult();
+
+            var (_, importedEntityId) = await ingestTask.WaitAsync(TimeSpan.FromSeconds(5));
+            var deletion = await deletionTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(importedEntityId);
+            Assert.Equal(0, deletion.Deleted);
+            Assert.Equal(0, deletion.Failed);
+            Assert.True(File.Exists(path));
+            Assert.Empty(await deletionDb.PendingPhysicalFileDeletions.ToListAsync());
+        }
+        finally
+        {
+            allowReferenceCommit.TrySetResult();
+            if (ingestTask is not null)
+            {
+                try { await ingestTask; }
+                catch { }
+            }
+            await services.DisposeAsync();
+            if (Directory.Exists(libraryRoot))
+                Directory.Delete(libraryRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DownloadAndIngestAsync_AutoAppliesInlineVideoMetadataWhenRequested()
     {
         var libraryRoot = Path.Combine(Path.GetTempPath(), "cove-downloader-tests", Guid.NewGuid().ToString("n"));
@@ -1235,9 +1318,10 @@ public class DownloaderServiceTests
         IVideoMetadataApplyService? videoMetadataApplyService = null,
         Action<CoveContext>? seedDatabase = null,
         bool includeForumProvider = false,
-        ILogger<DownloaderService>? logger = null)
+        ILogger<DownloaderService>? logger = null,
+        PhysicalFileAccessCoordinator? physicalFileAccessCoordinator = null)
     {
-        return CreateService(out services, out _, config, scanService, videoMetadataApplyService, seedDatabase, includeForumProvider, logger);
+        return CreateService(out services, out _, config, scanService, videoMetadataApplyService, seedDatabase, includeForumProvider, logger, physicalFileAccessCoordinator);
     }
 
     private static DownloaderService CreateService(
@@ -1248,7 +1332,8 @@ public class DownloaderServiceTests
         IVideoMetadataApplyService? videoMetadataApplyService = null,
         Action<CoveContext>? seedDatabase = null,
         bool includeForumProvider = false,
-        ILogger<DownloaderService>? logger = null)
+        ILogger<DownloaderService>? logger = null,
+        PhysicalFileAccessCoordinator? physicalFileAccessCoordinator = null)
     {
         var serviceCollection = new ServiceCollection();
         var databaseName = $"cove-downloader-tests-{Guid.NewGuid():N}";
@@ -1294,7 +1379,8 @@ public class DownloaderServiceTests
             NullLoggerFactory.Instance,
             effectiveConfig,
             services.GetRequiredService<IServiceScopeFactory>(),
-            logger ?? NullLogger<DownloaderService>.Instance);
+            logger ?? NullLogger<DownloaderService>.Instance,
+            physicalFileAccessCoordinator);
     }
 
     private sealed class FakeScanService : IScanService
@@ -1315,11 +1401,13 @@ public class DownloaderServiceTests
             return $"job-{ScanStartCount}";
         }
 
+        public Func<string, int?, CancellationToken, Task<int>>? VideoImportHandler { get; set; }
+
         public Task<int> ImportDownloadedVideoAsync(string path, int? videoId, CancellationToken ct = default)
         {
             ImportedPath = path;
             VideoId = videoId;
-            return Task.FromResult(videoId ?? 1);
+            return VideoImportHandler?.Invoke(path, videoId, ct) ?? Task.FromResult(videoId ?? 1);
         }
 
         public Task<int> ImportDownloadedImageAsync(string path, int? imageId, CancellationToken ct = default)

@@ -98,8 +98,13 @@ public sealed partial class CoveClient
         CancellationToken cancellationToken = default)
         => SendForNoContentAsync(HttpMethod.Delete, $"/api/images/{imageId}", new { }, cancellationToken);
 
-    public Task BulkDeleteImagesAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteImagesAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-        => SendForNoContentAsync(HttpMethod.Delete, "/api/images/bulk", request, cancellationToken);
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
+            HttpMethod.Delete,
+            "/api/images/bulk",
+            request,
+            System.Net.HttpStatusCode.Accepted,
+            cancellationToken);
 }

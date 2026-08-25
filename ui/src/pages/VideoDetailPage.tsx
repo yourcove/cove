@@ -216,6 +216,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const canWriteVideo = canWriteEntity("video", hasPermission);
   const canReadVideo = canReadEntity("video", hasPermission);
   const canDeleteVideo = canDeleteEntity("video", hasPermission);
+  const canDeleteVideoFiles = hasPermission("videos.delete.file");
   const canReadGroups = canReadEntity("group", hasPermission);
   const canReadGalleries = canReadEntity("gallery", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
@@ -941,7 +942,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         message={`Are you sure you want to delete "${video.title || "Untitled"}"? This cannot be undone.`}
         onConfirm={(opts) => deleteMut.mutate(opts?.deleteFile)}
         onCancel={() => setConfirmDelete(false)}
-        showDeleteFile
+        showDeleteFile={canDeleteVideoFiles}
       />
       <ConfirmDialog
         open={reportTag != null}

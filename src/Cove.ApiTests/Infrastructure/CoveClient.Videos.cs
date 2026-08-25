@@ -89,14 +89,84 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
-    public Task<IReadOnlyList<IReadOnlyList<VideoDto>>> FindDuplicateVideosAsync(
+    public async Task<IReadOnlyList<IReadOnlyList<VideoDto>>> FindDuplicateVideosAsync(
         string matchType,
         int distance = 0,
         CancellationToken cancellationToken = default)
-        => SendAsync<IReadOnlyList<IReadOnlyList<VideoDto>>>(
+    {
+        var started = await StartDuplicateSearchAsync(
+            new DuplicateSearchRequestDto(matchType, distance),
+            cancellationToken);
+        var job = await WaitForTerminalJobAsync(started.JobId, cancellationToken);
+        if (job.Status != JobStatus.Completed)
+            throw new InvalidOperationException($"Duplicate search job '{started.JobId}' ended with status {job.Status}: {job.Error}");
+
+        var groups = new List<IReadOnlyList<VideoDto>>();
+        var pageNumber = 1;
+        DuplicateSearchGroupPageDto page;
+        do
+        {
+            page = await GetDuplicateSearchGroupsAsync(
+                started.SearchId,
+                pageNumber++,
+                perPage: 20,
+                cancellationToken: cancellationToken);
+            groups.AddRange(page.Items.Select(group => group.Videos));
+        }
+        while (page.HasMore);
+        return groups;
+    }
+
+    public Task<DuplicateSearchStartDto> StartDuplicateSearchAsync(
+        DuplicateSearchRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<DuplicateSearchStartDto>(
+            HttpMethod.Post,
+            "/api/videos/duplicate-searches",
+            request,
+            HttpStatusCode.Accepted,
+            cancellationToken);
+
+    public Task<DuplicateSearchInfoDto> GetDuplicateSearchAsync(
+        Guid searchId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DuplicateSearchInfoDto>(
             HttpMethod.Get,
-            WithCacheNonce($"/api/videos/duplicates?matchType={Uri.EscapeDataString(matchType)}&distance={distance}"),
+            WithCacheNonce($"/api/videos/duplicate-searches/{searchId}"),
             payload: null,
+            cancellationToken);
+
+    public Task<DuplicateSearchGroupPageDto> GetDuplicateSearchGroupsAsync(
+        Guid searchId,
+        int page = 1,
+        int perPage = 10,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DuplicateSearchGroupPageDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/duplicate-searches/{searchId}/groups?page={page}&perPage={perPage}"),
+            payload: null,
+            cancellationToken);
+
+    public Task UpdateDuplicateSearchGroupDecisionAsync(
+        Guid searchId,
+        int groupId,
+        DuplicateSearchGroupDecisionDto request,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Patch,
+            $"/api/videos/duplicate-searches/{searchId}/groups/{groupId}",
+            request,
+            cancellationToken);
+
+    public Task<BulkDeletionJobStartResponse> DeleteUnkeptDuplicateVideosAsync(
+        Guid searchId,
+        DuplicateSearchDeleteRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
+            HttpMethod.Post,
+            $"/api/videos/duplicate-searches/{searchId}/delete-unkept",
+            request,
+            HttpStatusCode.Accepted,
             cancellationToken);
 
     public Task<PaginatedResponse<VideoListEntryDto>> GetVideosWithCompilationsAsync(
@@ -258,17 +328,15 @@ public sealed partial class CoveClient
             new { },
             cancellationToken);
 
-    public async Task<int> DestroyVideosAsync(
+    public Task<BulkDeletionJobStartResponse> DestroyVideosAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Post,
             "/api/videos/destroy",
             request,
+            HttpStatusCode.Accepted,
             cancellationToken);
-        return response.GetProperty("deleted").GetInt32();
-    }
 
     public async Task DeleteVideoAsync(
         int videoId,

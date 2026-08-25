@@ -328,6 +328,15 @@ try
     builder.Services.AddSingleton<ITranscodeService, TranscodeService>();
     builder.Services.AddScoped<StashMigrationService>();
     builder.Services.AddScoped<ITagProvenanceService, TagProvenanceService>();
+    builder.Services.AddScoped<ImageDeletionService>();
+    builder.Services.AddScoped<EntityHostDependencyService>();
+    builder.Services.AddSingleton(PhysicalFileAccessCoordinator.Shared);
+    builder.Services.AddSingleton<PhysicalFileDeletionRecoverySignal>();
+    builder.Services.AddScoped<PhysicalFileDeletionService>();
+    builder.Services.AddScoped<BulkEntityDeletionService>();
+    builder.Services.AddScoped<BulkDeletionJobService>();
+    builder.Services.AddScoped<DuplicateSearchJobService>();
+    builder.Services.AddScoped<DuplicateSearchExecutionService>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();
     builder.Services.AddScoped<CustomFieldService>();
@@ -410,6 +419,11 @@ try
     if (pgManaged)
         builder.Services.AddHostedService<PostgresManagerService>();
 
+    // Recovery touches the database during startup, so it must run after the managed PostgreSQL
+    // service has made that database reachable.
+    builder.Services.AddHostedService<DuplicateSearchRecoveryService>();
+    builder.Services.AddHostedService<PhysicalFileDeletionRecoveryService>();
+
     // Auth bootstrap (must run AFTER PostgresManagerService so the DB is reachable).
     builder.Services.AddSingleton<Cove.Data.Auth.BootstrapAuthService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<Cove.Data.Auth.BootstrapAuthService>());
@@ -464,6 +478,7 @@ try
         options.Filters.Add<Cove.Api.Middleware.EntityEventFilter>();
         options.Filters.Add<Cove.Api.Middleware.AuthExceptionFilter>();
         options.Filters.Add<Cove.Api.Middleware.PermissionAuthorizationFilter>();
+        options.Filters.Add<Cove.Api.Middleware.ConditionalPermissionActionFilter>();
         options.Filters.Add<Cove.Api.Middleware.EntityAccessActionFilter>();
     })
         .AddJsonOptions(options =>

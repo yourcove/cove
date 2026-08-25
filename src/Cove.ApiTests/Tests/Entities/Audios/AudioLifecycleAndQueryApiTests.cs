@@ -321,16 +321,22 @@ public sealed class AudioLifecycleAndQueryApiTests(
         var forbidden = () => AsUser(ApiTestUsers.Eva).BulkDeleteAudiosAsync(request);
         await forbidden.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        await AsUser().BulkDeleteAudiosAsync(request, TestContext.Current.CancellationToken);
+        var owner = AsUser();
+        var queued = await owner.BulkDeleteAudiosAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
         // Assert
         foreach (var deleted in new[] { first, second })
         {
-            var read = () => AsUser().GetAudioByIdAsync(deleted.Id);
+            var read = () => owner.GetAudioByIdAsync(deleted.Id);
             await read.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 404 (NotFound)*");
         }
-        (await AsUser().GetAudioByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
+        (await owner.GetAudioByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
     }
 
 }

@@ -699,7 +699,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   const deleteSelectedHostsMutation = useMutation({
     meta: { suppressGlobalError: true },
     mutationFn: async (keys: string[]) => deleteSelectedGroupHosts(await getSelectedItemsByIds(new Set(keys)), hasPermission),
-    onSuccess: () => { setConfirmSelectionAction(null); selectNone(); invalidateGroupItems(); },
+    onSuccess: () => { setConfirmSelectionAction(null); selectNone(); },
   });
 
   const reorderItemMutation = useMutation({
@@ -789,7 +789,7 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
         open={confirmSelectionAction === "delete"}
         title="Delete selected items"
         message={`Delete ${selectedDeletableKinds.size > 1 ? "the supported" : ""} selected item${selectedCount === 1 ? "" : "s"}? This deletes the underlying entities, not just the group entries.`}
-        confirmLabel={deleteSelectedHostsMutation.isPending ? "Deleting..." : "Delete"}
+        confirmLabel={deleteSelectedHostsMutation.isPending ? "Queueing..." : "Queue deletion"}
         onConfirm={() => deleteSelectedHostsMutation.mutate([...selectedIds])}
         onCancel={() => setConfirmSelectionAction(null)}
         isPending={deleteSelectedHostsMutation.isPending}

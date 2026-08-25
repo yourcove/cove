@@ -2,6 +2,7 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Entities.Faces;
 
@@ -11,7 +12,7 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
 {
     [Fact]
     [CoversEndpoint("POST", "/api/faces/batch/delete")]
-    public async Task GivenDuplicateMissingAndMergedFaces_WhenBatchDeleteRuns_ThenResultsAndRelationshipsAreConsistent()
+    public async Task GivenDuplicateMissingAndMergedFaces_WhenBatchDeleteRuns_ThenExistingSelectionsAndRelationshipsAreConsistent()
     {
         // Arrange
         var video = await AsUser().CreateVideoAsync($"Face batch-delete host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
@@ -24,14 +25,15 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
         const int missingId = int.MaxValue;
 
         // Act
-        var result = await AsUser(ApiTestUsers.Eva).BatchDeleteFacesAsync([first.Id, first.Id, target.Id, missingId], TestContext.Current.CancellationToken);
+        var member = AsUser(ApiTestUsers.Eva);
+        var queued = await member.BatchDeleteFacesAsync([first.Id, first.Id, target.Id, missingId], TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await member.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
         // Assert
-        result.Succeeded.Should().Equal(first.Id, target.Id);
-        result.Skipped.Should().ContainSingle();
-        result.Skipped.Single().FaceId.Should().Be(missingId);
-        result.Failed.Should().BeEmpty();
-
         var firstRead = () => AsUser().GetFaceByIdAsync(first.Id);
         var targetRead = () => AsUser().GetFaceByIdAsync(target.Id);
         await firstRead.Should().ThrowAsync<InvalidOperationException>()

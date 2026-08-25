@@ -114,11 +114,6 @@ export function GroupsPage({ onNavigate }: Props) {
     }
   };
 
-  const bulkDeleteMut = useMutation({
-    mutationFn: () => groups.bulkDelete([...selectedIds]),
-    onSuccess: () => { selectNone(); queryClient.invalidateQueries({ queryKey: ["groups"] }); },
-  });
-
   const bulkEditMut = useMutation({
     mutationFn: (values: Record<string, unknown>) =>
       groups.bulkUpdate({ ids: [...selectedIds], ...values } as any),

@@ -7,8 +7,6 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
-public sealed record GroupBulkDeleteResponse(int Deleted, int Skipped);
-
 public sealed partial class CoveClient
 {
     public Task<GroupItemDto> CreateGroupItemAsync(
@@ -210,19 +208,15 @@ public sealed partial class CoveClient
             request,
             cancellationToken);
 
-    public async Task<GroupBulkDeleteResponse> BulkDeleteGroupsAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteGroupsAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Delete,
             "/api/groups/bulk",
             request,
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
-        return new GroupBulkDeleteResponse(
-            response.GetProperty("deleted").GetInt32(),
-            response.GetProperty("skipped").GetInt32());
-    }
 
     public Task<GroupItemDto> AddVideoToGroupAsync(
         VideoDto video,

@@ -241,9 +241,13 @@ public sealed class StudioDiscoveryBulkAndMergeApiTests(
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
         (await owner.GetStudioByIdAsync(first.Id, TestContext.Current.CancellationToken)).Id.Should().Be(first.Id);
         (await owner.GetStudioByIdAsync(second.Id, TestContext.Current.CancellationToken)).Id.Should().Be(second.Id);
-        var deleted = await owner.BulkDeleteStudiosAsync(request, TestContext.Current.CancellationToken);
+        var queued = await owner.BulkDeleteStudiosAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
-        deleted.Should().Be(2);
         foreach (var studio in new[] { first, second })
         {
             var missing = () => owner.GetStudioByIdAsync(studio.Id);

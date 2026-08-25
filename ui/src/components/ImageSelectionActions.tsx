@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Edit, Loader2, Play, Trash2 } from "lucide-react";
-import type { DeleteEntityOptions } from "../api/types";
+import type { BulkDeletionJobStart, DeleteEntityOptions } from "../api/types";
 import { images } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
@@ -34,6 +34,7 @@ export function ImageSelectionActions({ selectedIds, onSelectNone, onPlay, query
   const queryClient = useQueryClient();
   const canWrite = canWriteEntity("image", hasPermission);
   const canDelete = canDeleteEntity("image", hasPermission);
+  const canDeleteFiles = hasPermission("images.delete.file");
 
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -42,12 +43,12 @@ export function ImageSelectionActions({ selectedIds, onSelectNone, onPlay, query
     queryClient.invalidateQueries({ queryKey: [queryKey] });
   }, [queryClient, queryKey]);
 
-  const bulkDeleteMut = useMutation<void, Error, DeleteEntityOptions | undefined>({
+  const bulkDeleteMut = useMutation<BulkDeletionJobStart, Error, DeleteEntityOptions | undefined>({
     meta: { suppressGlobalError: true },
     mutationFn: async (options) => {
-      await images.bulkDelete([...selectedIds], options);
+      return images.bulkDelete([...selectedIds], options);
     },
-    onSuccess: () => { setShowDeleteConfirm(false); onSelectNone(); invalidate(); },
+    onSuccess: () => { setShowDeleteConfirm(false); onSelectNone(); },
   });
 
   const bulkEditMut = useMutation({
@@ -85,12 +86,12 @@ export function ImageSelectionActions({ selectedIds, onSelectNone, onPlay, query
         open={showDeleteConfirm}
         title={`Delete ${selectedIds.size} image${selectedIds.size === 1 ? "" : "s"}`}
         message={`Delete ${selectedIds.size} selected image${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`}
-        confirmLabel={bulkDeleteMut.isPending ? "Deleting..." : "Delete"}
+        confirmLabel={bulkDeleteMut.isPending ? "Queueing..." : "Queue deletion"}
         onConfirm={(options) => bulkDeleteMut.mutate(options)}
         onCancel={() => { bulkDeleteMut.reset(); setShowDeleteConfirm(false); }}
         isPending={bulkDeleteMut.isPending}
         errorMessage={bulkDeleteMut.error?.message ?? null}
-        showDeleteFile
+        showDeleteFile={canDeleteFiles}
         showDeleteGenerated
       />
       <BulkEditDialog

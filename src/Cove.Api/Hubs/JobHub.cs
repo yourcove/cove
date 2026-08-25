@@ -8,14 +8,32 @@ namespace Cove.Api.Hubs;
 
 public class JobHub(ICurrentPrincipalAccessor principalAccessor, CoveContext db) : Hub
 {
+    internal const string GlobalGroup = "jobs:global";
+
+    internal static string OwnerGroup(JobOwner owner) => $"jobs:{owner.Key}";
+
     public override async Task OnConnectedAsync()
     {
         var principal = principalAccessor.Current;
-        if (!await CanReadGlobalStreamAsync(principal, Permissions.JobsRead, db, Context.ConnectionAborted))
+        if (principal is null || principal.Kind == PrincipalKind.Anonymous)
         {
             Context.Abort();
             return;
         }
+
+        var owner = JobOwner.FromPrincipal(principal);
+        var canReadGlobal = await CanReadGlobalStreamAsync(
+            principal, Permissions.JobsRead, db, Context.ConnectionAborted);
+        if (!canReadGlobal && owner is null)
+        {
+            Context.Abort();
+            return;
+        }
+
+        if (canReadGlobal)
+            await Groups.AddToGroupAsync(Context.ConnectionId, GlobalGroup, Context.ConnectionAborted);
+        if (owner is not null)
+            await Groups.AddToGroupAsync(Context.ConnectionId, OwnerGroup(owner), Context.ConnectionAborted);
 
         await Clients.Caller.SendAsync("ConnectionEstablished", Context.ConnectionId);
         await base.OnConnectedAsync();

@@ -1070,6 +1070,42 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task VideosController_DeleteChecksPhysicalFilePermissionBeforeEntityLookup()
+    {
+        var principals = new CurrentPrincipalAccessor();
+        principals.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "record-delete-only",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { Permissions.VideosDelete },
+            Roles = new HashSet<string>(),
+        });
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseInMemoryDatabase($"video-delete-permission-{Guid.NewGuid():N}")
+            .Options;
+        await using var context = new TestCoveContext(options, principals);
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = new VideosController(
+            new VideoRepository(context),
+            context,
+            null!,
+            null!,
+            null!,
+            memoryCache,
+            null!,
+            null!,
+            new NoOpUserEngagementService(),
+            new CustomFieldService(context),
+            new EventBus(),
+            principalAccessor: principals);
+
+        var result = await controller.Delete(999, deleteFile: true);
+
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
     public async Task VideosController_Find_BindsOrderedSortClausesFromQuery()
     {
         var repository = new CapturingVideoRepository();
@@ -1183,7 +1219,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
-    public async Task VideosController_FindDuplicates_ExactFingerprint_UsesMd5AndOshash()
+    public async Task DuplicateSearch_ExactFingerprint_UsesMd5AndOshash()
     {
         await using var context = CreateContext();
         context.Videos.AddRange(
@@ -1194,18 +1230,14 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("unique", basename: "e.mp4", fingerprints: [new FileFingerprint { Type = "md5", Value = "unique-md5" }]));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var controller = CreateVideosController(context);
-
-        var response = await controller.FindDuplicates(matchType: "fingerprint", ct: TestContext.Current.CancellationToken);
-
-        var groups = GetDuplicateGroups(response);
+        var groups = await ExecuteDuplicateSearchAsync(context, "fingerprint");
         Assert.Contains(groups, group => group.Select(video => video.Title ?? "").OrderBy(title => title).SequenceEqual(["md5 duplicate a", "md5 duplicate b"]));
         Assert.Contains(groups, group => group.Select(video => video.Title ?? "").OrderBy(title => title).SequenceEqual(["oshash duplicate a", "oshash duplicate b"]));
         Assert.DoesNotContain(groups.SelectMany(group => group), video => video.Title == "unique");
     }
 
     [Fact]
-    public async Task VideosController_FindDuplicates_Phash_UsesDistanceAndDurationTolerance()
+    public async Task DuplicateSearch_Phash_UsesDistanceAndDurationTolerance()
     {
         await using var context = CreateContext();
         context.Videos.AddRange(
@@ -1214,11 +1246,7 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("different visual", basename: "c.mp4", fingerprints: [new FileFingerprint { Type = "phash", Value = "ffffffffffffffff" }]));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var controller = CreateVideosController(context);
-
-        var response = await controller.FindDuplicates(matchType: "phash", distance: 1, durationDiff: 0, ct: TestContext.Current.CancellationToken);
-
-        var groups = GetDuplicateGroups(response);
+        var groups = await ExecuteDuplicateSearchAsync(context, "phash", distance: 1, durationDiff: 0);
         var group = Assert.Single(groups);
         Assert.Equal(["visual duplicate a", "visual duplicate b"], group.Select(video => video.Title ?? "").OrderBy(title => title).ToArray());
     }
@@ -1437,10 +1465,50 @@ public class VideoFilterBehaviorTests
         return new VideosController(new VideoRepository(context), context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
     }
 
-    private static List<List<VideoDto>> GetDuplicateGroups(ActionResult<List<List<VideoDto>>> response)
+    private static async Task<List<List<Video>>> ExecuteDuplicateSearchAsync(
+        CoveContext context,
+        string matchType,
+        int distance = 0,
+        double durationDiff = 10)
     {
-        var ok = Assert.IsType<OkObjectResult>(response.Result);
-        return Assert.IsType<List<List<VideoDto>>>(ok.Value);
+        var search = new DuplicateSearch
+        {
+            MatchType = matchType,
+            Distance = distance,
+            DurationDifference = durationDiff,
+        };
+        context.DuplicateSearches.Add(search);
+        await context.SaveChangesAsync();
+        var candidateIds = await context.Videos.Select(video => video.Id).ToArrayAsync();
+        var service = new DuplicateSearchExecutionService(
+            context,
+            new InlineJobService(),
+            new CoveConfiguration { MaxParallelTasks = 2 });
+        await service.ExecuteAsync(search.Id, candidateIds, new InlineProgress(), CancellationToken.None);
+
+        var groups = await context.DuplicateSearchGroups
+            .Where(group => group.SearchId == search.Id)
+            .Include(group => group.Items)
+            .OrderBy(group => group.Position)
+            .AsNoTracking()
+            .ToListAsync();
+        var videos = await context.Videos.AsNoTracking().ToDictionaryAsync(video => video.Id);
+        return groups.Select(group => group.Items.Select(item => videos[item.VideoId]).ToList()).ToList();
+    }
+
+    private sealed class InlineJobService : IJobService
+    {
+        public string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true) => "inline";
+        public bool Cancel(string jobId) => false;
+        public bool ReorderQueued(string jobId, string? beforeJobId) => false;
+        public Cove.Core.Interfaces.JobInfo? GetJob(string jobId) => null;
+        public IReadOnlyList<Cove.Core.Interfaces.JobInfo> GetAllJobs() => [];
+        public IReadOnlyList<Cove.Core.Interfaces.JobInfo> GetJobHistory() => [];
+    }
+
+    private sealed class InlineProgress : IJobProgress
+    {
+        public void Report(double progress, string? subTask = null) { }
     }
 
     private sealed class TestCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)

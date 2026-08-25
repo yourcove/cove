@@ -24,13 +24,17 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
     private static readonly object ServerStartEnvironmentLock = new();
 
     private readonly string _environmentName;
+    private readonly Action<IServiceCollection>? _configureTestServices;
     private readonly string _connectionString = $"Data Source=file:cove-{Guid.NewGuid():N}?mode=memory&cache=shared";
     private readonly SqliteConnection _connection;
     private bool _serverStarted;
 
-    public CoveWebApplicationFactory(string environmentName = "IntegrationTest")
+    public CoveWebApplicationFactory(
+        string environmentName = "IntegrationTest",
+        Action<IServiceCollection>? configureTestServices = null)
     {
         _environmentName = environmentName;
+        _configureTestServices = configureTestServices;
         _connection = CreateOpenConnection(_connectionString);
         UseKestrel(0);
     }
@@ -66,6 +70,7 @@ public sealed class CoveWebApplicationFactory : WebApplicationFactory<Program>
                 sp.GetRequiredService<DbContextOptions<CoveContext>>(),
                 sp.GetRequiredService<ICurrentPrincipalAccessor>()));
             services.AddScoped<DbContext>(sp => sp.GetRequiredService<CoveContext>());
+            _configureTestServices?.Invoke(services);
         });
     }
 
@@ -191,6 +196,11 @@ file sealed class IntegrationTestTokenService : ITokenService, IExistingUserPrin
         "integration-user",
         PrincipalKind.ApiToken,
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "videos.read" });
+    private static readonly CovePrincipal ImageDeleteWithoutFilePrincipal = CreatePrincipal(
+        CoveWebApplicationFactory.TestUserId,
+        "integration-user",
+        PrincipalKind.ApiToken,
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Permissions.ImagesDelete });
 
     public Task<TokenPair> IssueForUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
     {
@@ -234,7 +244,9 @@ file sealed class IntegrationTestTokenService : ITokenService, IExistingUserPrin
         return Task.FromResult<CovePrincipal?>(
             authorizationHeader.Contains("integration-scoped-token", StringComparison.Ordinal)
                 ? ScopedApiPrincipal
-                : Principal);
+                : authorizationHeader.Contains("integration-image-delete-without-file-token", StringComparison.Ordinal)
+                    ? ImageDeleteWithoutFilePrincipal
+                    : Principal);
     }
 
     public Task<CovePrincipal?> ResolveExistingUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
