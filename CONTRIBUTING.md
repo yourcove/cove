@@ -72,14 +72,21 @@ must land incrementally without becoming active yet.
 History on `main` is forward-only. In particular, a database migration may be revised while its PR
 is still under review, but it must not be edited, removed, renamed, or combined after merge. Add a
 new migration for any follow-up schema change. Prefer one coherent migration per PR unless the
-change genuinely needs separate ordered checkpoints.
+change genuinely needs separate ordered checkpoints. A `release/MAJOR.MINOR` maintenance branch
+starts from an existing stable release and does not alter this rule: every migration merged into
+`main` remains in all later mainline builds and releases.
 
 Development builds use the next patch number after the latest stable release as a canonical development
 line; this is an identifier, not a promise about the next release. For example, the second commit
 after `v1.1.0` reports `1.1.1-dev.2`. An extension that first works with that build can declare
 `"minCoveVersion": "1.1.1-dev.2"`; `1.1.0` does not satisfy that floor,
-while that development build, a later development build on the same line, and later Cove releases
-do.
+while that development build and a later development build on the same line do. Development-build
+floors are temporary and should be replaced with the stable version containing the required
+contract; a maintenance release from another line is not guaranteed to contain it.
+
+Current-line stable releases come from `main`. A stable maintenance release may come from the
+matching `release/MAJOR.MINOR` branch. It updates that version line's artifacts and container alias
+without replacing a newer GitHub release or the `latest` container alias.
 
 See [Core contribution and version policy](https://yourcove.net/docs/developer/contributing/core-development/)
 for the full version, migration, and verification practices.

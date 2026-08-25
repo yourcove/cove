@@ -10,6 +10,14 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-25
+
+Safer and faster preparation for Cove 1.3's unique-name migration.
+
+- The Name Conflicts operation can apply every reviewed tag plan in one aggregate confirmation while preserving each selected survivor, rename, alias, and extension-reference decision.
+- Performer and studio conflicts support the same reviewed batch workflow, and all cleanup succeeds or rolls back atomically.
+- Failed confirmations no longer leak into later reviews, stale or linked plans are rejected safely, and validation guidance remains visible without duplicate global alerts.
+
 - Administrators now see a persistent Cove 1.3.0 readiness warning for conflicting tag names or aliases, performer name-and-disambiguation pairs, and studio names, plus a Settings → Operations → Name Conflicts tool that remains available after cleanup. Performer and studio aliases deliberately remain non-unique. The tool previews core and extension-owned impact, explains its canonical-owner and reference-count recommendation, supports a chosen survivor with merge or rename actions, requires each group to be reviewed and resolved separately, and refreshes after each transactional operation.
 - Tag, performer, and studio merges now share documented transfer rules for Cove-owned relationships, metadata, JSON references, engagement, security, artwork, and extension safeguards. Foreign keys in extension-owned tables are listed per source and can be updated to the survivor or have matching rows deleted transactionally; uninspectable locations fail closed, while opaque non-foreign-key data remains the extension's responsibility.
 - Metadata-server, scraper, Stash, and Cove metadata-import paths now use the same performer and studio identity rules as the compatibility scanner. Normalized duplicate Stash identities collapse deterministically without losing mapped relationships, Cove metadata JSON restores run transactionally, and non-unique performer aliases are never treated as identity keys.

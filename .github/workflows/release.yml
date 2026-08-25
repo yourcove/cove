@@ -162,35 +162,57 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       is_stable: ${{ steps.check.outputs.is_stable }}
+      is_latest: ${{ steps.check.outputs.is_latest }}
+      is_maintenance: ${{ steps.check.outputs.is_maintenance }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Verify stable release is in the main history
+      - name: Check release version and lineage
+        id: check
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Prerelease tags may point to commits outside $DEFAULT_BRANCH."
-            exit 0
-          fi
+          IS_STABLE=false
+          IS_LATEST=false
+          IS_MAINTENANCE=false
 
-          git fetch origin "$DEFAULT_BRANCH" --no-tags
-          RELEASE_COMMIT="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-          if ! git merge-base --is-ancestor "$RELEASE_COMMIT" FETCH_HEAD; then
-            echo "Stable release tags must point to a commit in $DEFAULT_BRANCH." >&2
-            exit 1
-          fi
-
-      - name: Check if stable release
-        id: check
-        run: |
-          TAG="${GITHUB_REF_NAME}"
           # Stable = vN.N.N (no alpha/beta/rc/dev suffix)
           if [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "is_stable=true" >> $GITHUB_OUTPUT
+            IS_STABLE=true
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            RELEASE_COMMIT="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+
+            git fetch origin "$DEFAULT_BRANCH" --no-tags
+            MAIN_HEAD="$(git rev-parse FETCH_HEAD)"
+            if git merge-base --is-ancestor "$RELEASE_COMMIT" "$MAIN_HEAD"; then
+              HIGHEST_STABLE_TAG="$(
+                git tag --list 'v*' \
+                  | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+                  | sort -V \
+                  | tail -n 1
+              )"
+              if [[ "$TAG" == "$HIGHEST_STABLE_TAG" ]]; then
+                IS_LATEST=true
+              fi
+              echo "Stable release is in $DEFAULT_BRANCH history."
+            else
+              RELEASE_BRANCH="release/${MAJOR}.${MINOR}"
+              if ! git fetch origin "$RELEASE_BRANCH" --no-tags; then
+                echo "Stable release is not in $DEFAULT_BRANCH history and $RELEASE_BRANCH does not exist." >&2
+                exit 1
+              fi
+              RELEASE_BRANCH_HEAD="$(git rev-parse FETCH_HEAD)"
+              if ! git merge-base --is-ancestor "$RELEASE_COMMIT" "$RELEASE_BRANCH_HEAD"; then
+                echo "Stable $TAG must be in $DEFAULT_BRANCH or $RELEASE_BRANCH history." >&2
+                exit 1
+              fi
+              IS_MAINTENANCE=true
+              echo "Stable maintenance release is in $RELEASE_BRANCH history."
+            fi
           elif [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$ ]] \
             && [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-dev(\.|$) ]]; then
             prerelease="${TAG#*-}"
@@ -201,12 +223,17 @@ jobs:
                 exit 1
               fi
             done
-            echo "is_stable=false" >> $GITHUB_OUTPUT
           else
             echo "Release tags must be vMAJOR.MINOR.PATCH or a SemVer prerelease such as v1.2.0-rc.1." >&2
             echo "The -dev.N form is reserved for builds derived from main." >&2
             exit 1
           fi
+
+          {
+            echo "is_stable=$IS_STABLE"
+            echo "is_latest=$IS_LATEST"
+            echo "is_maintenance=$IS_MAINTENANCE"
+          } >> "$GITHUB_OUTPUT"
 
   # ── Build Docker images for stable and prerelease tags ───────────
   build-docker:
@@ -250,7 +277,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}},enable=${{ needs.check-version.outputs.is_stable == 'true' }}
-            type=raw,value=latest,enable=${{ needs.check-version.outputs.is_stable == 'true' }}
+            type=raw,value=latest,enable=${{ needs.check-version.outputs.is_latest == 'true' }}
 
       - uses: docker/build-push-action@v7
         with:
@@ -318,7 +345,7 @@ jobs:
         with:
           generate_release_notes: true
           prerelease: ${{ needs.check-version.outputs.is_stable != 'true' }}
-          make_latest: ${{ needs.check-version.outputs.is_stable == 'true' }}
+          make_latest: ${{ needs.check-version.outputs.is_latest == 'true' }}
           files: release-files/*
           body: |
             ${{ steps.changelog.outputs.CHANGELOG }}
@@ -328,6 +355,7 @@ jobs:
             Standalone executables for Windows, Linux, and macOS are attached below.
 
             ${{ needs.check-version.outputs.is_stable != 'true' && '> **Pre-release:** These container tags are isolated and do not update the stable or nightly aliases.' || '' }}
+            ${{ needs.check-version.outputs.is_maintenance == 'true' && '> **Maintenance release:** This release updates its major/minor container alias but does not replace the current `latest` release or container alias.' || '' }}
 
             ## Docker Images
 

@@ -19,7 +19,7 @@ Before merge, make sure the change is complete within its declared scope:
 
 Do not merge a partial implementation on the assumption that another pull request will make it robust. Follow-up improvements are normal; follow-up work required for correctness or data safety means the first change is not ready.
 
-The history of `main` is forward-only. Once a commit is merged, later work builds on it instead of rewriting it. This makes every published development build reproducible and gives schema migrations a stable chronological order.
+The history of `main` is forward-only. Once a commit is merged, later work builds on it instead of rewriting it. This makes every published development build reproducible and gives schema migrations a stable chronological order. Maintenance branches do not weaken this rule: they start from a stable release and may append narrowly scoped fixes, but they never replace or remove migrations already merged into `main`.
 
 ## Identify development builds without choosing the next release
 
@@ -40,9 +40,11 @@ Development builds follow normal SemVer ordering:
 | `1.1.1-dev.8` | `1.1.1-dev.2` | Yes | It is later on the same development line. |
 | `1.1.1` | `1.1.1-dev.2` | Yes | The stable version follows its prereleases. |
 
-Because the development line uses the next patch number, `1.1.1-dev.N` naturally sorts after `1.1.0` and before `1.1.1`. A future `1.2.0` or `2.0.0` release also satisfies that floor.
+Because the development line uses the next patch number, `1.1.1-dev.N` naturally sorts after `1.1.0` and before `1.1.1`. Development-build compatibility floors are useful while testing unreleased contracts, but they are not a durable compatibility promise across maintenance lines. Update an extension's floor to the stable release containing the contract once that release exists.
 
-Release tags must point to commits in the forward `main` history. This keeps the compatibility rule true: a numerically later release contains the earlier development contract. Do not create a higher release from a maintenance branch that omits intervening `main` changes.
+Current-line release tags point to commits in the forward `main` history. A stable maintenance tag may instead point to the matching `release/MAJOR.MINOR` branch, which must start at a stable release from that line and retain its complete migration history. Maintenance releases may add fixes or one-time upgrade tooling without importing unrelated later `main` changes.
+
+A maintenance release is stable, but it does not replace a newer current-line release: publishing `v1.2.1` after `v1.3.1` updates the immutable `1.2.1` and moving `1.2` container tags without changing the GitHub or container `latest` aliases. A numerically higher maintenance release is not guaranteed to contain APIs that appeared only in a development build from another line.
 
 Published development artifacts should also retain the source commit SHA in their metadata or immutable artifact tag. The version is useful to people and extension manifests; the SHA is the exact source identity.
 
@@ -54,7 +56,7 @@ Native packages are available from the [rolling Cove nightly release](https://gi
 
 Commit a core EF migration with the schema change that needs it. While a pull request is unmerged, revise that migration and the model snapshot until they represent the final reviewed schema. Prefer one coherent migration per pull request unless the change genuinely needs multiple ordered checkpoints.
 
-After merge, do not edit, rename, remove, or combine that migration. If a later commit changes the schema again, add a new forward migration. Release preparation only assigns the release version; it does not squash the migrations accumulated on `main`.
+After merge, do not edit, rename, remove, or combine that migration. If a later commit changes the schema again, add a new forward migration. Release preparation only assigns the release version; it does not squash the migrations accumulated on `main`. Every later `main` build and release retains the migration, including after a maintenance branch has diverged from an older stable tag.
 
 This rule applies even when the original migration has not appeared in a tagged release. A development user may already have applied it, so replacing it would make their migration history disagree with the repository.
 
@@ -77,7 +79,7 @@ An extension that requires a Cove feature already merged into `main` should use 
 }
 ```
 
-The latest tagged `1.1.0` release is then rejected, matching reality. The required development build, later builds on that line, and a future higher Cove release satisfy the floor. There is no need to guess the future release number or lower the floor when that release is tagged.
+The latest tagged `1.1.0` release is then rejected, matching reality. The required development build and later builds on that development line satisfy the floor. Once the contract ships on the current stable line, update the extension floor to that stable version; do not rely indefinitely on a development-build floor across maintenance branches.
 
 Build against Cove.Sdk and host contracts from the development build you test. `minCoveVersion` describes the running host floor; the extension's own `version` and its Cove.Sdk package reference answer different questions. See [Extension overview](../../extensions/overview/) and [Package an extension](../../extensions/packaging/) for the complete contract.
 
