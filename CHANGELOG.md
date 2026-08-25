@@ -31,6 +31,14 @@ Safer entity naming with a guided upgrade path for existing libraries.
 - Before upgrading, Cove checks for conflicting tag, performer, and studio names without changing the database or creating a backup. Libraries with conflicts are directed to the cleanup tools in the latest Cove 1.2.x release; libraries without conflicts upgrade directly.
 - The upgrade trims affected names, applies deterministic safe cleanup, guards against concurrent changes, validates the result, and enforces the new rules atomically.
 
+## [1.2.1] - 2026-08-25
+
+Safer and faster preparation for Cove 1.3's unique-name migration.
+
+- The Name Conflicts operation can apply every reviewed tag plan in one aggregate confirmation while preserving each selected survivor, rename, alias, and extension-reference decision.
+- Performer and studio conflicts support the same reviewed batch workflow, and all cleanup succeeds or rolls back atomically.
+- Failed confirmations no longer leak into later reviews, stale or linked plans are rejected safely, and validation guidance remains visible without duplicate global alerts.
+
 ## [1.2.0] - 2026-08-19
 
 More powerful discovery and filtering, more resilient media workflows, and broader extension support.
