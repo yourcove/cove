@@ -436,6 +436,8 @@ function DuplicateVideoCard({
             <span>{getResolutionLabel(file.width, file.height)}</span>
             <span>{formatDuration(file.duration)}</span>
             <span>{formatFileSize(file.size)}</span>
+            <span>{file.videoCodec}</span>
+            <span>{Math.round(file.bitRate / 1000)} kbps</span>
           </div>
         )}
         {file?.path && <p className="truncate text-[9px] text-muted" title={file.path}>{file.path}</p>}
