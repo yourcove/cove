@@ -592,14 +592,30 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
     {
         public static PostgresSettings LoadFromEnvironment()
         {
-            var host = Environment.GetEnvironmentVariable("COVE_PERF_PG_HOST") ?? "127.0.0.1";
-            var portRaw = Environment.GetEnvironmentVariable("COVE_PERF_PG_PORT");
-            var port = int.TryParse(portRaw, out var parsedPort) ? parsedPort : 5443;
+            var host = FirstValue("COVE_PERF_PG_HOST", "PGHOST") ?? "127.0.0.1";
+            var port = ParsePort(FirstValue("COVE_PERF_PG_PORT", "PGPORT"));
             var user = Environment.GetEnvironmentVariable("COVE_PERF_PG_USER") ?? "postgres";
-            var password = Environment.GetEnvironmentVariable("COVE_PERF_PG_PASSWORD") ?? string.Empty;
+            var password = FirstValue("COVE_PERF_PG_PASSWORD", "PGPASSWORD") ?? string.Empty;
             var adminDatabase = Environment.GetEnvironmentVariable("COVE_PERF_PG_ADMIN_DB") ?? "postgres";
 
             return new PostgresSettings(host, port, user, password, adminDatabase);
+        }
+
+        private static string? FirstValue(string preferredName, string fallbackName)
+        {
+            var preferred = Environment.GetEnvironmentVariable(preferredName);
+            return string.IsNullOrWhiteSpace(preferred)
+                ? Environment.GetEnvironmentVariable(fallbackName)
+                : preferred;
+        }
+
+        private static int ParsePort(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return 5443;
+            if (int.TryParse(value, out var port) && port is > 0 and <= 65_535)
+                return port;
+            throw new InvalidOperationException($"Invalid PostgreSQL port '{value}'.");
         }
 
         public string BuildAdminConnectionString()
