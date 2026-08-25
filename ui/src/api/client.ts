@@ -803,6 +803,17 @@ export const tagNameConflicts = {
       body: JSON.stringify({ groupKey, expectedRevision, survivorTagId, resolutions, externalReferenceResolutions }),
       timeoutMs: null,
     }),
+  resolveBatch: (expectedRevision: string, groups: Array<{
+    groupKey: string;
+    expectedRevision: string;
+    survivorTagId: number;
+    resolutions: TagNameClaimResolution[];
+    externalReferenceResolutions: TagExternalReferenceResolution[];
+  }>) => request<TagNameConflictScan>("/tag-name-conflicts/resolve-batch", {
+    method: "POST",
+    body: JSON.stringify({ expectedRevision, groups }),
+    timeoutMs: null,
+  }),
 };
 
 export const entityNameConflicts = {
@@ -818,6 +829,18 @@ export const entityNameConflicts = {
   ) => request<EntityNameConflictScan>("/entity-name-conflicts/resolve", {
     method: "POST",
     body: JSON.stringify({ entityType, groupKey, expectedRevision, survivorEntityId, resolutions, externalReferenceResolutions }),
+    timeoutMs: null,
+  }),
+  resolveBatch: (entityType: NameConflictEntityType, expectedRevision: string, groups: Array<{
+    entityType: NameConflictEntityType;
+    groupKey: string;
+    expectedRevision: string;
+    survivorEntityId: number;
+    resolutions: EntityNameConflictResolution[];
+    externalReferenceResolutions: EntityExternalReferenceResolution[];
+  }>) => request<EntityNameConflictScan>("/entity-name-conflicts/resolve-batch", {
+    method: "POST",
+    body: JSON.stringify({ entityType, expectedRevision, groups }),
     timeoutMs: null,
   }),
 };

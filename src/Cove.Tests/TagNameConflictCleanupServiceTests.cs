@@ -430,6 +430,134 @@ public sealed class TagNameConflictCleanupServiceTests
         Assert.Equal(" alpha ", (await db.Tags.AsNoTracking().SingleAsync(tag => tag.Id == source.Id)).Name);
     }
 
+    [Fact]
+    public async Task ResolveBatchAsync_HonorsExplicitChoicesAcrossEveryGroup()
+    {
+        await using var db = CreateContext();
+        var alphaRecommended = new Tag { Name = "Alpha" };
+        var alphaSelected = new Tag { Name = " alpha ", Description = "Selected survivor" };
+        var betaSurvivor = new Tag { Name = "Beta" };
+        var betaRenamed = new Tag { Name = " beta " };
+        db.Tags.AddRange(alphaRecommended, alphaSelected, betaSurvivor, betaRenamed);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var scanner = new TagNameConflictScanner(db);
+        var scan = await scanner.ScanAsync();
+        var alpha = Assert.Single(scan.Groups, group => group.NormalizedName == "Alpha");
+        var beta = Assert.Single(scan.Groups, group => group.NormalizedName == "Beta");
+        var cleanup = new TagNameConflictCleanupService(db, scanner, new TagMergeService(db));
+
+        var refreshed = await cleanup.ResolveBatchAsync(new ResolveTagNameConflictBatchDto(
+            scan.Revision,
+            [
+                new ResolveTagNameConflictDto(
+                    alpha.Key,
+                    alpha.Revision,
+                    alphaSelected.Id,
+                    [new TagNameClaimResolutionDto(alphaRecommended.Id, null, TagNameConflictActions.MergeTag)],
+                    []),
+                new ResolveTagNameConflictDto(
+                    beta.Key,
+                    beta.Revision,
+                    betaSurvivor.Id,
+                    [new TagNameClaimResolutionDto(betaRenamed.Id, null, TagNameConflictActions.Rename, "Gamma")],
+                    []),
+            ]));
+
+        Assert.Equal(0, refreshed.UnresolvedGroupCount);
+        Assert.Equal("Selected survivor", (await db.Tags.SingleAsync(tag => tag.Id == alphaSelected.Id)).Description);
+        Assert.Equal("Gamma", (await db.Tags.SingleAsync(tag => tag.Id == betaRenamed.Id)).Name);
+    }
+
+    [Fact]
+    public async Task ResolveBatchAsync_RollsBackEarlierGroupsWhenALaterChoiceFails()
+    {
+        await using var db = CreateContext();
+        var alpha = new Tag { Name = "Alpha" };
+        var alphaSource = new Tag { Name = " alpha " };
+        var beta = new Tag { Name = "Beta" };
+        var betaSource = new Tag { Name = " beta " };
+        var occupied = new Tag { Name = "Gamma" };
+        db.Tags.AddRange(alpha, alphaSource, beta, betaSource, occupied);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var scanner = new TagNameConflictScanner(db);
+        var scan = await scanner.ScanAsync();
+        var alphaGroup = Assert.Single(scan.Groups, group => string.Equals(group.NormalizedName, "Alpha", StringComparison.OrdinalIgnoreCase));
+        var betaGroup = Assert.Single(scan.Groups, group => string.Equals(group.NormalizedName, "Beta", StringComparison.OrdinalIgnoreCase));
+        var cleanup = new TagNameConflictCleanupService(db, scanner, new TagMergeService(db));
+
+        await Assert.ThrowsAsync<TagNameConflictException>(() => cleanup.ResolveBatchAsync(new ResolveTagNameConflictBatchDto(
+            scan.Revision,
+            [
+                new ResolveTagNameConflictDto(alphaGroup.Key, alphaGroup.Revision, alpha.Id, [new TagNameClaimResolutionDto(alphaSource.Id, null, TagNameConflictActions.MergeTag)], []),
+                new ResolveTagNameConflictDto(betaGroup.Key, betaGroup.Revision, beta.Id, [new TagNameClaimResolutionDto(betaSource.Id, null, TagNameConflictActions.Rename, " gamma ")], []),
+            ])));
+
+        db.ChangeTracker.Clear();
+        Assert.True(await db.Tags.AnyAsync(tag => tag.Id == alphaSource.Id));
+        Assert.Equal(5, await db.Tags.CountAsync());
+    }
+
+    [Fact]
+    public async Task ResolveBatchAsync_RejectsAMergeSourceThatParticipatesInAnotherGroup()
+    {
+        await using var db = CreateContext();
+        var linked = new Tag { Name = "Alpha", Aliases = [new TagAlias { Alias = "Beta" }] };
+        var alphaSource = new Tag { Name = " alpha " };
+        var betaSurvivor = new Tag { Name = " beta " };
+        db.Tags.AddRange(linked, alphaSource, betaSurvivor);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var scanner = new TagNameConflictScanner(db);
+        var scan = await scanner.ScanAsync();
+        var alphaGroup = Assert.Single(scan.Groups, group => string.Equals(group.NormalizedName, "Alpha", StringComparison.OrdinalIgnoreCase));
+        var betaGroup = Assert.Single(scan.Groups, group => string.Equals(group.NormalizedName, "Beta", StringComparison.OrdinalIgnoreCase));
+        var linkedBetaClaim = Assert.Single(betaGroup.Claims, claim => claim.TagId == linked.Id);
+        var cleanup = new TagNameConflictCleanupService(db, scanner, new TagMergeService(db));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => cleanup.ResolveBatchAsync(new ResolveTagNameConflictBatchDto(
+            scan.Revision,
+            [
+                new ResolveTagNameConflictDto(alphaGroup.Key, alphaGroup.Revision, linked.Id, [new TagNameClaimResolutionDto(alphaSource.Id, null, TagNameConflictActions.MergeTag)], []),
+                new ResolveTagNameConflictDto(betaGroup.Key, betaGroup.Revision, betaSurvivor.Id, [new TagNameClaimResolutionDto(linked.Id, linkedBetaClaim.AliasId, TagNameConflictActions.MergeTag)], []),
+            ])));
+
+        Assert.Contains("more than one conflict group", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, await db.Tags.CountAsync());
+    }
+
+    [Fact]
+    public async Task ResolveBatchAsync_AcceptsAnExplicitResolutionForEveryBlankAliasClaim()
+    {
+        await using var db = CreateContext();
+        var tag = new Tag { Name = "Alpha", Aliases = [new TagAlias { Alias = " " }] };
+        db.Tags.Add(tag);
+        using (db.SuppressTagNameValidation())
+            await db.SaveChangesAsync();
+
+        var scanner = new TagNameConflictScanner(db);
+        var scan = await scanner.ScanAsync();
+        var group = Assert.Single(scan.Groups);
+        var claim = Assert.Single(group.Claims);
+        var cleanup = new TagNameConflictCleanupService(db, scanner, new TagMergeService(db));
+
+        var refreshed = await cleanup.ResolveBatchAsync(new ResolveTagNameConflictBatchDto(
+            scan.Revision,
+            [new ResolveTagNameConflictDto(
+                group.Key,
+                group.Revision,
+                tag.Id,
+                [new TagNameClaimResolutionDto(tag.Id, claim.AliasId, TagNameConflictActions.RemoveAlias)],
+                [])]));
+
+        Assert.Equal(0, refreshed.UnresolvedGroupCount);
+        Assert.Empty((await db.Tags.Include(candidate => candidate.Aliases).SingleAsync()).Aliases);
+    }
+
     private static CoveContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

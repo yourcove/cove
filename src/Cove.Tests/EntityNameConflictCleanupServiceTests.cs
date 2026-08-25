@@ -141,6 +141,54 @@ public sealed class EntityNameConflictCleanupServiceTests
             "stale-revision")));
     }
 
+    [Fact]
+    public async Task ResolveBatchAsync_HonorsSelectedSurvivorAndRename()
+    {
+        await using var db = CreateContext();
+        var alphaRecommended = new Studio { Name = "Alpha" };
+        var alphaSelected = new Studio { Name = " alpha ", Details = "Selected survivor" };
+        var betaSurvivor = new Studio { Name = "Beta" };
+        var betaRenamed = new Studio { Name = " beta " };
+        db.Studios.AddRange(alphaRecommended, alphaSelected, betaSurvivor, betaRenamed);
+        using (db.SuppressEntityNameValidation())
+            await db.SaveChangesAsync();
+        var scanner = new EntityNameConflictScanner(db);
+        var scan = await scanner.ScanAsync(NameConflictEntityTypes.Studio);
+        var alpha = Assert.Single(scan.Groups, group => group.NormalizedName == "Alpha");
+        var beta = Assert.Single(scan.Groups, group => group.NormalizedName == "Beta");
+        var cleanup = CreateCleanup(db, scanner);
+
+        var refreshed = await cleanup.ResolveBatchAsync(new ResolveEntityNameConflictBatchDto(
+            NameConflictEntityTypes.Studio,
+            scan.Revision,
+            [
+                new ResolveEntityNameConflictDto(
+                    NameConflictEntityTypes.Studio,
+                    alpha.Key,
+                    alpha.Revision,
+                    alphaSelected.Id,
+                    [
+                        new EntityNameConflictResolutionDto(alphaSelected.Id, EntityNameConflictActions.Keep),
+                        new EntityNameConflictResolutionDto(alphaRecommended.Id, EntityNameConflictActions.MergeEntity),
+                    ],
+                    []),
+                new ResolveEntityNameConflictDto(
+                    NameConflictEntityTypes.Studio,
+                    beta.Key,
+                    beta.Revision,
+                    betaSurvivor.Id,
+                    [
+                        new EntityNameConflictResolutionDto(betaSurvivor.Id, EntityNameConflictActions.Keep),
+                        new EntityNameConflictResolutionDto(betaRenamed.Id, EntityNameConflictActions.Rename, "Gamma"),
+                    ],
+                    []),
+            ]));
+
+        Assert.Equal(0, refreshed.UnresolvedGroupCount);
+        Assert.Equal("Selected survivor", (await db.Studios.SingleAsync(studio => studio.Id == alphaSelected.Id)).Details);
+        Assert.Equal("Gamma", (await db.Studios.SingleAsync(studio => studio.Id == betaRenamed.Id)).Name);
+    }
+
     private static EntityNameConflictCleanupService CreateCleanup(
         CoveContext db,
         EntityNameConflictScanner scanner,

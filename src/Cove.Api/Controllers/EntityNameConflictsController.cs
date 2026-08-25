@@ -64,4 +64,35 @@ public sealed class EntityNameConflictsController(
         }
     }
 
+    [HttpPost("resolve-batch")]
+    public async Task<ActionResult<EntityNameConflictScanDto>> ResolveBatch(
+        [FromBody] ResolveEntityNameConflictBatchDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await cleanupService.ResolveBatchAsync(request, ct));
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { code = "ENTITY_NAME_BATCH_INVALID", message = exception.Message });
+        }
+        catch (EntityMergeBlockedException exception)
+        {
+            return Conflict(new { code = "ENTITY_MERGE_EXTENSION_REFERENCES", message = exception.Message, exception.EntityType, exception.ReferenceCount, exception.AffectedEntityCount, exception.HasUninspectableReferences });
+        }
+        catch (EntityNameConflictException exception)
+        {
+            return Conflict(new { code = "ENTITY_NAME_RENAME_CONFLICT", message = exception.Message, exception.EntityType });
+        }
+        catch (EntityExternalReferenceRepairException exception)
+        {
+            return Conflict(new { code = "ENTITY_EXTENSION_REFERENCE_REPAIR_FAILED", message = exception.Message });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(new { code = "ENTITY_NAME_CONFLICT_CHANGED", message = exception.Message });
+        }
+    }
+
 }

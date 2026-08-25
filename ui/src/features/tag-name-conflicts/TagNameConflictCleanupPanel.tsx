@@ -35,7 +35,7 @@ type ExternalReferenceAction = TagExternalReferenceResolution["action"];
 type ClaimChoice = { action: ResolutionAction; newValue: string };
 type GroupChoices = Record<string, ClaimChoice>;
 type ExternalReferenceChoices = Record<string, ExternalReferenceAction | "">;
-type PendingAction = { kind: "group"; group: TagNameConflictGroup } | null;
+type PendingAction = { kind: "group"; group: TagNameConflictGroup } | { kind: "batch"; revision: string } | null;
 
 type GroupPlan = {
   survivingClaimKey: string | null;
@@ -50,6 +50,17 @@ type GroupPlan = {
   externalDeletedRowCount: number;
   hasUnresolvedExternalReferences: boolean;
   hasRestrictedExternalReferences: boolean;
+};
+
+type BatchSummary = {
+  groups: number;
+  merges: number;
+  renames: number;
+  removals: number;
+  externalUpdates: number;
+  externalDeletes: number;
+  manualOverrides: number;
+  blocked: boolean;
 };
 
 function claimKey(claim: Pick<TagNameConflictClaim, "tagId" | "aliasId">) {
@@ -202,6 +213,11 @@ export function TagNameConflictCleanupPanel() {
     });
   }, [queryClient, scan.data]);
 
+  useEffect(() => {
+    if (pendingAction?.kind === "batch" && scan.data?.revision !== pendingAction.revision)
+      setPendingAction(null);
+  }, [pendingAction, scan.data?.revision]);
+
   const planFor = (group: TagNameConflictGroup) => buildGroupPlan(
     group,
     selectedSurvivors[group.key] ?? group.recommendedSurvivorTagId,
@@ -211,6 +227,22 @@ export function TagNameConflictCleanupPanel() {
 
   const mutation = useMutation({
     mutationFn: (action: Exclude<PendingAction, null>) => {
+      if (action.kind === "batch") {
+        if (scan.data!.revision !== action.revision)
+          throw new Error("The conflict scan changed. Review the current batch before confirming it.");
+        const groups = scan.data!.groups.map((group) => {
+          const survivorTagId = selectedSurvivors[group.key] ?? group.recommendedSurvivorTagId;
+          const plan = planFor(group);
+          return {
+            groupKey: group.key,
+            expectedRevision: group.revision,
+            survivorTagId,
+            resolutions: plan.resolutions,
+            externalReferenceResolutions: plan.externalReferenceResolutions,
+          };
+        });
+        return tagNameConflicts.resolveBatch(scan.data!.revision, groups);
+      }
       const survivorTagId = selectedSurvivors[action.group.key] ?? action.group.recommendedSurvivorTagId;
       return tagNameConflicts.resolve(
         action.group.key,
@@ -225,12 +257,44 @@ export function TagNameConflictCleanupPanel() {
       queryClient.invalidateQueries({ queryKey: tagNameConflictSummaryQueryKey });
       setChoices({});
       setExternalReferenceChoices({});
+      setSelectedSurvivors({});
       setPendingAction(null);
     },
   });
 
   const totalClaims = useMemo(() => scan.data?.groups.reduce((sum, group) => sum + group.claims.length, 0) ?? 0, [scan.data]);
-  const pendingPlan = pendingAction ? planFor(pendingAction.group) : null;
+  const batchSummary = useMemo(() => {
+    if (!scan.data) return null;
+    const plans = scan.data.groups.map((group) => ({ group, plan: planFor(group) }));
+    const groupsByTag = new Map<number, Set<string>>();
+    const mergeTagIds = new Set<number>();
+    for (const { group, plan } of plans) {
+      for (const claim of group.claims) {
+        const groups = groupsByTag.get(claim.tagId) ?? new Set<string>();
+        groups.add(group.key);
+        groupsByTag.set(claim.tagId, groups);
+      }
+      for (const tagId of plan.mergeTagIds) {
+        mergeTagIds.add(tagId);
+      }
+    }
+    return {
+      groups: plans.length,
+      merges: plans.reduce((sum, entry) => sum + entry.plan.mergeTagIds.size, 0),
+      renames: plans.reduce((sum, entry) => sum + entry.plan.renamedClaimCount, 0),
+      removals: plans.reduce((sum, entry) => sum + entry.plan.removedAliasCount, 0),
+      externalUpdates: plans.reduce((sum, entry) => sum + entry.plan.externalUpdatedRowCount, 0),
+      externalDeletes: plans.reduce((sum, entry) => sum + entry.plan.externalDeletedRowCount, 0),
+      manualOverrides: Object.keys(selectedSurvivors).length + Object.values(choices).reduce((sum, value) => sum + Object.keys(value).length, 0) + Object.values(externalReferenceChoices).reduce((sum, value) => sum + Object.keys(value).length, 0),
+      blocked: plans.some((entry) => entry.plan.hasInvalidRename || entry.plan.hasRestrictedExternalReferences || entry.plan.hasUnresolvedExternalReferences)
+        || [...mergeTagIds].some((tagId) => (groupsByTag.get(tagId)?.size ?? 0) > 1),
+    };
+  }, [choices, externalReferenceChoices, scan.data, selectedSurvivors]);
+  const pendingPlan = pendingAction?.kind === "group" ? planFor(pendingAction.group) : null;
+  const openConfirmation = (action: Exclude<PendingAction, null>) => {
+    mutation.reset();
+    setPendingAction(action);
+  };
 
   if (scan.isLoading)
     return <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" aria-label="Scanning tag names" /></div>;
@@ -271,8 +335,19 @@ export function TagNameConflictCleanupPanel() {
             >
               <RefreshCw className={`h-4 w-4 ${scan.isFetching ? "animate-spin" : ""}`} /> Refresh scan
             </button>
+            <button
+              type="button"
+              onClick={() => openConfirmation({ kind: "batch", revision: scan.data.revision })}
+              disabled={mutation.isPending || batchSummary?.blocked}
+              title={batchSummary?.blocked ? "Review incomplete or linked groups before applying this batch." : undefined}
+              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {mutation.isPending && pendingAction?.kind === "batch" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Apply all {scan.data.unresolvedGroupCount} selected fixes
+            </button>
           </div>
         </div>
+        {batchSummary?.blocked ? <p className="mt-3 text-sm text-amber-100/80">Review every incomplete extension decision, invalid rename, or tag linked to multiple merge groups before applying the batch.</p> : null}
       </section>
 
       {mutation.error ? <StatusBox tone="error">{getApiValidationFailureDetail(mutation.error)}</StatusBox> : null}
@@ -307,7 +382,7 @@ export function TagNameConflictCleanupPanel() {
                 [externalReferenceKey(reference)]: action,
               },
             }))}
-            onResolve={() => setPendingAction({ kind: "group", group })}
+            onResolve={() => openConfirmation({ kind: "group", group })}
             disabled={mutation.isPending}
           />
         ))}
@@ -315,10 +390,12 @@ export function TagNameConflictCleanupPanel() {
 
       <ConfirmDialog
         open={pendingAction != null}
-        title="Resolve this tag-name conflict?"
-        message={describePlan(pendingPlan)}
-        confirmLabel="Resolve group"
-        destructive={Boolean(pendingPlan && (pendingPlan.mergeTagIds.size > 0 || pendingPlan.removedAliasCount > 0))}
+        title={pendingAction?.kind === "batch" ? `Apply all ${batchSummary?.groups ?? 0} selected tag fixes?` : "Resolve this tag-name conflict?"}
+        message={pendingAction?.kind === "batch"
+          ? describeBatch(batchSummary)
+          : describePlan(pendingPlan)}
+        confirmLabel={pendingAction?.kind === "batch" ? "Apply selected fixes" : "Resolve group"}
+        destructive={pendingAction?.kind === "batch" || Boolean(pendingPlan && (pendingPlan.mergeTagIds.size > 0 || pendingPlan.removedAliasCount > 0))}
         isPending={mutation.isPending}
         errorMessage={mutation.error ? getApiValidationFailureDetail(mutation.error) : null}
         onCancel={() => { if (!mutation.isPending) setPendingAction(null); }}
@@ -634,6 +711,11 @@ function describePlan(plan: GroupPlan | null) {
   ].filter(Boolean);
   const deleteWarning = plan.externalDeletedRowCount > 0 ? " Deleting non-core rows may activate extension-defined triggers or cascades." : "";
   return `Cove will ${pieces.length > 0 ? pieces.join(", ") : "normalize the affected values"}. The operation is transactional and the scan refreshes afterward.${deleteWarning}`;
+}
+
+function describeBatch(summary: BatchSummary | null) {
+  if (!summary) return "Cove will apply every displayed tag resolution in one transaction.";
+  return `Cove will apply the exact displayed choices for ${summary.groups} groups in one transaction: ${summary.merges} tag merges, ${summary.renames} renames, ${summary.removals} alias removals, ${summary.externalUpdates} extension row updates, and ${summary.externalDeletes} extension row deletions. ${summary.manualOverrides} manual overrides are included. If any group changed, no fixes will be applied.`;
 }
 
 function CountCell({ value }: { value: number }) {

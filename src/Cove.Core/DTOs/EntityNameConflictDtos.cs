@@ -77,3 +77,8 @@ public sealed record ResolveEntityNameConflictDto(
     int? SurvivorEntityId = null,
     IReadOnlyList<EntityNameConflictResolutionDto>? Resolutions = null,
     IReadOnlyList<EntityExternalReferenceResolutionDto>? ExternalReferenceResolutions = null);
+
+public sealed record ResolveEntityNameConflictBatchDto(
+    string EntityType,
+    string ExpectedRevision,
+    IReadOnlyList<ResolveEntityNameConflictDto> Groups);

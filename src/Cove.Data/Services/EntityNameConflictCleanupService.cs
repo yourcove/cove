@@ -59,6 +59,97 @@ public sealed class EntityNameConflictCleanupService(
         return outcome.Scan;
     }
 
+    public async Task<EntityNameConflictScanDto> ResolveBatchAsync(
+        ResolveEntityNameConflictBatchDto request,
+        CancellationToken ct = default)
+    {
+        ValidateEntityType(request.EntityType);
+        var outcomes = new List<ResolveOutcome>();
+        var attempt = 0;
+        var executionStrategy = db.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
+        {
+            if (attempt++ > 0)
+            {
+                db.ChangeTracker.Clear();
+                outcomes.Clear();
+            }
+            var blobReferenceTransaction = blobReferenceTransactions == null
+                ? null
+                : await blobReferenceTransactions.BeginAsync(db, ct);
+            try
+            {
+                await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+                var scan = await scanner.ScanAsync(request.EntityType, ct);
+                ValidateBatchRequest(request, scan);
+                foreach (var groupRequest in request.Groups)
+                {
+                    outcomes.Add(await ResolveWithinTransactionAsync(groupRequest, ct));
+                    db.ChangeTracker.Clear();
+                }
+                if (outcomes[^1].Scan.UnresolvedGroupCount != 0)
+                    throw new InvalidOperationException("The selected batch did not resolve every conflict. No changes were applied; refresh the scan and review the remaining groups.");
+                await transaction.CommitAsync(ct);
+                if (blobReferenceTransaction != null)
+                    await blobReferenceTransaction.CompleteAsync();
+            }
+            finally
+            {
+                if (blobReferenceTransaction != null)
+                    await blobReferenceTransaction.DisposeAsync();
+            }
+        });
+
+        foreach (var outcome in outcomes)
+        {
+            if (outcome.PerformerMerge != null)
+                performerMergeService.PublishCompletedMerge(outcome.PerformerMerge);
+            if (outcome.StudioMerge != null)
+                studioMergeService.PublishCompletedMerge(outcome.StudioMerge);
+        }
+        return outcomes[^1].Scan;
+    }
+
+    private static void ValidateBatchRequest(
+        ResolveEntityNameConflictBatchDto request,
+        EntityNameConflictScanDto scan)
+    {
+        if (string.IsNullOrWhiteSpace(request.ExpectedRevision)
+            || !string.Equals(request.ExpectedRevision, scan.Revision, StringComparison.Ordinal))
+            throw new InvalidOperationException("The conflict scan changed. Refresh it and review the selected actions before trying again.");
+        if (request.Groups.Count == 0)
+            throw new ArgumentException("At least one conflict group is required.", nameof(request));
+
+        var requestedByKey = request.Groups
+            .GroupBy(group => group.GroupKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var currentKeys = scan.Groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+        if (requestedByKey.Any(entry => string.IsNullOrWhiteSpace(entry.Key) || entry.Value.Length != 1)
+            || !currentKeys.SetEquals(requestedByKey.Keys))
+            throw new InvalidOperationException("The batch must contain every current conflict group exactly once. Refresh the scan and try again.");
+        foreach (var group in scan.Groups)
+        {
+            var groupRequest = requestedByKey[group.Key][0];
+            if (!string.Equals(groupRequest.EntityType, request.EntityType, StringComparison.Ordinal)
+                || !string.Equals(groupRequest.ExpectedRevision, group.Revision, StringComparison.Ordinal))
+                throw new InvalidOperationException("A conflict group changed. Refresh the scan and review its selected actions before trying again.");
+            if (groupRequest.SurvivorEntityId == null)
+                throw new ArgumentException("Every batch group must include an explicit survivor.", nameof(request));
+            var candidateIds = group.Candidates.Select(candidate => candidate.EntityId).ToHashSet();
+            var resolutionIds = (groupRequest.Resolutions ?? []).Select(resolution => resolution.EntityId).ToArray();
+            if (resolutionIds.Length != candidateIds.Count
+                || resolutionIds.Distinct().Count() != resolutionIds.Length
+                || !candidateIds.SetEquals(resolutionIds))
+                throw new ArgumentException("Every batch group must include one explicit resolution for each candidate.", nameof(request));
+        }
+    }
+
+    private static void ValidateEntityType(string entityType)
+    {
+        if (!NameConflictEntityTypes.IsSupported(entityType))
+            throw new ArgumentException("The requested entity type does not have a cleanup policy.", nameof(entityType));
+    }
+
     private async Task<ResolveOutcome> ResolveWithinTransactionAsync(
         ResolveEntityNameConflictDto request,
         CancellationToken ct)

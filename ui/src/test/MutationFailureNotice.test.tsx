@@ -6,10 +6,10 @@ import { createAppQueryClient } from "../queryClient";
 import { resetMutationFailureForTests } from "../state/mutationFailure";
 import { reportServerResponse, resetServerAvailabilityForTests } from "../state/serverAvailability";
 
-function FailingAction({ rollsBack = false, suppressNotice = false }: { rollsBack?: boolean; suppressNotice?: boolean }) {
+function FailingAction({ rollsBack = false, suppressNotice = false, message = "API Error 502: simulated gateway failure" }: { rollsBack?: boolean; suppressNotice?: boolean; message?: string }) {
   const mutation = useMutation({
     mutationFn: async () => {
-      throw new Error("API Error 502: simulated gateway failure");
+      throw new Error(message);
     },
     onError: rollsBack ? () => undefined : undefined,
     meta: suppressNotice ? { suppressGlobalError: true } : undefined,
@@ -18,7 +18,7 @@ function FailingAction({ rollsBack = false, suppressNotice = false }: { rollsBac
   return <button onClick={() => mutation.mutate()}>{mutation.isError ? "Rating failed" : "Save rating"}</button>;
 }
 
-function renderAction(options: { rollsBack?: boolean; suppressNotice?: boolean } = {}) {
+function renderAction(options: { rollsBack?: boolean; suppressNotice?: boolean; message?: string } = {}) {
   const queryClient = createAppQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
@@ -74,5 +74,14 @@ describe("MutationFailureNotice", () => {
     act(() => reportServerResponse(new Response(null, { status: 502 })));
     expect(alert).toHaveTextContent("Cove can’t reach the server right now.");
     expect(alert).not.toHaveTextContent("502");
+  });
+
+  it("shows a validation conflict's server-provided guidance", async () => {
+    const userMessage = "That performer identity already exists. Use a different disambiguation.";
+    renderAction({ message: `API Error 409: ${JSON.stringify({ code: "PERFORMER_NAME_CONFLICT", message: userMessage })}` });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save rating" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(userMessage);
   });
 });

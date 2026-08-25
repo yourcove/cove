@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TagNameConflictScan } from "../api/types";
@@ -7,6 +7,7 @@ import { TagNameConflictCleanupPanel } from "../features/tag-name-conflicts/TagN
 
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
+  resolveBatch: vi.fn(),
   refetch: vi.fn(),
 }));
 
@@ -42,6 +43,7 @@ vi.mock("../api/client", async (importOriginal) => {
     tagNameConflicts: {
       ...actual.tagNameConflicts,
       resolve: mocks.resolve,
+      resolveBatch: mocks.resolveBatch,
     },
   };
 });
@@ -61,6 +63,12 @@ vi.mock("../features/tag-name-conflicts/useTagNameConflicts", () => ({
 describe("TagNameConflictCleanupPanel", () => {
   beforeEach(() => {
     mocks.resolve.mockReset().mockResolvedValue({
+      unresolvedGroupCount: 0,
+      scannedAtUtc: "2026-08-10T00:01:00Z",
+      revision: "empty-scan-revision",
+      groups: [],
+    });
+    mocks.resolveBatch.mockReset().mockResolvedValue({
       unresolvedGroupCount: 0,
       scannedAtUtc: "2026-08-10T00:01:00Z",
       revision: "empty-scan-revision",
@@ -96,6 +104,48 @@ describe("TagNameConflictCleanupPanel", () => {
       { tagId: 4, aliasId: null, action: "merge-tag" },
     ], []));
     expect(queryClient.getQueryData(["tag-name-conflicts"])).toEqual(expect.objectContaining({ unresolvedGroupCount: 0 }));
+  });
+
+  it("submits every displayed choice when applying the current tab", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagNameConflictCleanupPanel />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Keep tag Other" }));
+    await user.click(screen.getByRole("button", { name: "Apply all 1 selected fixes" }));
+    expect(screen.getByText(/1 manual overrides are included/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply selected fixes" }));
+
+    await waitFor(() => expect(mocks.resolveBatch).toHaveBeenCalledWith("scan-revision-fixture", [{
+      groupKey: "namespace-fixture",
+      expectedRevision: "revision-fixture",
+      survivorTagId: 9,
+      resolutions: [{ tagId: 4, aliasId: null, action: "merge-tag" }],
+      externalReferenceResolutions: [],
+    }]));
+  });
+
+  it("does not carry a failed submission message into a newly opened confirmation", async () => {
+    const user = userEvent.setup();
+    mocks.resolveBatch.mockRejectedValueOnce(new Error('API Error 409: {"message":"The reviewed plan is stale."}'));
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagNameConflictCleanupPanel />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Apply all 1 selected fixes" }));
+    await user.click(screen.getByRole("button", { name: "Apply selected fixes" }));
+    expect(await within(screen.getByRole("dialog")).findByText("The reviewed plan is stale.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Apply all 1 selected fixes" }));
+    expect(within(screen.getByRole("dialog")).queryByText("The reviewed plan is stale.")).not.toBeInTheDocument();
   });
 
   it("links tag owners from both claims and the impact table", () => {

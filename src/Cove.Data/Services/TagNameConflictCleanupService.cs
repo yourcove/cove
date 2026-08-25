@@ -18,6 +18,7 @@ public sealed class TagNameConflictCleanupService(
 {
     private sealed record PlannedAction(string Action, string? NewValue = null);
     private sealed record ResolveOutcome(TagMergeResult? Merge, TagNameConflictScanDto Scan);
+    private sealed record ResolveBatchOutcome(IReadOnlyList<TagMergeResult> Merges, TagNameConflictScanDto Scan);
 
     public async Task<TagNameConflictScanDto> ResolveAsync(
         string groupKey,
@@ -74,6 +75,107 @@ public sealed class TagNameConflictCleanupService(
         if (outcome.Merge != null)
             mergeService.PublishCompletedMerge(outcome.Merge);
         return outcome.Scan;
+    }
+
+    public async Task<TagNameConflictScanDto> ResolveBatchAsync(
+        ResolveTagNameConflictBatchDto request,
+        CancellationToken ct = default)
+    {
+        var outcome = await ExecuteTransactionAsync(async () =>
+        {
+            var scan = await scanner.ScanAsync(ct);
+            ValidateBatchRequest(request, scan);
+
+            var merges = new List<TagMergeResult>();
+            var groupsByKey = scan.Groups.ToDictionary(group => group.Key, StringComparer.Ordinal);
+            foreach (var groupRequest in request.Groups)
+            {
+                var merge = await ResolveGroupAsync(
+                    groupsByKey[groupRequest.GroupKey],
+                    groupRequest.SurvivorTagId,
+                    groupRequest.Resolutions,
+                    groupRequest.ExternalReferenceResolutions,
+                    ct);
+                if (merge != null)
+                    merges.Add(merge);
+                db.ChangeTracker.Clear();
+            }
+
+            var refreshed = await scanner.ScanAsync(ct);
+            if (refreshed.UnresolvedGroupCount != 0)
+                throw new InvalidOperationException("The selected batch did not resolve every conflict. No changes were applied; refresh the scan and review the remaining groups.");
+            return new ResolveBatchOutcome(merges, refreshed);
+        }, ct);
+
+        foreach (var merge in outcome.Merges)
+            mergeService.PublishCompletedMerge(merge);
+        return outcome.Scan;
+    }
+
+    private static void ValidateBatchRequest(
+        ResolveTagNameConflictBatchDto request,
+        TagNameConflictScanDto scan)
+    {
+        if (string.IsNullOrWhiteSpace(request.ExpectedRevision)
+            || !string.Equals(request.ExpectedRevision, scan.Revision, StringComparison.Ordinal))
+            throw new InvalidOperationException("The conflict scan changed. Refresh it and review the selected actions before trying again.");
+        if (request.Groups.Count == 0)
+            throw new ArgumentException("At least one conflict group is required.", nameof(request));
+
+        var requestedByKey = request.Groups
+            .GroupBy(group => group.GroupKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var currentKeys = scan.Groups.Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+        if (requestedByKey.Any(entry => string.IsNullOrWhiteSpace(entry.Key) || entry.Value.Length != 1)
+            || !currentKeys.SetEquals(requestedByKey.Keys))
+            throw new InvalidOperationException("The batch must contain every current conflict group exactly once. Refresh the scan and try again.");
+
+        foreach (var group in scan.Groups)
+        {
+            var groupRequest = requestedByKey[group.Key][0];
+            if (string.IsNullOrWhiteSpace(groupRequest.ExpectedRevision)
+                || !string.Equals(groupRequest.ExpectedRevision, group.Revision, StringComparison.Ordinal))
+                throw new InvalidOperationException("A conflict group changed. Refresh the scan and review its selected actions before trying again.");
+            if (groupRequest.SurvivorTagId == null)
+                throw new ArgumentException("Every batch group must include an explicit survivor.", nameof(request));
+
+            var survivingClaims = group.Kinds.Contains(TagNameConflictKinds.BlankAlias)
+                ? []
+                : group.Claims
+                    .Where(claim => claim.TagId == groupRequest.SurvivorTagId)
+                    .OrderBy(claim => claim.ClaimType == TagNameClaimTypes.CanonicalName ? 0 : 1)
+                    .ThenBy(claim => claim.AliasId)
+                    .Take(1)
+                    .ToHashSet();
+            var requiredClaims = group.Claims
+                .Where(claim => !survivingClaims.Contains(claim))
+                .Select(claim => (claim.TagId, claim.AliasId))
+                .ToHashSet();
+            var requestedClaims = (groupRequest.Resolutions ?? [])
+                .Select(resolution => (resolution.TagId, resolution.AliasId))
+                .ToArray();
+            if (requestedClaims.Length != requiredClaims.Count
+                || requestedClaims.Distinct().Count() != requestedClaims.Length
+                || !requiredClaims.SetEquals(requestedClaims))
+                throw new ArgumentException("Every batch group must include one explicit resolution for each non-surviving claim.", nameof(request));
+        }
+
+        var mergeSourceIds = request.Groups
+            .SelectMany(group => group.Resolutions ?? [])
+            .Where(resolution => resolution.Action == TagNameConflictActions.MergeTag)
+            .Select(resolution => resolution.TagId)
+            .ToHashSet();
+        var linkedMergeSource = scan.Groups
+            .SelectMany(group => group.Claims
+                .Where(claim => mergeSourceIds.Contains(claim.TagId))
+                .Select(claim => (claim.TagId, group.Key)))
+            .Distinct()
+            .GroupBy(entry => entry.TagId)
+            .FirstOrDefault(group => group.Select(entry => entry.Key).Distinct(StringComparer.Ordinal).Count() > 1);
+        if (linkedMergeSource != null)
+            throw new ArgumentException(
+                "A tag selected for merging participates in more than one conflict group. Resolve those linked groups individually, refresh the scan, and then apply the remaining batch.",
+                nameof(request));
     }
 
     private async Task<TagMergeResult?> ResolveGroupAsync(

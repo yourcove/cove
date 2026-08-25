@@ -70,4 +70,35 @@ public sealed class TagNameConflictsController(
         }
     }
 
+    [HttpPost("resolve-batch")]
+    public async Task<ActionResult<TagNameConflictScanDto>> ResolveBatch(
+        [FromBody] ResolveTagNameConflictBatchDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await cleanupService.ResolveBatchAsync(request, ct));
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { code = "TAG_NAME_BATCH_INVALID", message = exception.Message });
+        }
+        catch (TagMergeBlockedException exception)
+        {
+            return Conflict(new { code = "TAG_MERGE_EXTENSION_REFERENCES", message = exception.Message, exception.ReferenceCount, exception.AffectedTagCount, exception.HasUninspectableReferences });
+        }
+        catch (TagNameConflictException exception)
+        {
+            return Conflict(new { code = "TAG_NAME_RENAME_CONFLICT", message = exception.Message });
+        }
+        catch (TagExternalReferenceRepairException exception)
+        {
+            return Conflict(new { code = "TAG_EXTENSION_REFERENCE_REPAIR_FAILED", message = exception.Message });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(new { code = "TAG_NAME_CONFLICT_CHANGED", message = exception.Message });
+        }
+    }
+
 }

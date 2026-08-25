@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { entityNameConflicts } from "../../api/client";
@@ -24,7 +24,7 @@ type ExternalAction = EntityExternalReferenceResolution["action"];
 type EntityChoice = { action: EntityAction; newName: string; newDisambiguation: string };
 type GroupChoices = Record<number, EntityChoice>;
 type ExternalChoices = Record<string, ExternalAction | "">;
-type PendingAction = { kind: "group"; group: EntityNameConflictGroup } | null;
+type PendingAction = { kind: "group"; group: EntityNameConflictGroup } | { kind: "batch"; revision: string } | null;
 
 interface GroupPlan {
   resolutions: EntityNameConflictResolution[];
@@ -127,6 +127,11 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
     });
   }, [queryClient, scan.data]);
 
+  useEffect(() => {
+    if (pendingAction?.kind === "batch" && scan.data?.revision !== pendingAction.revision)
+      setPendingAction(null);
+  }, [pendingAction, scan.data?.revision]);
+
   const planFor = (group: EntityNameConflictGroup) => buildGroupPlan(
     group,
     selectedSurvivors[group.key] ?? group.recommendedSurvivorEntityId,
@@ -143,6 +148,23 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
 
   const mutation = useMutation({
     mutationFn: (action: Exclude<PendingAction, null>) => {
+      if (action.kind === "batch") {
+        if (scan.data!.revision !== action.revision)
+          throw new Error("The conflict scan changed. Review the current batch before confirming it.");
+        const groups = scan.data!.groups.map((group) => {
+          const survivorEntityId = selectedSurvivors[group.key] ?? group.recommendedSurvivorEntityId;
+          const plan = planFor(group);
+          return {
+            entityType,
+            groupKey: group.key,
+            expectedRevision: group.revision,
+            survivorEntityId,
+            resolutions: plan.resolutions,
+            externalReferenceResolutions: plan.externalReferenceResolutions,
+          };
+        });
+        return entityNameConflicts.resolveBatch(entityType, scan.data!.revision, groups);
+      }
       const survivorId = selectedSurvivors[action.group.key] ?? action.group.recommendedSurvivorEntityId;
       const plan = planFor(action.group);
       return entityNameConflicts.resolve(
@@ -159,11 +181,29 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
       queryClient.invalidateQueries({ queryKey: tagNameConflictSummaryQueryKey });
       setChoices({});
       setExternalChoices({});
+      setSelectedSurvivors({});
       setPendingAction(null);
     },
   });
 
-  const pendingPlan = pendingAction ? planFor(pendingAction.group) : null;
+  const batchSummary = useMemo(() => {
+    if (!scan.data) return null;
+    const plans = scan.data.groups.map((group) => planFor(group));
+    return {
+      groups: plans.length,
+      merges: plans.reduce((sum, plan) => sum + plan.mergeEntityIds.size, 0),
+      renames: plans.reduce((sum, plan) => sum + plan.renameCount, 0),
+      externalUpdates: plans.reduce((sum, plan) => sum + plan.externalUpdatedReferenceCount, 0),
+      externalDeletes: plans.reduce((sum, plan) => sum + plan.externalDeletedReferenceCount, 0),
+      manualOverrides: Object.keys(selectedSurvivors).length + Object.values(choices).reduce((sum, value) => sum + Object.keys(value).length, 0) + Object.values(externalChoices).reduce((sum, value) => sum + Object.keys(value).length, 0),
+      blocked: plans.some((plan) => plan.hasInvalidRename || plan.hasRestrictedExternalReferences || plan.hasUnresolvedExternalReferences),
+    };
+  }, [choices, externalChoices, scan.data, selectedSurvivors]);
+  const pendingPlan = pendingAction?.kind === "group" ? planFor(pendingAction.group) : null;
+  const openConfirmation = (action: Exclude<PendingAction, null>) => {
+    mutation.reset();
+    setPendingAction(action);
+  };
   const singular = entityType === "performer" ? "performer" : "studio";
   const plural = entityType === "performer" ? "performers" : "studios";
   if (scan.isLoading)
@@ -202,8 +242,13 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
             <button type="button" onClick={refreshScan} disabled={scan.isFetching || mutation.isPending} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-secondary hover:border-accent hover:text-foreground disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${scan.isFetching ? "animate-spin" : ""}`} /> Refresh scan
             </button>
+            <button type="button" onClick={() => openConfirmation({ kind: "batch", revision: scan.data.revision })} disabled={mutation.isPending || batchSummary?.blocked} title={batchSummary?.blocked ? `Review every incomplete ${singular} plan before applying this batch.` : undefined} className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50">
+              {mutation.isPending && pendingAction?.kind === "batch" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Apply all {scan.data.unresolvedGroupCount} selected fixes
+            </button>
           </div>
         </div>
+        {batchSummary?.blocked ? <p className="mt-3 text-sm text-amber-100/80">Review every incomplete extension decision or invalid rename before applying the batch.</p> : null}
       </section>
 
       {mutation.error ? <StatusBox tone="error">{getApiValidationFailureDetail(mutation.error)}</StatusBox> : null}
@@ -231,7 +276,7 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
                 ...current,
                 [group.key]: { ...(current[group.key] ?? {}), [externalReferenceKey(reference)]: action },
               }))}
-              onResolve={() => setPendingAction({ kind: "group", group })}
+              onResolve={() => openConfirmation({ kind: "group", group })}
             />
           );
         })}
@@ -239,10 +284,10 @@ export function EntityNameConflictCleanupPanel({ entityType }: { entityType: Nam
 
       <ConfirmDialog
         open={pendingAction != null}
-        title={`Resolve this ${singular} conflict?`}
-        message={describePlan(pendingPlan, singular)}
-        confirmLabel="Resolve group"
-        destructive={Boolean(pendingPlan && pendingPlan.mergeEntityIds.size > 0)}
+        title={pendingAction?.kind === "batch" ? `Apply all ${batchSummary?.groups ?? 0} selected ${singular} fixes?` : `Resolve this ${singular} conflict?`}
+        message={pendingAction?.kind === "batch" ? describeBatch(batchSummary, singular) : describePlan(pendingPlan, singular)}
+        confirmLabel={pendingAction?.kind === "batch" ? "Apply selected fixes" : "Resolve group"}
+        destructive={pendingAction?.kind === "batch" || Boolean(pendingPlan && pendingPlan.mergeEntityIds.size > 0)}
         isPending={mutation.isPending}
         errorMessage={mutation.error ? getApiValidationFailureDetail(mutation.error) : null}
         onCancel={() => { if (!mutation.isPending) setPendingAction(null); }}
@@ -385,6 +430,11 @@ function describePlan(plan: GroupPlan | null, singular: string) {
     plan.externalDeletedReferenceCount ? `delete ${plan.externalDeletedReferenceCount} extension row reference${plan.externalDeletedReferenceCount === 1 ? "" : "s"}` : null,
   ].filter(Boolean);
   return `Cove will ${parts.join(", ") || "normalize the selected identities"}. The operation is transactional and the scan refreshes afterward.`;
+}
+
+function describeBatch(summary: { groups: number; merges: number; renames: number; externalUpdates: number; externalDeletes: number; manualOverrides: number; blocked: boolean } | null, singular: string) {
+  if (!summary) return `Cove will apply every displayed ${singular} resolution in one transaction.`;
+  return `Cove will apply the exact displayed choices for ${summary.groups} groups in one transaction: ${summary.merges} merges, ${summary.renames} renames, ${summary.externalUpdates} extension row updates, and ${summary.externalDeletes} extension row deletions. ${summary.manualOverrides} manual overrides are included. If any group changed, no fixes will be applied.`;
 }
 
 function StatusBox({ tone, children }: { tone: "success" | "error"; children: React.ReactNode }) {

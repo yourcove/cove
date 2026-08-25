@@ -7,6 +7,7 @@ import { EntityNameConflictCleanupPanel } from "../features/tag-name-conflicts/E
 
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
+  resolveBatch: vi.fn(),
   refetch: vi.fn(),
   scanError: null as Error | null,
 }));
@@ -42,6 +43,7 @@ vi.mock("../api/client", async (importOriginal) => {
     entityNameConflicts: {
       ...actual.entityNameConflicts,
       resolve: mocks.resolve,
+      resolveBatch: mocks.resolveBatch,
     },
   };
 });
@@ -71,6 +73,7 @@ function renderPanel(entityType: "performer" | "studio" = "performer") {
 describe("EntityNameConflictCleanupPanel", () => {
   beforeEach(() => {
     mocks.resolve.mockReset().mockResolvedValue({ ...conflictScan, unresolvedGroupCount: 0, revision: "empty", groups: [] });
+    mocks.resolveBatch.mockReset().mockResolvedValue({ ...conflictScan, unresolvedGroupCount: 0, revision: "empty", groups: [] });
     mocks.refetch.mockReset();
     mocks.scanError = null;
     conflictScan.groups[0].impacts[0].externalReferences = [];
@@ -187,6 +190,22 @@ describe("EntityNameConflictCleanupPanel", () => {
     expect(mocks.refetch).toHaveBeenCalledOnce();
     expect(screen.getByRole("radio", { name: "Keep alex" })).toBeChecked();
     expect(screen.queryByRole("textbox", { name: "New name for alex" })).not.toBeInTheDocument();
+  });
+
+  it("submits the selected survivor and actions in the current-tab batch", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole("radio", { name: "Keep Alex" }));
+    await user.click(screen.getByRole("button", { name: "Apply all 1 selected fixes" }));
+    expect(screen.getByText(/1 manual overrides are included/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply selected fixes" }));
+
+    await waitFor(() => expect(mocks.resolveBatch).toHaveBeenCalledWith("performer", conflictScan.revision, [expect.objectContaining({
+      entityType: "performer",
+      groupKey: conflictScan.groups[0].key,
+      expectedRevision: conflictScan.groups[0].revision,
+    })]));
   });
 
   it("requires an explicit update-or-delete choice for extension references", async () => {
