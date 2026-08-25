@@ -1823,6 +1823,7 @@ public class ExtensionManager : IExtensionContributionRuntime
                 FilterId = string.IsNullOrWhiteSpace(filter.FilterId) ? null : filter.FilterId.Trim(),
             }));
             manifest.ListSorts.AddRange(extManifest.ListSorts.Select(sort => sort with { ExtensionId = ext.Id }));
+            manifest.DashboardWidgets.AddRange(extManifest.DashboardWidgets.Select(widget => widget with { ExtensionId = ext.Id }));
         }
 
         var manifestIds = _manifestFiles.Keys
@@ -1894,6 +1895,7 @@ public class ExtensionManager : IExtensionContributionRuntime
         manifest.Actions.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.KeyboardActions.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.KeyboardShortcutPresets.Sort((a, b) => a.Order.CompareTo(b.Order));
+        manifest.DashboardWidgets.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.TutorialTopics.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListFilters.Sort((a, b) => a.Order.CompareTo(b.Order));
         manifest.ListSorts.Sort((a, b) => a.Order.CompareTo(b.Order));

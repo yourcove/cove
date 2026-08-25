@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using Cove.Core.Auth;
 
 namespace Cove.Plugins;
@@ -683,6 +684,7 @@ public class UIManifest
     public List<UITutorialTopic> TutorialTopics { get; set; } = [];
     public List<UIListFilterContribution> ListFilters { get; set; } = [];
     public List<UIListSortContribution> ListSorts { get; set; } = [];
+    public List<UIDashboardWidgetContribution> DashboardWidgets { get; set; } = [];
 
     /// <summary>Version of the frontend runtime contract used to load extension bundles.</summary>
     public string? FrontendRuntimeVersion { get; set; }
@@ -839,6 +841,35 @@ public record UIPaneContribution(
     string? Label = null,
     int Order = 100
 );
+
+/// <summary>Host-owned dashboard presentation modes supported by a widget contribution.</summary>
+public enum DashboardWidgetPresentation
+{
+    /// <summary>Content-driven widget rendered in the dashboard's ordered vertical stack.</summary>
+    Flow,
+    /// <summary>Exclusive widget rendered as the dashboard's document-scrolling content canvas.</summary>
+    Canvas,
+}
+
+/// <summary>A widget that users may place on personal dashboards.</summary>
+public record UIDashboardWidgetContribution(
+    string Id,
+    string Label,
+    string ExtensionId,
+    string ComponentName,
+    string? EditorComponentName = null,
+    string? Description = null,
+    string? Icon = null,
+    JsonElement? DefaultConfiguration = null,
+    bool AllowMultiple = true,
+    int Order = 100)
+{
+    public string? RequiredPermission { get; init; }
+    public string[]? RequiredPermissions { get; init; }
+    public PermissionMode RequiredPermissionMode { get; init; } = PermissionMode.All;
+    public DashboardWidgetPresentation[] SupportedPresentations { get; init; } = [DashboardWidgetPresentation.Flow];
+    public DashboardWidgetPresentation DefaultPresentation { get; init; } = DashboardWidgetPresentation.Flow;
+}
 
 /// <summary>Feature capability metadata exposed to the host UI.</summary>
 public record UIFeatureDefinition(

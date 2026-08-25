@@ -32,6 +32,7 @@ const { mockHomePageContent, mocks } = vi.hoisted(() => {
       groupItemsList: vi.fn(async () => []),
       groupItemsPage: vi.fn(async () => ({ ...emptyPage, page: 1, perPage: 12 })),
       savedFiltersGet: vi.fn(),
+      dashboardWidgets: [] as Array<{ instanceId: string; owner: string; widgetKey: string; label: string; configuration: unknown }>,
     },
   };
 });
@@ -51,7 +52,15 @@ vi.mock("../api/client", () => ({
     findFiltered: mocks.groupsFindFiltered,
     items: { list: mocks.groupItemsList, page: mocks.groupItemsPage },
   },
-  savedFilters: { get: mocks.savedFiltersGet },
+  savedFilters: { get: mocks.savedFiltersGet, list: vi.fn(async () => []) },
+  dashboards: {
+    bootstrap: vi.fn(async (widgets) => {
+      mocks.dashboardWidgets = widgets;
+      return { id: 1, name: "Home", isDefault: true, version: 1, createdAt: "", updatedAt: "", widgets };
+    }),
+    list: vi.fn(async () => [{ id: 1, name: "Home", isDefault: true, version: 1, createdAt: "", updatedAt: "" }]),
+    get: vi.fn(async () => ({ id: 1, name: "Home", isDefault: true, version: 1, createdAt: "", updatedAt: "", widgets: mocks.dashboardWidgets })),
+  },
 }));
 
 vi.mock("../hooks/useEntityEngagementBatch", () => ({
@@ -60,6 +69,10 @@ vi.mock("../hooks/useEntityEngagementBatch", () => ({
 
 vi.mock("../components/Rating", () => ({
   RatingBanner: () => null,
+}));
+
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "7", kind: "user" }, hasPermission: () => true }),
 }));
 
 vi.mock("../utils/userUiPreferences", () => ({
