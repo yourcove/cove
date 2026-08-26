@@ -784,6 +784,7 @@ const customFieldEntityOptions: { value: CustomFieldEntityType; label: string }[
 
 const customFieldTypeOptions: { value: CustomFieldType; label: string }[] = [
   { value: "text", label: "Text" },
+  { value: "longText", label: "Long Text" },
   { value: "number", label: "Number" },
   { value: "boolean", label: "Boolean" },
   { value: "date", label: "Date" },
@@ -791,6 +792,10 @@ const customFieldTypeOptions: { value: CustomFieldType; label: string }[] = [
   { value: "enum", label: "Enum" },
   { value: "json", label: "JSON" },
 ];
+
+function isNonQueryableCustomFieldType(type: CustomFieldType) {
+  return type === "json" || type === "longText";
+}
 
 const customFieldJsonPathTypeOptions: { value: CustomFieldJsonPathType; label: string }[] = [
   { value: "text", label: "Text" },
@@ -925,7 +930,7 @@ function canSyncCustomFieldDefinition(definition: CustomFieldDefinition) {
     && hasValidQueryableJsonPaths(definition);
 }
 
-function normalizeCustomFieldDefinitionForSync(definition: CustomFieldDefinition, index: number): CustomFieldDefinition {
+export function normalizeCustomFieldDefinitionForSync(definition: CustomFieldDefinition, index: number): CustomFieldDefinition {
   return {
     id: definition.id,
     key: definition.key.trim(),
@@ -933,9 +938,9 @@ function normalizeCustomFieldDefinitionForSync(definition: CustomFieldDefinition
     type: definition.type,
     entityTypes: [...definition.entityTypes],
     options: definition.options.map((option) => option.trim()).filter(Boolean),
-    filterable: definition.type === "json" ? false : definition.filterable,
-    sortable: definition.type === "json" ? false : definition.sortable,
-    isMultiValue: definition.type === "json" ? false : (definition.isMultiValue ?? false),
+    filterable: isNonQueryableCustomFieldType(definition.type) ? false : definition.filterable,
+    sortable: isNonQueryableCustomFieldType(definition.type) ? false : definition.sortable,
+    isMultiValue: isNonQueryableCustomFieldType(definition.type) ? false : (definition.isMultiValue ?? false),
     jsonPaths: definition.type === "json"
       ? (definition.jsonPaths ?? []).map((jsonPath) => ({
           path: jsonPath.path,
@@ -1028,9 +1033,9 @@ function normalizeConfig(config: CoveConfig): CoveConfig {
         type: definition.type,
         entityTypes: definition.entityTypes.filter(Boolean),
         options: definition.options.map((option) => option.trim()).filter(Boolean),
-        filterable: definition.type === "json" ? false : definition.filterable,
-        sortable: definition.type === "json" ? false : definition.sortable,
-        isMultiValue: definition.type === "json" ? false : (definition.isMultiValue ?? false),
+        filterable: isNonQueryableCustomFieldType(definition.type) ? false : definition.filterable,
+        sortable: isNonQueryableCustomFieldType(definition.type) ? false : definition.sortable,
+        isMultiValue: isNonQueryableCustomFieldType(definition.type) ? false : (definition.isMultiValue ?? false),
         jsonPaths: definition.type === "json"
           ? (definition.jsonPaths ?? []).map((jsonPath) => ({
               ...jsonPath,
@@ -2634,13 +2639,17 @@ export function SettingsPage() {
                       <SelectField
                         label="Type"
                         value={definition.type}
-                        onChange={(value) => updateCustomFieldDefinition(index, (current) => ({
-                          ...current,
-                          type: value as CustomFieldType,
-                          ...(value === "json"
-                            ? { filterable: false, sortable: false, isMultiValue: false, jsonPaths: current.jsonPaths ?? [] }
-                            : { jsonPaths: [] }),
-                        }))}
+                        onChange={(value) => updateCustomFieldDefinition(index, (current) => {
+                          const type = value as CustomFieldType;
+                          return {
+                            ...current,
+                            type,
+                            ...(isNonQueryableCustomFieldType(type)
+                              ? { filterable: false, sortable: false, isMultiValue: false }
+                              : {}),
+                            jsonPaths: type === "json" ? (current.jsonPaths ?? []) : [],
+                          };
+                        })}
                         onBlur={() => commitCustomFieldDraft()}
                         options={customFieldTypeOptions}
                       />
@@ -2649,6 +2658,8 @@ export function SettingsPage() {
                         <div className="flex flex-wrap gap-3 rounded-xl border border-border bg-background px-3 py-2">
                           {definition.type === "json" ? (
                             <span className="text-xs text-muted">The full document stays non-queryable. Configure typed paths below for filtering or sorting.</span>
+                          ) : definition.type === "longText" ? (
+                            <span className="text-xs text-muted">Accepts multiline values beyond 4,000 characters and is not filterable or sortable.</span>
                           ) : (
                             <>
                               <CheckboxLabel

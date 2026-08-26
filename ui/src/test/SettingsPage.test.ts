@@ -3,6 +3,7 @@ import {
   logFilterLevelOptions,
   isUnverifiedExtensionInstallSource,
   isValidQueryableJsonPointer,
+  normalizeCustomFieldDefinitionForSync,
   removeCustomFieldDefinitionSnapshot,
   readSettingsTabFromUrl,
   resolveVisibleSettingsTab,
@@ -125,6 +126,27 @@ describe("isValidQueryableJsonPointer", () => {
 });
 
 describe("custom field draft snapshots", () => {
+  it("normalizes long text as a single non-queryable value", () => {
+    const normalized = normalizeCustomFieldDefinitionForSync({
+      key: "notes",
+      label: "Notes",
+      type: "longText",
+      entityTypes: ["performer"],
+      options: [],
+      filterable: true,
+      sortable: true,
+      isMultiValue: true,
+      jsonPaths: [{ path: "/ignored", label: "Ignored", type: "text", filterable: true, sortable: true }],
+    }, 0);
+
+    expect(normalized).toEqual(expect.objectContaining({
+      filterable: false,
+      sortable: false,
+      isMultiValue: false,
+      jsonPaths: [],
+    }));
+  });
+
   it("composes rapid JSON path toggles and removal from the latest synchronous snapshot", () => {
     const initial: CustomFieldDefinition[] = [{
       id: 1,

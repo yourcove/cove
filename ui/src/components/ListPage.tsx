@@ -326,6 +326,10 @@ function createCustomFieldQueryDefinitions(
   capability: "filterable" | "sortable",
 ): CustomFieldQueryDefinition[] {
   return definitions.flatMap((definition) => {
+    if (definition.type === "longText") {
+      return [];
+    }
+
     if (definition.type !== "json") {
       return definition[capability] ? [definition] : [];
     }

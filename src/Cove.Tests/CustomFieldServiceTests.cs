@@ -10,6 +10,70 @@ namespace Cove.Tests;
 public class CustomFieldServiceTests
 {
     [Fact]
+    public async Task CreateDefinitionAsync_NormalizesLongTextAndDisablesQueryBehaviors()
+    {
+        await using var context = CreateContext();
+        var service = new CustomFieldService(context);
+
+        var definition = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "notes",
+            Label = "Notes",
+            Type = "LONGTEXT",
+            EntityTypes = [CustomFieldEntityTypes.Performer],
+            Filterable = true,
+            Sortable = true,
+            IsMultiValue = true,
+        }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(CustomFieldTypes.LongText, definition.Type);
+        Assert.False(definition.Filterable);
+        Assert.False(definition.Sortable);
+        Assert.False(definition.IsMultiValue);
+    }
+
+    [Fact]
+    public async Task SaveValuesAsync_LongTextPreservesShortAndLargeMultilineScalarsOutsideTextValue()
+    {
+        await using var context = CreateContext();
+        var definition = new CustomFieldDefinition
+        {
+            Key = "notes",
+            Label = "Notes",
+            Type = CustomFieldTypes.LongText,
+            EntityTypes = [CustomFieldEntityTypes.Performer],
+        };
+        context.CustomFieldDefinitions.Add(definition);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new CustomFieldService(context);
+        var shortValue = "Short values work too.";
+        var largeValue = $"Opening line\n\n{new string('x', 5_001)}\nClosing line";
+
+        await service.SaveValuesAsync(
+            CustomFieldEntityTypes.Performer,
+            41,
+            new Dictionary<string, object> { [definition.Key] = shortValue },
+            TestContext.Current.CancellationToken);
+        await service.SaveValuesAsync(
+            CustomFieldEntityTypes.Performer,
+            42,
+            new Dictionary<string, object> { [definition.Key] = largeValue },
+            TestContext.Current.CancellationToken);
+
+        var stored = await context.CustomFieldValues.OrderBy(value => value.EntityId).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, stored.Count);
+        Assert.Equal(shortValue, stored[0].LongTextValue);
+        Assert.Equal(largeValue, stored[1].LongTextValue);
+        Assert.All(stored, value => Assert.Null(value.TextValue));
+        var roundTripped = await service.GetValuesAsync(
+            CustomFieldEntityTypes.Performer,
+            [41, 42],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(shortValue, roundTripped[41][definition.Key]);
+        Assert.Equal(largeValue, roundTripped[42][definition.Key]);
+    }
+
+    [Fact]
     public async Task CreateDefinitionAsync_NormalizesJsonAndDisablesUnsupportedBehaviors()
     {
         await using var context = CreateContext();

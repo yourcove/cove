@@ -16,6 +16,146 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
 
     [Fact]
     [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("POST", "/api/performers")]
+    [CoversEndpoint("GET", "/api/performers/{id:int}")]
+    [CoversEndpoint("POST", "/api/performers/find")]
+    public async Task GivenLongTextDefinition_WhenShortAndLargeValuesAreSaved_ThenTheyRemainUnindexedNonQueryableScalars()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"long_notes_{suffix}";
+        var definition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Long notes",
+            Type = "LONGTEXT",
+            EntityTypes = [CustomFieldEntityTypes.Performer],
+            Filterable = true,
+            Sortable = true,
+            IsMultiValue = true,
+        }, TestContext.Current.CancellationToken);
+        AssertDefinition(
+            definition,
+            definition.Id,
+            key,
+            "Long notes",
+            CustomFieldTypes.LongText,
+            [CustomFieldEntityTypes.Performer],
+            [],
+            filterable: false,
+            sortable: false,
+            isMultiValue: false,
+            displayOrder: 0);
+
+        const string shortValue = "Short values work too.";
+        var largeValue = $"Opening line\n\n{new string('x', 5_001)}\nClosing line";
+        var shortValuePerformer = await owner.CreatePerformerAsync(new PerformerBuilder()
+            .WithName($"Long text short {suffix}")
+            .WithCustomField(key, shortValue)
+            .Build(), TestContext.Current.CancellationToken);
+        var largeValuePerformer = await owner.CreatePerformerAsync(new PerformerBuilder()
+            .WithName($"Long text large {suffix}")
+            .WithCustomField(key, largeValue)
+            .Build(), TestContext.Current.CancellationToken);
+
+        AssertLongTextCustomField(shortValuePerformer, key, shortValue);
+        AssertLongTextCustomField(
+            await owner.GetPerformerByIdAsync(largeValuePerformer.Id, TestContext.Current.CancellationToken),
+            key,
+            largeValue);
+        var storage = await AsDbUser().GetCustomFieldTextStorageAsync(
+            definition.Id,
+            CustomFieldEntityTypes.Performer,
+            largeValuePerformer.Id,
+            TestContext.Current.CancellationToken);
+        storage.TextValue.Should().BeNull();
+        storage.LongTextValue.Should().Be(largeValue);
+        (await AsDbUser().GetCustomFieldValueIndexDefinitionsAsync(TestContext.Current.CancellationToken))
+            .Should().NotContain(index => index.Contains("\"LongTextValue\"", StringComparison.Ordinal));
+
+        await AsDbUser().SetCustomFieldDefinitionShapeAsync(
+            definition.Id,
+            "LONGTEXT",
+            filterable: true,
+            sortable: true,
+            isMultiValue: true,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var legacyDefinition = (await owner.GetCustomFieldDefinitionsAsync(
+                CustomFieldEntityTypes.Performer,
+                TestContext.Current.CancellationToken))
+            .Single(item => item.Id == definition.Id);
+        AssertDefinition(
+            legacyDefinition,
+            definition.Id,
+            key,
+            "Long notes",
+            CustomFieldTypes.LongText,
+            [CustomFieldEntityTypes.Performer],
+            [],
+            filterable: false,
+            sortable: false,
+            isMultiValue: false,
+            displayOrder: 0);
+        AssertLongTextCustomField(
+            await owner.GetPerformerByIdAsync(largeValuePerformer.Id, TestContext.Current.CancellationToken),
+            key,
+            largeValue);
+
+        var forgedFilter = await owner.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+        {
+            ObjectFilter = new PerformerFilter
+            {
+                Name = suffix,
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        Type = CustomFieldTypes.Text,
+                        Modifier = CriterionModifier.Equals,
+                        Value = shortValue,
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        forgedFilter.Items.Should().BeEmpty();
+
+        var forgedPresenceFilter = await owner.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+        {
+            ObjectFilter = new PerformerFilter
+            {
+                Name = suffix,
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        Type = CustomFieldTypes.Text,
+                        Modifier = CriterionModifier.NotNull,
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        forgedPresenceFilter.Items.Should().BeEmpty();
+
+        var forgedSort = await owner.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+        {
+            ObjectFilter = new PerformerFilter { Name = suffix },
+            FindFilter = new FindFilter
+            {
+                PerPage = 10,
+                Sort = $"custom:text:{key}",
+                Direction = Cove.Core.Enums.SortDirection.Asc,
+            },
+        }, TestContext.Current.CancellationToken);
+        forgedSort.Items.Select(performer => performer.Id)
+            .Should().Equal(new[] { shortValuePerformer.Id, largeValuePerformer.Id }.OrderBy(id => id));
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
     [CoversEndpoint("POST", "/api/videos")]
     [CoversEndpoint("GET", "/api/videos/{id:int}")]
     public async Task GivenJsonDefinition_WhenValueIsSavedAndReloaded_ThenStructuredJsonRoundTripsWithoutTextLimits()
@@ -1373,5 +1513,13 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
         var actual = video.CustomFields.Should().ContainKey(key)
             .WhoseValue.Should().BeOfType<JsonElement>().Which;
         JsonElement.DeepEquals(actual, expected).Should().BeTrue();
+    }
+
+    private static void AssertLongTextCustomField(PerformerDto performer, string key, string expected)
+    {
+        performer.CustomFields.Should().NotBeNull();
+        performer.CustomFields.Should().ContainKey(key)
+            .WhoseValue.Should().BeOfType<JsonElement>()
+            .Which.GetString().Should().Be(expected);
     }
 }

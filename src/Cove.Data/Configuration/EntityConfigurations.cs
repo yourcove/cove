@@ -322,7 +322,8 @@ public class CustomFieldValueConfiguration : IEntityTypeConfiguration<CustomFiel
         builder.HasKey(value => value.Id);
         builder.Property(value => value.EntityType).IsRequired().HasMaxLength(50);
         builder.Property(value => value.TextValue).HasMaxLength(4000);
-        // Keep structured JSON separate from both short text and future unbounded long-text storage.
+        builder.Property(value => value.LongTextValue).HasColumnType("text");
+        // Keep structured JSON separate from both bounded, indexed text and unbounded long text.
         builder.Property(value => value.JsonValue).HasColumnType("jsonb");
         builder.Property(value => value.NumberValue).HasPrecision(18, 6);
 

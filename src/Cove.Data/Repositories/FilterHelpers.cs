@@ -28,6 +28,8 @@ public abstract class CustomFieldSortProjection
 /// </summary>
 public static class FilterHelpers
 {
+    private const string JsonTypeLower = "json";
+    private const string LongTextTypeLower = "longtext";
     private static readonly MethodInfo JsonTextMethod = typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Text))!;
     private static readonly MethodInfo JsonTextIndexKeyMethod = typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.TextIndexKey))!;
     private static readonly MethodInfo JsonNumberMethod = typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Number))!;
@@ -70,8 +72,9 @@ public static class FilterHelpers
         if (!string.IsNullOrWhiteSpace(criterion.JsonPath))
             return ApplyJsonCustomFieldCriterion(query, db, values, normalizedEntityType, key, criterion);
 
-        // JSON documents are queryable only through explicitly configured paths.
-        values = values.Where(value => value.Definition!.Type != CustomFieldTypes.Json);
+        // JSON documents are queryable only through explicitly configured paths. Long text is
+        // intentionally not queryable at all, even if a client submits a stale or forged target.
+        values = ExcludeNonQueryableCustomFieldValues(values);
 
         if (criterion.Modifier == CriterionModifier.IsNull)
         {
@@ -126,7 +129,7 @@ public static class FilterHelpers
         if (jsonPath != null)
             return ApplyJsonCustomFieldSort(query, values, normalizedEntityType, type, jsonPath, desc);
 
-        values = values.Where(value => value.Definition!.Type != CustomFieldTypes.Json);
+        values = ExcludeNonQueryableCustomFieldValues(values);
         if (CustomFieldTypes.IsNumberLike(type)) return SortByCustomField(query, values, value => value.NumberValue, desc);
         if (CustomFieldTypes.IsBoolean(type)) return SortByCustomField(query, values, value => value.BoolValue, desc);
         if (CustomFieldTypes.IsDateLike(type)) return SortByCustomField(query, values, value => value.DateValue, desc);
@@ -146,7 +149,7 @@ public static class FilterHelpers
         if (jsonPath != null)
             return ApplyProjectedJsonCustomFieldSort(query, values, normalizedEntityType, type, jsonPath, desc);
 
-        values = values.Where(value => value.Definition!.Type != CustomFieldTypes.Json);
+        values = ExcludeNonQueryableCustomFieldValues(values);
         if (CustomFieldTypes.IsNumberLike(type)) return SortProjectedByCustomField(query, values, value => value.NumberValue, desc);
         if (CustomFieldTypes.IsBoolean(type)) return SortProjectedByCustomField(query, values, value => value.BoolValue, desc);
         if (CustomFieldTypes.IsDateLike(type)) return SortProjectedByCustomField(query, values, value => value.DateValue, desc);
@@ -234,6 +237,11 @@ public static class FilterHelpers
             return ApplyJsonBooleanCustomField(query, values, criterion, BuildJsonBooleanSelector(path));
         return ApplyJsonTextCustomField(query, SelectJsonTextFilterScalars(values, path), criterion);
     }
+
+    private static IQueryable<CustomFieldValue> ExcludeNonQueryableCustomFieldValues(
+        IQueryable<CustomFieldValue> values)
+        => values.Where(value => value.Definition!.Type.ToLower() != JsonTypeLower
+            && value.Definition.Type.ToLower() != LongTextTypeLower);
 
     private static IQueryable<T> ApplyJsonCustomFieldSort<T>(
         IQueryable<T> query,

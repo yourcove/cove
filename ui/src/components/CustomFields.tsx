@@ -33,14 +33,14 @@ export function CustomFieldsDisplay({
           const urlValue = definition?.type === "url" && typeof value === "string" ? value.trim() : "";
 
           return (
-            <div key={key} className={`flex flex-col ${definition?.type === "json" ? "col-span-2" : ""}`}>
+            <div key={key} className={`flex flex-col ${definition?.type === "json" || definition?.type === "longText" ? "col-span-2" : ""}`}>
               <span className="text-muted text-xs">{label}</span>
               {urlValue ? (
                 <a href={urlValue} target="_blank" rel="noreferrer" className="text-accent hover:underline break-all">
                   {formatCustomFieldValue(value, definition?.type)}
                 </a>
               ) : (
-                <div className="text-foreground break-words">
+                <div className={`text-foreground break-words ${definition?.type === "longText" ? "whitespace-pre-wrap" : ""}`}>
                   <CustomFieldDisplayValue definition={definition} value={value} />
                 </div>
               )}
@@ -151,6 +151,18 @@ function ConfiguredFieldInput({
 }) {
   if (definition.type === "json") {
     return <JsonFieldInput definition={definition} value={value} onChange={onChange} onValidityChange={onJsonValidityChange} />;
+  }
+
+  if (definition.type === "longText") {
+    return (
+      <textarea
+        aria-label={definition.label || definition.key}
+        value={serializeScalarValue(value)}
+        onChange={(event) => onChange(event.target.value)}
+        rows={6}
+        className="w-full rounded border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+      />
+    );
   }
 
   if (isEntityReferenceType(definition.type)) {
@@ -274,7 +286,6 @@ function ConfiguredFieldInput({
 
   const inputType: Partial<Record<CustomFieldType, string>> = {
     text: "text",
-    longText: "text",
     number: "number",
     boolean: "text",
     date: "text",
@@ -510,6 +521,10 @@ function formatDateValue(value: unknown): string {
 }
 
 function normalizeDefinedFieldValue(value: string, type: CustomFieldType): unknown {
+  if (type === "longText") {
+    return value.trim() === "" ? undefined : value;
+  }
+
   const values = value.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   if (values.length > 1) {
     return values.map((entry) => normalizeDefinedFieldValue(entry, type)).filter((entry) => entry !== undefined);
@@ -548,7 +563,6 @@ function normalizeDefinedFieldValue(value: string, type: CustomFieldType): unkno
       const trimmedValue = value.trim();
       return trimmedValue === "" ? undefined : trimmedValue;
     }
-    case "longText":
     case "text":
     default:
       return value.trim() === "" ? undefined : value;

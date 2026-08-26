@@ -268,7 +268,7 @@ public sealed class CustomFieldService(
                 if (fieldValues.Count == 0)
                     continue;
 
-                values[definition.Key] = definition.IsMultiValue ? fieldValues : fieldValues[0]!;
+                values[definition.Key] = NormalizeMultiValue(definition.Type, definition.IsMultiValue) ? fieldValues : fieldValues[0]!;
             }
         }
 
@@ -360,17 +360,19 @@ public sealed class CustomFieldService(
         => (await _db.CustomFieldDefinitions.Select(definition => (int?)definition.DisplayOrder).MaxAsync(ct) ?? -10) + 10;
 
     public static CustomFieldDefinitionDto MapDefinition(CustomFieldDefinition definition)
-        => new()
+    {
+        var type = CustomFieldTypes.Normalize(definition.Type);
+        return new()
         {
             Id = definition.Id,
             Key = definition.Key,
             Label = definition.Label,
-            Type = definition.Type,
+            Type = type,
             EntityTypes = [.. definition.EntityTypes],
             Options = [.. definition.Options],
-            Filterable = definition.Filterable,
-            Sortable = definition.Sortable,
-            IsMultiValue = definition.IsMultiValue,
+            Filterable = NormalizeFilterable(type, definition.Filterable),
+            Sortable = NormalizeSortable(type, definition.Sortable),
+            IsMultiValue = NormalizeMultiValue(type, definition.IsMultiValue),
             JsonPaths = definition.JsonPaths
                 .OrderBy(path => path.DisplayOrder)
                 .ThenBy(path => path.Label)
@@ -380,10 +382,11 @@ public sealed class CustomFieldService(
             CreatedAt = definition.CreatedAt.ToString("o"),
             UpdatedAt = definition.UpdatedAt.ToString("o"),
         };
+    }
 
     private static IEnumerable<CustomFieldValue> NormalizeInputValues(CustomFieldDefinition definition, object? rawValue)
     {
-        if (CustomFieldTypes.IsJson(definition.Type))
+        if (CustomFieldTypes.IsJson(definition.Type) || CustomFieldTypes.IsLongText(definition.Type))
         {
             var converted = ConvertInputValue(definition, rawValue);
             if (converted != null)
@@ -476,7 +479,16 @@ public sealed class CustomFieldService(
             return value;
         }
 
-        var text = Convert.ToString(rawValue, CultureInfo.InvariantCulture)?.Trim();
+        var rawText = Convert.ToString(rawValue, CultureInfo.InvariantCulture);
+        if (CustomFieldTypes.IsLongText(type))
+        {
+            if (string.IsNullOrWhiteSpace(rawText))
+                return null;
+            value.LongTextValue = rawText;
+            return value;
+        }
+
+        var text = rawText?.Trim();
         if (string.IsNullOrWhiteSpace(text))
             return null;
         value.TextValue = text;
@@ -487,6 +499,7 @@ public sealed class CustomFieldService(
     {
         var type = CustomFieldTypes.Normalize(definition.Type);
         if (CustomFieldTypes.IsJson(type)) return value.JsonValue?.Clone();
+        if (CustomFieldTypes.IsLongText(type)) return value.LongTextValue;
         if (CustomFieldTypes.IsNumberLike(type)) return value.NumberValue;
         if (CustomFieldTypes.IsBoolean(type)) return value.BoolValue;
         if (CustomFieldTypes.IsDateLike(type)) return value.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -539,13 +552,13 @@ public sealed class CustomFieldService(
         };
 
     private static bool NormalizeFilterable(string type, bool requested)
-        => !CustomFieldTypes.IsJson(type) && requested;
+        => !CustomFieldTypes.IsJson(type) && !CustomFieldTypes.IsLongText(type) && requested;
 
     private static bool NormalizeSortable(string type, bool requested)
-        => !CustomFieldTypes.IsJson(type) && requested;
+        => !CustomFieldTypes.IsJson(type) && !CustomFieldTypes.IsLongText(type) && requested;
 
     private static bool NormalizeMultiValue(string type, bool requested)
-        => !CustomFieldTypes.IsJson(type) && requested;
+        => !CustomFieldTypes.IsJson(type) && !CustomFieldTypes.IsLongText(type) && requested;
 
     private static List<NormalizedJsonPathInput> NormalizeJsonPaths(
         string definitionType,

@@ -1192,6 +1192,9 @@ namespace Cove.Data.Migrations
                     b.Property<JsonElement?>("JsonValue")
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("LongTextValue")
+                        .HasColumnType("text");
+
                     b.Property<decimal?>("NumberValue")
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)");

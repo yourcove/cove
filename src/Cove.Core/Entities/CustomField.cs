@@ -70,6 +70,7 @@ public static class CustomFieldTypes
     public static bool IsDateLike(string? type) => Normalize(type) == Date;
     public static bool IsTimestampLike(string? type) => Normalize(type) == Timestamp;
     public static bool IsBoolean(string? type) => Normalize(type) == Boolean;
+    public static bool IsLongText(string? type) => Normalize(type) == LongText;
     public static bool IsJson(string? type) => Normalize(type) == Json;
 
     public static bool IsReference(string? type)
@@ -125,6 +126,7 @@ public class CustomFieldValue : BaseEntity
     public int Position { get; set; }
 
     public string? TextValue { get; set; }
+    public string? LongTextValue { get; set; }
     public JsonElement? JsonValue { get; set; }
     public decimal? NumberValue { get; set; }
     public bool? BoolValue { get; set; }

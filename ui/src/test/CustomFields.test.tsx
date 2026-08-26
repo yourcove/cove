@@ -20,11 +20,23 @@ const jsonDefinition: CustomFieldDefinition = {
   displayOrder: 0,
 };
 
-function renderWithDefinition(ui: React.ReactNode) {
+const longTextDefinition: CustomFieldDefinition = {
+  ...jsonDefinition,
+  key: "notes",
+  label: "Notes",
+  type: "longText",
+  entityTypes: ["performer"],
+};
+
+function renderWithDefinition(
+  ui: React.ReactNode,
+  definitions: CustomFieldDefinition[] = [jsonDefinition],
+  entityType: "video" | "performer" = "video",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
-  queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [jsonDefinition]);
+  queryClient.setQueryData(customFieldDefinitionsQueryKey(entityType), definitions);
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
@@ -103,5 +115,39 @@ describe("JSON custom fields", () => {
     await waitFor(() => expect(save).toBeEnabled());
     await user.click(save);
     expect(onSave).toHaveBeenCalledOnce();
+  });
+});
+
+describe("long text custom fields", () => {
+  it("uses a multiline editor and preserves the complete value as one scalar", () => {
+    const onChange = vi.fn();
+    renderWithDefinition(
+      <CustomFieldsEditor
+        value={{ notes: "Short values work too." }}
+        onChange={onChange}
+        entityType="performer"
+      />,
+      [longTextDefinition],
+      "performer",
+    );
+
+    const editor = screen.getByRole("textbox");
+    expect(editor.tagName).toBe("TEXTAREA");
+    const nextValue = `First paragraph\n\n${"x".repeat(5_001)}\nLast paragraph`;
+    fireEvent.change(editor, { target: { value: nextValue } });
+    expect(onChange).toHaveBeenLastCalledWith({ notes: nextValue });
+  });
+
+  it("presents multiline values without collapsing their line breaks", () => {
+    const value = "First paragraph\n\nSecond paragraph";
+    const { container } = renderWithDefinition(
+      <CustomFieldsDisplay customFields={{ notes: value }} entityType="performer" />,
+      [longTextDefinition],
+      "performer",
+    );
+
+    const display = container.querySelector(".whitespace-pre-wrap");
+    expect(display).not.toBeNull();
+    expect(display?.textContent).toBe(value);
   });
 });

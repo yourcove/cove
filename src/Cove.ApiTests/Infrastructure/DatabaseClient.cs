@@ -146,6 +146,70 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<CustomFieldTextStorage> GetCustomFieldTextStorageAsync(
+        int definitionId,
+        string entityType,
+        int entityId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        return await db.CustomFieldValues
+            .AsNoTracking()
+            .Where(value => value.DefinitionId == definitionId
+                && value.EntityType == entityType
+                && value.EntityId == entityId)
+            .Select(value => new CustomFieldTextStorage(value.TextValue, value.LongTextValue))
+            .SingleAsync(cancellationToken);
+    }
+
+    public async Task SetCustomFieldDefinitionShapeAsync(
+        int definitionId,
+        string type,
+        bool filterable,
+        bool sortable,
+        bool isMultiValue,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var updated = await db.CustomFieldDefinitions
+            .Where(definition => definition.Id == definitionId)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(definition => definition.Type, type)
+                    .SetProperty(definition => definition.Filterable, filterable)
+                    .SetProperty(definition => definition.Sortable, sortable)
+                    .SetProperty(definition => definition.IsMultiValue, isMultiValue),
+                cancellationToken);
+        if (updated != 1)
+            throw new InvalidOperationException("The API test could not update the expected custom field definition.");
+    }
+
+    public async Task<IReadOnlyList<string>> GetCustomFieldValueIndexDefinitionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var definitions = new List<string>();
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND tablename = 'custom_field_values'
+            ORDER BY indexname;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            definitions.Add(reader.GetString(0));
+        return definitions;
+    }
+
     public async Task<IReadOnlyList<ManagedCustomFieldJsonIndex>> GetManagedCustomFieldJsonIndexesAsync(
         CancellationToken cancellationToken = default)
     {
@@ -866,6 +930,10 @@ public sealed record ManagedCustomFieldJsonIndex(
     bool IsValid,
     bool IsReady,
     string Definition);
+
+public sealed record CustomFieldTextStorage(
+    string? TextValue,
+    string? LongTextValue);
 
 public sealed record StringCollectionOperatorFixture(
     int MatchingAudioId,
