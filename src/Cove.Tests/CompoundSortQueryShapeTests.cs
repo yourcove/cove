@@ -106,11 +106,50 @@ public class CompoundSortQueryShapeTests
 
         Assert.Contains("custom_field_json_paths", filterSql, StringComparison.Ordinal);
         Assert.Contains("\"Filterable\"", filterSql, StringComparison.Ordinal);
-        Assert.Contains("#>> '{profile,score}'", filterSql, StringComparison.Ordinal);
-        Assert.Contains("jsonb_typeof", filterSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("public.cove_json_pointer_number", filterSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'/profile/score'", filterSql, StringComparison.Ordinal);
+        Assert.Contains("\"JsonValue\" IS NOT NULL", filterSql, StringComparison.Ordinal);
         Assert.Contains("ORDER BY", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LEFT JOIN", sortSql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"Sortable\"", sortSql, StringComparison.Ordinal);
-        Assert.Contains("#>> '{profile,score}'", sortSql, StringComparison.Ordinal);
+        Assert.Contains("public.cove_json_pointer_number", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'/profile/score'", sortSql, StringComparison.Ordinal);
+        Assert.Contains("\"JsonValue\" IS NOT NULL", sortSql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsonTextCustomFieldFilterUsesBoundedIndexKeyWhileSortUsesFullText()
+    {
+        using var context = CreatePostgresContext();
+        var criterion = new CustomFieldCriterion
+        {
+            Key = "structured_metadata",
+            JsonPath = "/profile/name",
+            Type = CustomFieldTypes.Text,
+            Modifier = CriterionModifier.Equals,
+            Value = new string('x', CustomFieldJsonDbFunctions.TextIndexKeyByteLength + 100),
+        };
+
+        var filterSql = context.Videos
+            .IgnoreQueryFilters()
+            .ApplyCustomFieldCriterion(context, CustomFieldEntityTypes.Video, criterion)
+            .Select(video => video.Id)
+            .ToQueryString();
+        var sortSql = context.Videos
+            .IgnoreQueryFilters()
+            .ApplyCustomFieldSort(context, CustomFieldEntityTypes.Video, "custom-json:text:structured_metadata:%2Fprofile%2Fname", desc: false)
+            .Select(video => video.Id)
+            .ToQueryString();
+
+        Assert.Contains("public.cove_json_pointer_text_index_key", filterSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("public.cove_json_pointer_text", filterSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'/profile/name'", filterSql, StringComparison.Ordinal);
+        Assert.Contains(" = ", filterSql, StringComparison.Ordinal);
+        Assert.DoesNotContain("public.cove_json_pointer_text_index_key", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("public.cove_json_pointer_text", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ORDER BY", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LEFT JOIN", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'/profile/name'", sortSql, StringComparison.Ordinal);
     }
 
     private static CoveContext CreatePostgresContext()

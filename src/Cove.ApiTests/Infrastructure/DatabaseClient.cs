@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
@@ -6,6 +7,7 @@ using Cove.Data.Auth;
 using Cove.Data.Services;
 using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 
@@ -13,6 +15,7 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed class DatabaseClient
 {
+    private const long CustomFieldJsonIndexAdvisoryLockKey = 0x434F56454A534F4E;
     private readonly string _connectionString;
 
     internal DatabaseClient(string connectionString)
@@ -143,6 +146,168 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ManagedCustomFieldJsonIndex>> GetManagedCustomFieldJsonIndexesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var indexes = new List<ManagedCustomFieldJsonIndex>();
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT index_class.relname,
+                   index_metadata.indisvalid,
+                   index_metadata.indisready,
+                   pg_get_indexdef(index_class.oid)
+            FROM pg_class AS index_class
+            JOIN pg_index AS index_metadata ON index_metadata.indexrelid = index_class.oid
+            JOIN pg_class AS table_class ON table_class.oid = index_metadata.indrelid
+            JOIN pg_namespace AS table_namespace ON table_namespace.oid = table_class.relnamespace
+            WHERE table_namespace.nspname = 'public'
+              AND table_class.relname = 'custom_field_values'
+              AND index_class.relname LIKE 'ix_cfv_json_v%'
+            ORDER BY index_class.relname;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            indexes.Add(new ManagedCustomFieldJsonIndex(
+                reader.GetString(0),
+                reader.GetBoolean(1),
+                reader.GetBoolean(2),
+                reader.GetString(3)));
+        }
+
+        return indexes;
+    }
+
+    public async Task<string> ExplainCustomFieldJsonNumberQueryAsync(
+        int definitionId,
+        string entityType,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        string pathLiteral;
+        await using (var quote = connection.CreateCommand())
+        {
+            quote.CommandText = "SELECT quote_literal(@path);";
+            quote.Parameters.AddWithValue("path", path);
+            pathLiteral = (string)(await quote.ExecuteScalarAsync(cancellationToken)
+                ?? throw new InvalidOperationException("PostgreSQL did not quote the JSON path."));
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var settings = connection.CreateCommand())
+        {
+            settings.Transaction = transaction;
+            settings.CommandText = "SET LOCAL enable_seqscan = off;";
+            await settings.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var explain = connection.CreateCommand();
+        explain.Transaction = transaction;
+        explain.CommandText = $"""
+            EXPLAIN (FORMAT JSON)
+            SELECT video."Id"
+            FROM public.videos AS video
+            WHERE EXISTS (
+                SELECT 1
+                FROM public.custom_field_values AS field_value
+                WHERE field_value."DefinitionId" = @definitionId
+                  AND field_value."EntityType" = @entityType
+                  AND field_value."EntityId" = video."Id"
+                  AND field_value."Position" = 0
+                  AND field_value."JsonValue" IS NOT NULL
+                  AND public.cove_json_pointer_number(field_value."JsonValue", {pathLiteral}) IS NOT NULL
+                  AND public.cove_json_pointer_number(field_value."JsonValue", {pathLiteral}) > 0);
+            """;
+        explain.Parameters.AddWithValue("definitionId", definitionId);
+        explain.Parameters.AddWithValue("entityType", entityType);
+        var plan = (string)(await explain.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidOperationException("PostgreSQL did not return an EXPLAIN plan."));
+        await transaction.RollbackAsync(cancellationToken);
+        return plan;
+    }
+
+    public async Task<string> ExplainCustomFieldJsonTextEqualsQueryAsync(
+        int definitionId,
+        string entityType,
+        string path,
+        string value,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        string pathLiteral;
+        await using (var quote = connection.CreateCommand())
+        {
+            quote.CommandText = "SELECT quote_literal(@path);";
+            quote.Parameters.AddWithValue("path", path);
+            pathLiteral = (string)(await quote.ExecuteScalarAsync(cancellationToken)
+                ?? throw new InvalidOperationException("PostgreSQL did not quote the JSON path."));
+        }
+
+        var utf8Value = Encoding.UTF8.GetBytes(value);
+        var indexKey = utf8Value[..Math.Min(utf8Value.Length, CustomFieldJsonDbFunctions.TextIndexKeyByteLength)];
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var settings = connection.CreateCommand())
+        {
+            settings.Transaction = transaction;
+            settings.CommandText = "SET LOCAL enable_seqscan = off;";
+            await settings.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var explain = connection.CreateCommand();
+        explain.Transaction = transaction;
+        explain.CommandText = $"""
+            EXPLAIN (FORMAT JSON)
+            SELECT video."Id"
+            FROM public.videos AS video
+            WHERE EXISTS (
+                SELECT 1
+                FROM public.custom_field_values AS field_value
+                WHERE field_value."DefinitionId" = @definitionId
+                  AND field_value."EntityType" = @entityType
+                  AND field_value."EntityId" = video."Id"
+                  AND field_value."Position" = 0
+                  AND field_value."JsonValue" IS NOT NULL
+                  AND public.cove_json_pointer_text_index_key(field_value."JsonValue", {pathLiteral}) IS NOT NULL
+                  AND public.cove_json_pointer_text_index_key(field_value."JsonValue", {pathLiteral}) = @indexKey
+                  AND public.cove_json_pointer_text(field_value."JsonValue", {pathLiteral}) = @value);
+            """;
+        explain.Parameters.AddWithValue("definitionId", definitionId);
+        explain.Parameters.AddWithValue("entityType", entityType);
+        explain.Parameters.AddWithValue("indexKey", indexKey);
+        explain.Parameters.AddWithValue("value", value);
+        var plan = (string)(await explain.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidOperationException("PostgreSQL did not return an EXPLAIN plan."));
+        await transaction.RollbackAsync(cancellationToken);
+        return plan;
+    }
+
+    public async Task<IAsyncDisposable> HoldCustomFieldJsonIndexReconcileLockAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var connection = new NpgsqlConnection(_connectionString);
+        try
+        {
+            await connection.OpenAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT pg_advisory_lock(@key);";
+            command.Parameters.AddWithValue("key", CustomFieldJsonIndexAdvisoryLockKey);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+            return new AdvisoryLockLease(connection, CustomFieldJsonIndexAdvisoryLockKey);
+        }
+        catch
+        {
+            await connection.DisposeAsync();
+            throw;
+        }
+    }
+
     internal async Task<string> CreateSetupTokenAsync(
         CancellationToken cancellationToken = default)
     {
@@ -187,6 +352,33 @@ public sealed class DatabaseClient
                 fingerprint => fingerprint.Value,
                 StringComparer.OrdinalIgnoreCase,
                 cancellationToken);
+    }
+
+    private sealed class AdvisoryLockLease(NpgsqlConnection connection, long key) : IAsyncDisposable
+    {
+        private NpgsqlConnection? _connection = connection;
+
+        public async ValueTask DisposeAsync()
+        {
+            var ownedConnection = Interlocked.Exchange(ref _connection, null);
+            if (ownedConnection == null)
+                return;
+
+            try
+            {
+                if (ownedConnection.State == System.Data.ConnectionState.Open)
+                {
+                    await using var command = ownedConnection.CreateCommand();
+                    command.CommandText = "SELECT pg_advisory_unlock(@key);";
+                    command.Parameters.AddWithValue("key", key);
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+            finally
+            {
+                await ownedConnection.DisposeAsync();
+            }
+        }
     }
 
     public async Task<int> GetFileParentFolderIdAsync(
@@ -668,6 +860,12 @@ public sealed class DatabaseClient
     }
 
 }
+
+public sealed record ManagedCustomFieldJsonIndex(
+    string Name,
+    bool IsValid,
+    bool IsReady,
+    string Definition);
 
 public sealed record StringCollectionOperatorFixture(
     int MatchingAudioId,

@@ -4,6 +4,7 @@ using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
@@ -11,6 +12,8 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
+    private const string JsonIndexJobType = "custom_field_json_indexes";
+
     [Fact]
     [CoversEndpoint("POST", "/api/custom-fields")]
     [CoversEndpoint("POST", "/api/videos")]
@@ -228,21 +231,21 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
         var audioLow = await owner.CreateAudioAsync(new AudioBuilder()
             .WithTitle($"Queryable JSON audio low {suffix}")
             .Build() with
+        {
+            CustomFields = new Dictionary<string, object>
             {
-                CustomFields = new Dictionary<string, object>
-                {
-                    [key] = JsonSerializer.SerializeToElement(new { profile = new { score = 40 } }),
-                },
-            }, TestContext.Current.CancellationToken);
+                [key] = JsonSerializer.SerializeToElement(new { profile = new { score = 40 } }),
+            },
+        }, TestContext.Current.CancellationToken);
         var audioHigh = await owner.CreateAudioAsync(new AudioBuilder()
             .WithTitle($"Queryable JSON audio high {suffix}")
             .Build() with
+        {
+            CustomFields = new Dictionary<string, object>
             {
-                CustomFields = new Dictionary<string, object>
-                {
-                    [key] = JsonSerializer.SerializeToElement(new { profile = new { score = 50 } }),
-                },
-            }, TestContext.Current.CancellationToken);
+                [key] = JsonSerializer.SerializeToElement(new { profile = new { score = 50 } }),
+            },
+        }, TestContext.Current.CancellationToken);
         var audioIds = new[] { audioLow.Id, audioHigh.Id };
 
         var filteredAudios = await owner.FindAudiosAsync(new FilteredQueryRequest<AudioFilter>
@@ -346,6 +349,382 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
 
     [Fact]
     [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("PUT", "/api/custom-fields/{id:int}")]
+    public async Task GivenJsonPathCapabilities_WhenSettingsChange_ThenItsPhysicalIndexIsReconciledByAJob()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"json_index_{suffix}";
+        const string path = "/profile/score";
+
+        var knownJobIds = await GetJobIdsAsync(owner);
+        var definition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Indexed JSON metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = true,
+                    Sortable = false,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        var createdIndexes = await WaitForManagedJsonIndexCountAsync(1);
+        var createdIndex = createdIndexes.Should().ContainSingle().Which;
+        createdIndex.IsValid.Should().BeTrue();
+        createdIndex.IsReady.Should().BeTrue();
+        createdIndex.Definition.Should().Contain("cove_json_pointer_number");
+        var plan = await AsDbUser().ExplainCustomFieldJsonNumberQueryAsync(
+            definition.Id,
+            CustomFieldEntityTypes.Video,
+            path,
+            TestContext.Current.CancellationToken);
+        plan.Should().Contain(createdIndex.Name);
+        plan.Should().Contain("Index Scan");
+
+        knownJobIds = await GetJobIdsAsync(owner);
+        await owner.UpdateCustomFieldDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = false,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        (await WaitForManagedJsonIndexCountAsync(1)).Should().ContainSingle()
+            .Which.Name.Should().Be(createdIndex.Name);
+
+        knownJobIds = await GetJobIdsAsync(owner);
+        await owner.UpdateCustomFieldDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = false,
+                    Sortable = false,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        (await WaitForManagedJsonIndexCountAsync(0)).Should().BeEmpty();
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("PUT", "/api/custom-fields/{id:int}")]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("POST", "/api/videos/find")]
+    public async Task GivenIndexedTextJsonPath_WhenValuesExceedBtreeTupleSize_ThenExactFilteringAndSortingRemainSafe()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"json_text_index_{suffix}";
+        const string path = "/lookup";
+        // Put a four-byte rune across the byte-prefix boundary to verify the database and client
+        // derive the same bounded key even when it ends inside a UTF-8 sequence.
+        var sharedPrefix = new string('x', CustomFieldJsonDbFunctions.TextIndexKeyByteLength - 1) + "😀";
+        var firstValue = sharedPrefix + "a" + string.Concat(Enumerable.Range(0, 160).Select(_ => Guid.NewGuid().ToString("N")));
+        var secondValue = sharedPrefix + "b" + string.Concat(Enumerable.Range(0, 160).Select(_ => Guid.NewGuid().ToString("N")));
+
+        var knownJobIds = await GetJobIdsAsync(owner);
+        var definition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Indexed JSON text metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Lookup key",
+                    Type = CustomFieldTypes.Text,
+                    Filterable = true,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        var textIndex = (await WaitForManagedJsonIndexCountAsync(1)).Should().ContainSingle().Which;
+        textIndex.Definition.Should().Contain("cove_json_pointer_text_index_key");
+        textIndex.Definition.Should().Contain("IS NOT NULL");
+        textIndex.Definition.Should().Contain("Position");
+
+        var first = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON indexed long text first {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { lookup = firstValue }))
+            .Build(), TestContext.Current.CancellationToken);
+        var second = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON indexed long text second {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { lookup = secondValue }))
+            .Build(), TestContext.Current.CancellationToken);
+        var ids = new[] { first.Id, second.Id };
+
+        var filtered = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter
+            {
+                Ids = [.. ids],
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        JsonPath = path,
+                        Type = CustomFieldTypes.Text,
+                        Modifier = CriterionModifier.Equals,
+                        Value = firstValue,
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        filtered.Items.Select(video => video.Id).Should().Equal(first.Id);
+
+        var sorted = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter { Ids = [.. ids] },
+            FindFilter = new FindFilter
+            {
+                PerPage = 10,
+                Sort = $"custom-json:text:{key}:{Uri.EscapeDataString(path)}",
+                Direction = Cove.Core.Enums.SortDirection.Asc,
+            },
+        }, TestContext.Current.CancellationToken);
+        sorted.Items.Select(video => video.Id).Should().Equal(first.Id, second.Id);
+
+        var plan = await AsDbUser().ExplainCustomFieldJsonTextEqualsQueryAsync(
+            definition.Id,
+            CustomFieldEntityTypes.Video,
+            path,
+            firstValue,
+            TestContext.Current.CancellationToken);
+        plan.Should().Contain(textIndex.Name);
+
+        knownJobIds = await GetJobIdsAsync(owner);
+        await owner.UpdateCustomFieldDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Lookup key",
+                    Type = CustomFieldTypes.Text,
+                    Filterable = false,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        (await WaitForManagedJsonIndexCountAsync(0)).Should().BeEmpty();
+
+        var sortedWithoutIndex = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter { Ids = [.. ids] },
+            FindFilter = new FindFilter
+            {
+                PerPage = 9,
+                Sort = $"custom-json:text:{key}:{Uri.EscapeDataString(path)}",
+                Direction = Cove.Core.Enums.SortDirection.Asc,
+            },
+        }, TestContext.Current.CancellationToken);
+        sortedWithoutIndex.Items.Select(video => video.Id).Should().Equal(first.Id, second.Id);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("POST", "/api/videos/find")]
+    public async Task GivenIndexedNumberJsonPath_WhenScalarExceedsDecimalContract_ThenDocumentRemainsValidAndScalarIsMissing()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"json_large_number_{suffix}";
+        const string path = "/score";
+        var knownJobIds = await GetJobIdsAsync(owner);
+        await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Indexed JSON numeric metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = true,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        (await WaitForManagedJsonIndexCountAsync(1)).Should().ContainSingle();
+
+        using var oversizedDocument = JsonDocument.Parse($$"""{"score":0.{{new string('1', 5_000)}}}""");
+        var video = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON indexed oversized number {suffix}")
+            .WithCustomField(key, oversizedDocument.RootElement.Clone())
+            .Build(), TestContext.Current.CancellationToken);
+
+        var missingScalar = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter
+            {
+                Ids = [video.Id],
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        JsonPath = path,
+                        Type = CustomFieldTypes.Number,
+                        Modifier = CriterionModifier.IsNull,
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        missingScalar.Items.Select(item => item.Id).Should().Equal(video.Id);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("PUT", "/api/custom-fields/{id:int}")]
+    [CoversEndpoint("DELETE", "/api/custom-fields/{id:int}")]
+    public async Task GivenSharedJsonPathAcrossEntityTypes_WhenReferencesAreRemoved_ThenOnlyTheLastRemovalDropsItsIndex()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        const string path = "/profile/rank";
+
+        var knownJobIds = await GetJobIdsAsync(owner);
+        var performerDefinition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = $"performer_json_index_{suffix}",
+            Label = "Performer JSON metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Performer],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Rank",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = true,
+                    Sortable = false,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        var sharedIndexName = (await WaitForManagedJsonIndexCountAsync(1)).Should().ContainSingle().Which.Name;
+
+        knownJobIds = await GetJobIdsAsync(owner);
+        var imageDefinition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = $"image_json_index_{suffix}",
+            Label = "Image JSON metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Image],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Rank",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = false,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        (await WaitForManagedJsonIndexCountAsync(1)).Should().ContainSingle().Which.Name.Should().Be(sharedIndexName);
+
+        knownJobIds = await GetJobIdsAsync(owner);
+        await owner.UpdateCustomFieldDefinitionAsync(performerDefinition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            JsonPaths = [],
+        }, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        (await WaitForManagedJsonIndexCountAsync(1)).Should().ContainSingle().Which.Name.Should().Be(sharedIndexName);
+
+        knownJobIds = await GetJobIdsAsync(owner);
+        await owner.DeleteCustomFieldDefinitionAsync(imageDefinition.Id, TestContext.Current.CancellationToken);
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        (await WaitForManagedJsonIndexCountAsync(0)).Should().BeEmpty();
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("PUT", "/api/custom-fields/{id:int}")]
+    public async Task GivenSettingsChangeWhileReconciliationIsRunning_WhenThePathIsRemoved_ThenOneJobConvergesToTheLatestState()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        const string path = "/profile/score";
+        var knownJobIds = await GetJobIdsAsync(owner);
+        await using var heldReconcileLock = await AsDbUser()
+            .HoldCustomFieldJsonIndexReconcileLockAsync(TestContext.Current.CancellationToken);
+
+        var definition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = $"coalesced_json_index_{suffix}",
+            Label = "Coalesced JSON metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Tag],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = true,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        await owner.UpdateCustomFieldDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            JsonPaths = [],
+        }, TestContext.Current.CancellationToken);
+
+        await heldReconcileLock.DisposeAsync();
+        (await WaitForNewJsonIndexJobAsync(owner, knownJobIds)).Status.Should().Be(JobStatus.Completed);
+        var newJsonJobs = (await owner.GetJobHistoryAsync(TestContext.Current.CancellationToken))
+            .Where(job => job.Type == JsonIndexJobType && !knownJobIds.Contains(job.Id));
+        newJsonJobs.Should().ContainSingle();
+        (await WaitForManagedJsonIndexCountAsync(0)).Should().BeEmpty();
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
     [CoversEndpoint("POST", "/api/videos")]
     [CoversEndpoint("POST", "/api/videos/find")]
     public async Task GivenTextBooleanAndSparseJsonPaths_WhenFilteredAndSorted_ThenPointerAndNullSemanticsAreStable()
@@ -359,6 +738,7 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
         const string numericObjectKeyPath = "/years/2024/value";
         const string leadingZeroPath = "/numeric/01/value";
         const string negativeIndexPath = "/numeric/-1/value";
+        const string emptyPropertyPath = "/";
         await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = key,
@@ -373,6 +753,7 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
                 new CustomFieldJsonPathDefinitionDto { Path = numericObjectKeyPath, Label = "Numeric object key", Type = CustomFieldTypes.Text, Filterable = true, Sortable = false },
                 new CustomFieldJsonPathDefinitionDto { Path = leadingZeroPath, Label = "Leading-zero object key", Type = CustomFieldTypes.Text, Filterable = true, Sortable = false },
                 new CustomFieldJsonPathDefinitionDto { Path = negativeIndexPath, Label = "Negative object key", Type = CustomFieldTypes.Text, Filterable = true, Sortable = false },
+                new CustomFieldJsonPathDefinitionDto { Path = emptyPropertyPath, Label = "Empty object key", Type = CustomFieldTypes.Text, Filterable = true, Sortable = false },
             ],
         }, TestContext.Current.CancellationToken);
 
@@ -497,6 +878,22 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             .Should().Equal(numericObjectKeys.Id);
         (await FilterAsync(negativeIndexPath, CustomFieldTypes.Text, CriterionModifier.Equals, "one", candidateIds: numericContainerIds))
             .Should().BeEmpty();
+
+        var emptyProperty = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar empty property {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new Dictionary<string, string> { [""] = "empty-key" }))
+            .Build(), TestContext.Current.CancellationToken);
+        var rootScalar = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar root value {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement("empty-key"))
+            .Build(), TestContext.Current.CancellationToken);
+        (await FilterAsync(
+            emptyPropertyPath,
+            CustomFieldTypes.Text,
+            CriterionModifier.Equals,
+            "empty-key",
+            candidateIds: [emptyProperty.Id, rootScalar.Id]))
+            .Should().Equal(emptyProperty.Id);
 
         var descending = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
         {
@@ -864,6 +1261,56 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             EntityTypes = ["video"],
             DisplayOrder = displayOrder,
         });
+
+    private async Task<HashSet<string>> GetJobIdsAsync(CoveClient client)
+    {
+        var active = await client.GetJobsAsync(TestContext.Current.CancellationToken);
+        var history = await client.GetJobHistoryAsync(TestContext.Current.CancellationToken);
+        return active.Concat(history).Select(job => job.Id).ToHashSet(StringComparer.Ordinal);
+    }
+
+    private async Task<JobInfo> WaitForNewJsonIndexJobAsync(CoveClient client, IReadOnlySet<string> knownJobIds)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
+        {
+            while (true)
+            {
+                var history = await client.GetJobHistoryAsync(timeout.Token);
+                var completed = history.FirstOrDefault(job =>
+                    job.Type == JsonIndexJobType
+                    && !knownJobIds.Contains(job.Id));
+                if (completed != null)
+                    return completed;
+
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException("The JSON custom-field index reconciliation job did not complete within 20 seconds.");
+        }
+    }
+
+    private async Task<IReadOnlyList<ManagedCustomFieldJsonIndex>> WaitForManagedJsonIndexCountAsync(int expectedCount)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        IReadOnlyList<ManagedCustomFieldJsonIndex> indexes = [];
+        try
+        {
+            while (true)
+            {
+                indexes = await AsDbUser().GetManagedCustomFieldJsonIndexesAsync(timeout.Token);
+                if (indexes.Count == expectedCount)
+                    return indexes;
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Expected {expectedCount} managed JSON custom-field indexes, but found {indexes.Count} within 20 seconds.");
+        }
+    }
 
     private static CustomFieldDefinitionSyncDto ToSync(CustomFieldDefinitionDto definition, string key, string? type = null)
         => new()

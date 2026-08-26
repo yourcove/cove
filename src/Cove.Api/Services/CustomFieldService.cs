@@ -7,9 +7,12 @@ using Cove.Data;
 
 namespace Cove.Api.Services;
 
-public sealed class CustomFieldService(CoveContext db)
+public sealed class CustomFieldService(
+    CoveContext db,
+    CustomFieldJsonIndexJobService? jsonIndexJobs = null)
 {
     private readonly CoveContext _db = db;
+    private readonly CustomFieldJsonIndexJobService? _jsonIndexJobs = jsonIndexJobs;
     private sealed record NormalizedJsonPathInput(
         string Path,
         string Label,
@@ -72,6 +75,8 @@ public sealed class CustomFieldService(CoveContext db)
 
         _db.CustomFieldDefinitions.Add(definition);
         await _db.SaveChangesAsync(ct);
+        if (CustomFieldTypes.IsJson(definition.Type))
+            _jsonIndexJobs?.RequestReconcile();
         return MapDefinition(definition);
     }
 
@@ -82,6 +87,9 @@ public sealed class CustomFieldService(CoveContext db)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
         if (definition == null)
             return null;
+        var reconcileJsonIndexes = CustomFieldTypes.IsJson(definition.Type)
+            || (dto.Type != null && CustomFieldTypes.IsJson(dto.Type))
+            || dto.JsonPaths != null;
 
         if (dto.Key != null)
         {
@@ -117,6 +125,8 @@ public sealed class CustomFieldService(CoveContext db)
         definition.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        if (reconcileJsonIndexes)
+            _jsonIndexJobs?.RequestReconcile();
         return MapDefinition(definition);
     }
 
@@ -128,6 +138,8 @@ public sealed class CustomFieldService(CoveContext db)
 
         _db.CustomFieldDefinitions.Remove(definition);
         await _db.SaveChangesAsync(ct);
+        if (CustomFieldTypes.IsJson(definition.Type))
+            _jsonIndexJobs?.RequestReconcile();
         return true;
     }
 
@@ -167,6 +179,8 @@ public sealed class CustomFieldService(CoveContext db)
                     definition.DisplayOrder ?? (index * 10));
             })
             .ToList();
+        var reconcileJsonIndexes = existingDefinitions.Any(definition => CustomFieldTypes.IsJson(definition.Type))
+            || normalizedDefinitions.Any(definition => CustomFieldTypes.IsJson(definition.Type));
 
         var duplicateKey = normalizedDefinitions
             .GroupBy(definition => definition.Key, StringComparer.OrdinalIgnoreCase)
@@ -221,6 +235,8 @@ public sealed class CustomFieldService(CoveContext db)
         }
 
         await _db.SaveChangesAsync(ct);
+        if (reconcileJsonIndexes)
+            _jsonIndexJobs?.RequestReconcile();
         return await GetDefinitionsAsync(null, ct);
     }
 

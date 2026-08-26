@@ -257,11 +257,28 @@ public partial class CoveContext : DbContext
 
         if (isNpgsql)
         {
+            ConfigureCustomFieldJsonFunctions(modelBuilder);
             ConfigureSearchVectors(modelBuilder);
             ConfigureAuthorizationFilters(modelBuilder);
         }
         else
             ConfigureProviderFallbacks(modelBuilder);
+    }
+
+    private static void ConfigureCustomFieldJsonFunctions(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Text))!)
+            .HasName("cove_json_pointer_text")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.TextIndexKey))!)
+            .HasName("cove_json_pointer_text_index_key")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Number))!)
+            .HasName("cove_json_pointer_number")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Boolean))!)
+            .HasName("cove_json_pointer_boolean")
+            .HasSchema("public");
     }
 
     private static void ConfigureSearchVectors(ModelBuilder modelBuilder)
