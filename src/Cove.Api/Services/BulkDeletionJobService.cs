@@ -138,6 +138,7 @@ public sealed class BulkDeletionJobService(
                         using var scope = scopeFactory.CreateScope();
                         var cleanupDb = scope.ServiceProvider.GetRequiredService<CoveContext>();
                         await cleanupDb.DuplicateDeletionKeeperReservations
+                            .IgnoreQueryFilters()
                             .Where(item => item.SearchId == duplicateSearchId.Value)
                             .ExecuteDeleteAsync(CancellationToken.None);
                     }

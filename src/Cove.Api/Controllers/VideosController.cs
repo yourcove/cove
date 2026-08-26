@@ -1461,6 +1461,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     // A retry after an ambiguous commit reuses this request's reservation token. Replace
                     // its keeper rows so replaying the whole transaction stays idempotent.
                     await db.DuplicateDeletionKeeperReservations
+                        .IgnoreQueryFilters()
                         .Where(item => item.SearchId == searchId)
                         .ExecuteDeleteAsync(ct);
                     db.DuplicateDeletionKeeperReservations.AddRange(keeperIds.Select(videoId =>

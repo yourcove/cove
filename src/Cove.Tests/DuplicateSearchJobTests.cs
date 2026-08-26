@@ -173,8 +173,11 @@ public sealed class DuplicateSearchJobTests
     [Fact]
     public async Task TerminalFailedDeletionReleasesClaimAndKeeperReservationWhenWorkRemains()
     {
-        await using var db = CreateContext();
+        await using var db = CreateReservationFilteringContext();
         var (search, keeper, _) = await AddClaimedSearchAsync(db, "failed-delete-job");
+        db.HiddenReservationVideoId = keeper.Id;
+        Assert.False(await db.DuplicateDeletionKeeperReservations.AnyAsync(item => item.VideoId == keeper.Id));
+        Assert.True(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().AnyAsync(item => item.VideoId == keeper.Id));
         var jobs = new CapturingJobService
         {
             ReturnedJob = new JobInfo(
@@ -193,7 +196,7 @@ public sealed class DuplicateSearchJobTests
         Assert.True(await service.ReconcileTerminalDeletionAsync(search, CancellationToken.None));
 
         Assert.Null((await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == search.Id)).DeletionJobId);
-        Assert.False(await db.DuplicateDeletionKeeperReservations.AnyAsync(item => item.VideoId == keeper.Id));
+        Assert.False(await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().AnyAsync(item => item.VideoId == keeper.Id));
     }
 
     [Fact]
@@ -460,6 +463,18 @@ public sealed class DuplicateSearchJobTests
         return context;
     }
 
+    private static ReservationFilteringCoveContext CreateReservationFilteringContext()
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseSqlite("Data Source=:memory:")
+            .ReplaceService<IExecutionStrategyFactory, TestRetryingExecutionStrategyFactory>()
+            .Options;
+        var context = new ReservationFilteringCoveContext(options);
+        context.Database.OpenConnection();
+        context.Database.EnsureCreated();
+        return context;
+    }
+
     private static DuplicateSearch CompletedSearch() => new()
     {
         Status = DuplicateSearchStatus.Completed,
@@ -493,6 +508,18 @@ public sealed class DuplicateSearchJobTests
         });
         await db.SaveChangesAsync();
         return (search, keeper, unwanted);
+    }
+
+    private sealed class ReservationFilteringCoveContext(DbContextOptions<CoveContext> options) : CoveContext(options)
+    {
+        public int HiddenReservationVideoId { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<DuplicateDeletionKeeperReservation>()
+                .HasQueryFilter(item => item.VideoId != HiddenReservationVideoId);
+        }
     }
 
     private sealed class CapturingJobService : IJobService
