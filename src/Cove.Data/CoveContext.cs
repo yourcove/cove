@@ -91,6 +91,7 @@ public partial class CoveContext : DbContext
     public DbSet<PendingPhysicalFileDeletion> PendingPhysicalFileDeletions => Set<PendingPhysicalFileDeletion>();
     public DbSet<VideoDeletionCommitMarker> VideoDeletionCommitMarkers => Set<VideoDeletionCommitMarker>();
     public DbSet<CustomFieldDefinition> CustomFieldDefinitions => Set<CustomFieldDefinition>();
+    public DbSet<CustomFieldJsonPathDefinition> CustomFieldJsonPathDefinitions => Set<CustomFieldJsonPathDefinition>();
     public DbSet<CustomFieldValue> CustomFieldValues => Set<CustomFieldValue>();
     public DbSet<TagApplication> TagApplications => Set<TagApplication>();
     public DbSet<FieldProvenance> FieldProvenance => Set<FieldProvenance>();

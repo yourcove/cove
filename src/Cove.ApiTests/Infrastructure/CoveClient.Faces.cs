@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Globalization;
 using System.Text.Json;
 using Cove.Core.DTOs;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -20,6 +21,36 @@ public sealed partial class CoveClient
             WithCacheNonce($"/api/faces/{faceId}"),
             payload: null,
             cancellationToken);
+
+    public Task<PaginatedResponse<FaceDto>> FindFacesAsync(
+        IReadOnlyList<CustomFieldCriterion>? customFieldCriteria = null,
+        string? sort = null,
+        string direction = "asc",
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string> { "page=1", "perPage=50", $"direction={Uri.EscapeDataString(direction)}" };
+        if (customFieldCriteria is { Count: > 0 })
+        {
+            var wireCriteria = customFieldCriteria.Select(criterion => new
+            {
+                criterion.Key,
+                criterion.Type,
+                criterion.JsonPath,
+                criterion.Value,
+                criterion.Value2,
+                Modifier = JsonNamingPolicy.SnakeCaseUpper.ConvertName(criterion.Modifier.ToString()),
+            });
+            query.Add($"customFieldCriteria={Uri.EscapeDataString(JsonSerializer.Serialize(wireCriteria, ApiJson.Options))}");
+        }
+        if (!string.IsNullOrWhiteSpace(sort))
+            query.Add($"sort={Uri.EscapeDataString(sort)}");
+
+        return SendAsync<PaginatedResponse<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces?{string.Join("&", query)}"),
+            payload: null,
+            cancellationToken);
+    }
 
     public Task<FaceDto> UpdateFaceAsync(
         int faceId,

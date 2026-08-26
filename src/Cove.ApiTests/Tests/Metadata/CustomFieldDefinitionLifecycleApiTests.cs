@@ -2,6 +2,8 @@ using System.Text.Json;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
@@ -92,6 +94,475 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             await owner.GetVideoByIdAsync(created.Id, TestContext.Current.CancellationToken),
             key,
             expected);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("PUT", "/api/custom-fields/{id:int}")]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("POST", "/api/videos/find")]
+    [CoversEndpoint("POST", "/api/audios")]
+    [CoversEndpoint("POST", "/api/audios/find")]
+    public async Task GivenConfiguredJsonPaths_WhenDifferentEntityTypesAreFilteredAndSorted_ThenTypedJsonbValuesAreUsed()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"queryable_json_{suffix}";
+        const string scorePath = "/profile/score";
+        var definition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Queryable metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video, CustomFieldEntityTypes.Audio],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = scorePath,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = true,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        definition.JsonPaths.Should().ContainSingle().Which.Path.Should().Be(scorePath);
+
+        var high = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Queryable JSON high {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { profile = new { score = 30 } }))
+            .Build(), TestContext.Current.CancellationToken);
+        var low = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Queryable JSON low {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { profile = new { score = 10 } }))
+            .Build(), TestContext.Current.CancellationToken);
+        var middle = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Queryable JSON middle {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { profile = new { score = 20 } }))
+            .Build(), TestContext.Current.CancellationToken);
+        var missing = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Queryable JSON missing {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { profile = new { reviewed = true } }))
+            .Build(), TestContext.Current.CancellationToken);
+        var wrongType = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Queryable JSON wrong type {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { profile = new { score = "30" } }))
+            .Build(), TestContext.Current.CancellationToken);
+        var ids = new[] { low.Id, middle.Id, high.Id, missing.Id, wrongType.Id };
+
+        var filtered = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter
+            {
+                Ids = [.. ids],
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        JsonPath = scorePath,
+                        Type = CustomFieldTypes.Number,
+                        Modifier = CriterionModifier.GreaterThan,
+                        Value = "15",
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        filtered.Items.Select(video => video.Id).Should().BeEquivalentTo([middle.Id, high.Id]);
+
+        var sorted = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter { Ids = [.. ids] },
+            FindFilter = new FindFilter
+            {
+                PerPage = 10,
+                Sort = $"custom-json:number:{key}:{Uri.EscapeDataString(scorePath)}",
+                Direction = Cove.Core.Enums.SortDirection.Asc,
+            },
+        }, TestContext.Current.CancellationToken);
+        sorted.Items.Select(video => video.Id).Should().Equal(low.Id, middle.Id, high.Id, missing.Id, wrongType.Id);
+
+        var missingOrWrongType = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter
+            {
+                Ids = [.. ids],
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        JsonPath = scorePath,
+                        Type = CustomFieldTypes.Number,
+                        Modifier = CriterionModifier.IsNull,
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        missingOrWrongType.Items.Select(video => video.Id).Should().BeEquivalentTo([missing.Id, wrongType.Id]);
+
+        var unconfigured = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter
+            {
+                Ids = [.. ids],
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        JsonPath = "/profile/unconfigured",
+                        Type = CustomFieldTypes.Number,
+                        Modifier = CriterionModifier.GreaterThan,
+                        Value = "0",
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        unconfigured.Items.Should().BeEmpty();
+
+        var audioLow = await owner.CreateAudioAsync(new AudioBuilder()
+            .WithTitle($"Queryable JSON audio low {suffix}")
+            .Build() with
+            {
+                CustomFields = new Dictionary<string, object>
+                {
+                    [key] = JsonSerializer.SerializeToElement(new { profile = new { score = 40 } }),
+                },
+            }, TestContext.Current.CancellationToken);
+        var audioHigh = await owner.CreateAudioAsync(new AudioBuilder()
+            .WithTitle($"Queryable JSON audio high {suffix}")
+            .Build() with
+            {
+                CustomFields = new Dictionary<string, object>
+                {
+                    [key] = JsonSerializer.SerializeToElement(new { profile = new { score = 50 } }),
+                },
+            }, TestContext.Current.CancellationToken);
+        var audioIds = new[] { audioLow.Id, audioHigh.Id };
+
+        var filteredAudios = await owner.FindAudiosAsync(new FilteredQueryRequest<AudioFilter>
+        {
+            Ids = [.. audioIds],
+            ObjectFilter = new AudioFilter
+            {
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        JsonPath = scorePath,
+                        Type = CustomFieldTypes.Number,
+                        Modifier = CriterionModifier.GreaterThan,
+                        Value = "45",
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        filteredAudios.Items.Select(audio => audio.Id).Should().Equal(audioHigh.Id);
+
+        var sortedAudios = await owner.FindAudiosAsync(new FilteredQueryRequest<AudioFilter>
+        {
+            Ids = [.. audioIds],
+            ObjectFilter = new AudioFilter(),
+            FindFilter = new FindFilter
+            {
+                PerPage = 10,
+                Sort = $"custom-json:number:{key}:{Uri.EscapeDataString(scorePath)}",
+                Direction = Cove.Core.Enums.SortDirection.Desc,
+            },
+        }, TestContext.Current.CancellationToken);
+        sortedAudios.Items.Select(audio => audio.Id).Should().Equal(audioHigh.Id, audioLow.Id);
+
+        var disabledDefinition = await owner.UpdateCustomFieldDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = scorePath,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Filterable = false,
+                    Sortable = false,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        var disabledPath = disabledDefinition.JsonPaths.Should().ContainSingle().Which;
+        disabledPath.Filterable.Should().BeFalse();
+        disabledPath.Sortable.Should().BeFalse();
+        var persistedDisabledPath = (await owner.GetCustomFieldDefinitionsAsync(cancellationToken: TestContext.Current.CancellationToken))
+            .Single(candidate => candidate.Id == definition.Id)
+            .JsonPaths.Should().ContainSingle().Which;
+        persistedDisabledPath.Filterable.Should().BeFalse();
+        persistedDisabledPath.Sortable.Should().BeFalse();
+
+        var filteredAfterDisable = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter
+            {
+                Ids = [.. ids],
+                CustomFieldCriteria =
+                [
+                    new CustomFieldCriterion
+                    {
+                        Key = key,
+                        JsonPath = scorePath,
+                        Type = CustomFieldTypes.Number,
+                        Modifier = CriterionModifier.GreaterThan,
+                        Value = "0",
+                    },
+                ],
+            },
+            FindFilter = new FindFilter { PerPage = 10 },
+        }, TestContext.Current.CancellationToken);
+        filteredAfterDisable.Items.Should().BeEmpty();
+
+        var sortedAfterDisable = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter { Ids = [.. ids] },
+            FindFilter = new FindFilter
+            {
+                // Use a distinct request shape so the endpoint's one-second result cache cannot
+                // mask the capability change being asserted here.
+                PerPage = 9,
+                Sort = $"custom-json:number:{key}:{Uri.EscapeDataString(scorePath)}",
+                Direction = Cove.Core.Enums.SortDirection.Asc,
+            },
+        }, TestContext.Current.CancellationToken);
+        sortedAfterDisable.Items.Select(video => video.Id).Should().Equal(ids.OrderBy(id => id));
+
+        var definitionWithoutPaths = await owner.UpdateCustomFieldDefinitionAsync(definition.Id, new CustomFieldDefinitionUpdateDto
+        {
+            JsonPaths = [],
+        }, TestContext.Current.CancellationToken);
+        definitionWithoutPaths.JsonPaths.Should().BeEmpty();
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("POST", "/api/videos/find")]
+    public async Task GivenTextBooleanAndSparseJsonPaths_WhenFilteredAndSorted_ThenPointerAndNullSemanticsAreStable()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"json_scalars_{suffix}";
+        const string scorePath = "/profile/score";
+        const string reviewedPath = "/profile/reviewed";
+        const string escapedTextPath = "/items/0/a~1b~0c ";
+        const string numericObjectKeyPath = "/years/2024/value";
+        const string leadingZeroPath = "/numeric/01/value";
+        const string negativeIndexPath = "/numeric/-1/value";
+        await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "JSON scalar metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto { Path = scorePath, Label = "Score", Type = CustomFieldTypes.Number, Filterable = true, Sortable = true },
+                new CustomFieldJsonPathDefinitionDto { Path = reviewedPath, Label = "Reviewed", Type = CustomFieldTypes.Boolean, Filterable = true, Sortable = true },
+                new CustomFieldJsonPathDefinitionDto { Path = escapedTextPath, Label = "Escaped text", Type = CustomFieldTypes.Text, Filterable = true, Sortable = true },
+                new CustomFieldJsonPathDefinitionDto { Path = numericObjectKeyPath, Label = "Numeric object key", Type = CustomFieldTypes.Text, Filterable = true, Sortable = false },
+                new CustomFieldJsonPathDefinitionDto { Path = leadingZeroPath, Label = "Leading-zero object key", Type = CustomFieldTypes.Text, Filterable = true, Sortable = false },
+                new CustomFieldJsonPathDefinitionDto { Path = negativeIndexPath, Label = "Negative object key", Type = CustomFieldTypes.Text, Filterable = true, Sortable = false },
+            ],
+        }, TestContext.Current.CancellationToken);
+
+        static JsonElement Value(int? score, bool? reviewed, object[] items, string? yearValue)
+            => JsonSerializer.SerializeToElement(new
+            {
+                profile = new { score, reviewed },
+                items,
+                years = new Dictionary<string, object?> { ["2024"] = new { value = yearValue } },
+            });
+        static object Item(object value)
+            => new Dictionary<string, object?> { ["a/b~c "] = value };
+
+        var alpha = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar alpha {suffix}")
+            .WithCustomField(key, Value(20, true, [Item(" Alpha ")], "alpha-year"))
+            .Build(), TestContext.Current.CancellationToken);
+        var beta = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar beta {suffix}")
+            .WithCustomField(key, Value(20, false, [Item("beta")], "beta-year"))
+            .Build(), TestContext.Current.CancellationToken);
+        var explicitNull = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar null {suffix}")
+            .WithCustomField(key, Value(null, null, [], null))
+            .Build(), TestContext.Current.CancellationToken);
+        var missingOrWrongType = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar missing {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new
+            {
+                profile = new { other = true },
+                items = new[] { Item(42) },
+            }))
+            .Build(), TestContext.Current.CancellationToken);
+        var ids = new[] { alpha.Id, beta.Id, explicitNull.Id, missingOrWrongType.Id };
+
+        async Task<IReadOnlyList<int>> FilterAsync(string path, string type, CriterionModifier modifier, string value = "", string? value2 = null, IReadOnlyList<int>? candidateIds = null)
+        {
+            var response = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+            {
+                ObjectFilter = new VideoFilter
+                {
+                    Ids = [.. (candidateIds ?? ids)],
+                    CustomFieldCriteria =
+                    [
+                        new CustomFieldCriterion
+                        {
+                            Key = key,
+                            JsonPath = path,
+                            Type = type,
+                            Modifier = modifier,
+                            Value = value,
+                            Value2 = value2,
+                        },
+                    ],
+                },
+                FindFilter = new FindFilter { PerPage = 10 },
+            }, TestContext.Current.CancellationToken);
+            return response.Items.Select(video => video.Id).ToArray();
+        }
+
+        (await FilterAsync(escapedTextPath, CustomFieldTypes.Text, CriterionModifier.Includes, "alp"))
+            .Should().Equal(alpha.Id);
+        (await FilterAsync(escapedTextPath, CustomFieldTypes.Text, CriterionModifier.Equals, " Alpha "))
+            .Should().Equal(alpha.Id);
+        (await FilterAsync(escapedTextPath, CustomFieldTypes.Text, CriterionModifier.Equals, "Alpha"))
+            .Should().BeEmpty();
+        (await FilterAsync(numericObjectKeyPath, CustomFieldTypes.Text, CriterionModifier.Equals, "alpha-year"))
+            .Should().Equal(alpha.Id);
+        (await FilterAsync(reviewedPath, CustomFieldTypes.Boolean, CriterionModifier.Equals, "true"))
+            .Should().Equal(alpha.Id);
+        (await FilterAsync(reviewedPath, CustomFieldTypes.Boolean, CriterionModifier.NotEquals, "true"))
+            .Should().BeEquivalentTo([beta.Id, explicitNull.Id, missingOrWrongType.Id]);
+        (await FilterAsync(escapedTextPath, CustomFieldTypes.Text, CriterionModifier.IsNull))
+            .Should().BeEquivalentTo([explicitNull.Id, missingOrWrongType.Id]);
+        (await FilterAsync(scorePath, CustomFieldTypes.Number, CriterionModifier.NotBetween, "15", "25"))
+            .Should().BeEquivalentTo([explicitNull.Id, missingOrWrongType.Id]);
+        (await FilterAsync(scorePath, CustomFieldTypes.Number, CriterionModifier.GreaterThan, "1e1"))
+            .Should().BeEquivalentTo([alpha.Id, beta.Id]);
+        (await FilterAsync(scorePath, CustomFieldTypes.Number, CriterionModifier.GreaterThan, "not-a-number"))
+            .Should().BeEmpty();
+
+        var emptyText = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar empty text {suffix}")
+            .WithCustomField(key, Value(1, true, [Item("")], "empty-year"))
+            .Build(), TestContext.Current.CancellationToken);
+        var whitespaceText = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar whitespace text {suffix}")
+            .WithCustomField(key, Value(1, true, [Item("   ")], "whitespace-year"))
+            .Build(), TestContext.Current.CancellationToken);
+        var exactTextIds = new[] { emptyText.Id, whitespaceText.Id };
+        (await FilterAsync(escapedTextPath, CustomFieldTypes.Text, CriterionModifier.Equals, candidateIds: exactTextIds))
+            .Should().Equal(emptyText.Id);
+        (await FilterAsync(escapedTextPath, CustomFieldTypes.Text, CriterionModifier.Equals, "   ", candidateIds: exactTextIds))
+            .Should().Equal(whitespaceText.Id);
+        (await FilterAsync(escapedTextPath, CustomFieldTypes.Text, CriterionModifier.NotEquals, candidateIds: exactTextIds))
+            .Should().Equal(whitespaceText.Id);
+
+        var numericObjectKeys = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar numeric object keys {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new
+            {
+                numeric = new Dictionary<string, object?>
+                {
+                    ["01"] = new { value = "leading-zero-key" },
+                    ["-1"] = new { value = "negative-key" },
+                },
+            }))
+            .Build(), TestContext.Current.CancellationToken);
+        var numericArray = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON scalar numeric array {suffix}")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new
+            {
+                numeric = new[] { new { value = "zero" }, new { value = "one" } },
+            }))
+            .Build(), TestContext.Current.CancellationToken);
+        var numericContainerIds = new[] { numericObjectKeys.Id, numericArray.Id };
+        (await FilterAsync(leadingZeroPath, CustomFieldTypes.Text, CriterionModifier.Equals, "leading-zero-key", candidateIds: numericContainerIds))
+            .Should().Equal(numericObjectKeys.Id);
+        (await FilterAsync(leadingZeroPath, CustomFieldTypes.Text, CriterionModifier.Equals, "one", candidateIds: numericContainerIds))
+            .Should().BeEmpty();
+        (await FilterAsync(negativeIndexPath, CustomFieldTypes.Text, CriterionModifier.Equals, "negative-key", candidateIds: numericContainerIds))
+            .Should().Equal(numericObjectKeys.Id);
+        (await FilterAsync(negativeIndexPath, CustomFieldTypes.Text, CriterionModifier.Equals, "one", candidateIds: numericContainerIds))
+            .Should().BeEmpty();
+
+        var descending = await owner.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter { Ids = [.. ids] },
+            FindFilter = new FindFilter
+            {
+                PerPage = 10,
+                Sort = $"custom-json:number:{key}:{Uri.EscapeDataString(scorePath)}",
+                Direction = Cove.Core.Enums.SortDirection.Desc,
+            },
+        }, TestContext.Current.CancellationToken);
+        descending.Items.Select(video => video.Id).Should().Equal(beta.Id, alpha.Id, missingOrWrongType.Id, explicitNull.Id);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("GET", "/api/faces")]
+    public async Task GivenFaceJsonValues_WhenFaceQueryUsesJsonPath_ThenItsQueryStringParserPreservesTheTypedTarget()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"face_json_{suffix}";
+        const string path = "/profile/Score";
+        var definition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Face JSON metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Face],
+            JsonPaths = [new CustomFieldJsonPathDefinitionDto { Path = path, Label = "Score", Type = CustomFieldTypes.Number, Filterable = true, Sortable = true }],
+        }, TestContext.Current.CancellationToken);
+        var high = await owner.CreateFaceAsync(new FaceCreateDto($"Face JSON high {suffix}", null, false, null), TestContext.Current.CancellationToken);
+        var low = await owner.CreateFaceAsync(new FaceCreateDto($"Face JSON low {suffix}", null, false, null), TestContext.Current.CancellationToken);
+        var missing = await owner.CreateFaceAsync(new FaceCreateDto($"Face JSON missing {suffix}", null, false, null), TestContext.Current.CancellationToken);
+        await AsDbUser().SaveCustomFieldJsonValueAsync(
+            definition.Id,
+            CustomFieldEntityTypes.Face,
+            high.Id,
+            JsonSerializer.SerializeToElement(new { profile = new { Score = 30 } }),
+            TestContext.Current.CancellationToken);
+        await AsDbUser().SaveCustomFieldJsonValueAsync(
+            definition.Id,
+            CustomFieldEntityTypes.Face,
+            low.Id,
+            JsonSerializer.SerializeToElement(new { profile = new { Score = 10 } }),
+            TestContext.Current.CancellationToken);
+
+        var filtered = await owner.FindFacesAsync(
+        [
+            new CustomFieldCriterion
+            {
+                Key = key,
+                JsonPath = path,
+                Type = CustomFieldTypes.Number,
+                Modifier = CriterionModifier.GreaterThan,
+                Value = "15",
+            },
+        ], cancellationToken: TestContext.Current.CancellationToken);
+        filtered.Items.Select(face => face.Id).Should().Contain(high.Id).And.NotContain(low.Id).And.NotContain(missing.Id);
+
+        var sorted = await owner.FindFacesAsync(
+            sort: $"custom-json:number:{key}:{Uri.EscapeDataString(path)}",
+            direction: "asc",
+            cancellationToken: TestContext.Current.CancellationToken);
+        var relevantIds = sorted.Items.Select(face => face.Id).Where(id => id == low.Id || id == high.Id || id == missing.Id).ToArray();
+        relevantIds.Should().Equal(low.Id, high.Id, missing.Id);
     }
 
     [Fact]
@@ -406,6 +877,7 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             Filterable = definition.Filterable,
             Sortable = definition.Sortable,
             IsMultiValue = definition.IsMultiValue,
+            JsonPaths = definition.JsonPaths,
             DisplayOrder = definition.DisplayOrder,
         };
 

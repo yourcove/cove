@@ -80,6 +80,39 @@ public class CompoundSortQueryShapeTests
         Assert.Contains(key == "like_counter" ? "user_entity_affinities" : "interactions", sql, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void JsonCustomFieldPathFilterAndSortTranslateForPostgres()
+    {
+        using var context = CreatePostgresContext();
+        var criterion = new CustomFieldCriterion
+        {
+            Key = "structured_metadata",
+            JsonPath = "/profile/score",
+            Type = CustomFieldTypes.Number,
+            Modifier = CriterionModifier.GreaterThan,
+            Value = "15",
+        };
+
+        var filterSql = context.Videos
+            .IgnoreQueryFilters()
+            .ApplyCustomFieldCriterion(context, CustomFieldEntityTypes.Video, criterion)
+            .Select(video => video.Id)
+            .ToQueryString();
+        var sortSql = context.Videos
+            .IgnoreQueryFilters()
+            .ApplyCustomFieldSort(context, CustomFieldEntityTypes.Video, "custom-json:number:structured_metadata:%2Fprofile%2Fscore", desc: false)
+            .Select(video => video.Id)
+            .ToQueryString();
+
+        Assert.Contains("custom_field_json_paths", filterSql, StringComparison.Ordinal);
+        Assert.Contains("\"Filterable\"", filterSql, StringComparison.Ordinal);
+        Assert.Contains("#>> '{profile,score}'", filterSql, StringComparison.Ordinal);
+        Assert.Contains("jsonb_typeof", filterSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ORDER BY", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"Sortable\"", sortSql, StringComparison.Ordinal);
+        Assert.Contains("#>> '{profile,score}'", sortSql, StringComparison.Ordinal);
+    }
+
     private static CoveContext CreatePostgresContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

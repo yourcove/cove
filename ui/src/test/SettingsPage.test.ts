@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   logFilterLevelOptions,
   isUnverifiedExtensionInstallSource,
+  isValidQueryableJsonPointer,
+  removeCustomFieldDefinitionSnapshot,
   readSettingsTabFromUrl,
   resolveVisibleSettingsTab,
   serverLogLevelOptions,
+  updateCustomFieldDefinitionSnapshot,
 } from "../pages/SettingsPage";
+import type { CustomFieldDefinition } from "../api/types";
 import { isLimitedPrimarySettingsTabVisible } from "../pages/settings/tabVisibility";
 
 describe("resolveVisibleSettingsTab", () => {
@@ -100,5 +104,52 @@ describe("extension installation trust badges", () => {
     expect(isUnverifiedExtensionInstallSource("url")).toBe(true);
     expect(isUnverifiedExtensionInstallSource("upload")).toBe(true);
     expect(isUnverifiedExtensionInstallSource("registry")).toBe(false);
+  });
+});
+
+describe("isValidQueryableJsonPointer", () => {
+  it("accepts nested, array, and escaped pointer segments", () => {
+    expect(isValidQueryableJsonPointer("/profile/score")).toBe(true);
+    expect(isValidQueryableJsonPointer("/items/0/value")).toBe(true);
+    expect(isValidQueryableJsonPointer("/escaped~1property/tilde~0property")).toBe(true);
+    expect(isValidQueryableJsonPointer("/property ")).toBe(true);
+  });
+
+  it("rejects root, malformed escapes, and overly deep pointers", () => {
+    expect(isValidQueryableJsonPointer("")).toBe(false);
+    expect(isValidQueryableJsonPointer("profile.score")).toBe(false);
+    expect(isValidQueryableJsonPointer(" /profile/score")).toBe(false);
+    expect(isValidQueryableJsonPointer("/invalid~2escape")).toBe(false);
+    expect(isValidQueryableJsonPointer(`/${Array.from({ length: 33 }, () => "item").join("/")}`)).toBe(false);
+  });
+});
+
+describe("custom field draft snapshots", () => {
+  it("composes rapid JSON path toggles and removal from the latest synchronous snapshot", () => {
+    const initial: CustomFieldDefinition[] = [{
+      id: 1,
+      key: "structured_metadata",
+      label: "Structured metadata",
+      type: "json",
+      entityTypes: ["video"],
+      options: [],
+      filterable: false,
+      sortable: false,
+      jsonPaths: [{ path: "/score", label: "Score", type: "number", filterable: false, sortable: false }],
+    }];
+
+    const filterable = updateCustomFieldDefinitionSnapshot(initial, 0, (definition) => ({
+      ...definition,
+      jsonPaths: definition.jsonPaths?.map((path) => ({ ...path, filterable: true })),
+    }))!;
+    const filterableAndSortable = updateCustomFieldDefinitionSnapshot(filterable, 0, (definition) => ({
+      ...definition,
+      jsonPaths: definition.jsonPaths?.map((path) => ({ ...path, sortable: true })),
+    }))!;
+
+    expect(filterableAndSortable[0].jsonPaths).toEqual([
+      expect.objectContaining({ path: "/score", filterable: true, sortable: true }),
+    ]);
+    expect(removeCustomFieldDefinitionSnapshot(filterableAndSortable, 0)).toEqual([]);
   });
 });

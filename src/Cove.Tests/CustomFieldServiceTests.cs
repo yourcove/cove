@@ -24,12 +24,97 @@ public class CustomFieldServiceTests
             Filterable = true,
             Sortable = true,
             IsMultiValue = true,
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = "/profile/score",
+                    Label = " Score ",
+                    Type = "NUMBER",
+                    Filterable = true,
+                    Sortable = true,
+                },
+            ],
         }, TestContext.Current.CancellationToken);
 
         Assert.Equal(CustomFieldTypes.Json, definition.Type);
         Assert.False(definition.Filterable);
         Assert.False(definition.Sortable);
         Assert.False(definition.IsMultiValue);
+        var jsonPath = Assert.Single(definition.JsonPaths);
+        Assert.Equal("/profile/score", jsonPath.Path);
+        Assert.Equal("Score", jsonPath.Label);
+        Assert.Equal(CustomFieldTypes.Number, jsonPath.Type);
+        Assert.True(jsonPath.Filterable);
+        Assert.True(jsonPath.Sortable);
+    }
+
+    [Fact]
+    public async Task CreateDefinitionAsync_RejectsInvalidOrDuplicateJsonPointers()
+    {
+        await using var context = CreateContext();
+        var service = new CustomFieldService(context);
+
+        var invalidPath = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "invalid_json_path",
+            Label = "Invalid JSON path",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths = [new CustomFieldJsonPathDefinitionDto { Path = "profile.score", Label = "Score", Type = CustomFieldTypes.Number }],
+        }, TestContext.Current.CancellationToken));
+        Assert.Contains("JSON Pointer", invalidPath.Message, StringComparison.Ordinal);
+
+        var duplicatePath = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "duplicate_json_path",
+            Label = "Duplicate JSON path",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto { Path = "/profile/score", Label = "Score", Type = CustomFieldTypes.Number },
+                new CustomFieldJsonPathDefinitionDto { Path = "/profile/score", Label = "Score again", Type = CustomFieldTypes.Number },
+            ],
+        }, TestContext.Current.CancellationToken));
+        Assert.Contains("Duplicate JSON Pointer", duplicatePath.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateDefinitionAsync_PreservesPointerWhitespaceAndRejectsInvalidPathMetadata()
+    {
+        await using var context = CreateContext();
+        var service = new CustomFieldService(context);
+
+        var definition = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "whitespace_json_path",
+            Label = "Whitespace JSON path",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths = [new CustomFieldJsonPathDefinitionDto { Path = "/profile/score ", Label = "Score", Type = "NUMBER" }],
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal("/profile/score ", Assert.Single(definition.JsonPaths).Path);
+
+        var invalidType = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "invalid_json_path_type",
+            Label = "Invalid JSON path type",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths = [new CustomFieldJsonPathDefinitionDto { Path = "/profile/score", Label = "Score", Type = "numer" }],
+        }, TestContext.Current.CancellationToken));
+        Assert.Contains("text, number, and boolean", invalidType.Message, StringComparison.Ordinal);
+
+        var longLabel = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = "long_json_path_label",
+            Label = "Long JSON path label",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths = [new CustomFieldJsonPathDefinitionDto { Path = "/profile/score", Label = new string('x', 201), Type = CustomFieldTypes.Number }],
+        }, TestContext.Current.CancellationToken));
+        Assert.Contains("200 characters", longLabel.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -61,8 +146,8 @@ public class CustomFieldServiceTests
 
         var stored = await context.CustomFieldValues.SingleAsync(TestContext.Current.CancellationToken);
         Assert.Null(stored.TextValue);
-        using var storedDocument = JsonDocument.Parse(Assert.IsType<string>(stored.JsonValue));
-        Assert.True(JsonElement.DeepEquals(document.RootElement, storedDocument.RootElement));
+        Assert.True(stored.JsonValue.HasValue);
+        Assert.True(JsonElement.DeepEquals(document.RootElement, stored.JsonValue.Value));
 
         var values = await service.GetValuesAsync(CustomFieldEntityTypes.Video, 42, TestContext.Current.CancellationToken);
         var actual = Assert.IsType<JsonElement>(values[definition.Key]);

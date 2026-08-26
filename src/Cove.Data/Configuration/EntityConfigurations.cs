@@ -290,8 +290,27 @@ public class CustomFieldDefinitionConfiguration : IEntityTypeConfiguration<Custo
             .HasForeignKey(value => value.DefinitionId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasMany(definition => definition.JsonPaths)
+            .WithOne(path => path.Definition)
+            .HasForeignKey(path => path.DefinitionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         builder.HasIndex(definition => definition.Key).IsUnique();
         builder.HasIndex(definition => definition.DisplayOrder);
+    }
+}
+
+public class CustomFieldJsonPathDefinitionConfiguration : IEntityTypeConfiguration<CustomFieldJsonPathDefinition>
+{
+    public void Configure(EntityTypeBuilder<CustomFieldJsonPathDefinition> builder)
+    {
+        builder.ToTable("custom_field_json_paths");
+        builder.HasKey(path => path.Id);
+        builder.Property(path => path.Path).IsRequired().HasMaxLength(500);
+        builder.Property(path => path.Label).IsRequired().HasMaxLength(200);
+        builder.Property(path => path.Type).IsRequired().HasMaxLength(50);
+        builder.HasIndex(path => new { path.DefinitionId, path.Path }).IsUnique();
+        builder.HasIndex(path => new { path.DefinitionId, path.DisplayOrder });
     }
 }
 

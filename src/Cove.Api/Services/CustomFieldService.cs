@@ -10,6 +10,14 @@ namespace Cove.Api.Services;
 public sealed class CustomFieldService(CoveContext db)
 {
     private readonly CoveContext _db = db;
+    private sealed record NormalizedJsonPathInput(
+        string Path,
+        string Label,
+        string Type,
+        bool Filterable,
+        bool Sortable,
+        int DisplayOrder);
+
     private sealed record NormalizedDefinitionInput(
         int? Id,
         string Key,
@@ -20,6 +28,7 @@ public sealed class CustomFieldService(CoveContext db)
         bool Filterable,
         bool Sortable,
         bool IsMultiValue,
+        IReadOnlyList<NormalizedJsonPathInput> JsonPaths,
         int DisplayOrder);
 
     public async Task<List<CustomFieldDefinitionDto>> GetDefinitionsAsync(string? entityType = null, CancellationToken ct = default)
@@ -27,6 +36,7 @@ public sealed class CustomFieldService(CoveContext db)
         var normalizedEntityType = NormalizeEntityType(entityType);
         var definitions = await _db.CustomFieldDefinitions
             .AsNoTracking()
+            .Include(definition => definition.JsonPaths)
             .OrderBy(definition => definition.DisplayOrder)
             .ThenBy(definition => definition.Label)
             .ToListAsync(ct);
@@ -45,6 +55,7 @@ public sealed class CustomFieldService(CoveContext db)
 
         var entityTypes = NormalizeEntityTypes(dto.EntityTypes);
         var type = CustomFieldTypes.Normalize(dto.Type);
+        var jsonPaths = NormalizeJsonPaths(type, dto.JsonPaths);
         var definition = new CustomFieldDefinition
         {
             Key = key,
@@ -55,6 +66,7 @@ public sealed class CustomFieldService(CoveContext db)
             Filterable = NormalizeFilterable(type, dto.Filterable),
             Sortable = NormalizeSortable(type, dto.Sortable),
             IsMultiValue = NormalizeMultiValue(type, dto.IsMultiValue),
+            JsonPaths = CreateJsonPathDefinitions(jsonPaths),
             DisplayOrder = dto.DisplayOrder ?? await NextDisplayOrderAsync(ct),
         };
 
@@ -65,7 +77,9 @@ public sealed class CustomFieldService(CoveContext db)
 
     public async Task<CustomFieldDefinitionDto?> UpdateDefinitionAsync(int id, CustomFieldDefinitionUpdateDto dto, CancellationToken ct = default)
     {
-        var definition = await _db.CustomFieldDefinitions.FirstOrDefaultAsync(item => item.Id == id, ct);
+        var definition = await _db.CustomFieldDefinitions
+            .Include(item => item.JsonPaths)
+            .FirstOrDefaultAsync(item => item.Id == id, ct);
         if (definition == null)
             return null;
 
@@ -94,6 +108,10 @@ public sealed class CustomFieldService(CoveContext db)
         if (dto.Filterable.HasValue) definition.Filterable = dto.Filterable.Value;
         if (dto.Sortable.HasValue) definition.Sortable = dto.Sortable.Value;
         if (dto.IsMultiValue.HasValue) definition.IsMultiValue = dto.IsMultiValue.Value;
+        if (dto.JsonPaths != null)
+            SyncJsonPathDefinitions(definition, NormalizeJsonPaths(definition.Type, dto.JsonPaths));
+        else if (!CustomFieldTypes.IsJson(definition.Type) && definition.JsonPaths.Count > 0)
+            SyncJsonPathDefinitions(definition, []);
         if (dto.DisplayOrder.HasValue) definition.DisplayOrder = dto.DisplayOrder.Value;
         NormalizeDefinitionCapabilities(definition);
         definition.UpdatedAt = DateTime.UtcNow;
@@ -123,7 +141,9 @@ public sealed class CustomFieldService(CoveContext db)
         if (duplicateId != null)
             throw new ArgumentException("Duplicate custom field definition ids are not allowed.");
 
-        var existingDefinitions = await _db.CustomFieldDefinitions.ToListAsync(ct);
+        var existingDefinitions = await _db.CustomFieldDefinitions
+            .Include(definition => definition.JsonPaths)
+            .ToListAsync(ct);
         var existingDefinitionsById = existingDefinitions.ToDictionary(definition => definition.Id);
         var normalizedDefinitions = incomingDefinitions
             .Select((definition, index) =>
@@ -143,6 +163,7 @@ public sealed class CustomFieldService(CoveContext db)
                     NormalizeFilterable(type, definition.Filterable),
                     NormalizeSortable(type, definition.Sortable),
                     NormalizeMultiValue(type, definition.IsMultiValue),
+                    NormalizeJsonPaths(type, definition.JsonPaths),
                     definition.DisplayOrder ?? (index * 10));
             })
             .ToList();
@@ -194,6 +215,7 @@ public sealed class CustomFieldService(CoveContext db)
             definition.Filterable = definitionInput.Filterable;
             definition.Sortable = definitionInput.Sortable;
             definition.IsMultiValue = definitionInput.IsMultiValue;
+            SyncJsonPathDefinitions(definition, definitionInput.JsonPaths);
             definition.DisplayOrder = definitionInput.DisplayOrder;
             definition.UpdatedAt = DateTime.UtcNow;
         }
@@ -333,6 +355,11 @@ public sealed class CustomFieldService(CoveContext db)
             Filterable = definition.Filterable,
             Sortable = definition.Sortable,
             IsMultiValue = definition.IsMultiValue,
+            JsonPaths = definition.JsonPaths
+                .OrderBy(path => path.DisplayOrder)
+                .ThenBy(path => path.Label)
+                .Select(MapJsonPathDefinition)
+                .ToList(),
             DisplayOrder = definition.DisplayOrder,
             CreatedAt = definition.CreatedAt.ToString("o"),
             UpdatedAt = definition.UpdatedAt.ToString("o"),
@@ -443,7 +470,7 @@ public sealed class CustomFieldService(CoveContext db)
     private static object? ConvertValue(CustomFieldDefinition definition, CustomFieldValue value)
     {
         var type = CustomFieldTypes.Normalize(definition.Type);
-        if (CustomFieldTypes.IsJson(type)) return ParseJsonValue(value.JsonValue);
+        if (CustomFieldTypes.IsJson(type)) return value.JsonValue?.Clone();
         if (CustomFieldTypes.IsNumberLike(type)) return value.NumberValue;
         if (CustomFieldTypes.IsBoolean(type)) return value.BoolValue;
         if (CustomFieldTypes.IsDateLike(type)) return value.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -472,29 +499,13 @@ public sealed class CustomFieldService(CoveContext db)
             if (parsedDocument.RootElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
                 return null;
 
-            return new CustomFieldValue { JsonValue = parsedDocument.RootElement.GetRawText() };
+            return new CustomFieldValue { JsonValue = parsedDocument.RootElement.Clone() };
         }
         catch (JsonException)
         {
             return null;
         }
         catch (NotSupportedException)
-        {
-            return null;
-        }
-    }
-
-    private static JsonElement? ParseJsonValue(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-            return null;
-
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            return document.RootElement.Clone();
-        }
-        catch (JsonException)
         {
             return null;
         }
@@ -519,6 +530,134 @@ public sealed class CustomFieldService(CoveContext db)
 
     private static bool NormalizeMultiValue(string type, bool requested)
         => !CustomFieldTypes.IsJson(type) && requested;
+
+    private static List<NormalizedJsonPathInput> NormalizeJsonPaths(
+        string definitionType,
+        IEnumerable<CustomFieldJsonPathDefinitionDto>? jsonPaths)
+    {
+        if (!CustomFieldTypes.IsJson(definitionType) || jsonPaths == null)
+            return [];
+
+        var normalized = jsonPaths.Select((jsonPath, index) =>
+        {
+            var path = NormalizeJsonPointer(jsonPath.Path);
+            var type = NormalizeJsonPathType(jsonPath.Type);
+            var label = string.IsNullOrWhiteSpace(jsonPath.Label)
+                ? DecodeJsonPointerSegment(path[(path.LastIndexOf('/') + 1)..]).Trim()
+                : jsonPath.Label.Trim();
+            if (string.IsNullOrWhiteSpace(label))
+                label = path;
+            if (label.Length > 200)
+                throw new ArgumentException("A queryable JSON path label cannot exceed 200 characters.");
+
+            return new NormalizedJsonPathInput(
+                path,
+                label,
+                type,
+                jsonPath.Filterable,
+                jsonPath.Sortable,
+                index * 10);
+        }).ToList();
+
+        var duplicate = normalized
+            .GroupBy(path => path.Path, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate != null)
+            throw new ArgumentException($"Duplicate JSON Pointer '{duplicate.Key}' is not allowed.");
+
+        return normalized;
+    }
+
+    private static string NormalizeJsonPointer(string? rawPath)
+    {
+        var path = rawPath ?? string.Empty;
+        if (path.Length == 0 || path[0] != '/')
+            throw new ArgumentException("A queryable JSON path must be a non-root JSON Pointer beginning with '/'.");
+        if (path.Length > 500)
+            throw new ArgumentException("A queryable JSON Pointer cannot exceed 500 characters.");
+        if (path[1..].Split('/', StringSplitOptions.None).Length > 32)
+            throw new ArgumentException("A queryable JSON Pointer cannot exceed 32 segments.");
+
+        for (var index = 0; index < path.Length; index++)
+        {
+            if (path[index] != '~')
+                continue;
+            if (index + 1 >= path.Length || path[index + 1] is not ('0' or '1'))
+                throw new ArgumentException("A queryable JSON Pointer may only use '~0' and '~1' escape sequences.");
+            index++;
+        }
+
+        return path;
+    }
+
+    private static string NormalizeJsonPathType(string? rawType)
+    {
+        var type = rawType?.Trim();
+        if (string.Equals(type, CustomFieldTypes.Text, StringComparison.OrdinalIgnoreCase))
+            return CustomFieldTypes.Text;
+        if (string.Equals(type, CustomFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
+            return CustomFieldTypes.Number;
+        if (string.Equals(type, CustomFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+            return CustomFieldTypes.Boolean;
+        throw new ArgumentException("Queryable JSON paths currently support text, number, and boolean scalar types.");
+    }
+
+    private static string DecodeJsonPointerSegment(string segment)
+        => segment.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
+
+    private static ICollection<CustomFieldJsonPathDefinition> CreateJsonPathDefinitions(
+        IEnumerable<NormalizedJsonPathInput> jsonPaths)
+        => jsonPaths.Select(CreateJsonPathDefinition).ToList();
+
+    private static CustomFieldJsonPathDefinition CreateJsonPathDefinition(NormalizedJsonPathInput jsonPath)
+        => new()
+        {
+            Path = jsonPath.Path,
+            Label = jsonPath.Label,
+            Type = jsonPath.Type,
+            Filterable = jsonPath.Filterable,
+            Sortable = jsonPath.Sortable,
+            DisplayOrder = jsonPath.DisplayOrder,
+        };
+
+    private static CustomFieldJsonPathDefinitionDto MapJsonPathDefinition(CustomFieldJsonPathDefinition jsonPath)
+        => new()
+        {
+            Path = jsonPath.Path,
+            Label = jsonPath.Label,
+            Type = jsonPath.Type,
+            Filterable = jsonPath.Filterable,
+            Sortable = jsonPath.Sortable,
+        };
+
+    private static void SyncJsonPathDefinitions(
+        CustomFieldDefinition definition,
+        IReadOnlyList<NormalizedJsonPathInput> jsonPaths)
+    {
+        var existingByPath = definition.JsonPaths.ToDictionary(path => path.Path, StringComparer.Ordinal);
+        var retained = new HashSet<CustomFieldJsonPathDefinition>();
+
+        foreach (var jsonPathInput in jsonPaths)
+        {
+            if (!existingByPath.TryGetValue(jsonPathInput.Path, out var jsonPath))
+            {
+                jsonPath = CreateJsonPathDefinition(jsonPathInput);
+                definition.JsonPaths.Add(jsonPath);
+            }
+
+            jsonPath.Path = jsonPathInput.Path;
+            jsonPath.Label = jsonPathInput.Label;
+            jsonPath.Type = jsonPathInput.Type;
+            jsonPath.Filterable = jsonPathInput.Filterable;
+            jsonPath.Sortable = jsonPathInput.Sortable;
+            jsonPath.DisplayOrder = jsonPathInput.DisplayOrder;
+            jsonPath.UpdatedAt = DateTime.UtcNow;
+            retained.Add(jsonPath);
+        }
+
+        foreach (var jsonPath in definition.JsonPaths.Where(path => !retained.Contains(path)).ToList())
+            definition.JsonPaths.Remove(jsonPath);
+    }
 
     private static void NormalizeDefinitionCapabilities(CustomFieldDefinition definition)
     {

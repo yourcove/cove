@@ -441,6 +441,7 @@ public class FacesController(
                 criteria.Add(new CustomFieldCriterion
                 {
                     Key = key.Trim(),
+                    JsonPath = GetString(element, "jsonPath"),
                     Type = GetString(element, "type") ?? CustomFieldTypes.Text,
                     Value = GetString(element, "value") ?? string.Empty,
                     Value2 = GetString(element, "value2"),
@@ -1476,9 +1477,11 @@ public class FacesController(
 
     private static IQueryable<Face> ApplyFaceSort(CoveContext db, IQueryable<Face> query, string? sort, bool descending, int? seed = null)
     {
-        var normalized = (sort ?? string.Empty).Trim().ToLowerInvariant();
-        if (FilterHelpers.TryParseCustomFieldSort(normalized, out _, out _))
-            return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Face, normalized, descending);
+        var rawSort = (sort ?? string.Empty).Trim();
+        if (FilterHelpers.TryParseCustomFieldSort(rawSort, out _, out _))
+            return query.ApplyCustomFieldSort(db, CustomFieldEntityTypes.Face, rawSort, descending);
+
+        var normalized = rawSort.ToLowerInvariant();
 
         // Back-compat: older clients baked the direction into the sort key (e.g. "video_count_desc",
         // "label_asc"). Strip the trailing direction suffix and let it drive the descending flag so the

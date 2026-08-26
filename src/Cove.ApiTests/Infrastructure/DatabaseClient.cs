@@ -121,6 +121,28 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task SaveCustomFieldJsonValueAsync(
+        int definitionId,
+        string entityType,
+        int entityId,
+        JsonElement value,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        db.CustomFieldValues.Add(new CustomFieldValue
+        {
+            DefinitionId = definitionId,
+            EntityType = entityType,
+            EntityId = entityId,
+            Position = 0,
+            JsonValue = value.Clone(),
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     internal async Task<string> CreateSetupTokenAsync(
         CancellationToken cancellationToken = default)
     {

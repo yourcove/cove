@@ -58,6 +58,8 @@ import type {
   SystemStatus,
   CustomFieldDefinition,
   CustomFieldEntityType,
+  CustomFieldJsonPathDefinition,
+  CustomFieldJsonPathType,
   CustomFieldType,
   DownloaderDescriptor,
   DownloaderPathOverrideConfig,
@@ -790,6 +792,12 @@ const customFieldTypeOptions: { value: CustomFieldType; label: string }[] = [
   { value: "json", label: "JSON" },
 ];
 
+const customFieldJsonPathTypeOptions: { value: CustomFieldJsonPathType; label: string }[] = [
+  { value: "text", label: "Text" },
+  { value: "number", label: "Number" },
+  { value: "boolean", label: "Boolean" },
+];
+
 function cloneConfig(config: CoveConfig): CoveConfig {
   return JSON.parse(JSON.stringify(config)) as CoveConfig;
 }
@@ -866,11 +874,55 @@ function cloneCustomFieldDefinitions(definitions: CustomFieldDefinition[]) {
     ...definition,
     entityTypes: [...definition.entityTypes],
     options: [...definition.options],
+    jsonPaths: (definition.jsonPaths ?? []).map((jsonPath) => ({ ...jsonPath })),
   }));
 }
 
+export function updateCustomFieldDefinitionSnapshot(
+  definitions: CustomFieldDefinition[] | null,
+  index: number,
+  updater: (definition: CustomFieldDefinition) => CustomFieldDefinition,
+) {
+  const existing = definitions?.[index];
+  if (!definitions || !existing) return definitions;
+  const next = [...definitions];
+  next[index] = updater(existing);
+  return next;
+}
+
+export function removeCustomFieldDefinitionSnapshot(definitions: CustomFieldDefinition[] | null, index: number) {
+  if (!definitions?.[index]) return definitions;
+  return definitions.filter((_, candidateIndex) => candidateIndex !== index);
+}
+
+export function isValidQueryableJsonPointer(rawPath: string) {
+  const path = rawPath;
+  if (path.length === 0 || path.length > 500 || !path.startsWith("/")) {
+    return false;
+  }
+
+  const segments = path.slice(1).split("/");
+  return segments.length <= 32 && segments.every((segment) => !/~(?![01])/.test(segment));
+}
+
+function hasValidQueryableJsonPaths(definition: CustomFieldDefinition) {
+  if (definition.type !== "json") {
+    return true;
+  }
+
+  const paths = definition.jsonPaths ?? [];
+  const normalizedPaths = paths.map((jsonPath) => jsonPath.path);
+  return paths.every((jsonPath) =>
+    isValidQueryableJsonPointer(jsonPath.path)
+    && jsonPath.label.trim().length <= 200
+    && customFieldJsonPathTypeOptions.some((option) => option.value === jsonPath.type)
+  ) && new Set(normalizedPaths).size === normalizedPaths.length;
+}
+
 function canSyncCustomFieldDefinition(definition: CustomFieldDefinition) {
-  return (definition.key.trim() !== "" || definition.label.trim() !== "") && definition.entityTypes.length > 0;
+  return (definition.key.trim() !== "" || definition.label.trim() !== "")
+    && definition.entityTypes.length > 0
+    && hasValidQueryableJsonPaths(definition);
 }
 
 function normalizeCustomFieldDefinitionForSync(definition: CustomFieldDefinition, index: number): CustomFieldDefinition {
@@ -881,9 +933,18 @@ function normalizeCustomFieldDefinitionForSync(definition: CustomFieldDefinition
     type: definition.type,
     entityTypes: [...definition.entityTypes],
     options: definition.options.map((option) => option.trim()).filter(Boolean),
-    filterable: definition.filterable,
-    sortable: definition.sortable,
-    isMultiValue: definition.isMultiValue ?? false,
+    filterable: definition.type === "json" ? false : definition.filterable,
+    sortable: definition.type === "json" ? false : definition.sortable,
+    isMultiValue: definition.type === "json" ? false : (definition.isMultiValue ?? false),
+    jsonPaths: definition.type === "json"
+      ? (definition.jsonPaths ?? []).map((jsonPath) => ({
+          path: jsonPath.path,
+          label: jsonPath.label.trim(),
+          type: jsonPath.type,
+          filterable: jsonPath.filterable,
+          sortable: jsonPath.sortable,
+        }))
+      : [],
     displayOrder: definition.displayOrder ?? (index * 10),
   };
 }
@@ -898,6 +959,7 @@ function mergeSavedCustomFieldDefinitions(savedDefinitions: CustomFieldDefinitio
         ...definition,
         entityTypes: [...definition.entityTypes],
         options: [...definition.options],
+        jsonPaths: (definition.jsonPaths ?? []).map((jsonPath) => ({ ...jsonPath })),
       }];
     }
 
@@ -966,8 +1028,16 @@ function normalizeConfig(config: CoveConfig): CoveConfig {
         type: definition.type,
         entityTypes: definition.entityTypes.filter(Boolean),
         options: definition.options.map((option) => option.trim()).filter(Boolean),
-        filterable: definition.filterable,
-        sortable: definition.sortable,
+        filterable: definition.type === "json" ? false : definition.filterable,
+        sortable: definition.type === "json" ? false : definition.sortable,
+        isMultiValue: definition.type === "json" ? false : (definition.isMultiValue ?? false),
+        jsonPaths: definition.type === "json"
+          ? (definition.jsonPaths ?? []).map((jsonPath) => ({
+              ...jsonPath,
+              path: jsonPath.path,
+              label: jsonPath.label.trim(),
+            }))
+          : [],
       }))
       .filter((definition, index, items) => definition.key !== "" && items.findIndex((candidate) => candidate.key.toLowerCase() === definition.key.toLowerCase()) === index),
     security: {
@@ -1090,6 +1160,9 @@ export function SettingsPage() {
   const initializedRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
+  const customFieldSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const customFieldDraftRevisionRef = useRef(0);
+  const customFieldDraftRef = useRef<CustomFieldDefinition[] | null>(null);
   const [metadataServerValidation, setMetadataServerValidation] = useState<Record<string, MetadataServerValidationResult>>({});
 
   const { data: loadedCustomFieldDefinitions = [], isLoading: customFieldDefinitionsLoading } = useQuery({
@@ -1264,7 +1337,11 @@ export function SettingsPage() {
       return;
     }
 
-    setCustomFieldDraft((current) => current ?? cloneCustomFieldDefinitions(loadedCustomFieldDefinitions));
+    setCustomFieldDraft((current) => {
+      const next = current ?? cloneCustomFieldDefinitions(loadedCustomFieldDefinitions);
+      customFieldDraftRef.current = next;
+      return next;
+    });
   }, [canWriteSystemSettings, customFieldDefinitionsLoading, loadedCustomFieldDefinitions]);
 
   useEffect(() => {
@@ -1316,9 +1393,19 @@ export function SettingsPage() {
 
   const syncCustomFieldsMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: ({ definitions }: { definitions: CustomFieldDefinition[]; draftSnapshot: CustomFieldDefinition[] }) => customFields.replaceAll(definitions),
+    mutationFn: ({ definitions }: { definitions: CustomFieldDefinition[]; draftSnapshot: CustomFieldDefinition[]; draftRevision: number }) => {
+      const request = customFieldSyncQueueRef.current
+        .catch(() => undefined)
+        .then(() => customFields.replaceAll(definitions));
+      customFieldSyncQueueRef.current = request.then(() => undefined, () => undefined);
+      return request;
+    },
     onSuccess: (savedDefinitions, variables) => {
-      setCustomFieldDraft(mergeSavedCustomFieldDefinitions(savedDefinitions, variables.draftSnapshot));
+      if (variables.draftRevision === customFieldDraftRevisionRef.current) {
+        const mergedDefinitions = mergeSavedCustomFieldDefinitions(savedDefinitions, variables.draftSnapshot);
+        customFieldDraftRef.current = mergedDefinitions;
+        setCustomFieldDraft(mergedDefinitions);
+      }
       queryClient.setQueryData(customFieldDefinitionsQueryKey(), savedDefinitions);
       queryClient.invalidateQueries({ queryKey: ["custom-fields"] });
       setError(null);
@@ -1588,7 +1675,7 @@ export function SettingsPage() {
     return layout === "page" ? <div className="space-y-6">{rendered}</div> : rendered;
   };
 
-  const commitCustomFieldDraft = (definitions: CustomFieldDefinition[] | null = customFieldDraftState) => {
+  const commitCustomFieldDraft = (definitions: CustomFieldDefinition[] | null = customFieldDraftRef.current) => {
     if (!definitions || !canWriteSystemSettings) {
       return;
     }
@@ -1604,6 +1691,7 @@ export function SettingsPage() {
     syncCustomFieldsMutation.mutate({
       definitions: nextDefinitions,
       draftSnapshot: cloneCustomFieldDefinitions(definitions),
+      draftRevision: customFieldDraftRevisionRef.current,
     });
   };
 
@@ -1612,25 +1700,23 @@ export function SettingsPage() {
     updater: (definition: CustomFieldDefinition) => CustomFieldDefinition,
     options?: { commit?: boolean },
   ) => {
-    let nextDefinitions: CustomFieldDefinition[] | null = null;
-    setCustomFieldDraft((current) => {
-      if (!current) return current;
-      const definitions = [...current];
-      const existing = definitions[index];
-      if (!existing) return current;
-      definitions[index] = updater(existing);
-      nextDefinitions = definitions;
-      return definitions;
-    });
+    const currentDefinitions = customFieldDraftRef.current;
+    const nextDefinitions = updateCustomFieldDefinitionSnapshot(currentDefinitions, index, updater);
+    if (!nextDefinitions || nextDefinitions === currentDefinitions) {
+      return;
+    }
+    customFieldDraftRevisionRef.current += 1;
+    customFieldDraftRef.current = nextDefinitions;
+    setCustomFieldDraft(nextDefinitions);
 
-    if (options?.commit && nextDefinitions) {
+    if (options?.commit) {
       commitCustomFieldDraft(nextDefinitions);
     }
   };
 
   const addCustomFieldDefinition = () => {
-    setCustomFieldDraft((current) => ([
-      ...(current ?? []),
+    const nextDefinitions: CustomFieldDefinition[] = [
+      ...(customFieldDraftRef.current ?? []),
       {
         key: "",
         label: "",
@@ -1640,17 +1726,23 @@ export function SettingsPage() {
         filterable: true,
         sortable: false,
         isMultiValue: false,
+        jsonPaths: [],
       },
-    ]));
+    ];
+    customFieldDraftRevisionRef.current += 1;
+    customFieldDraftRef.current = nextDefinitions;
+    setCustomFieldDraft(nextDefinitions);
   };
 
   const removeCustomFieldDefinition = (index: number) => {
-    let nextDefinitions: CustomFieldDefinition[] | null = null;
-    setCustomFieldDraft((current) => {
-      nextDefinitions = current?.filter((_, candidateIndex) => candidateIndex !== index) ?? null;
-      return nextDefinitions;
-    });
-
+    const currentDefinitions = customFieldDraftRef.current;
+    const nextDefinitions = removeCustomFieldDefinitionSnapshot(currentDefinitions, index);
+    if (!nextDefinitions || nextDefinitions === currentDefinitions) {
+      return;
+    }
+    customFieldDraftRevisionRef.current += 1;
+    customFieldDraftRef.current = nextDefinitions;
+    setCustomFieldDraft(nextDefinitions);
     commitCustomFieldDraft(nextDefinitions);
   };
 
@@ -1662,6 +1754,53 @@ export function SettingsPage() {
         : [...currentTypes, entityType];
       return { ...definition, entityTypes: nextTypes };
     }, { commit: true });
+  };
+
+  const updateCustomFieldJsonPath = (
+    definitionIndex: number,
+    pathIndex: number,
+    updater: (jsonPath: CustomFieldJsonPathDefinition) => CustomFieldJsonPathDefinition,
+    options?: { commit?: boolean },
+  ) => {
+    updateCustomFieldDefinition(definitionIndex, (definition) => ({
+      ...definition,
+      jsonPaths: (definition.jsonPaths ?? []).map((jsonPath, candidateIndex) =>
+        candidateIndex === pathIndex ? updater(jsonPath) : jsonPath
+      ),
+    }), options);
+  };
+
+  const addCustomFieldJsonPath = (definitionIndex: number) => {
+    updateCustomFieldDefinition(definitionIndex, (definition) => {
+      const jsonPaths = definition.jsonPaths ?? [];
+      let suffix = 1;
+      let path = "/property";
+      while (jsonPaths.some((candidate) => candidate.path === path)) {
+        suffix += 1;
+        path = `/property${suffix}`;
+      }
+
+      return {
+        ...definition,
+        jsonPaths: [
+          ...jsonPaths,
+          {
+            path,
+            label: suffix === 1 ? "Property" : `Property ${suffix}`,
+            type: "text",
+            filterable: true,
+            sortable: false,
+          },
+        ],
+      };
+    }, { commit: true });
+  };
+
+  const removeCustomFieldJsonPath = (definitionIndex: number, pathIndex: number) => {
+    updateCustomFieldDefinition(definitionIndex, (definition) => ({
+      ...definition,
+      jsonPaths: (definition.jsonPaths ?? []).filter((_, candidateIndex) => candidateIndex !== pathIndex),
+    }), { commit: true });
   };
 
   const draft = draftState as CoveConfig;
@@ -2452,7 +2591,7 @@ export function SettingsPage() {
               <div className="space-y-4">
                 {hasInvalidPersistedCustomFields ? (
                   <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-                    Existing custom fields need a key or label and at least one entity selected before they can be saved.
+                    Existing custom fields need a key or label, at least one entity, and valid unique JSON Pointers before they can be saved.
                   </div>
                 ) : null}
                 {customFieldDefinitionsLoading && customFieldDraftState == null ? (
@@ -2498,7 +2637,9 @@ export function SettingsPage() {
                         onChange={(value) => updateCustomFieldDefinition(index, (current) => ({
                           ...current,
                           type: value as CustomFieldType,
-                          ...(value === "json" ? { filterable: false, sortable: false, isMultiValue: false } : {}),
+                          ...(value === "json"
+                            ? { filterable: false, sortable: false, isMultiValue: false, jsonPaths: current.jsonPaths ?? [] }
+                            : { jsonPaths: [] }),
                         }))}
                         onBlur={() => commitCustomFieldDraft()}
                         options={customFieldTypeOptions}
@@ -2507,7 +2648,7 @@ export function SettingsPage() {
                         <span className="block text-xs font-medium uppercase tracking-wide text-muted">Behavior</span>
                         <div className="flex flex-wrap gap-3 rounded-xl border border-border bg-background px-3 py-2">
                           {definition.type === "json" ? (
-                            <span className="text-xs text-muted">JSON path filtering and sorting are not available yet.</span>
+                            <span className="text-xs text-muted">The full document stays non-queryable. Configure typed paths below for filtering or sorting.</span>
                           ) : (
                             <>
                               <CheckboxLabel
@@ -2548,6 +2689,96 @@ export function SettingsPage() {
                           rows={3}
                           placeholder="One option per line"
                         />
+                      </div>
+                    ) : null}
+                    {definition.type === "json" ? (
+                      <div className="mt-4 space-y-3 rounded-xl border border-border bg-background p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-medium text-foreground">Queryable JSON paths</div>
+                            <p className="mt-1 text-xs text-muted">
+                              Use JSON Pointer syntax, such as /profile/score. Numeric tokens resolve as object keys or array indexes from the containing JSON value.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addCustomFieldJsonPath(index)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm text-secondary hover:border-accent hover:text-foreground"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add path
+                          </button>
+                        </div>
+                        {(definition.jsonPaths ?? []).length === 0 ? (
+                          <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted">
+                            No paths configured. The JSON value can still be stored and displayed.
+                          </p>
+                        ) : null}
+                        {(definition.jsonPaths ?? []).map((jsonPath, pathIndex, jsonPaths) => {
+                          const normalizedPath = jsonPath.path;
+                          const duplicatePath = jsonPaths.some((candidate, candidateIndex) =>
+                            candidateIndex !== pathIndex && candidate.path === normalizedPath
+                          );
+                          const pathError = !isValidQueryableJsonPointer(jsonPath.path)
+                            ? "Enter a non-root JSON Pointer beginning with / and using only ~0 or ~1 escapes."
+                            : jsonPath.label.trim().length > 200
+                            ? "Labels cannot exceed 200 characters."
+                            : duplicatePath
+                            ? "Each queryable path must be unique within this custom field."
+                            : null;
+
+                          return (
+                            <div key={`custom-field-${index}-json-path-${pathIndex}`} className="rounded-lg border border-border bg-card p-3">
+                              <div className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(140px,0.6fr)_auto] md:items-end">
+                                <TextField
+                                  label="JSON Pointer"
+                                  value={jsonPath.path}
+                                  onChange={(value) => updateCustomFieldJsonPath(index, pathIndex, (current) => ({ ...current, path: value }))}
+                                  onBlur={() => commitCustomFieldDraft()}
+                                  placeholder="/profile/score"
+                                  description="RFC 6901 JSON Pointer identifying a scalar value inside the document."
+                                />
+                                <TextField
+                                  label="Label"
+                                  value={jsonPath.label}
+                                  onChange={(value) => updateCustomFieldJsonPath(index, pathIndex, (current) => ({ ...current, label: value }))}
+                                  onBlur={() => commitCustomFieldDraft()}
+                                  placeholder="Profile score"
+                                />
+                                <SelectField
+                                  label="Value type"
+                                  value={jsonPath.type}
+                                  onChange={(value) => updateCustomFieldJsonPath(index, pathIndex, (current) => ({
+                                    ...current,
+                                    type: value as CustomFieldJsonPathType,
+                                  }), { commit: true })}
+                                  options={customFieldJsonPathTypeOptions}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeCustomFieldJsonPath(index, pathIndex)}
+                                  aria-label={`Remove JSON path ${jsonPath.label || jsonPath.path || pathIndex + 1}`}
+                                  className="rounded-lg border border-border p-2 text-muted hover:border-red-400 hover:text-red-300"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-4">
+                                <CheckboxLabel
+                                  label="Filterable"
+                                  checked={jsonPath.filterable}
+                                  onChange={(checked) => updateCustomFieldJsonPath(index, pathIndex, (current) => ({ ...current, filterable: checked }), { commit: true })}
+                                />
+                                <CheckboxLabel
+                                  label="Sortable"
+                                  checked={jsonPath.sortable}
+                                  onChange={(checked) => updateCustomFieldJsonPath(index, pathIndex, (current) => ({ ...current, sortable: checked }), { commit: true })}
+                                />
+                              </div>
+                              {pathError ? <p className="mt-2 text-xs text-amber-300">{pathError}</p> : null}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : null}
                   </div>

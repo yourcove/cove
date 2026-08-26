@@ -1369,9 +1369,19 @@ public record CustomFieldDefinitionDto
     public bool Filterable { get; init; } = true;
     public bool Sortable { get; init; }
     public bool IsMultiValue { get; init; }
+    public List<CustomFieldJsonPathDefinitionDto> JsonPaths { get; init; } = [];
     public int DisplayOrder { get; init; }
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
+}
+
+public record CustomFieldJsonPathDefinitionDto
+{
+    public string Path { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public string Type { get; init; } = "text";
+    public bool Filterable { get; init; } = true;
+    public bool Sortable { get; init; }
 }
 
 public record CustomFieldDefinitionCreateDto
@@ -1384,6 +1394,7 @@ public record CustomFieldDefinitionCreateDto
     public bool Filterable { get; init; } = true;
     public bool Sortable { get; init; }
     public bool IsMultiValue { get; init; }
+    public List<CustomFieldJsonPathDefinitionDto> JsonPaths { get; init; } = [];
     public int? DisplayOrder { get; init; }
 }
 
@@ -1397,6 +1408,7 @@ public record CustomFieldDefinitionUpdateDto
     public bool? Filterable { get; init; }
     public bool? Sortable { get; init; }
     public bool? IsMultiValue { get; init; }
+    public List<CustomFieldJsonPathDefinitionDto>? JsonPaths { get; init; }
     public int? DisplayOrder { get; init; }
 }
 
@@ -1411,6 +1423,7 @@ public record CustomFieldDefinitionSyncDto
     public bool Filterable { get; init; } = true;
     public bool Sortable { get; init; }
     public bool IsMultiValue { get; init; }
+    public List<CustomFieldJsonPathDefinitionDto> JsonPaths { get; init; } = [];
     public int? DisplayOrder { get; init; }
 }
 

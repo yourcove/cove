@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Cove.Core.Entities;
 
 public static class CustomFieldEntityTypes
@@ -99,6 +101,20 @@ public class CustomFieldDefinition : BaseEntity
     public int DisplayOrder { get; set; }
 
     public ICollection<CustomFieldValue> Values { get; set; } = [];
+    public ICollection<CustomFieldJsonPathDefinition> JsonPaths { get; set; } = [];
+}
+
+public class CustomFieldJsonPathDefinition : BaseEntity
+{
+    public int DefinitionId { get; set; }
+    public string Path { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string Type { get; set; } = CustomFieldTypes.Text;
+    public bool Filterable { get; set; } = true;
+    public bool Sortable { get; set; }
+    public int DisplayOrder { get; set; }
+
+    public CustomFieldDefinition? Definition { get; set; }
 }
 
 public class CustomFieldValue : BaseEntity
@@ -109,7 +125,7 @@ public class CustomFieldValue : BaseEntity
     public int Position { get; set; }
 
     public string? TextValue { get; set; }
-    public string? JsonValue { get; set; }
+    public JsonElement? JsonValue { get; set; }
     public decimal? NumberValue { get; set; }
     public bool? BoolValue { get; set; }
     public DateOnly? DateValue { get; set; }
