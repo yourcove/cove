@@ -19,7 +19,7 @@ public class VideoSubVideoCreationTests
     public async Task VideosController_Create_AllowsNestedSubVideosUsingRelativeClipOffsets()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(new CovePrincipal
@@ -36,7 +36,7 @@ public class VideoSubVideoCreationTests
             .Options;
 
         await using var context = new CoveContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var sourceVideo = new Video
         {
@@ -53,7 +53,7 @@ public class VideoSubVideoCreationTests
         };
 
         context.Videos.AddRange(sourceVideo, childVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new VideosController(
             new VideoRepository(context),
@@ -97,7 +97,7 @@ public class VideoSubVideoCreationTests
         Assert.Equal(35, createdDto.ClipStartSec);
         Assert.Equal(40, createdDto.ClipEndSec);
 
-        var storedVideo = await context.Videos.SingleAsync(video => video.Id == createdDto.Id);
+        var storedVideo = await context.Videos.SingleAsync(video => video.Id == createdDto.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(sourceVideo.Id, storedVideo.ParentVideoId);
         Assert.Equal(35, storedVideo.ClipStartSec);
         Assert.Equal(40, storedVideo.ClipEndSec);

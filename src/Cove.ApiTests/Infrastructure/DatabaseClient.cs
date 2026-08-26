@@ -1,5 +1,10 @@
+using System.Text.Json;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Data;
+using Cove.Data.Auth;
+using Cove.Data.Services;
+using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -12,6 +17,134 @@ public sealed class DatabaseClient
 
     internal DatabaseClient(string connectionString)
         => _connectionString = connectionString;
+
+    public async Task<StringCollectionOperatorFixture> SeedStringCollectionOperatorFixtureAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var now = DateTime.UtcNow;
+        var folder = new Folder { Path = $"/api-tests/string-operators/{Guid.NewGuid():N}", ModTime = now };
+        var matchingAudio = new Audio
+        {
+            Title = "Matching collection audio",
+            Files = [new AudioFile { Basename = "match.flac", ParentFolder = folder, Format = "flac", AudioCodec = "flac", ModTime = now }],
+            Tracks = [new AudioTrack { OrderIndex = 1, Title = "Opening" }, new AudioTrack { OrderIndex = 2, Title = "Needle track" }],
+        };
+        var otherAudio = new Audio
+        {
+            Title = "Other collection audio",
+            Files = [new AudioFile { Basename = "other.mp3", ParentFolder = folder, Format = "mp3", AudioCodec = "mp3", ModTime = now }],
+        };
+        var matchingText = new TextDocument
+        {
+            Title = "Matching collection text",
+            Files = [new TextFile { Basename = "match.epub", ParentFolder = folder, Format = "epub", ModTime = now }],
+        };
+        var otherText = new TextDocument
+        {
+            Title = "Other collection text",
+            Files = [new TextFile { Basename = "other.pdf", ParentFolder = folder, Format = "pdf", ModTime = now }],
+        };
+        var aliasStudio = new Studio { Name = "Alias collection studio", Aliases = [new StudioAlias { Alias = "Needle alias" }] };
+        var otherStudio = new Studio { Name = "Alias collection studio control", Aliases = [new StudioAlias { Alias = "Other alias" }] };
+        var hostTypeGroup = new Group { Name = "Host type collection group", AllowedHostTypes = ["video", "gallery"] };
+        var otherHostTypeGroup = new Group { Name = "Host type collection group control", AllowedHostTypes = ["video"] };
+        var video = new Video { Title = "Segment collection host" };
+        db.AddRange(folder, matchingAudio, otherAudio, matchingText, otherText, aliasStudio, otherStudio, hostTypeGroup, otherHostTypeGroup, video);
+        await db.SaveChangesAsync(cancellationToken);
+        var matchingSegment = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 1, EndSec = 2, SourceKey = "user", Title = "Needle segment" };
+        var emptySegment = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 3, EndSec = 4, SourceKey = "user", Title = "" };
+        db.Segments.AddRange(matchingSegment, emptySegment);
+        await db.SaveChangesAsync(cancellationToken);
+        return new StringCollectionOperatorFixture(
+            matchingAudio.Id, otherAudio.Id, matchingText.Id, otherText.Id,
+            aliasStudio.Id, hostTypeGroup.Id, matchingSegment.Id, emptySegment.Id);
+    }
+
+    public async Task<int> CreateOwnedFileAsync(
+        string ownerKind,
+        int? ownerId,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var info = new FileInfo(fullPath);
+        if (!info.Exists || info.DirectoryName is null)
+            throw new FileNotFoundException("The API test owned-file source does not exist.", path);
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var folder = await db.Folders.FirstOrDefaultAsync(
+            candidate => candidate.Path == info.DirectoryName,
+            cancellationToken) ?? new Folder { Path = info.DirectoryName, ModTime = info.LastWriteTimeUtc };
+        BaseFileEntity file = ownerKind.ToLowerInvariant() switch
+        {
+            EntityKinds.Video => new VideoFile { VideoId = ownerId },
+            EntityKinds.Image => new ImageFile { ImageId = ownerId },
+            EntityKinds.Gallery => new GalleryFile { GalleryId = ownerId },
+            EntityKinds.Audio => new AudioFile { AudioId = ownerId },
+            EntityKinds.Text => new TextFile { TextDocumentId = ownerId },
+            _ => throw new ArgumentOutOfRangeException(nameof(ownerKind), ownerKind, "Unsupported owned-file kind."),
+        };
+        file.Basename = info.Name;
+        file.ParentFolder = folder;
+        file.Size = info.Length;
+        file.ModTime = info.LastWriteTimeUtc;
+        db.Set<BaseFileEntity>().Add(file);
+        await db.SaveChangesAsync(cancellationToken);
+        return file.Id;
+    }
+
+    public async Task CreateAuditEventAsync(
+        string action,
+        string detail,
+        string? targetId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        db.AuditEvents.Add(new AuditEvent
+        {
+            ActorKind = "system",
+            Action = action,
+            Outcome = "success",
+            TargetId = targetId,
+            Detail = detail,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    internal async Task<string> CreateSetupTokenAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Setup tokens are normally issued outside the public API before the first owner exists.
+        // Seed only that deployment-provisioning input so the anonymous redemption route can be
+        // exercised against an otherwise untouched, pre-owner API host.
+        var (token, tokenHash) = TokenService.NewOpaqueToken();
+        var now = DateTime.UtcNow;
+        db.UserInviteTokens.Add(new UserInviteToken
+        {
+            TokenHash = tokenHash,
+            Purpose = "setup",
+            ExpiresAt = now.AddHours(1),
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return token;
+    }
 
     public async Task<IReadOnlyDictionary<string, string>> GetFileFingerprintsAsync(
         int fileId,
@@ -34,6 +167,21 @@ public sealed class DatabaseClient
                 cancellationToken);
     }
 
+    public async Task<int> GetFileParentFolderIdAsync(
+        int fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        return await db.Set<BaseFileEntity>()
+            .AsNoTracking()
+            .Where(file => file.Id == fileId)
+            .Select(file => file.ParentFolderId)
+            .SingleAsync(cancellationToken);
+    }
+
     public async Task AttachVideoFileAsync(
         int videoId,
         double duration,
@@ -47,7 +195,7 @@ public sealed class DatabaseClient
         await using var db = new CoveContext(options);
 
         // Public video creation cannot supply deterministic file metrics or fingerprints. Seed only
-        // the file row needed to probe aggregate and duplicate-discovery behavior.
+        // the file row needed for API assertions that depend on persisted video-file metadata.
         var now = DateTime.UtcNow;
         var folder = new Folder
         {
@@ -90,6 +238,112 @@ public sealed class DatabaseClient
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(video => video.ParentVideoId, parentVideoId),
                 cancellationToken);
+    }
+
+    public async Task AttachStreamVideoFileAsync(
+        int videoId,
+        string path,
+        int width,
+        int height,
+        double duration,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        var file = new FileInfo(path);
+        if (!file.Exists || file.DirectoryName is null)
+            throw new FileNotFoundException("The API test video source does not exist.", path);
+
+        db.VideoFiles.Add(new VideoFile
+        {
+            VideoId = videoId,
+            Basename = file.Name,
+            ParentFolder = new Folder { Path = file.DirectoryName, ModTime = file.LastWriteTimeUtc },
+            Size = file.Length,
+            ModTime = file.LastWriteTimeUtc,
+            Format = file.Extension.TrimStart('.'),
+            Width = width,
+            Height = height,
+            Duration = duration,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<int> AttachStreamVideoCaptionAsync(
+        int videoId,
+        string filename,
+        string languageCode,
+        string captionType,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filename);
+        ArgumentException.ThrowIfNullOrWhiteSpace(languageCode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(captionType);
+        if (!string.Equals(Path.GetFileName(filename), filename, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(filename), "API test caption sidecars must use a leaf filename beside their video source.");
+
+        var normalizedCaptionType = captionType.Trim().ToLowerInvariant();
+        if (normalizedCaptionType is not ("vtt" or "srt"))
+            throw new ArgumentOutOfRangeException(nameof(captionType), "API test caption sidecars must be VTT or SRT files.");
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        // Caption discovery is scanner-owned in production. Seed only a caption row for the single
+        // fixture video file after proving that the sidecar is colocated in the disposable library.
+        var file = await db.VideoFiles
+            .Include(candidate => candidate.ParentFolder)
+            .SingleOrDefaultAsync(candidate => candidate.VideoId == videoId, cancellationToken)
+            ?? throw new InvalidOperationException($"The API test video {videoId} has no stream file to attach a caption to.");
+        var directory = file.ParentFolder?.Path;
+        if (string.IsNullOrWhiteSpace(directory) || !File.Exists(Path.Combine(directory, filename)))
+            throw new FileNotFoundException("The API test caption sidecar does not exist beside the stream video source.", filename);
+
+        var caption = new VideoCaption
+        {
+            FileId = file.Id,
+            Filename = filename,
+            LanguageCode = languageCode.Trim().ToLowerInvariant(),
+            CaptionType = normalizedCaptionType,
+        };
+        db.VideoCaptions.Add(caption);
+        await db.SaveChangesAsync(cancellationToken);
+        return caption.Id;
+    }
+
+    public async Task AttachStreamImageFileAsync(
+        int imageId,
+        string path,
+        int width,
+        int height,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+
+        var file = new FileInfo(path);
+        if (!file.Exists || file.DirectoryName is null)
+            throw new FileNotFoundException("The API test image source does not exist.", path);
+
+        db.ImageFiles.Add(new ImageFile
+        {
+            ImageId = imageId,
+            Basename = file.Name,
+            ParentFolder = new Folder { Path = file.DirectoryName, ModTime = file.LastWriteTimeUtc },
+            Size = file.Length,
+            ModTime = file.LastWriteTimeUtc,
+            Format = file.Extension.TrimStart('.'),
+            Width = width,
+            Height = height,
+        });
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task AttachAudioFileAsync(
@@ -159,6 +413,49 @@ public sealed class DatabaseClient
             ParentFolder = folder,
             Size = size,
             ModTime = now,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task AttachGalleryArchiveAsync(
+        int galleryId,
+        string archivePath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        var fullPath = Path.GetFullPath(archivePath);
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException("The gallery archive fixture does not exist.", fullPath);
+        if (!string.Equals(Path.GetExtension(fullPath), ".zip", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentOutOfRangeException(nameof(archivePath), "Gallery archive fixtures must use the .zip extension.");
+
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        if (!await db.Galleries.AnyAsync(gallery => gallery.Id == galleryId, cancellationToken))
+            throw new InvalidOperationException($"Gallery {galleryId} does not exist.");
+
+        var folderPath = Path.GetDirectoryName(fullPath)
+            ?? throw new InvalidOperationException("The gallery archive fixture has no parent directory.");
+        var folder = await db.Folders.FirstOrDefaultAsync(item => item.Path == folderPath, cancellationToken);
+        if (folder == null)
+        {
+            folder = new Folder
+            {
+                Path = folderPath,
+                ModTime = Directory.GetLastWriteTimeUtc(folderPath),
+            };
+        }
+
+        var file = new FileInfo(fullPath);
+        db.GalleryFiles.Add(new GalleryFile
+        {
+            GalleryId = galleryId,
+            Basename = file.Name,
+            ParentFolder = folder,
+            Size = file.Length,
+            ModTime = file.LastWriteTimeUtc,
         });
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -259,7 +556,7 @@ public sealed class DatabaseClient
         return appearance.Id;
     }
 
-    public async Task CreateCompletedAiRunAsync(
+    public async Task<int> CreateCompletedAiRunAsync(
         string runKey,
         AiRunTargetType targetType,
         int targetId,
@@ -274,7 +571,7 @@ public sealed class DatabaseClient
             .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
             .Options;
         await using var db = new CoveContext(options);
-        db.AiRuns.Add(new AiRun
+        var run = new AiRun
         {
             RunKey = runKey,
             SourceKey = "api-test",
@@ -283,18 +580,43 @@ public sealed class DatabaseClient
             Status = AiRunStatus.Completed,
             StartedAt = startedAt.ToUniversalTime(),
             CompletedAt = completedAt.ToUniversalTime(),
-        });
+        };
+        db.AiRuns.Add(run);
         await db.SaveChangesAsync(cancellationToken);
+        return run.Id;
     }
 
     public async Task<int> CreateFaceEmbeddingAsync(
         int faceId,
         IReadOnlyCollection<float> values,
         string kindFamily,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string sourceKey = "api-test",
+        string? sourceRunId = null,
+        int sectionIndex = 0,
+        double? startSec = null,
+        double? endSec = null,
+        string? metaJson = null)
+        => await CreateEmbeddingAsync(
+            EmbeddingHostType.Face, faceId, values, kindFamily, EmbeddingModality.Face,
+            cancellationToken, sourceKey, sourceRunId, sectionIndex, startSec, endSec, metaJson);
+
+    public async Task<int> CreateEmbeddingAsync(
+        EmbeddingHostType hostType,
+        int hostId,
+        IReadOnlyCollection<float> values,
+        string kindFamily,
+        EmbeddingModality modality = EmbeddingModality.Visual,
+        CancellationToken cancellationToken = default,
+        string sourceKey = "api-test",
+        string? sourceRunId = null,
+        int sectionIndex = 0,
+        double? startSec = null,
+        double? endSec = null,
+        string? metaJson = null)
     {
         if (values.Count == 0)
-            throw new ArgumentException("A face embedding must contain at least one value.", nameof(values));
+            throw new ArgumentException("An embedding must contain at least one value.", nameof(values));
 
         var options = new DbContextOptionsBuilder<CoveContext>()
             .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
@@ -303,15 +625,20 @@ public sealed class DatabaseClient
         var vector = values.ToArray();
         var embedding = new Embedding
         {
-            HostType = EmbeddingHostType.Face,
-            HostId = faceId,
+            HostType = hostType,
+            HostId = hostId,
             Kind = kindFamily,
             KindFamily = kindFamily,
-            Modality = EmbeddingModality.Face,
+            Modality = modality,
             IsSemantic = true,
             Dim = vector.Length,
             Vector = new Vector(vector),
-            SourceKey = "api-test",
+            SectionIndex = sectionIndex,
+            StartSec = startSec,
+            EndSec = endSec,
+            SourceKey = sourceKey,
+            SourceRunId = sourceRunId,
+            Meta = metaJson is null ? null : JsonDocument.Parse(metaJson),
         };
         db.Embeddings.Add(embedding);
         await db.SaveChangesAsync(cancellationToken);
@@ -319,3 +646,13 @@ public sealed class DatabaseClient
     }
 
 }
+
+public sealed record StringCollectionOperatorFixture(
+    int MatchingAudioId,
+    int OtherAudioId,
+    int MatchingTextId,
+    int OtherTextId,
+    int AliasStudioId,
+    int HostTypeGroupId,
+    int MatchingSegmentId,
+    int EmptySegmentId);

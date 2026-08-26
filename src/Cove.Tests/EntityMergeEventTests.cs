@@ -19,7 +19,7 @@ public sealed class EntityMergeEventTests
         var first = new Group { Name = "First" };
         var second = new Group { Name = "Second" };
         db.Groups.AddRange(first, second);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var events = new List<EntityEvent>();
         var eventBus = new EventBus();
@@ -43,7 +43,7 @@ public sealed class EntityMergeEventTests
         await using var db = CreateContext();
         var gallery = new Gallery { Title = "Gallery" };
         db.Galleries.Add(gallery);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var events = new List<EntityEvent>();
         var eventBus = new EventBus();
@@ -72,7 +72,7 @@ public sealed class EntityMergeEventTests
         var target = new Performer { Name = "Target" };
         var source = new Performer { Name = "Source" };
         db.Performers.AddRange(target, source);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var events = new List<EntityEvent>();
         var eventBus = new EventBus();
@@ -93,7 +93,7 @@ public sealed class EntityMergeEventTests
         await using var db = CreateContext();
         var target = new Performer { Name = "Target" };
         db.Performers.Add(target);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var events = new List<EntityEvent>();
         var eventBus = new EventBus();
@@ -113,7 +113,7 @@ public sealed class EntityMergeEventTests
         var target = new Studio { Name = "Target" };
         var source = new Studio { Name = "Source" };
         db.Studios.AddRange(target, source);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var events = new List<EntityEvent>();
         var eventBus = new EventBus();
@@ -141,7 +141,7 @@ public sealed class EntityMergeEventTests
         var target = new Tag { Name = "Target" };
         var source = new Tag { Name = "Source" };
         db.Tags.AddRange(target, source);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var events = new List<EntityEvent>();
         var eventBus = new EventBus();

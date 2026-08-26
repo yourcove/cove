@@ -3,11 +3,9 @@ using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Groups;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -18,8 +16,8 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     public async Task GivenRichGroupMetadata_WhenOwnerCreatesAndMemberReads_ThenItRoundTrips()
     {
         var owner = AsUser();
-        var studio = await owner.CreateStudioAsync($"Group studio {Guid.NewGuid():N}");
-        var tag = await owner.CreateTagAsync($"Group tag {Guid.NewGuid():N}");
+        var studio = await owner.CreateStudioAsync($"Group studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync($"Group tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var customFieldKey = $"group_note_{Guid.NewGuid():N}";
         await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
@@ -27,7 +25,7 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
             Label = "Group note",
             Type = "text",
             EntityTypes = ["group"],
-        });
+        }, TestContext.Current.CancellationToken);
         var request = new GroupCreateDto(
             Name: $"Group lifecycle {Guid.NewGuid():N}",
             Aliases: "Group alternate",
@@ -43,10 +41,10 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
             AllowedHostTypes: ["video", "image"],
             SortOrder: 23);
 
-        var created = await owner.CreateGroupAsync(request);
-        var retrieved = await AsUser(ApiTestUsers.Eva).GetGroupByIdAsync(created.Id);
-        var ownerEngagement = await owner.GetEntityEngagementAsync(AffinityHostType.Group, created.Id);
-        var memberEngagement = await AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Group, created.Id);
+        var created = await owner.CreateGroupAsync(request, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser(ApiTestUsers.Eva).GetGroupByIdAsync(created.Id, TestContext.Current.CancellationToken);
+        var ownerEngagement = await owner.GetEntityEngagementAsync(AffinityHostType.Group, created.Id, TestContext.Current.CancellationToken);
+        var memberEngagement = await AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Group, created.Id, TestContext.Current.CancellationToken);
 
         foreach (var actual in new[] { created, retrieved })
         {
@@ -73,8 +71,8 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     public async Task GivenGroupMetadata_WhenMemberPartiallyUpdates_ThenResponseAndReadPreserveUntouchedValues()
     {
         var owner = AsUser();
-        var studio = await owner.CreateStudioAsync($"Original group studio {Guid.NewGuid():N}");
-        var tag = await owner.CreateTagAsync($"Original group tag {Guid.NewGuid():N}");
+        var studio = await owner.CreateStudioAsync($"Original group studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tag = await owner.CreateTagAsync($"Original group tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var group = await owner.CreateGroupAsync(new GroupCreateDto(
             Name: $"Original group {Guid.NewGuid():N}",
             Aliases: "Original aliases",
@@ -84,7 +82,7 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
             Director: "Original director",
             Description: "Original description",
             Urls: ["https://groups.example/original"],
-            TagIds: [tag.Id]));
+            TagIds: [tag.Id]), TestContext.Current.CancellationToken);
         var update = new GroupUpdateDto(
             Name: "Updated group",
             Aliases: null,
@@ -98,8 +96,8 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
             CustomFields: null,
             ClearFields: ["studioId"]);
 
-        var updated = await AsUser(ApiTestUsers.Eva).UpdateGroupAsync(group.Id, update);
-        var retrieved = await owner.GetGroupByIdAsync(group.Id);
+        var updated = await AsUser(ApiTestUsers.Eva).UpdateGroupAsync(group.Id, update, TestContext.Current.CancellationToken);
+        var retrieved = await owner.GetGroupByIdAsync(group.Id, TestContext.Current.CancellationToken);
 
         foreach (var actual in new[] { updated, retrieved })
         {
@@ -121,9 +119,9 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var first = await owner.CreateGroupAsync($"A filtered group {suffix}");
-        var second = await owner.CreateGroupAsync($"B filtered group {suffix}");
-        await owner.CreateGroupAsync($"Excluded group {suffix}");
+        var first = await owner.CreateGroupAsync($"A filtered group {suffix}", TestContext.Current.CancellationToken);
+        var second = await owner.CreateGroupAsync($"B filtered group {suffix}", TestContext.Current.CancellationToken);
+        await owner.CreateGroupAsync($"Excluded group {suffix}", TestContext.Current.CancellationToken);
         var request = new FilteredQueryRequest<GroupFilter>
         {
             ObjectFilter = new GroupFilter
@@ -133,7 +131,7 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
             FindFilter = new FindFilter { Q = suffix, Page = 2, PerPage = 1, Sort = "name" },
         };
 
-        var result = await AsUser(ApiTestUsers.Eva).FindGroupsAsync(request);
+        var result = await AsUser(ApiTestUsers.Eva).FindGroupsAsync(request, TestContext.Current.CancellationToken);
 
         result.TotalCount.Should().Be(2);
         result.Page.Should().Be(2);
@@ -147,17 +145,17 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     public async Task GivenTaggedGroups_WhenMemberBulkUpdatesSelection_ThenControlsAndRatingsRemainIsolated()
     {
         var owner = AsUser();
-        var originalStudio = await owner.CreateStudioAsync($"Original bulk group studio {Guid.NewGuid():N}");
-        var originalTag = await owner.CreateTagAsync($"Original bulk group tag {Guid.NewGuid():N}");
-        var replacementTag = await owner.CreateTagAsync($"Replacement bulk group tag {Guid.NewGuid():N}");
+        var originalStudio = await owner.CreateStudioAsync($"Original bulk group studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var originalTag = await owner.CreateTagAsync($"Original bulk group tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var replacementTag = await owner.CreateTagAsync($"Replacement bulk group tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var selected = await Task.WhenAll(Enumerable.Range(1, 2).Select(index => owner.CreateGroupAsync(new GroupCreateDto(
             Name: $"Selected bulk group {index} {Guid.NewGuid():N}", Aliases: null, Date: "2026-08-13", Rating: null,
             StudioId: originalStudio.Id, Director: $"Original director {index}", Description: $"Original description {index}",
             Urls: [$"https://groups.example/selected-{index}"], TagIds: [originalTag.Id]))));
         var control = await owner.CreateGroupAsync(new GroupCreateDto(
             Name: $"Control bulk group {Guid.NewGuid():N}", Aliases: null, Date: "2026-08-12", Rating: null,
-            StudioId: originalStudio.Id, Director: "Control director", Description: "Control description", Urls: [], TagIds: [originalTag.Id]));
-        await AsUser(ApiTestUsers.Eva).SetGroupRatingAsync(control, 17);
+            StudioId: originalStudio.Id, Director: "Control director", Description: "Control description", Urls: [], TagIds: [originalTag.Id]), TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Eva).SetGroupRatingAsync(control, 17, TestContext.Current.CancellationToken);
         var request = new BulkGroupUpdateDto
         {
             Ids = selected.Select(group => group.Id).ToList(),
@@ -167,11 +165,11 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
             TagMode = BulkUpdateMode.Set,
         };
 
-        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdateGroupsAsync(request);
+        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdateGroupsAsync(request, TestContext.Current.CancellationToken);
         var updated = await Task.WhenAll(selected.Select(group => owner.GetGroupByIdAsync(group.Id)));
-        var retained = await owner.GetGroupByIdAsync(control.Id);
+        var retained = await owner.GetGroupByIdAsync(control.Id, TestContext.Current.CancellationToken);
         var engagements = await Task.WhenAll(selected.Select(group => AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Group, group.Id)));
-        var retainedEngagement = await AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Group, control.Id);
+        var retainedEngagement = await AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Group, control.Id, TestContext.Current.CancellationToken);
         var ownerEngagements = await Task.WhenAll(selected.Append(control).Select(group => owner.GetEntityEngagementAsync(AffinityHostType.Group, group.Id)));
         var originalsById = selected.ToDictionary(group => group.Id);
 
@@ -206,26 +204,26 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     public async Task GivenGroups_WhenMemberAddsReadsAndRemovesSubGroup_ThenBothDirectionsStayInSync()
     {
         var owner = AsUser();
-        var parent = await owner.CreateGroupAsync($"Parent group {Guid.NewGuid():N}");
-        var child = await owner.CreateGroupAsync($"Child group {Guid.NewGuid():N}");
-        var retainedSibling = await owner.CreateGroupAsync($"Sibling group {Guid.NewGuid():N}");
-        var retainedParent = await owner.CreateGroupAsync($"Second parent group {Guid.NewGuid():N}");
+        var parent = await owner.CreateGroupAsync($"Parent group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var child = await owner.CreateGroupAsync($"Child group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var retainedSibling = await owner.CreateGroupAsync($"Sibling group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var retainedParent = await owner.CreateGroupAsync($"Second parent group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var member = AsUser(ApiTestUsers.Eva);
 
-        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(child.Id, OrderIndex: 3, Description: "Nested group"));
-        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(retainedSibling.Id, OrderIndex: 1, Description: "Retained sibling"));
-        await member.AddSubGroupAsync(retainedParent.Id, new AddSubGroupDto(child.Id, OrderIndex: 0, Description: "Retained parent"));
-        (await owner.GetSubGroupsAsync(parent.Id)).Select(group => group.Id).Should().Equal(retainedSibling.Id, child.Id);
-        (await owner.GetContainingGroupsAsync(child.Id)).Select(group => group.Id).Should().Equal(retainedParent.Id, parent.Id);
-        (await owner.GetGroupByIdAsync(parent.Id)).SubGroupCount.Should().Be(2);
-        (await owner.GetGroupByIdAsync(child.Id)).ContainingGroupCount.Should().Be(2);
+        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(child.Id, OrderIndex: 3, Description: "Nested group"), TestContext.Current.CancellationToken);
+        await member.AddSubGroupAsync(parent.Id, new AddSubGroupDto(retainedSibling.Id, OrderIndex: 1, Description: "Retained sibling"), TestContext.Current.CancellationToken);
+        await member.AddSubGroupAsync(retainedParent.Id, new AddSubGroupDto(child.Id, OrderIndex: 0, Description: "Retained parent"), TestContext.Current.CancellationToken);
+        (await owner.GetSubGroupsAsync(parent.Id, TestContext.Current.CancellationToken)).Select(group => group.Id).Should().Equal(retainedSibling.Id, child.Id);
+        (await owner.GetContainingGroupsAsync(child.Id, TestContext.Current.CancellationToken)).Select(group => group.Id).Should().Equal(retainedParent.Id, parent.Id);
+        (await owner.GetGroupByIdAsync(parent.Id, TestContext.Current.CancellationToken)).SubGroupCount.Should().Be(2);
+        (await owner.GetGroupByIdAsync(child.Id, TestContext.Current.CancellationToken)).ContainingGroupCount.Should().Be(2);
 
-        await member.RemoveSubGroupAsync(parent.Id, child.Id);
+        await member.RemoveSubGroupAsync(parent.Id, child.Id, TestContext.Current.CancellationToken);
 
-        (await owner.GetSubGroupsAsync(parent.Id)).Select(group => group.Id).Should().Equal(retainedSibling.Id);
-        (await owner.GetContainingGroupsAsync(child.Id)).Select(group => group.Id).Should().Equal(retainedParent.Id);
-        (await owner.GetGroupByIdAsync(parent.Id)).SubGroupCount.Should().Be(1);
-        (await owner.GetGroupByIdAsync(child.Id)).ContainingGroupCount.Should().Be(1);
+        (await owner.GetSubGroupsAsync(parent.Id, TestContext.Current.CancellationToken)).Select(group => group.Id).Should().Equal(retainedSibling.Id);
+        (await owner.GetContainingGroupsAsync(child.Id, TestContext.Current.CancellationToken)).Select(group => group.Id).Should().Equal(retainedParent.Id);
+        (await owner.GetGroupByIdAsync(parent.Id, TestContext.Current.CancellationToken)).SubGroupCount.Should().Be(1);
+        (await owner.GetGroupByIdAsync(child.Id, TestContext.Current.CancellationToken)).ContainingGroupCount.Should().Be(1);
     }
 
     [Fact]
@@ -233,12 +231,12 @@ public sealed class GroupLifecycleQueryAndHierarchyApiTests(
     public async Task GivenGroup_WhenMemberAttemptsDelete_ThenOwnerCanDeleteAndTheRecordIsGone()
     {
         var owner = AsUser();
-        var group = await owner.CreateGroupAsync($"Delete group {Guid.NewGuid():N}");
+        var group = await owner.CreateGroupAsync($"Delete group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var forbidden = () => AsUser(ApiTestUsers.Eva).DeleteGroupAsync(group.Id);
 
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetGroupByIdAsync(group.Id)).Id.Should().Be(group.Id);
-        await owner.DeleteGroupAsync(group.Id);
+        (await owner.GetGroupByIdAsync(group.Id, TestContext.Current.CancellationToken)).Id.Should().Be(group.Id);
+        await owner.DeleteGroupAsync(group.Id, TestContext.Current.CancellationToken);
         var missing = () => owner.GetGroupByIdAsync(group.Id);
         await missing.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
     }

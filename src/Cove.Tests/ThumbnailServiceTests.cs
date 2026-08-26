@@ -28,21 +28,21 @@ public class ThumbnailServiceTests
             firstEntered.SetResult();
             await releaseFirst.Task;
             return true;
-        });
+        }, TestContext.Current.CancellationToken);
         await firstEntered.Task;
 
         var second = ThumbnailService.RunWithSpriteGenerationLockAsync(101, () =>
         {
             secondEntered.SetResult();
             return Task.FromResult(true);
-        });
+        }, TestContext.Current.CancellationToken);
         var other = ThumbnailService.RunWithSpriteGenerationLockAsync(102, () =>
         {
             otherEntered.SetResult();
             return Task.FromResult(true);
-        });
+        }, TestContext.Current.CancellationToken);
 
-        await otherEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await otherEntered.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
         Assert.False(secondEntered.Task.IsCompleted);
         releaseFirst.SetResult();
         await Task.WhenAll(first, second, other);
@@ -58,7 +58,7 @@ public class ThumbnailServiceTests
         try
         {
             var videoPath = Path.Combine(tempRoot, "invalid.mp4");
-            await File.WriteAllBytesAsync(videoPath, [1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(videoPath, [1, 2, 3, 4], TestContext.Current.CancellationToken);
             var generatedPath = Path.Combine(tempRoot, "generated");
 
             var services = new ServiceCollection();
@@ -83,7 +83,7 @@ public class ThumbnailServiceTests
                     ModTime = File.GetLastWriteTimeUtc(videoPath),
                 });
                 db.Videos.Add(video);
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             var service = new ThumbnailService(
@@ -105,16 +105,16 @@ public class ThumbnailServiceTests
             foreach (var (path, bytes) in assets)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                await File.WriteAllBytesAsync(path, bytes);
+                await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken);
             }
 
-            Assert.False(await service.RegenerateVideoThumbnailAsync(1));
-            Assert.False(await service.RegenerateVideoPreviewAsync(1));
-            Assert.False(await service.RegenerateVideoSpriteAsync(1));
-            Assert.False(await service.GenerateSegmentPreviewFromFileAsync(1, 1, 5, null, overwrite: true));
+            Assert.False(await service.RegenerateVideoThumbnailAsync(1, ct: TestContext.Current.CancellationToken));
+            Assert.False(await service.RegenerateVideoPreviewAsync(1, TestContext.Current.CancellationToken));
+            Assert.False(await service.RegenerateVideoSpriteAsync(1, TestContext.Current.CancellationToken));
+            Assert.False(await service.GenerateSegmentPreviewFromFileAsync(1, 1, 5, null, overwrite: true, ct: TestContext.Current.CancellationToken));
 
             foreach (var (path, expectedBytes) in assets)
-                Assert.Equal(expectedBytes, await File.ReadAllBytesAsync(path));
+                Assert.Equal(expectedBytes, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -132,8 +132,8 @@ public class ThumbnailServiceTests
         {
             var firstPath = Path.Combine(tempRoot, "first.mp4");
             var selectedPath = Path.Combine(tempRoot, "selected.mp4");
-            await File.WriteAllBytesAsync(firstPath, [1]);
-            await File.WriteAllBytesAsync(selectedPath, [2]);
+            await File.WriteAllBytesAsync(firstPath, [1], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(selectedPath, [2], TestContext.Current.CancellationToken);
 
             var services = new ServiceCollection();
             var dbOptions = new DbContextOptionsBuilder<CoveContext>()
@@ -163,7 +163,7 @@ public class ThumbnailServiceTests
                 };
                 video.Files.Add(selectedFile);
                 db.Videos.Add(video);
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 videoId = video.Id;
                 selectedFileId = selectedFile.Id;
             }
@@ -179,7 +179,9 @@ public class ThumbnailServiceTests
             var source = await service.GetVideoFileInfoAsync(videoId, selectedFileId, CancellationToken.None);
             var missingSource = await service.GetVideoFileInfoAsync(videoId, int.MaxValue, CancellationToken.None);
 
-            Assert.Equal(selectedPath, source.FilePath);
+            // Canonical paths: Folder.Path is stored forward-slashed, so this mixes separators on Windows.
+            Assert.NotNull(source.FilePath);
+            Assert.Equal(Path.GetFullPath(selectedPath), Path.GetFullPath(source.FilePath));
             Assert.Equal(20, source.Duration);
             Assert.Null(missingSource.FilePath);
             Assert.Equal(0, missingSource.Duration);
@@ -200,16 +202,16 @@ public class ThumbnailServiceTests
         {
             var generatedPath = Path.Combine(tempRoot, "generated.jpg");
             var destinationPath = Path.Combine(tempRoot, "destination.jpg");
-            await File.WriteAllBytesAsync(generatedPath, [4, 5, 6]);
-            await File.WriteAllBytesAsync(destinationPath, [1, 2, 3]);
+            await File.WriteAllBytesAsync(generatedPath, [4, 5, 6], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(destinationPath, [1, 2, 3], TestContext.Current.CancellationToken);
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
             Assert.Throws<OperationCanceledException>(() =>
                 ThumbnailService.TryCommitGeneratedFile(generatedPath, destinationPath, cancellation.Token));
 
-            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(destinationPath));
-            Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(generatedPath));
+            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(destinationPath, TestContext.Current.CancellationToken));
+            Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(generatedPath, TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -229,18 +231,14 @@ public class ThumbnailServiceTests
             var generatedVttPath = Path.Combine(tempRoot, "generated.vtt");
             var destinationSpritePath = Path.Combine(tempRoot, "sprite.jpg");
             var destinationVttPath = Path.Combine(tempRoot, "missing", "sprite.vtt");
-            await File.WriteAllBytesAsync(generatedSpritePath, [4, 5, 6]);
-            await File.WriteAllBytesAsync(generatedVttPath, [7, 8, 9]);
-            await File.WriteAllBytesAsync(destinationSpritePath, [1, 2, 3]);
+            await File.WriteAllBytesAsync(generatedSpritePath, [4, 5, 6], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(generatedVttPath, [7, 8, 9], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(destinationSpritePath, [1, 2, 3], TestContext.Current.CancellationToken);
 
             Assert.Throws<DirectoryNotFoundException>(() =>
-                ThumbnailService.CommitGeneratedSpriteFiles(
-                    generatedSpritePath,
-                    generatedVttPath,
-                    destinationSpritePath,
-                    destinationVttPath));
+                ThumbnailService.CommitGeneratedSpriteFiles(generatedSpritePath, generatedVttPath, destinationSpritePath, destinationVttPath, TestContext.Current.CancellationToken));
 
-            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(destinationSpritePath));
+            Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(destinationSpritePath, TestContext.Current.CancellationToken));
             Assert.False(File.Exists(destinationVttPath));
             Assert.Empty(Directory.EnumerateFiles(tempRoot, "*.backup.*", SearchOption.AllDirectories));
         }
@@ -262,10 +260,10 @@ public class ThumbnailServiceTests
             var generatedVttPath = Path.Combine(tempRoot, "generated.vtt");
             var destinationSpritePath = Path.Combine(tempRoot, "sprite.jpg");
             var destinationVttPath = Path.Combine(tempRoot, "sprite.vtt");
-            await File.WriteAllBytesAsync(generatedSpritePath, [5, 6]);
-            await File.WriteAllBytesAsync(generatedVttPath, [7, 8]);
-            await File.WriteAllBytesAsync(destinationSpritePath, [1, 2]);
-            await File.WriteAllBytesAsync(destinationVttPath, [3, 4]);
+            await File.WriteAllBytesAsync(generatedSpritePath, [5, 6], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(generatedVttPath, [7, 8], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(destinationSpritePath, [1, 2], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(destinationVttPath, [3, 4], TestContext.Current.CancellationToken);
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
@@ -277,10 +275,10 @@ public class ThumbnailServiceTests
                     destinationVttPath,
                     cancellation.Token));
 
-            Assert.Equal(new byte[] { 1, 2 }, await File.ReadAllBytesAsync(destinationSpritePath));
-            Assert.Equal(new byte[] { 3, 4 }, await File.ReadAllBytesAsync(destinationVttPath));
-            Assert.Equal(new byte[] { 5, 6 }, await File.ReadAllBytesAsync(generatedSpritePath));
-            Assert.Equal(new byte[] { 7, 8 }, await File.ReadAllBytesAsync(generatedVttPath));
+            Assert.Equal(new byte[] { 1, 2 }, await File.ReadAllBytesAsync(destinationSpritePath, TestContext.Current.CancellationToken));
+            Assert.Equal(new byte[] { 3, 4 }, await File.ReadAllBytesAsync(destinationVttPath, TestContext.Current.CancellationToken));
+            Assert.Equal(new byte[] { 5, 6 }, await File.ReadAllBytesAsync(generatedSpritePath, TestContext.Current.CancellationToken));
+            Assert.Equal(new byte[] { 7, 8 }, await File.ReadAllBytesAsync(generatedVttPath, TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -298,29 +296,28 @@ public class ThumbnailServiceTests
         {
             var generatedPreviewPath = Path.Combine(tempRoot, "generated-preview.mp4");
             var destinationPreviewPath = Path.Combine(tempRoot, "preview.mp4");
-            await File.WriteAllBytesAsync(generatedPreviewPath, [4, 5, 6]);
-            await File.WriteAllBytesAsync(destinationPreviewPath, [1, 2, 3]);
+            await File.WriteAllBytesAsync(generatedPreviewPath, [4, 5, 6], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(destinationPreviewPath, [1, 2, 3], TestContext.Current.CancellationToken);
 
-            Assert.True(ThumbnailService.TryCommitGeneratedFile(generatedPreviewPath, destinationPreviewPath));
-            Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(destinationPreviewPath));
+            Assert.True(ThumbnailService.TryCommitGeneratedFile(
+                generatedPreviewPath,
+                destinationPreviewPath,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(destinationPreviewPath, TestContext.Current.CancellationToken));
 
             var generatedSpritePath = Path.Combine(tempRoot, "generated-sprite.jpg");
             var generatedVttPath = Path.Combine(tempRoot, "generated.vtt");
             var destinationSpritePath = Path.Combine(tempRoot, "sprite.jpg");
             var destinationVttPath = Path.Combine(tempRoot, "sprite.vtt");
-            await File.WriteAllBytesAsync(generatedSpritePath, [10, 11, 12]);
-            await File.WriteAllBytesAsync(generatedVttPath, [13, 14, 15]);
-            await File.WriteAllBytesAsync(destinationSpritePath, [7, 8, 9]);
-            await File.WriteAllBytesAsync(destinationVttPath, [16, 17, 18]);
+            await File.WriteAllBytesAsync(generatedSpritePath, [10, 11, 12], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(generatedVttPath, [13, 14, 15], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(destinationSpritePath, [7, 8, 9], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(destinationVttPath, [16, 17, 18], TestContext.Current.CancellationToken);
 
-            ThumbnailService.CommitGeneratedSpriteFiles(
-                generatedSpritePath,
-                generatedVttPath,
-                destinationSpritePath,
-                destinationVttPath);
+            ThumbnailService.CommitGeneratedSpriteFiles(generatedSpritePath, generatedVttPath, destinationSpritePath, destinationVttPath, TestContext.Current.CancellationToken);
 
-            Assert.Equal(new byte[] { 10, 11, 12 }, await File.ReadAllBytesAsync(destinationSpritePath));
-            Assert.Equal(new byte[] { 13, 14, 15 }, await File.ReadAllBytesAsync(destinationVttPath));
+            Assert.Equal(new byte[] { 10, 11, 12 }, await File.ReadAllBytesAsync(destinationSpritePath, TestContext.Current.CancellationToken));
+            Assert.Equal(new byte[] { 13, 14, 15 }, await File.ReadAllBytesAsync(destinationVttPath, TestContext.Current.CancellationToken));
             Assert.Empty(Directory.EnumerateFiles(tempRoot, "*.backup.*", SearchOption.AllDirectories));
         }
         finally
@@ -344,7 +341,7 @@ public class ThumbnailServiceTests
             {
                 var entry = archive.CreateEntry("nested/cover.jpg");
                 await using var entryStream = entry.Open();
-                await entryStream.WriteAsync(expectedBytes);
+                await entryStream.WriteAsync(expectedBytes, TestContext.Current.CancellationToken);
             }
 
             var services = new ServiceCollection();
@@ -373,7 +370,7 @@ public class ThumbnailServiceTests
                 });
 
                 db.Images.Add(image);
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             var service = new ThumbnailService(
@@ -392,7 +389,7 @@ public class ThumbnailServiceTests
 
             await using var stream = result.Value.stream;
             using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
+            await stream.CopyToAsync(buffer, TestContext.Current.CancellationToken);
             Assert.Equal(expectedBytes, buffer.ToArray());
         }
         finally
@@ -412,7 +409,7 @@ public class ThumbnailServiceTests
             var imagePath = Path.Combine(tempRoot, "large.jpg");
             using (var sourceImage = new Image<Rgba32>(2200, 1400))
             {
-                await sourceImage.SaveAsJpegAsync(imagePath);
+                await sourceImage.SaveAsJpegAsync(imagePath, cancellationToken: TestContext.Current.CancellationToken);
             }
 
             var sourceModTime = DateTime.UtcNow.AddMinutes(-1);
@@ -450,7 +447,7 @@ public class ThumbnailServiceTests
                 });
 
                 db.Images.Add(image);
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             var service = new ThumbnailService(
@@ -469,10 +466,10 @@ public class ThumbnailServiceTests
 
             await using var stream = result.Value.stream;
             using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
+            await stream.CopyToAsync(buffer, TestContext.Current.CancellationToken);
             buffer.Position = 0;
 
-            using var thumbnail = await SixLabors.ImageSharp.Image.LoadAsync(buffer);
+            using var thumbnail = await SixLabors.ImageSharp.Image.LoadAsync(buffer, TestContext.Current.CancellationToken);
             Assert.True(Math.Max(thumbnail.Width, thumbnail.Height) <= 640);
 
             var thumbnailFiles = Directory.GetFiles(Path.Combine(config.GeneratedPath, "thumbnails"), "*.jpg", SearchOption.AllDirectories);
@@ -505,7 +502,7 @@ public class ThumbnailServiceTests
                     }
                 });
 
-                await sourceImage.SaveAsPngAsync(imagePath);
+                await sourceImage.SaveAsPngAsync(imagePath, cancellationToken: TestContext.Current.CancellationToken);
             }
 
             var sourceModTime = DateTime.UtcNow.AddMinutes(-1);
@@ -543,7 +540,7 @@ public class ThumbnailServiceTests
                 });
 
                 db.Images.Add(image);
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             var service = new ThumbnailService(
@@ -562,10 +559,10 @@ public class ThumbnailServiceTests
 
             await using var stream = result.Value.stream;
             using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
+            await stream.CopyToAsync(buffer, TestContext.Current.CancellationToken);
             buffer.Position = 0;
 
-            using var thumbnail = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(buffer);
+            using var thumbnail = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(buffer, TestContext.Current.CancellationToken);
             Assert.Equal(0, thumbnail[0, 0].A);
             Assert.True(thumbnail[Math.Min(thumbnail.Width - 1, thumbnail.Width / 2), Math.Min(thumbnail.Height - 1, thumbnail.Height / 2)].A > 0);
 
@@ -612,7 +609,7 @@ public class ThumbnailServiceTests
 
             await using var stream = result.Value.stream;
             using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
+            await stream.CopyToAsync(buffer, TestContext.Current.CancellationToken);
             Assert.Equal(svgBytes, buffer.ToArray());
             if (Directory.Exists(generatedPath))
                 Assert.Empty(Directory.GetFiles(generatedPath, "*", SearchOption.AllDirectories));

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Events;
 
@@ -40,14 +41,32 @@ public record JobInfo(
     // Server-computed estimate of seconds remaining (null when not yet known / stalled / not running),
     // and the UTC timestamp it was computed at so clients can count it down smoothly between updates.
     double? EtaSeconds = null,
-    DateTime? UpdatedAt = null);
+    DateTime? UpdatedAt = null,
+    string? ResultUrl = null);
+
+public sealed record JobOwner(string Key)
+{
+    public static JobOwner? FromPrincipal(CovePrincipal? principal)
+    {
+        if (principal is null || principal.Kind is PrincipalKind.Anonymous or PrincipalKind.System)
+            return null;
+
+        if (principal.UserId is int userId)
+            return new($"user:{userId.ToString(CultureInfo.InvariantCulture)}");
+
+        return principal.TokenId is Guid tokenId
+            ? new($"token:{tokenId:N}")
+            : null;
+    }
+}
 
 public record JobBatchResult(
     int TotalUnits,
     int SucceededUnits,
     int FailedUnits,
     int SkippedUnits,
-    IReadOnlyList<string> FailedUnitIds)
+    IReadOnlyList<string> FailedUnitIds,
+    IReadOnlyList<string> SkippedUnitIds)
 {
     public int CompletedUnits => SucceededUnits + FailedUnits + SkippedUnits;
 
@@ -65,11 +84,48 @@ public interface IJobService
     /// HttpContext. Create a fresh scope inside the callback and honor its cancellation token.
     /// </summary>
     string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true);
+    string EnqueueWithResult(
+        string type,
+        string description,
+        Func<IJobProgress, CancellationToken, Task> work,
+        string resultUrl,
+        bool exclusive = true)
+        => Enqueue(type, description, work, exclusive);
+    string EnqueueOwned(
+        JobOwner owner,
+        string type,
+        string description,
+        Func<IJobProgress, CancellationToken, Task> work,
+        string? resultUrl = null,
+        bool exclusive = true)
+        => Enqueue(type, description, work, exclusive);
+    string EnqueueFor(
+        JobOwner? owner,
+        string type,
+        string description,
+        Func<IJobProgress, CancellationToken, Task> work,
+        string? resultUrl = null,
+        bool exclusive = true)
+        => owner is null
+            ? resultUrl is null
+                ? Enqueue(type, description, work, exclusive)
+                : EnqueueWithResult(type, description, work, resultUrl, exclusive)
+            : EnqueueOwned(owner, type, description, work, resultUrl, exclusive);
     bool Cancel(string jobId);
+    bool CancelFor(JobOwner? owner, string jobId, bool includeAll)
+        => includeAll && Cancel(jobId);
     bool ReorderQueued(string jobId, string? beforeJobId);
+    bool ReorderQueuedFor(JobOwner? owner, string jobId, string? beforeJobId, bool includeAll)
+        => includeAll && ReorderQueued(jobId, beforeJobId);
     JobInfo? GetJob(string jobId);
+    JobInfo? GetJobFor(JobOwner? owner, string jobId, bool includeAll)
+        => includeAll ? GetJob(jobId) : null;
     IReadOnlyList<JobInfo> GetAllJobs();
+    IReadOnlyList<JobInfo> GetAllJobsFor(JobOwner? owner, bool includeAll)
+        => includeAll ? GetAllJobs() : [];
     IReadOnlyList<JobInfo> GetJobHistory();
+    IReadOnlyList<JobInfo> GetJobHistoryFor(JobOwner? owner, bool includeAll)
+        => includeAll ? GetJobHistory() : [];
 
     async Task<JobBatchResult> RunBatchAsync<T>(
         IEnumerable<T> units,
@@ -88,62 +144,79 @@ public interface IJobService
         if (items.Count == 0)
         {
             progress.Report(1d, "No work items.");
-            return new JobBatchResult(0, 0, 0, 0, []);
+            return new JobBatchResult(0, 0, 0, 0, [], []);
         }
 
-        using var gate = new SemaphoreSlim(Math.Max(1, maxInFlight));
-        var failedUnitIds = new ConcurrentBag<string>();
+        const int maxReportedFailures = 100;
+        var failedUnitIds = new ConcurrentQueue<string>();
+        var skippedUnitIds = new ConcurrentQueue<string>();
         var succeeded = 0;
         var failed = 0;
         var skipped = 0;
+        var nextIndex = -1;
 
-        var tasks = items.Select((item, index) => RunUnitAsync(item, index));
+        var workerCount = Math.Min(items.Count, Math.Max(1, maxInFlight));
+        // Schedule every fixed worker before awaiting it. Calling RunWorkerAsync directly here lets a
+        // callback that completes synchronously (for example, CPU-bound pHash comparison) drain the
+        // entire sequence while the task list is still being enumerated, effectively reducing the
+        // configured parallelism to one.
+        var tasks = Enumerable.Range(0, workerCount)
+            .Select(_ => Task.Run(RunWorkerAsync, ct))
+            .ToArray();
         await Task.WhenAll(tasks);
 
-        return new JobBatchResult(items.Count, succeeded, failed, skipped, failedUnitIds.ToArray());
+        return new JobBatchResult(items.Count, succeeded, failed, skipped, failedUnitIds.ToArray(), skippedUnitIds.ToArray());
+
+        async Task RunWorkerAsync()
+        {
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                var index = Interlocked.Increment(ref nextIndex);
+                if (index >= items.Count)
+                    return;
+
+                await RunUnitAsync(items[index], index);
+            }
+        }
 
         async Task RunUnitAsync(T item, int index)
         {
-            await gate.WaitAsync(ct);
+            var unitId = unitIdFactory?.Invoke(item, index) ?? index.ToString(CultureInfo.InvariantCulture);
+            var label = labelFactory?.Invoke(item) ?? item?.ToString();
+            using var unit = progress.StartUnit(unitId, label);
+
             try
             {
-                var unitId = unitIdFactory?.Invoke(item, index) ?? index.ToString(CultureInfo.InvariantCulture);
-                var label = labelFactory?.Invoke(item) ?? item?.ToString();
-                using var unit = progress.StartUnit(unitId, label);
-
-                try
-                {
-                    await work(item, unit, ct);
-                    if (unit.Outcome is null)
-                        unit.Complete(JobUnitOutcome.Succeeded);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    if (unit.Outcome is null)
-                        unit.Complete(JobUnitOutcome.Failed, ex.Message);
-                }
-
-                switch (unit.Outcome ?? JobUnitOutcome.Succeeded)
-                {
-                    case JobUnitOutcome.Succeeded:
-                        Interlocked.Increment(ref succeeded);
-                        break;
-                    case JobUnitOutcome.Failed:
-                        failedUnitIds.Add(unitId);
-                        Interlocked.Increment(ref failed);
-                        break;
-                    case JobUnitOutcome.Skipped:
-                        Interlocked.Increment(ref skipped);
-                        break;
-                }
+                await work(item, unit, ct);
+                if (unit.Outcome is null)
+                    unit.Complete(JobUnitOutcome.Succeeded);
             }
-            finally
+            catch (OperationCanceledException)
             {
-                gate.Release();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (unit.Outcome is null)
+                    unit.Complete(JobUnitOutcome.Failed, ex.Message);
+            }
+
+            switch (unit.Outcome ?? JobUnitOutcome.Succeeded)
+            {
+                case JobUnitOutcome.Succeeded:
+                    Interlocked.Increment(ref succeeded);
+                    break;
+                case JobUnitOutcome.Failed:
+                    var failureNumber = Interlocked.Increment(ref failed);
+                    if (failureNumber <= maxReportedFailures)
+                        failedUnitIds.Enqueue(unitId);
+                    break;
+                case JobUnitOutcome.Skipped:
+                    var skipNumber = Interlocked.Increment(ref skipped);
+                    if (skipNumber <= maxReportedFailures)
+                        skippedUnitIds.Enqueue(unitId);
+                    break;
             }
         }
     }
@@ -152,6 +225,12 @@ public interface IJobService
 public interface IJobProgress
 {
     void Report(double progress, string? subTask = null);
+
+    void SetSummary(string summary) => Report(1d, summary);
+
+    void DeclareUnitCount(int totalUnits) { }
+
+    void DeclareUnits(IEnumerable<(string UnitId, string? Label)> units) { }
 
     IJobUnit StartUnit(string unitId, string? label = null) => new NullJobUnit(unitId, label);
 }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Cove.Api.Hubs;
+using Cove.Core.Auth;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 
@@ -12,20 +13,26 @@ public class JobService : IJobService, IHostedService
     private readonly List<JobEntry> _exclusiveQueue = [];
     private readonly SemaphoreSlim _queueSignal = new(0);
     private readonly Dictionary<string, JobEntry> _jobs = [];
-    private readonly List<JobInfo> _history = [];
+    private readonly List<JobHistoryEntry> _history = [];
     private readonly Lock _lock = new();
     private readonly IEventBus _eventBus;
     private readonly IHubContext<JobHub> _hubContext;
     private readonly ILogger<JobService> _logger;
+    private readonly ICurrentPrincipalAccessor? _principalAccessor;
     private Task? _processorTask;
     private CancellationTokenSource? _cts;
     private const int MaxHistory = 50;
 
-    public JobService(IEventBus eventBus, IHubContext<JobHub> hubContext, ILogger<JobService> logger)
+    public JobService(
+        IEventBus eventBus,
+        IHubContext<JobHub> hubContext,
+        ILogger<JobService> logger,
+        ICurrentPrincipalAccessor? principalAccessor = null)
     {
         _eventBus = eventBus;
         _hubContext = hubContext;
         _logger = logger;
+        _principalAccessor = principalAccessor;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -45,6 +52,35 @@ public class JobService : IJobService, IHostedService
     }
 
     public string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true)
+        => EnqueueCore(JobOwner.FromPrincipal(_principalAccessor?.Current), type, description, work, null, exclusive);
+
+    public string EnqueueWithResult(
+        string type,
+        string description,
+        Func<IJobProgress, CancellationToken, Task> work,
+        string resultUrl,
+        bool exclusive = true)
+        => EnqueueCore(JobOwner.FromPrincipal(_principalAccessor?.Current), type, description, work, resultUrl, exclusive);
+
+    public string EnqueueOwned(
+        JobOwner owner,
+        string type,
+        string description,
+        Func<IJobProgress, CancellationToken, Task> work,
+        string? resultUrl = null,
+        bool exclusive = true)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        return EnqueueCore(owner, type, description, work, resultUrl, exclusive);
+    }
+
+    private string EnqueueCore(
+        JobOwner? owner,
+        string type,
+        string description,
+        Func<IJobProgress, CancellationToken, Task> work,
+        string? resultUrl,
+        bool exclusive)
     {
         var entry = new JobEntry
         {
@@ -54,7 +90,9 @@ public class JobService : IJobService, IHostedService
             Status = JobStatus.Pending,
             Progress = 0,
             StartedAt = DateTime.UtcNow,
-            Work = work
+            Work = work,
+            Owner = owner,
+            ResultUrl = resultUrl,
         };
 
         lock (_lock)
@@ -77,11 +115,16 @@ public class JobService : IJobService, IHostedService
     }
 
     public bool Cancel(string jobId)
+        => CancelFor(null, jobId, includeAll: true);
+
+    public bool CancelFor(JobOwner? owner, string jobId, bool includeAll)
     {
         JobEntry? cancelledPending = null;
         lock (_lock)
         {
             if (!_jobs.TryGetValue(jobId, out var entry))
+                return false;
+            if (!CanAccess(entry.Owner, owner, includeAll))
                 return false;
 
             if (entry.Status == JobStatus.Pending)
@@ -94,7 +137,10 @@ public class JobService : IJobService, IHostedService
             else if (entry.Cts != null)
             {
                 entry.Cts.Cancel();
-                entry.Status = JobStatus.Cancelled;
+                // Cancellation is a request, not a terminal outcome. In-flight deletion units finish
+                // their already-started transaction before the callback unwinds, so keep the job active
+                // until that work has actually stopped.
+                entry.SubTask = "Cancellation requested";
                 NotifyClients(entry);
                 return true;
             }
@@ -111,6 +157,9 @@ public class JobService : IJobService, IHostedService
     }
 
     public bool ReorderQueued(string jobId, string? beforeJobId)
+        => ReorderQueuedFor(null, jobId, beforeJobId, includeAll: true);
+
+    public bool ReorderQueuedFor(JobOwner? owner, string jobId, string? beforeJobId, bool includeAll)
     {
         JobEntry? moved;
         lock (_lock)
@@ -118,13 +167,18 @@ public class JobService : IJobService, IHostedService
             var currentIndex = _exclusiveQueue.FindIndex(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
             if (currentIndex < 0 || _exclusiveQueue[currentIndex].Status != JobStatus.Pending)
                 return false;
+            if (!CanAccess(_exclusiveQueue[currentIndex].Owner, owner, includeAll))
+                return false;
 
             moved = _exclusiveQueue[currentIndex];
             _exclusiveQueue.RemoveAt(currentIndex);
 
             var targetIndex = string.IsNullOrWhiteSpace(beforeJobId)
                 ? -1
-                : _exclusiveQueue.FindIndex(job => string.Equals(job.Id, beforeJobId, StringComparison.OrdinalIgnoreCase) && job.Status == JobStatus.Pending);
+                : _exclusiveQueue.FindIndex(job =>
+                    string.Equals(job.Id, beforeJobId, StringComparison.OrdinalIgnoreCase)
+                    && job.Status == JobStatus.Pending
+                    && CanAccess(job.Owner, owner, includeAll));
 
             if (targetIndex < 0)
                 _exclusiveQueue.Add(moved);
@@ -137,35 +191,58 @@ public class JobService : IJobService, IHostedService
     }
 
     public JobInfo? GetJob(string jobId)
+        => GetJobFor(null, jobId, includeAll: true);
+
+    public JobInfo? GetJobFor(JobOwner? owner, string jobId, bool includeAll)
     {
         lock (_lock)
         {
             if (_jobs.TryGetValue(jobId, out var entry))
-                return entry.ToInfo();
+                return CanAccess(entry.Owner, owner, includeAll) ? entry.ToInfo() : null;
 
-            return _history.FirstOrDefault(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
+            var historyEntry = _history.FirstOrDefault(job => string.Equals(job.Info.Id, jobId, StringComparison.OrdinalIgnoreCase));
+            return historyEntry is not null && CanAccess(historyEntry.Owner, owner, includeAll)
+                ? historyEntry.Info
+                : null;
         }
     }
 
     public IReadOnlyList<JobInfo> GetAllJobs()
+        => GetAllJobsFor(null, includeAll: true);
+
+    public IReadOnlyList<JobInfo> GetAllJobsFor(JobOwner? owner, bool includeAll)
     {
         lock (_lock)
         {
             var queuedIds = _exclusiveQueue.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var running = _jobs.Values
                 .Where(job => job.Status == JobStatus.Running || (job.Status == JobStatus.Pending && !queuedIds.Contains(job.Id)))
+                .Where(job => CanAccess(job.Owner, owner, includeAll))
                 .Select(job => job.ToInfo());
             var queued = _exclusiveQueue
                 .Where(job => job.Status == JobStatus.Pending)
+                .Where(job => CanAccess(job.Owner, owner, includeAll))
                 .Select(job => job.ToInfo());
             return running.Concat(queued).ToList();
         }
     }
 
     public IReadOnlyList<JobInfo> GetJobHistory()
+        => GetJobHistoryFor(null, includeAll: true);
+
+    public IReadOnlyList<JobInfo> GetJobHistoryFor(JobOwner? owner, bool includeAll)
     {
-        lock (_lock) { return [.. _history]; }
+        lock (_lock)
+        {
+            return _history
+                .Where(job => CanAccess(job.Owner, owner, includeAll))
+                .Select(job => job.Info)
+                .ToList();
+        }
     }
+
+    private static bool CanAccess(JobOwner? jobOwner, JobOwner? requestingOwner, bool includeAll)
+        => includeAll || (jobOwner is not null && jobOwner == requestingOwner);
 
     public async Task CancelAllAndWaitAsync(CancellationToken cancellationToken = default)
     {
@@ -393,7 +470,7 @@ public class JobService : IJobService, IHostedService
         lock (_lock)
         {
             _jobs.Remove(entry.Id);
-            _history.Insert(0, entry.ToInfo());
+            _history.Insert(0, new JobHistoryEntry(entry.Owner, entry.ToInfo()));
             if (_history.Count > MaxHistory)
                 _history.RemoveRange(MaxHistory, _history.Count - MaxHistory);
         }
@@ -405,17 +482,14 @@ public class JobService : IJobService, IHostedService
         NotifyClients(entry);
     }
 
-    private void RecalculateUnitProgress(JobEntry entry)
+    private static void RefreshUnitProgress(JobEntry entry)
     {
-        if (entry.Units.Count == 0)
+        var unitsTotal = entry.UnitsTotal.GetValueOrDefault();
+        if (unitsTotal == 0)
             return;
 
-        entry.UnitsTotal = entry.Units.Count;
-        entry.UnitsSucceeded = entry.Units.Values.Count(unit => unit.IsCompleted && unit.Outcome == JobUnitOutcome.Succeeded);
-        entry.UnitsFailed = entry.Units.Values.Count(unit => unit.IsCompleted && unit.Outcome == JobUnitOutcome.Failed);
-        entry.UnitsSkipped = entry.Units.Values.Count(unit => unit.IsCompleted && unit.Outcome == JobUnitOutcome.Skipped);
-        entry.UnitsCompleted = entry.UnitsSucceeded + entry.UnitsFailed + entry.UnitsSkipped;
-        entry.Progress = Math.Clamp(entry.Units.Values.Sum(unit => unit.IsCompleted ? 1d : unit.Progress) / entry.UnitsTotal.Value, 0d, 1d);
+        entry.UnitsCompleted = entry.UnitsSucceeded.GetValueOrDefault() + entry.UnitsFailed.GetValueOrDefault() + entry.UnitsSkipped.GetValueOrDefault();
+        entry.Progress = Math.Clamp(entry.UnitProgressTotal / unitsTotal, 0d, 1d);
         // ETA for unit-based jobs is driven by per-item completion durations (see ObserveUnitCompletion),
         // not the aggregate progress fraction, so a burst of concurrent/no-op completions can't yank it.
         entry.Summary = entry.UnitsCompleted < entry.UnitsTotal
@@ -438,7 +512,10 @@ public class JobService : IJobService, IHostedService
     private void NotifyClients(JobEntry entry)
     {
         var info = entry.ToInfo();
-        _ = _hubContext.Clients.All.SendAsync("JobUpdated", info);
+        var groups = entry.Owner is null
+            ? new[] { JobHub.GlobalGroup }
+            : new[] { JobHub.GlobalGroup, JobHub.OwnerGroup(entry.Owner) };
+        _ = _hubContext.Clients.Groups(groups).SendAsync("JobUpdated", info);
         _eventBus.Publish(new JobEvent(
             entry.Status switch
             {
@@ -465,12 +542,16 @@ public class JobService : IJobService, IHostedService
         public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Dictionary<string, JobUnitState> Units { get; } = new(StringComparer.Ordinal);
         internal JobEtaEstimator Eta { get; } = new();
+        internal double UnitProgressTotal { get; set; }
         public int? UnitsTotal { get; set; }
         public int? UnitsCompleted { get; set; }
         public int? UnitsSucceeded { get; set; }
         public int? UnitsFailed { get; set; }
         public int? UnitsSkipped { get; set; }
         public string? Summary { get; set; }
+        public JobOwner? Owner { get; set; }
+        public string? ResultUrl { get; set; }
+        internal bool AggregateUnitMode { get; set; }
 
         public JobInfo ToInfo()
         {
@@ -495,9 +576,12 @@ public class JobService : IJobService, IHostedService
                 UnitsSkipped,
                 Summary,
                 running ? Eta.EstimateSeconds(Progress, UnitsTotal, UnitsCompleted, now) : null,
-                running ? now : null);
+                running ? now : null,
+                ResultUrl);
         }
     }
+
+    private sealed record JobHistoryEntry(JobOwner? Owner, JobInfo Info);
 
     /// <summary>
     /// Estimates time-to-completion for a job.
@@ -692,13 +776,14 @@ public class JobService : IJobService, IHostedService
 
     private class JobProgress(JobEntry entry, JobService svc) : IJobProgress
     {
+        private readonly object _notifyLock = new();
         private DateTime _lastReport = DateTime.MinValue;
 
         public void Report(double progress, string? subTask = null)
         {
             lock (svc._lock)
             {
-                if (entry.Units.Count == 0 || entry.UnitsCompleted.GetValueOrDefault() >= entry.UnitsTotal.GetValueOrDefault())
+                if (!entry.UnitsTotal.HasValue || entry.UnitsCompleted.GetValueOrDefault() >= entry.UnitsTotal.GetValueOrDefault())
                 {
                     entry.Progress = Math.Clamp(progress, 0, 1);
                     entry.Eta.ObserveProgressFraction(entry.Progress, DateTime.UtcNow);
@@ -708,6 +793,18 @@ public class JobService : IJobService, IHostedService
             }
 
             MaybeNotify();
+        }
+
+        public void SetSummary(string summary)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+            lock (svc._lock)
+            {
+                entry.Summary = summary;
+                entry.SubTask = summary;
+                entry.Progress = 1d;
+            }
+            svc.UpdateProgress(entry);
         }
 
         public IJobUnit StartUnit(string unitId, string? label = null)
@@ -723,38 +820,92 @@ public class JobService : IJobService, IHostedService
                         StartedAt = DateTime.UtcNow,
                     };
                     entry.Units[unitId] = state;
-                    svc.RecalculateUnitProgress(entry);
+                    if (!entry.AggregateUnitMode)
+                        entry.UnitsTotal = entry.UnitsTotal.GetValueOrDefault() + 1;
+                    entry.UnitsSucceeded ??= 0;
+                    entry.UnitsFailed ??= 0;
+                    entry.UnitsSkipped ??= 0;
+                    RefreshUnitProgress(entry);
                 }
+
+                state.StartedAt = DateTime.UtcNow;
 
                 if (!string.IsNullOrWhiteSpace(label))
                     state.Label = label;
             }
 
-            svc.UpdateProgress(entry);
+            MaybeNotify();
             return new JobUnit(entry, unitId, svc, MaybeNotify);
+        }
+
+        public void DeclareUnits(IEnumerable<(string UnitId, string? Label)> units)
+        {
+            lock (svc._lock)
+            {
+                foreach (var (unitId, label) in units)
+                {
+                    if (!entry.Units.ContainsKey(unitId))
+                    {
+                        entry.Units[unitId] = new JobUnitState { UnitId = unitId, Label = label };
+                        entry.UnitsTotal = entry.UnitsTotal.GetValueOrDefault() + 1;
+                    }
+                }
+                entry.UnitsSucceeded ??= 0;
+                entry.UnitsFailed ??= 0;
+                entry.UnitsSkipped ??= 0;
+                RefreshUnitProgress(entry);
+            }
+            svc.UpdateProgress(entry);
+        }
+
+        public void DeclareUnitCount(int totalUnits)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(totalUnits);
+            lock (svc._lock)
+            {
+                if (entry.Units.Count > 0 || entry.UnitsCompleted.GetValueOrDefault() > 0)
+                    throw new InvalidOperationException("Unit totals must be declared before units start.");
+
+                entry.AggregateUnitMode = true;
+                entry.UnitsTotal = totalUnits;
+                entry.UnitsCompleted = 0;
+                entry.UnitsSucceeded = 0;
+                entry.UnitsFailed = 0;
+                entry.UnitsSkipped = 0;
+                RefreshUnitProgress(entry);
+            }
+            svc.UpdateProgress(entry);
         }
 
         private void MaybeNotify()
         {
             // Throttle SignalR updates to max 10/sec
-            var now = DateTime.UtcNow;
-            if ((now - _lastReport).TotalMilliseconds >= 100)
+            var shouldNotify = false;
+            lock (_notifyLock)
             {
-                _lastReport = now;
-                svc.UpdateProgress(entry);
+                var now = DateTime.UtcNow;
+                if ((now - _lastReport).TotalMilliseconds >= 100)
+                {
+                    _lastReport = now;
+                    shouldNotify = true;
+                }
             }
+            if (shouldNotify)
+                svc.UpdateProgress(entry);
         }
     }
 
     private sealed class JobUnit(JobEntry entry, string unitId, JobService svc, Action notify) : IJobUnit
     {
+        private JobUnitOutcome? _outcome;
+
         public JobUnitOutcome? Outcome
         {
             get
             {
                 lock (svc._lock)
                 {
-                    return entry.Units.TryGetValue(unitId, out var state) ? state.Outcome : null;
+                    return entry.Units.TryGetValue(unitId, out var state) ? state.Outcome : _outcome;
                 }
             }
         }
@@ -766,14 +917,16 @@ public class JobService : IJobService, IHostedService
                 if (!entry.Units.TryGetValue(unitId, out var state) || state.IsCompleted)
                     return;
 
-                state.Progress = Math.Clamp(progress, 0d, 1d);
+                var nextProgress = Math.Clamp(progress, 0d, 1d);
+                entry.UnitProgressTotal += nextProgress - state.Progress;
+                state.Progress = nextProgress;
                 if (!string.IsNullOrWhiteSpace(message))
                 {
                     state.Message = message;
                     entry.SubTask = message;
                 }
 
-                svc.RecalculateUnitProgress(entry);
+                RefreshUnitProgress(entry);
             }
 
             notify();
@@ -787,9 +940,11 @@ public class JobService : IJobService, IHostedService
                     return;
 
                 var completedAt = DateTime.UtcNow;
+                entry.UnitProgressTotal += 1d - state.Progress;
                 state.IsCompleted = true;
                 state.Progress = 1d;
                 state.Outcome = outcome;
+                _outcome = outcome;
                 state.Message = message ?? state.Message ?? state.Label;
 
                 if (!state.DurationObserved)
@@ -799,7 +954,13 @@ public class JobService : IJobService, IHostedService
                     entry.Eta.ObserveUnitCompletion(durationSeconds, completedAt);
                 }
 
-                svc.RecalculateUnitProgress(entry);
+                switch (outcome)
+                {
+                    case JobUnitOutcome.Succeeded: entry.UnitsSucceeded = entry.UnitsSucceeded.GetValueOrDefault() + 1; break;
+                    case JobUnitOutcome.Failed: entry.UnitsFailed = entry.UnitsFailed.GetValueOrDefault() + 1; break;
+                    case JobUnitOutcome.Skipped: entry.UnitsSkipped = entry.UnitsSkipped.GetValueOrDefault() + 1; break;
+                }
+                RefreshUnitProgress(entry);
 
                 if (!string.IsNullOrWhiteSpace(message))
                     entry.SubTask = message;
@@ -807,11 +968,20 @@ public class JobService : IJobService, IHostedService
                     entry.SubTask = entry.Summary;
             }
 
-            svc.UpdateProgress(entry);
+            notify();
         }
 
         public void Dispose()
         {
+            lock (svc._lock)
+            {
+                if (entry.AggregateUnitMode
+                    && entry.Units.TryGetValue(unitId, out var state)
+                    && state.IsCompleted)
+                {
+                    entry.Units.Remove(unitId);
+                }
+            }
         }
     }
 
@@ -828,5 +998,11 @@ public class JobService : IJobService, IHostedService
         // (e.g. already-scanned entities) from real work.
         public DateTime StartedAt { get; set; }
         public bool DurationObserved { get; set; }
+    }
+
+    internal int GetTrackedUnitCountForTests(string jobId)
+    {
+        lock (_lock)
+            return _jobs.TryGetValue(jobId, out var entry) ? entry.Units.Count : 0;
     }
 }

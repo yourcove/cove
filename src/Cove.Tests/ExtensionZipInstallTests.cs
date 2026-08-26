@@ -25,7 +25,7 @@ public sealed class ExtensionZipInstallTests : IDisposable
         var (controller, manager) = CreateController();
         var archive = CreateZip(("extension.json", Manifest("com.example.upload", "1.2.3")));
 
-        var result = await controller.InstallFromZip(FormFile(archive), true, default);
+        var result = await controller.InstallFromZip(FormFile(archive), true, TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result);
         var body = JsonSerializer.SerializeToElement(ok.Value);
@@ -42,9 +42,9 @@ public sealed class ExtensionZipInstallTests : IDisposable
     {
         var (controller, _) = CreateController();
 
-        Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(null, true, default));
-        Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(FormFile([]), true, default));
-        Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(FormFile(CreateZip(("extension.json", Manifest("com.example.upload", "1.0.0")))), false, default));
+        Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(null, true, TestContext.Current.CancellationToken));
+        Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(FormFile([]), true, TestContext.Current.CancellationToken));
+        Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(FormFile(CreateZip(("extension.json", Manifest("com.example.upload", "1.0.0")))), false, TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -53,7 +53,7 @@ public sealed class ExtensionZipInstallTests : IDisposable
     {
         var (controller, _) = CreateController();
 
-        var result = Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(FormFile(archive), true, default));
+        var result = Assert.IsType<BadRequestObjectResult>(await controller.InstallFromZip(FormFile(archive), true, TestContext.Current.CancellationToken));
 
         Assert.Contains(expectedMessage, Assert.IsType<string>(result.Value), StringComparison.OrdinalIgnoreCase);
         Assert.Empty(Directory.GetDirectories(ExtensionsDir(), ".upload-install-*"));
@@ -65,9 +65,9 @@ public sealed class ExtensionZipInstallTests : IDisposable
         var (controller, manager) = CreateController();
         var first = CreateZip(("extension.json", Manifest("com.example.replace", "1.0.0")), ("old.txt", "old"));
         var second = CreateZip(("extension.json", Manifest("com.example.replace", "2.0.0")), ("new.txt", "new"));
-        Assert.IsType<OkObjectResult>(await controller.InstallFromZip(FormFile(first), true, default));
+        Assert.IsType<OkObjectResult>(await controller.InstallFromZip(FormFile(first), true, TestContext.Current.CancellationToken));
 
-        var result = await controller.InstallFromZip(FormFile(second), true, default);
+        var result = await controller.InstallFromZip(FormFile(second), true, TestContext.Current.CancellationToken);
 
         Assert.IsType<OkObjectResult>(result);
         var installedDir = Path.Combine(ExtensionsDir(), "com.example.replace");
@@ -83,10 +83,7 @@ public sealed class ExtensionZipInstallTests : IDisposable
         var archive = CreateZip(("extension.json", Manifest("com.example.url", "3.0.0")));
         var (controller, manager) = CreateController(archive);
 
-        var result = await controller.InstallFromUrl(
-            new InstallExtensionFromUrlRequest { Url = "https://example.invalid/extension.zip", TrustUnverified = true },
-            new BytesHttpClientFactory(archive),
-            default);
+        var result = await controller.InstallFromUrl(new InstallExtensionFromUrlRequest { Url = "https://example.invalid/extension.zip", TrustUnverified = true }, new BytesHttpClientFactory(archive), TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result);
         Assert.Contains("from URL", JsonSerializer.SerializeToElement(ok.Value).GetProperty("message").GetString());

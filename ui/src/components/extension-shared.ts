@@ -115,11 +115,20 @@ export type { ImageSelectionActionsProps } from "./ImageSelectionActions";
 export { getDefaultFilter } from "./SavedFilterMenu";
 export { Pager } from "./Pager";
 export { VIDEO_SORT_OPTIONS } from "./videoSortOptions";
+export { GroupItemFeed } from "./GroupItemFeed";
+export type { GroupItemFeedProps } from "./GroupItemFeed";
 
 // ─── Hooks ────────────────────────────────────────────────────────────────
 export { useMultiSelect, toggleOptionsFromEvent, withOrderedToggle } from "../hooks/useMultiSelect";
 export type { MultiSelectToggleOptions, MultiSelectToggleHandler, BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
 export { useKeySequence } from "../hooks/useKeySequence";
+export {
+  useExtensionKeyboardBindings,
+  useRegisterExtensionKeyboardActions,
+  useRegisterKeyboardActionHandler,
+} from "../hooks/useRegisterKeyboardActionHandler";
+export type { ExtensionKeyboardActionRegistration } from "../hooks/useRegisterKeyboardActionHandler";
+export type { KeyboardActionInvocation } from "../keyboard/KeyboardShortcutProvider";
 export { useListUrlState } from "../hooks/useListUrlState";
 
 // ─── App Config (extensions run in the same React tree) ───────────────────

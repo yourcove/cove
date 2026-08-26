@@ -1,5 +1,6 @@
-using System.Text.Json;
+using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
 
@@ -42,6 +43,42 @@ public sealed partial class CoveClient
             new FileBackedCreateDto(filePath),
             cancellationToken);
 
+    public Task<VideoGenerationResult> GenerateVideoScreenshotAsync(
+        int videoId,
+        double? atSeconds,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<VideoGenerationResult>(
+            HttpMethod.Post,
+            $"/api/videos/{videoId}/generate-screenshot",
+            new { atSeconds },
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    public Task<VideoGenerationResult> SetVideoCoverFromFrameAsync(
+        int videoId,
+        double? atSeconds,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<VideoGenerationResult>(
+            HttpMethod.Post,
+            $"/api/videos/{videoId}/cover/from-frame",
+            new { atSeconds },
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    public async Task<string> RescanVideoAsync(
+        int videoId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await SendForExpectedStatusAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/videos/{videoId}/rescan",
+            payload: null,
+            HttpStatusCode.OK,
+            cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException($"POST /api/videos/{videoId}/rescan did not return a job id.");
+    }
+
     public Task<IReadOnlyList<VideoDto>> GetVideoWallAsync(
         string query,
         int count,
@@ -52,13 +89,84 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
-    public Task<IReadOnlyList<IReadOnlyList<VideoDto>>> FindDuplicateVideosAsync(
+    public async Task<IReadOnlyList<IReadOnlyList<VideoDto>>> FindDuplicateVideosAsync(
         string matchType,
+        int distance = 0,
         CancellationToken cancellationToken = default)
-        => SendAsync<IReadOnlyList<IReadOnlyList<VideoDto>>>(
+    {
+        var started = await StartDuplicateSearchAsync(
+            new DuplicateSearchRequestDto(matchType, distance),
+            cancellationToken);
+        var job = await WaitForTerminalJobAsync(started.JobId, cancellationToken);
+        if (job.Status != JobStatus.Completed)
+            throw new InvalidOperationException($"Duplicate search job '{started.JobId}' ended with status {job.Status}: {job.Error}");
+
+        var groups = new List<IReadOnlyList<VideoDto>>();
+        var pageNumber = 1;
+        DuplicateSearchGroupPageDto page;
+        do
+        {
+            page = await GetDuplicateSearchGroupsAsync(
+                started.SearchId,
+                pageNumber++,
+                perPage: 20,
+                cancellationToken: cancellationToken);
+            groups.AddRange(page.Items.Select(group => group.Videos));
+        }
+        while (page.HasMore);
+        return groups;
+    }
+
+    public Task<DuplicateSearchStartDto> StartDuplicateSearchAsync(
+        DuplicateSearchRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<DuplicateSearchStartDto>(
+            HttpMethod.Post,
+            "/api/videos/duplicate-searches",
+            request,
+            HttpStatusCode.Accepted,
+            cancellationToken);
+
+    public Task<DuplicateSearchInfoDto> GetDuplicateSearchAsync(
+        Guid searchId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DuplicateSearchInfoDto>(
             HttpMethod.Get,
-            WithCacheNonce($"/api/videos/duplicates?matchType={Uri.EscapeDataString(matchType)}"),
+            WithCacheNonce($"/api/videos/duplicate-searches/{searchId}"),
             payload: null,
+            cancellationToken);
+
+    public Task<DuplicateSearchGroupPageDto> GetDuplicateSearchGroupsAsync(
+        Guid searchId,
+        int page = 1,
+        int perPage = 10,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DuplicateSearchGroupPageDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/duplicate-searches/{searchId}/groups?page={page}&perPage={perPage}"),
+            payload: null,
+            cancellationToken);
+
+    public Task UpdateDuplicateSearchGroupDecisionAsync(
+        Guid searchId,
+        int groupId,
+        DuplicateSearchGroupDecisionDto request,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Patch,
+            $"/api/videos/duplicate-searches/{searchId}/groups/{groupId}",
+            request,
+            cancellationToken);
+
+    public Task<BulkDeletionJobStartResponse> DeleteUnkeptDuplicateVideosAsync(
+        Guid searchId,
+        DuplicateSearchDeleteRequestDto request,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
+            HttpMethod.Post,
+            $"/api/videos/duplicate-searches/{searchId}/delete-unkept",
+            request,
+            HttpStatusCode.Accepted,
             cancellationToken);
 
     public Task<PaginatedResponse<VideoListEntryDto>> GetVideosWithCompilationsAsync(
@@ -72,12 +180,13 @@ public sealed partial class CoveClient
 
     public Task<VideoDto> MergeVideosAsync(
         VideoDto target,
+        CancellationToken cancellationToken,
         params VideoDto[] sources)
         => SendAsync<VideoDto>(
             HttpMethod.Post,
             "/api/videos/merge",
             new VideoMergeDto(target.Id, sources.Select(source => source.Id).ToList()),
-            CancellationToken.None);
+            cancellationToken);
 
     public Task<VideoDto> MergeVideosAsync(
         VideoDto target,
@@ -219,17 +328,15 @@ public sealed partial class CoveClient
             new { },
             cancellationToken);
 
-    public async Task<int> DestroyVideosAsync(
+    public Task<BulkDeletionJobStartResponse> DestroyVideosAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Post,
             "/api/videos/destroy",
             request,
+            HttpStatusCode.Accepted,
             cancellationToken);
-        return response.GetProperty("deleted").GetInt32();
-    }
 
     public async Task DeleteVideoAsync(
         int videoId,
@@ -296,3 +403,5 @@ public sealed partial class CoveClient
             },
             cancellationToken);
 }
+
+public sealed record VideoGenerationResult(bool Success);

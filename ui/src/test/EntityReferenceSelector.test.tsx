@@ -272,6 +272,19 @@ describe("EntityReferenceMultiSelector", () => {
 });
 
 describe("EntityReferenceSelector", () => {
+  it("associates an external label with the combobox input", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <label htmlFor="starting-performer">Starting performer</label>
+        <EntityReferenceSelector entityType="tag" inputId="starting-performer" onChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText("Starting performer")).toHaveAttribute("id", "starting-performer");
+  });
+
   it("returns focus to the input after keyboard-clearing an input-displayed selection", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -4,11 +4,9 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Videos;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class VideoMergeApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -23,18 +21,18 @@ public sealed class VideoMergeApiTests(
         var target = await AsUser().CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Merge association target {suffix}")
             .WithRemoteId(targetRemoteId.Endpoint, targetRemoteId.RemoteId)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var source = await AsUser().CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Merge association source {suffix}")
             .WithRemoteId(sourceRemoteId.Endpoint, sourceRemoteId.RemoteId)
-            .Build());
-        var group = await AsUser().CreateGroupAsync($"Merge association group {suffix}");
-        await AsUser().AddVideoToGroupAsync(source, group);
+            .Build(), TestContext.Current.CancellationToken);
+        var group = await AsUser().CreateGroupAsync($"Merge association group {suffix}", TestContext.Current.CancellationToken);
+        await AsUser().AddVideoToGroupAsync(source, group, TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
-        var persisted = await AsUser().GetVideoByIdAsync(target.Id);
-        var groupItems = await AsUser().GetGroupItemsAsync(group);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
+        var persisted = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var groupItems = await AsUser().GetGroupItemsAsync(group, TestContext.Current.CancellationToken);
 
         // Assert
         persisted.RemoteIds.Should().BeEquivalentTo(new[] { targetRemoteId, sourceRemoteId });
@@ -46,21 +44,21 @@ public sealed class VideoMergeApiTests(
     {
         // Arrange
         var suffix = Guid.NewGuid().ToString("N");
-        var target = await AsUser().CreateVideoAsync($"Merge child target {suffix}");
-        var source = await AsUser().CreateVideoAsync($"Merge child source {suffix}");
-        await AsDbUser().AttachVideoFileAsync(source.Id, duration: 60, size: 1);
+        var target = await AsUser().CreateVideoAsync($"Merge child target {suffix}", TestContext.Current.CancellationToken);
+        var source = await AsUser().CreateVideoAsync($"Merge child source {suffix}", TestContext.Current.CancellationToken);
+        await AsDbUser().AttachVideoFileAsync(source.Id, duration: 60, size: 1, cancellationToken: TestContext.Current.CancellationToken);
         var childRequest = new VideoBuilder().WithTitle($"Merge child {suffix}").Build() with
         {
             ParentVideoId = source.Id,
             ClipStartSec = 10,
             ClipEndSec = 20,
         };
-        var child = await AsUser().CreateVideoAsync(childRequest);
+        var child = await AsUser().CreateVideoAsync(childRequest, TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
-        var persistedChild = await AsUser().GetVideoByIdAsync(child.Id);
-        var persistedTarget = await AsUser().GetVideoByIdAsync(target.Id);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
+        var persistedChild = await AsUser().GetVideoByIdAsync(child.Id, TestContext.Current.CancellationToken);
+        var persistedTarget = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
 
         // Assert
         persistedChild.ParentVideoId.Should().Be(target.Id);
@@ -74,39 +72,39 @@ public sealed class VideoMergeApiTests(
     {
         // Arrange
         var suffix = Guid.NewGuid().ToString("N");
-        var source = await AsUser().CreateVideoAsync($"Merge ancestor source {suffix}");
-        await AsDbUser().AttachVideoFileAsync(source.Id, duration: 60, size: 1);
+        var source = await AsUser().CreateVideoAsync($"Merge ancestor source {suffix}", TestContext.Current.CancellationToken);
+        await AsDbUser().AttachVideoFileAsync(source.Id, duration: 60, size: 1, cancellationToken: TestContext.Current.CancellationToken);
         var child = await AsUser().CreateVideoAsync(new VideoBuilder().WithTitle($"Merge direct child {suffix}").Build() with
         {
             ParentVideoId = source.Id,
             ClipStartSec = 5,
             ClipEndSec = 40,
-        });
+        }, TestContext.Current.CancellationToken);
         var grandchild = await AsUser().CreateVideoAsync(new VideoBuilder().WithTitle($"Merge deep child {suffix}").Build() with
         {
             ParentVideoId = child.Id,
             ClipStartSec = 10,
             ClipEndSec = 20,
-        });
-        await AsDbUser().SetVideoParentAsync(grandchild.Id, child.Id);
+        }, TestContext.Current.CancellationToken);
+        await AsDbUser().SetVideoParentAsync(grandchild.Id, child.Id, TestContext.Current.CancellationToken);
 
         // Act
-        var directMerge = () => AsUser().MergeVideosAsync(child, source);
-        var deepMerge = () => AsUser().MergeVideosAsync(grandchild, source);
+        var directMerge = () => AsUser().MergeVideosAsync(child, TestContext.Current.CancellationToken, source);
+        var deepMerge = () => AsUser().MergeVideosAsync(grandchild, TestContext.Current.CancellationToken, source);
 
         // Assert
         await directMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
         await deepMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-        (await AsUser().GetVideoByIdAsync(source.Id)).Id.Should().Be(source.Id);
-        (await AsUser().GetVideoByIdAsync(child.Id)).ParentVideoId.Should().Be(source.Id);
-        (await AsUser().GetVideoByIdAsync(grandchild.Id)).ParentVideoId.Should().Be(child.Id);
+        (await AsUser().GetVideoByIdAsync(source.Id, TestContext.Current.CancellationToken)).Id.Should().Be(source.Id);
+        (await AsUser().GetVideoByIdAsync(child.Id, TestContext.Current.CancellationToken)).ParentVideoId.Should().Be(source.Id);
+        (await AsUser().GetVideoByIdAsync(grandchild.Id, TestContext.Current.CancellationToken)).ParentVideoId.Should().Be(child.Id);
 
-        var unrelatedSource = await AsUser().CreateVideoAsync($"Merge cycle source {suffix}");
-        await AsDbUser().SetVideoParentAsync(child.Id, grandchild.Id);
+        var unrelatedSource = await AsUser().CreateVideoAsync($"Merge cycle source {suffix}", TestContext.Current.CancellationToken);
+        await AsDbUser().SetVideoParentAsync(child.Id, grandchild.Id, TestContext.Current.CancellationToken);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var cycleMerge = () => AsUser().MergeVideosAsync(child, new[] { unrelatedSource }, timeout.Token);
         await cycleMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
-        (await AsUser().GetVideoByIdAsync(unrelatedSource.Id)).Id.Should().Be(unrelatedSource.Id);
+        (await AsUser().GetVideoByIdAsync(unrelatedSource.Id, TestContext.Current.CancellationToken)).Id.Should().Be(unrelatedSource.Id);
     }
 
     [Fact]
@@ -115,19 +113,19 @@ public sealed class VideoMergeApiTests(
         // Arrange
         var suffix = Guid.NewGuid().ToString("N");
         var eva = AsUser(ApiTestUsers.Eva);
-        var target = await AsUser().CreateVideoAsync($"Merge hosted-data target {suffix}");
-        var source = await AsUser().CreateVideoAsync($"Merge hosted-data source {suffix}");
-        var segment = await AsUser().CreateVideoSegmentAsync(source, $"Merge segment {suffix}");
-        var detection = await AsUser().CreateVideoDetectionAsync(source, $"merge-detection-{suffix}");
-        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Merge span profile {suffix}", null, false));
-        await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("api-test", "chapter", null, null, SegmentHostType.Video, true, null, null, null, false, null, 1, 100));
-        (await eva.GetVideoResolvedSpansAsync(target, profile.Id)).Spans.Should().BeEmpty();
+        var target = await AsUser().CreateVideoAsync($"Merge hosted-data target {suffix}", TestContext.Current.CancellationToken);
+        var source = await AsUser().CreateVideoAsync($"Merge hosted-data source {suffix}", TestContext.Current.CancellationToken);
+        var segment = await AsUser().CreateVideoSegmentAsync(source, $"Merge segment {suffix}", TestContext.Current.CancellationToken);
+        var detection = await AsUser().CreateVideoDetectionAsync(source, $"merge-detection-{suffix}", TestContext.Current.CancellationToken);
+        var profile = await eva.CreateSegmentDisplayProfileAsync(new SegmentDisplayProfileCreateDto($"Merge span profile {suffix}", null, false), TestContext.Current.CancellationToken);
+        await eva.CreateSegmentDisplayRuleAsync(profile.Id, new SegmentDisplayRuleCreateDto("api-test", "chapter", null, null, SegmentHostType.Video, true, null, null, null, false, null, 1, 100), TestContext.Current.CancellationToken);
+        (await eva.GetVideoResolvedSpansAsync(target, profile.Id, TestContext.Current.CancellationToken)).Spans.Should().BeEmpty();
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
-        var targetSegments = await AsUser().GetVideoSegmentsAsync(target);
-        var targetDetections = await AsUser().GetVideoDetectionsAsync(target);
-        var targetSpans = await eva.GetVideoResolvedSpansAsync(target, profile.Id);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
+        var targetSegments = await AsUser().GetVideoSegmentsAsync(target, TestContext.Current.CancellationToken);
+        var targetDetections = await AsUser().GetVideoDetectionsAsync(target, TestContext.Current.CancellationToken);
+        var targetSpans = await eva.GetVideoResolvedSpansAsync(target, profile.Id, TestContext.Current.CancellationToken);
 
         // Assert
         targetSegments.Should().ContainSingle(item => item.Id == segment.Id)
@@ -148,16 +146,16 @@ public sealed class VideoMergeApiTests(
             .WithTitle($"Merge dedup target {suffix}")
             .WithUrl(targetUrl)
             .WithRemoteId("https://metadata.example/graphql", $"remote-{suffix}")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var source = await AsUser().CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Merge dedup source {suffix}")
             .WithUrl(targetUrl.ToUpperInvariant())
             .WithRemoteId("HTTPS://METADATA.EXAMPLE/GRAPHQL", $"REMOTE-{suffix}")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().MergeVideosAsync(target, source);
-        var persisted = await AsUser().GetVideoByIdAsync(target.Id);
+        await AsUser().MergeVideosAsync(target, TestContext.Current.CancellationToken, source);
+        var persisted = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
 
         // Assert
         persisted.Urls.Should().ContainSingle().Which.Should().Be(targetUrl);
@@ -170,16 +168,16 @@ public sealed class VideoMergeApiTests(
     public async Task GivenSelectedVideoSources_WhenMerged_ThenFilesAndDistinctRelationshipsMoveToTheTargetAndSourcesAreDeleted()
     {
         // Arrange
-        var targetTag = await AsUser().CreateTagAsync($"Target tag {Guid.NewGuid():N}");
-        var firstSourceTag = await AsUser().CreateTagAsync($"First source tag {Guid.NewGuid():N}");
-        var secondSourceTag = await AsUser().CreateTagAsync($"Second source tag {Guid.NewGuid():N}");
-        var sharedSourceTag = await AsUser().CreateTagAsync($"Shared source tag {Guid.NewGuid():N}");
-        var targetPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Target performer {Guid.NewGuid():N}").Build());
-        var firstSourcePerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"First source performer {Guid.NewGuid():N}").Build());
-        var secondSourcePerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Second source performer {Guid.NewGuid():N}").Build());
-        var sharedSourcePerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Shared source performer {Guid.NewGuid():N}").Build());
-        var targetGallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle($"Target gallery {Guid.NewGuid():N}").Build());
-        var sourceGallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle($"Source gallery {Guid.NewGuid():N}").Build());
+        var targetTag = await AsUser().CreateTagAsync($"Target tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var firstSourceTag = await AsUser().CreateTagAsync($"First source tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var secondSourceTag = await AsUser().CreateTagAsync($"Second source tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var sharedSourceTag = await AsUser().CreateTagAsync($"Shared source tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var targetPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Target performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var firstSourcePerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"First source performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var secondSourcePerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Second source performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var sharedSourcePerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Shared source performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var targetGallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle($"Target gallery {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var sourceGallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle($"Source gallery {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
         var targetUrl = $"https://merge.example/target/{Guid.NewGuid():N}";
         var sourceUrl = $"https://merge.example/source/{Guid.NewGuid():N}";
         var target = await AsUser().CreateVideoAsync(new VideoBuilder()
@@ -188,52 +186,52 @@ public sealed class VideoMergeApiTests(
             .WithPerformers([targetPerformer])
             .WithGallery(targetGallery)
             .WithUrl(targetUrl)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var firstSourcePath = AsTestFileSystem().CreateTextFile("A first source file that must move during merge.");
         var secondSourcePath = AsTestFileSystem().CreateTextFile("A second source file that must move during merge.");
-        var firstSource = await AsUser().CreateVideoFromFileAsync(firstSourcePath);
+        var firstSource = await AsUser().CreateVideoFromFileAsync(firstSourcePath, TestContext.Current.CancellationToken);
         firstSource = await AsUser().UpdateVideoAsync(firstSource.Id, new
         {
             tagIds = new[] { firstSourceTag.Id, sharedSourceTag.Id },
             performerIds = new[] { firstSourcePerformer.Id, sharedSourcePerformer.Id },
             galleryIds = new[] { sourceGallery.Id },
             urls = new[] { sourceUrl },
-        });
-        var secondSource = await AsUser().CreateVideoFromFileAsync(secondSourcePath);
+        }, TestContext.Current.CancellationToken);
+        var secondSource = await AsUser().CreateVideoFromFileAsync(secondSourcePath, TestContext.Current.CancellationToken);
         secondSource = await AsUser().UpdateVideoAsync(secondSource.Id, new
         {
             tagIds = new[] { secondSourceTag.Id, sharedSourceTag.Id },
             performerIds = new[] { secondSourcePerformer.Id, sharedSourcePerformer.Id },
             galleryIds = new[] { sourceGallery.Id },
             urls = new[] { sourceUrl },
-        });
+        }, TestContext.Current.CancellationToken);
         var control = await AsUser().CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Merge control {Guid.NewGuid():N}")
             .WithTags([sharedSourceTag])
             .WithPerformers([sharedSourcePerformer])
             .WithGallery(sourceGallery)
             .WithUrl(sourceUrl)
-            .Build());
-        var forbiddenMerge = () => AsUser(ApiTestUsers.Eva).MergeVideosAsync(target, firstSource, secondSource);
+            .Build(), TestContext.Current.CancellationToken);
+        var forbiddenMerge = () => AsUser(ApiTestUsers.Eva).MergeVideosAsync(
+            target, TestContext.Current.CancellationToken, firstSource, secondSource);
         await forbiddenMerge.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        var memberRole = (await AsUser().GetRolesAsync()).Single(role => role.Name == BuiltinRoles.Member);
-        await AsUser().UpdateRoleAsync(
-            memberRole.Id,
-            new UpdateRoleRequest(
+        var memberRole = (await AsUser().GetRolesAsync(TestContext.Current.CancellationToken)).Single(role => role.Name == BuiltinRoles.Member);
+        await AsUser().UpdateRoleAsync(memberRole.Id, new UpdateRoleRequest(
                 Description: null,
-                Permissions: memberRole.Permissions.Append(Permissions.VideosDelete).Distinct().ToArray()));
+                Permissions: memberRole.Permissions.Append(Permissions.VideosDelete).Distinct().ToArray()), TestContext.Current.CancellationToken);
         await AsUser().CreateContentRuleAsync(new CreateContentRuleRequest(
             memberRole.Id,
             EntityKinds.Performer,
             Effect: "deny",
             ScopeKind: "all",
             ScopeValue: "{}",
-            AppliesTo: "read"));
+            AppliesTo: "read"), TestContext.Current.CancellationToken);
 
         // Act
-        var merged = await AsUser(ApiTestUsers.Eva).MergeVideosAsync(target, firstSource, secondSource);
-        var persisted = await AsUser().GetVideoByIdAsync(target.Id);
-        var controlAfter = await AsUser().GetVideoByIdAsync(control.Id);
+        var merged = await AsUser(ApiTestUsers.Eva).MergeVideosAsync(
+            target, TestContext.Current.CancellationToken, firstSource, secondSource);
+        var persisted = await AsUser().GetVideoByIdAsync(target.Id, TestContext.Current.CancellationToken);
+        var controlAfter = await AsUser().GetVideoByIdAsync(control.Id, TestContext.Current.CancellationToken);
 
         // Assert
         merged.Id.Should().Be(target.Id);

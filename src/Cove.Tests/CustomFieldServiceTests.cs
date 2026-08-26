@@ -29,7 +29,7 @@ public class CustomFieldServiceTests
                 EntityTypes = [CustomFieldEntityTypes.Performer],
                 DisplayOrder = 10,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new CustomFieldService(context);
         var existingDefinitions = await service.GetDefinitionsAsync(ct: CancellationToken.None);
@@ -78,7 +78,7 @@ public class CustomFieldServiceTests
 
         var persistedDefinitions = await context.CustomFieldDefinitions
             .OrderBy(definition => definition.DisplayOrder)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, persistedDefinitions.Count);
         Assert.DoesNotContain(persistedDefinitions, definition => definition.Key == "legacy_code");

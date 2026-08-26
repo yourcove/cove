@@ -29,7 +29,7 @@ public sealed class TagProvenanceServiceTests
         var addedTag = new Tag { Name = "Added" };
 
         context.AddRange(video, manualTag, keptTag, addedTag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             new TagApplication
@@ -67,23 +67,18 @@ public sealed class TagProvenanceServiceTests
                 ModelKey = "tagger-v1",
                 Confidence = 0.77f,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         ITagProvenanceService service = new TagProvenanceService(context, logger: logger);
 
-        await service.SyncTagSetAsync(
-            AffinityHostType.Video,
-            video.Id,
-            [manualTag.Id, keptTag.Id],
-            [keptTag.Id, addedTag.Id],
-            sourceKey: "User");
-        await context.SaveChangesAsync();
+        await service.SyncTagSetAsync(AffinityHostType.Video, video.Id, [manualTag.Id, keptTag.Id], [keptTag.Id, addedTag.Id], sourceKey: "User", cancellationToken: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var applications = await context.TagApplications
             .Where(application => application.HostType == AffinityHostType.Video && application.HostId == video.Id)
             .OrderBy(application => application.TagId)
             .ThenBy(application => application.SourceKey)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(applications, application => application.TagId == manualTag.Id && application.SourceKey == "ext:ai.tagging");
         Assert.DoesNotContain(applications, application => application.TagId == manualTag.Id && application.SourceKey == "user");
@@ -104,17 +99,17 @@ public sealed class TagProvenanceServiceTests
         var image = new Image { Title = "Tagged Image" };
         var tag = new Tag { Name = "Action" };
         context.AddRange(image, tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         ITagProvenanceService service = new TagProvenanceService(context);
 
-        await service.RecordAsync(AffinityHostType.Image, image.Id, tag.Id, "ext:ai.tagging", "run-1", "tagger-v1", 0.41f);
-        await service.RecordAsync(AffinityHostType.Image, image.Id, tag.Id, "ext:ai.tagging", "run-1", "tagger-v1", 0.83f);
-        await context.SaveChangesAsync();
+        await service.RecordAsync(AffinityHostType.Image, image.Id, tag.Id, "ext:ai.tagging", "run-1", "tagger-v1", 0.41f, cancellationToken: TestContext.Current.CancellationToken);
+        await service.RecordAsync(AffinityHostType.Image, image.Id, tag.Id, "ext:ai.tagging", "run-1", "tagger-v1", 0.83f, cancellationToken: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var applications = await context.TagApplications
             .Where(application => application.HostType == AffinityHostType.Image && application.HostId == image.Id)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         var application = Assert.Single(applications);
         Assert.Equal(0.83f, application.Confidence);
@@ -128,7 +123,7 @@ public sealed class TagProvenanceServiceTests
         var firstTag = new Tag { Name = "First" };
         var secondTag = new Tag { Name = "Second" };
         context.AddRange(firstTag, secondTag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new VideosController(
             new VideoRepository(context),
@@ -152,7 +147,7 @@ public sealed class TagProvenanceServiceTests
 
         var createdApplications = await context.TagApplications
             .Where(application => application.HostType == AffinityHostType.Video && application.HostId == createdVideo.Id)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Single(createdApplications);
         Assert.Equal(firstTag.Id, createdApplications[0].TagId);
         Assert.Equal("user", createdApplications[0].SourceKey);
@@ -166,14 +161,14 @@ public sealed class TagProvenanceServiceTests
 
         var updatedApplications = await context.TagApplications
             .Where(application => application.HostType == AffinityHostType.Video && application.HostId == createdVideo.Id)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         var updatedApplication = Assert.Single(updatedApplications);
         Assert.Equal(secondTag.Id, updatedApplication.TagId);
         Assert.Equal("user", updatedApplication.SourceKey);
 
         var deleteResult = await controller.Delete(createdVideo.Id, false, false, CancellationToken.None);
         Assert.IsType<NoContentResult>(deleteResult);
-        Assert.Empty(await context.TagApplications.Where(application => application.HostType == AffinityHostType.Video && application.HostId == createdVideo.Id).ToListAsync());
+        Assert.Empty(await context.TagApplications.Where(application => application.HostType == AffinityHostType.Video && application.HostId == createdVideo.Id).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -183,7 +178,7 @@ public sealed class TagProvenanceServiceTests
 
         var video = new Video { Title = "Scraped Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new VideoMetadataApplyService(context, new EventBus(), new NoOpVideoCoverService(), new TagProvenanceService(context));
 
@@ -198,8 +193,8 @@ public sealed class TagProvenanceServiceTests
 
         Assert.True(applied);
 
-        var application = await context.TagApplications.SingleAsync();
-        var tag = await context.Tags.SingleAsync();
+        var application = await context.TagApplications.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var tag = await context.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(AffinityHostType.Video, application.HostType);
         Assert.Equal(video.Id, application.HostId);
@@ -213,15 +208,15 @@ public sealed class TagProvenanceServiceTests
         await using var context = CreateContext();
         var video = new Video { Title = "Tracked Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new FieldProvenanceService(context);
-        await service.RecordAsync(AffinityHostType.Video, video.Id, "Title", "First Title", "scraper");
-        await context.SaveChangesAsync();
-        await service.RecordAsync(AffinityHostType.Video, video.Id, "title", "Second Title", "scraper");
-        await context.SaveChangesAsync();
+        await service.RecordAsync(AffinityHostType.Video, video.Id, "Title", "First Title", "scraper", cancellationToken: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await service.RecordAsync(AffinityHostType.Video, video.Id, "title", "Second Title", "scraper", cancellationToken: TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var rows = await service.GetForHostAsync(AffinityHostType.Video, video.Id);
+        var rows = await service.GetForHostAsync(AffinityHostType.Video, video.Id, TestContext.Current.CancellationToken);
         var row = Assert.Single(rows);
 
         Assert.Equal("title", row.FieldKey);
@@ -237,7 +232,7 @@ public sealed class TagProvenanceServiceTests
 
         var video = new Video { Title = "Original Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var fieldProvenance = new FieldProvenanceService(context);
         var service = new VideoMetadataApplyService(context, new EventBus(), new NoOpVideoCoverService(), new TagProvenanceService(context), fieldProvenance);
@@ -257,7 +252,7 @@ public sealed class TagProvenanceServiceTests
 
         Assert.True(applied);
 
-        var rows = await fieldProvenance.GetForHostAsync(AffinityHostType.Video, video.Id);
+        var rows = await fieldProvenance.GetForHostAsync(AffinityHostType.Video, video.Id, TestContext.Current.CancellationToken);
         Assert.Contains(rows, row => row.FieldKey == "title" && row.Value.HasValue && row.Value.Value.GetString() == "Scraped Title");
         Assert.Contains(rows, row => row.FieldKey == "details" && row.Value.HasValue && row.Value.Value.GetString() == "Scraped details");
         Assert.Contains(rows, row => row.FieldKey == "date" && row.Value.HasValue && row.Value.Value.GetString() == "2024-05-01");
@@ -283,7 +278,7 @@ public sealed class TagProvenanceServiceTests
                 StartedAt = DateTime.UtcNow.AddMinutes(-2),
                 CompletedAt = DateTime.UtcNow.AddMinutes(-1),
             });
-        await callerContext.SaveChangesAsync();
+        await callerContext.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await using var lookupContext = CreateContext();
         lookupContext.AddRange(
@@ -299,7 +294,7 @@ public sealed class TagProvenanceServiceTests
                 ModelKey = "tagger-v1",
                 Confidence = 0.91f,
             });
-        await lookupContext.SaveChangesAsync();
+        await lookupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var scopeFactory = new FixedScopeFactory(lookupContext);
         var service = new TagProvenanceService(callerContext, scopeFactory);
@@ -307,14 +302,14 @@ public sealed class TagProvenanceServiceTests
         await using var reader = callerContext.AiRuns
             .AsNoTracking()
             .AsAsyncEnumerable()
-            .GetAsyncEnumerator();
+            .GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
         Assert.True(await reader.MoveNextAsync());
 
-        var fallbackLookup = await new TagProvenanceService(callerContext).GetLookupAsync(AffinityHostType.Video, 1, [1]);
+        var fallbackLookup = await new TagProvenanceService(callerContext).GetLookupAsync(AffinityHostType.Video, 1, [1], TestContext.Current.CancellationToken);
         Assert.Empty(fallbackLookup);
 
-        var lookup = await service.GetLookupAsync(AffinityHostType.Video, 1, [1]);
+        var lookup = await service.GetLookupAsync(AffinityHostType.Video, 1, [1], TestContext.Current.CancellationToken);
 
         Assert.True(scopeFactory.ScopeCreated);
         var provenance = Assert.Single(lookup[1]);

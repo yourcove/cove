@@ -72,6 +72,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
   const canReadStudio = canReadEntity("studio", hasPermission);
   const canStreamAudio = hasPermission("stream.read");
   const canReadFiles = hasPermission("files.read");
+  const canDeleteFiles = hasPermission("files.delete");
   const trackingEnabled = user?.uiPreferences?.tracking?.enabled ?? true;
   const canEngageAudio = canReadAudio && (user?.kind === "user" || user?.kind === "system");
   const trackAudioActivity = canEngageAudio && trackingEnabled;
@@ -420,7 +421,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
         onCancel={() => { deleteAudioMut.reset(); setConfirmDelete(false); }}
         isPending={deleteAudioMut.isPending}
         errorMessage={getMutationErrorMessage(deleteAudioMut.error)}
-        showDeleteFile
+        showDeleteFile={canDeleteFiles}
         showDeleteGenerated
       />
       <MediaDetailLayout.Content>

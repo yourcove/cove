@@ -69,11 +69,18 @@ public class EmbeddingsController(CoveContext db, IEmbeddingService embeddingSer
 
     [HttpDelete]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<AiDataPurgeResultDto>> Delete([FromBody] AiDataSelectorDto selector, CancellationToken cancellationToken)
     {
         if (aiDataPurgeService is null)
         {
             return Problem("AI data purge service is unavailable.", statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        if (!AiDataPurgeService.TryValidateDestructiveSelector(selector, out var error, scopeKinds: ["embedding"]))
+        {
+            return BadRequest(new { error });
         }
 
         var removedCount = await aiDataPurgeService.DeleteEmbeddingsAsync(selector, dryRun: false, cancellationToken);

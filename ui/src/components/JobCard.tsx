@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle, XCircle, Ban, Clock, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Ban, Clock, Trash2, ChevronUp, ChevronDown, ExternalLink } from "lucide-react";
 import type { JobInfo } from "../api/types";
 import { formatDateTime } from "../utils/dateFormat";
 
@@ -148,6 +148,15 @@ export function JobCard({ job, variant = "drawer", onCancel, onMoveUp, onMoveDow
                 Finished {formatDateTime(job.completedAt)}
               </p>
               {counts && <p className="text-xs text-muted">{counts}</p>}
+              {job.status === "completed" && job.resultUrl && (
+                <a
+                  href={job.resultUrl}
+                  className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+                >
+                  Open results
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
           )}
         </div>

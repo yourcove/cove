@@ -448,6 +448,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
 
     return [
       {
+        id: "detail.edit",
         key: "e",
         description: canWriteSegments ? "Edit segment" : "Open segment details",
         handler: () => {
@@ -458,6 +459,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         },
       },
       {
+        id: "detail.segment.parent",
         key: "s",
         description: "Open parent video",
         handler: () => {
@@ -467,6 +469,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         },
       },
       {
+        id: "detail.previous",
         key: "[",
         description: "Open previous segment",
         handler: () => {
@@ -476,6 +479,7 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         },
       },
       {
+        id: "detail.next",
         key: "]",
         description: "Open next segment",
         handler: () => {

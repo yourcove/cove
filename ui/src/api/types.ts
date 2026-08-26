@@ -255,6 +255,8 @@ export interface Tag {
   groupCount?: number;
   performerCount?: number;
   studioCount?: number;
+  audioCount?: number;
+  textCount?: number;
   provenance?: TagProvenance[];
 }
 
@@ -782,6 +784,61 @@ export interface DeleteEntityOptions {
   deleteGenerated?: boolean;
 }
 
+export interface BulkDeletionJobStart {
+  jobId: string;
+  itemCount: number;
+}
+
+export type DuplicateSearchStatus = "pending" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+
+export interface DuplicateSearchRequest {
+  matchType: "fingerprint" | "phash" | "title" | "remoteId";
+  distance?: number;
+  durationDiff?: number | null;
+}
+
+export interface DuplicateSearchStart {
+  searchId: string;
+  jobId: string;
+  candidateCount: number;
+}
+
+export interface DuplicateSearchInfo {
+  id: string;
+  jobId?: string | null;
+  matchType: string;
+  distance: number;
+  durationDiff: number;
+  status: DuplicateSearchStatus;
+  error?: string | null;
+  candidateCount: number;
+  groupCount: number;
+  videoCount: number;
+  unkeptVideoCount: number;
+  unkeptFileCount: number;
+  unkeptBytes: number;
+  deletionJobId?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  expiresAt: string;
+}
+
+export interface DuplicateSearchGroup {
+  id: number;
+  position: number;
+  videos: Video[];
+  keepVideoIds: number[];
+}
+
+export interface DuplicateSearchGroupPage {
+  items: DuplicateSearchGroup[];
+  totalCount: number;
+  page: number;
+  perPage: number;
+  hasMore: boolean;
+}
+
 export type GroupKind = "static" | "dynamic";
 
 export interface Group {
@@ -923,7 +980,7 @@ export interface GroupPlaybackManifestItem {
   videoTitle?: string;
   src: string;
   startSec: number;
-  endSec?: number;
+  endSec?: number | null;
   durationSec?: number;
   displayDurationSec?: number | null;
   posterPath?: string;
@@ -1871,11 +1928,36 @@ export interface UserUiPreferences {
   tracking?: UserTrackingPreferences | null;
   videos?: UserVideosPreferences | null;
   keybindingOverrides?: Record<string, string> | null;
+  keyboardShortcuts?: UserKeyboardShortcutPreferences | null;
   playback?: UserPlaybackPreferences | null;
   /** JSON blob of the user's customized home page rows (opaque to the server). */
   homePageContent?: string | null;
   /** Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON. */
   defaultFilters?: Record<string, string> | null;
+}
+
+export interface UserKeyboardShortcutPreferences {
+  activePresetId?: string | null;
+  personalPresets?: KeyboardShortcutPresetDocument[] | null;
+  showChordHints?: boolean | null;
+}
+
+export interface KeyboardShortcutPresetDocument {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description?: string;
+  author?: string;
+  version?: string;
+  basePresetId?: string;
+  unmappedActions: "action-defaults" | "unbound";
+  bindings: Record<string, string[]>;
+  requirements?: { extensions?: Array<{ id: string; minimumVersion?: string }> };
+  provenance?: {
+    source: "cove" | "extension" | "import" | "personal" | "instance";
+    providerId?: string;
+    originalPresetId?: string;
+  };
 }
 
 export interface UserTrackingPreferences {
@@ -2147,6 +2229,8 @@ export interface JobInfo {
   etaSeconds?: number | null;
   /** UTC timestamp the ETA was computed at, so the client can count it down smoothly. */
   updatedAt?: string | null;
+  /** Internal application route for durable job output. */
+  resultUrl?: string | null;
 }
 
 export interface SortClause {
@@ -3212,12 +3296,85 @@ export interface ExtensionManifest {
   pageOverrides: ExtensionPageOverride[];
   dialogOverrides: ExtensionDialogOverride[];
   actions: ExtensionAction[];
+  keyboardActions?: ExtensionKeyboardAction[];
+  keyboardShortcutPresets?: ExtensionKeyboardShortcutPreset[];
   tutorialTopics?: ExtensionTutorialTopic[];
   listFilters?: ExtensionListFilterContribution[];
   listSorts?: ExtensionListSortContribution[];
+  dashboardWidgets?: ExtensionDashboardWidgetContribution[];
   frontendRuntimeVersion?: string;
   jsBundleUrl?: string;
   cssBundleUrl?: string;
+}
+
+export interface ExtensionKeyboardActionScope {
+  surface: "global" | "page" | "list" | "detail" | "player" | "viewer" | "overlay" | "local";
+  page?: string;
+  entityType?: string;
+  tab?: string;
+}
+
+export interface ExtensionKeyboardAction {
+  id: string;
+  label: string;
+  extensionId: string;
+  defaultBindings: string[];
+  scopes: ExtensionKeyboardActionScope[];
+  description?: string;
+  group?: string;
+  handlerName?: string;
+  apiEndpoint?: string;
+  order: number;
+  repeatable?: boolean;
+  allowInEditable?: boolean;
+  requiredPermission?: string;
+}
+
+export interface ExtensionKeyboardShortcutPreset extends KeyboardShortcutPresetDocument {
+  extensionId: string;
+  order: number;
+}
+
+export interface ExtensionDashboardWidgetContribution {
+  id: string;
+  label: string;
+  extensionId: string;
+  componentName: string;
+  editorComponentName?: string;
+  description?: string;
+  icon?: string;
+  defaultConfiguration?: unknown;
+  allowMultiple: boolean;
+  order: number;
+  requiredPermission?: string;
+  requiredPermissions?: string[];
+  requiredPermissionMode?: "all" | "any";
+  supportedPresentations?: DashboardWidgetPresentation[];
+  defaultPresentation?: DashboardWidgetPresentation;
+}
+
+export type DashboardWidgetPresentation = "flow" | "canvas";
+
+export interface DashboardWidget {
+  instanceId: string;
+  owner: string;
+  widgetKey: string;
+  label: string;
+  configuration: unknown;
+  presentation?: DashboardWidgetPresentation;
+}
+
+export interface DashboardSummary {
+  id: number;
+  name: string;
+  isDefault: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Dashboard extends DashboardSummary {
+  widgets: DashboardWidget[];
 }
 
 export interface ExtensionUiBundle {

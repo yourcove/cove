@@ -30,6 +30,7 @@ import { ScraperEntityTagger } from "./ScraperEntityTagger";
 import { TagGraphView } from "./TagGraphView";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { EntityMedia, getTagMediaImageUrl } from "./EntityMedia";
+import { getWallColumnCountFromSizeLevel } from "./WallSizeControl";
 
 type RelatedEntityItem = Video | Image | Performer | Gallery | Studio | Tag | Group | Audio | TextDocument | SegmentRecord | Face;
 
@@ -130,7 +131,7 @@ export function RelatedEntityListView<TItem extends RelatedEntityItem>({
   const effectiveZoomLevel = zoomLevel ?? listPageCardSize?.zoomLevel ?? 1;
   const cardSizeEntityType = ENTITY_CARD_SIZE_TYPE[entityType];
   const minCardWidthPx = getEntityCardMinWidthPx(cardSizeEntityType, effectiveZoomLevel);
-  const wallColumns = useWallColumns(items, getWallColumnCount(entityType));
+  const wallColumns = useWallColumns(items, getWallColumnCountFromSizeLevel(effectiveZoomLevel));
   const itemIndexes = useMemo(() => new Map(items.map((item, index) => [item.id, index])), [items]);
   // Batch-load engagement for the materialized items so grid/wall tiles can show their rating banner
   // (and favorite/play state) wherever this shared view is used — every detail page and list view.
@@ -533,11 +534,6 @@ function getWallEstimateHeight(entityType: RelatedEntityType) {
   if (entityType === "performers") return 300;
   if (entityType === "galleries") return 260;
   return getGridEstimateHeight(entityType);
-}
-
-function getWallColumnCount(entityType: RelatedEntityType) {
-  if (entityType === "images" || entityType === "performers") return 6;
-  return 5;
 }
 
 function toTagGraphNode(tag: Tag): TagGraphNode {

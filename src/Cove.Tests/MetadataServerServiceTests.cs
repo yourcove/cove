@@ -26,7 +26,7 @@ public sealed class MetadataServerServiceTests
         context.Studios.Add(new Studio { Name = "Fixture Studio" });
         context.Performers.Add(new Performer { Name = "Jane Doe" });
         context.Tags.Add(new Tag { Name = "Action" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var video = new Video { Title = "Local Video" };
         video.Files.Add(new VideoFile { Duration = 118 });
@@ -297,7 +297,7 @@ public sealed class MetadataServerServiceTests
             Aliases = [new TagAlias { Alias = "Remote alias" }],
         };
         context.AddRange(target, canonicalOwner, aliasOwner);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -314,7 +314,7 @@ public sealed class MetadataServerServiceTests
         var service = CreateService(context, httpClient, fieldProvenance: new FieldProvenanceService(context));
 
         var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Imported);
         Assert.Equal(2, result.Warnings.Count);
@@ -326,7 +326,7 @@ public sealed class MetadataServerServiceTests
         Assert.Contains(target.RemoteIds, remoteId => remoteId.Endpoint == Endpoint && remoteId.RemoteId == "remote-tag-1");
         var nameProvenance = await context.FieldProvenance
             .Where(row => row.HostType == AffinityHostType.Tag && row.HostId == target.Id && row.FieldKey == "name")
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Empty(nameProvenance);
     }
 
@@ -335,7 +335,7 @@ public sealed class MetadataServerServiceTests
     {
         await using var context = CreateContext();
         context.Tags.Add(new Tag { Name = "Remote canonical" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var target = new Tag { Name = "Temporary" };
         context.Tags.Add(target);
 
@@ -368,7 +368,7 @@ public sealed class MetadataServerServiceTests
             Aliases = [new TagAlias { Alias = "Released alias" }],
         };
         context.AddRange(renamed, aliasOwner);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var call = 0;
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ =>
@@ -419,12 +419,12 @@ public sealed class MetadataServerServiceTests
             ],
         };
         context.Tags.Add(owner);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
 
-        owner = await context.Tags.SingleAsync();
+        owner = await context.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         var changingAlias = await context.Set<TagAlias>()
-            .SingleAsync(alias => alias.Alias == "Changing alias");
+            .SingleAsync(alias => alias.Alias == "Changing alias", cancellationToken: TestContext.Current.CancellationToken);
         changingAlias.Alias = "Changed alias";
         var target = new Tag { Name = "Temporary" };
         context.Tags.Add(target);
@@ -457,11 +457,11 @@ public sealed class MetadataServerServiceTests
             Aliases = [new TagAlias { Alias = "Released alias" }],
         };
         context.Tags.Add(owner);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
 
-        owner = await context.Tags.SingleAsync();
-        var releasedAlias = await context.Set<TagAlias>().SingleAsync();
+        owner = await context.Tags.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var releasedAlias = await context.Set<TagAlias>().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         context.Remove(releasedAlias);
         var target = new Tag { Name = "Temporary" };
         context.Tags.Add(target);
@@ -508,7 +508,7 @@ public sealed class MetadataServerServiceTests
             first, Endpoint, "remote-tag-1", CancellationToken.None);
         var secondResult = await service.MergeTagWithWarningsAsync(
             second, Endpoint, "remote-tag-2", CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Empty(firstResult.Warnings);
         Assert.Equal(["Shared remote alias"], first.Aliases.Select(alias => alias.Alias));
@@ -527,10 +527,10 @@ public sealed class MetadataServerServiceTests
             Aliases = [new TagAlias { Alias = "Remote alias" }],
         };
         context.AddRange(target, aliasOwner);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
-        target = await context.Tags.SingleAsync(tag => tag.Name == "Local tag");
-        _ = await context.Tags.SingleAsync(tag => tag.Name == "Other tag");
+        target = await context.Tags.SingleAsync(tag => tag.Name == "Local tag", cancellationToken: TestContext.Current.CancellationToken);
+        _ = await context.Tags.SingleAsync(tag => tag.Name == "Other tag", cancellationToken: TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
             "findTag": {
@@ -543,7 +543,7 @@ public sealed class MetadataServerServiceTests
         var service = CreateService(context, httpClient);
 
         var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Imported);
         Assert.Contains(result.Warnings, warning => warning.Contains("Skipped remote alias", StringComparison.Ordinal));
@@ -558,7 +558,7 @@ public sealed class MetadataServerServiceTests
         var legacy = new Tag { Name = "Other tag", Aliases = [new TagAlias { Alias = "   " }] };
         context.AddRange(target, legacy);
         using (context.SuppressTagNameValidation())
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
             "findTag": {
@@ -585,7 +585,7 @@ public sealed class MetadataServerServiceTests
         target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         var aliasOwner = new Tag { Name = "Remote alias" };
         context.AddRange(target, aliasOwner);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var progress = new CapturingJobProgress();
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
@@ -618,7 +618,7 @@ public sealed class MetadataServerServiceTests
         var target = new Tag { Name = "Local tag", Description = "Local description", Aliases = [new TagAlias { Alias = "Existing alias" }] };
         target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         context.AddRange(target, new Tag { Name = "Remote canonical" }, new Tag { Name = "Remote alias" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var existingAliasId = Assert.Single(target.Aliases).Id;
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
@@ -641,7 +641,7 @@ public sealed class MetadataServerServiceTests
 
         Assert.Equal(1, result.Updated);
         Assert.Null(Assert.Single(result.Items).Message);
-        var saved = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Id == target.Id);
+        var saved = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Id == target.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Local tag", saved.Name);
         Assert.Equal(existingAliasId, Assert.Single(saved.Aliases).Id);
         Assert.Equal("Existing alias", saved.Aliases.Single().Alias);
@@ -650,7 +650,7 @@ public sealed class MetadataServerServiceTests
             .Where(row => row.HostType == AffinityHostType.Tag
                 && row.HostId == target.Id
                 && (row.FieldKey == "name" || row.FieldKey == "aliases" || row.FieldKey == "description"))
-            .ToListAsync());
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -660,7 +660,7 @@ public sealed class MetadataServerServiceTests
         var target = new Tag { Name = "Local tag", Aliases = [new TagAlias { Alias = "Remote canonical" }] };
         target.RemoteIds.Add(new TagRemoteId { Endpoint = Endpoint, RemoteId = "remote-tag-1" });
         context.Add(target);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var aliasId = Assert.Single(target.Aliases).Id;
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
@@ -683,7 +683,7 @@ public sealed class MetadataServerServiceTests
 
         Assert.Equal(1, result.Updated);
         Assert.Contains("excluded", Assert.Single(result.Items).Message, StringComparison.OrdinalIgnoreCase);
-        var saved = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Id == target.Id);
+        var saved = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Id == target.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Local tag", saved.Name);
         Assert.Equal(aliasId, Assert.Single(saved.Aliases).Id);
     }
@@ -699,7 +699,7 @@ public sealed class MetadataServerServiceTests
         };
         context.Add(target);
         using (context.SuppressTagNameValidation())
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData("""
             "findTag": {
@@ -712,7 +712,7 @@ public sealed class MetadataServerServiceTests
         var service = CreateService(context, httpClient);
 
         var result = await service.MergeTagWithWarningsAsync(target, Endpoint, "remote-tag-1", CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Imported);
         Assert.Empty(result.Warnings);
@@ -750,7 +750,7 @@ public sealed class MetadataServerServiceTests
         await using var context = CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -782,7 +782,7 @@ public sealed class MetadataServerServiceTests
                 },
             },
             CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(imported);
         Assert.Equal("Remote Video", video.Title);
@@ -798,12 +798,12 @@ public sealed class MetadataServerServiceTests
             .Include(item => item.VideoTags).ThenInclude(link => link.Tag)
             .Include(item => item.VideoPerformers).ThenInclude(link => link.Performer)
             .Include(item => item.Studio)
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Fixture Studio", savedVideo.Studio?.Name);
         Assert.Contains(savedVideo.VideoTags, link => link.Tag != null && link.Tag.Name == "Action");
         Assert.Contains(savedVideo.VideoPerformers, link => link.Performer != null && link.Performer.Name == "Jane Doe");
 
-        var tagApplication = await context.TagApplications.Include(application => application.Tag).SingleAsync();
+        var tagApplication = await context.TagApplications.Include(application => application.Tag).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(tagApplication.Tag);
         Assert.Equal(AffinityHostType.Video, tagApplication.HostType);
         Assert.Equal(video.Id, tagApplication.HostId);
@@ -811,7 +811,7 @@ public sealed class MetadataServerServiceTests
         Assert.Equal($"metadata:{Endpoint}", tagApplication.SourceKey);
         Assert.Equal(Endpoint, tagApplication.SourceRunId);
 
-        var provenanceRows = await fieldProvenance.GetForHostAsync(AffinityHostType.Video, video.Id);
+        var provenanceRows = await fieldProvenance.GetForHostAsync(AffinityHostType.Video, video.Id, TestContext.Current.CancellationToken);
         Assert.Contains(provenanceRows, row => row.FieldKey == "title" && row.Value.HasValue && row.Value.Value.GetString() == "Remote Video");
         Assert.Contains(provenanceRows, row => row.FieldKey == "details" && row.Value.HasValue && row.Value.Value.GetString() == "Imported details");
         Assert.Contains(provenanceRows, row => row.FieldKey == "studio" && row.Value.HasValue && row.Value.Value.GetString() == "Fixture Studio");
@@ -825,7 +825,7 @@ public sealed class MetadataServerServiceTests
         await using var context = CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var remoteVideoJson = RemoteVideoJson.Replace("\"aliases\": [\"Activity\"]", "\"aliases\": null", StringComparison.Ordinal);
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
@@ -844,12 +844,12 @@ public sealed class MetadataServerServiceTests
             "remote-video-1",
             new MetadataServerVideoImportRequestDto { SetCoverImage = false },
             CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(imported);
-        var savedTag = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Name == "Action");
+        var savedTag = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Name == "Action", cancellationToken: TestContext.Current.CancellationToken);
         Assert.Empty(savedTag.Aliases);
-        var savedVideo = await context.Videos.Include(item => item.VideoTags).ThenInclude(link => link.Tag).SingleAsync();
+        var savedVideo = await context.Videos.Include(item => item.VideoTags).ThenInclude(link => link.Tag).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains(savedVideo.VideoTags, link => link.Tag != null && link.Tag.Name == "Action");
     }
 
@@ -860,7 +860,7 @@ public sealed class MetadataServerServiceTests
         var aliasOwner = new Tag { Name = "Activity" };
         var video = new Video { Title = "Original Video" };
         context.AddRange(aliasOwner, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -877,11 +877,11 @@ public sealed class MetadataServerServiceTests
             "remote-video-1",
             new MetadataServerVideoImportRequestDto { SetCoverImage = false },
             CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Imported);
         Assert.Contains(result.Warnings, warning => warning.Contains("Skipped remote alias 'Activity'", StringComparison.Ordinal));
-        var importedTag = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Name == "Action");
+        var importedTag = await context.Tags.Include(tag => tag.Aliases).SingleAsync(tag => tag.Name == "Action", cancellationToken: TestContext.Current.CancellationToken);
         Assert.Empty(importedTag.Aliases);
         Assert.Contains(video.VideoTags, link => link.TagId == importedTag.Id || ReferenceEquals(link.Tag, importedTag));
     }
@@ -897,7 +897,7 @@ public sealed class MetadataServerServiceTests
         };
         var video = new Video { Title = "Original Video" };
         context.AddRange(existing, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -914,11 +914,11 @@ public sealed class MetadataServerServiceTests
             "remote-video-1",
             new MetadataServerVideoImportRequestDto { SetCoverImage = false },
             CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Imported);
         Assert.Empty(result.Warnings);
-        Assert.Single(await context.Tags.ToListAsync());
+        Assert.Single(await context.Tags.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Contains(video.VideoTags, link => link.TagId == existing.Id || ReferenceEquals(link.Tag, existing));
     }
 
@@ -928,7 +928,7 @@ public sealed class MetadataServerServiceTests
         await using var context = CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var repeatedTag = "{ \"id\": \"remote-tag-1\", \"name\": \"Action\", \"description\": \"Movement\", \"aliases\": [\"Activity\"] }";
         var remoteVideoJson = RemoteVideoJson.Replace(repeatedTag, $"{repeatedTag}, {repeatedTag}", StringComparison.Ordinal);
 
@@ -943,10 +943,10 @@ public sealed class MetadataServerServiceTests
             "remote-video-1",
             new MetadataServerVideoImportRequestDto { SetCoverImage = false },
             CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Imported);
-        Assert.Single(await context.Tags.ToListAsync());
+        Assert.Single(await context.Tags.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Single(video.VideoTags);
     }
 
@@ -958,7 +958,7 @@ public sealed class MetadataServerServiceTests
         await using var context = CreateContext();
         var video = new Video { Title = "Original Video" };
         context.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var firstTag = "{ \"id\": \"remote-tag-1\", \"name\": \"Action\", \"description\": \"Movement\", \"aliases\": [\"Activity\"] }";
         var secondTag = $"{{ \"id\": \"remote-tag-2\", \"name\": \"{secondName}\", \"description\": null, \"aliases\": [] }}";
         var remoteVideoJson = RemoteVideoJson.Replace(firstTag, $"{firstTag}, {secondTag}", StringComparison.Ordinal);
@@ -974,10 +974,10 @@ public sealed class MetadataServerServiceTests
             "remote-video-1",
             new MetadataServerVideoImportRequestDto { SetCoverImage = false },
             CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.True(result.Imported);
-        var tag = Assert.Single(await context.Tags.Include(entity => entity.RemoteIds).ToListAsync());
+        var tag = Assert.Single(await context.Tags.Include(entity => entity.RemoteIds).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal("Action", tag.Name);
         Assert.Contains(tag.RemoteIds, id => id.RemoteId == "remote-tag-1");
         Assert.Single(video.VideoTags);
@@ -992,7 +992,7 @@ public sealed class MetadataServerServiceTests
         var video = new Video { Title = "Original Video", VideoTags = [new VideoTag { Tag = pretracked }] };
         context.AddRange(lowestId, pretracked, video);
         using (context.SuppressTagNameValidation())
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(_ => GraphQlData($$"""
             "findVideo": {{RemoteVideoJson}}
@@ -1019,7 +1019,7 @@ public sealed class MetadataServerServiceTests
         var matchingStudio = new Studio { Name = " fixture studio " };
         var video = new Video { Title = "Original Video" };
         context.AddRange(sameNameDifferentPerson, matchingPerformer, matchingStudio, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -1036,13 +1036,13 @@ public sealed class MetadataServerServiceTests
             "remote-video-1",
             new MetadataServerVideoImportRequestDto { SetCoverImage = false },
             CancellationToken.None));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, await context.Performers.CountAsync());
-        Assert.Single(await context.Studios.ToListAsync());
+        Assert.Equal(2, await context.Performers.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await context.Studios.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         var saved = await context.Videos
             .Include(item => item.VideoPerformers)
-            .SingleAsync(item => item.Id == video.Id);
+            .SingleAsync(item => item.Id == video.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains(saved.VideoPerformers, link => link.PerformerId == matchingPerformer.Id);
         Assert.DoesNotContain(saved.VideoPerformers, link => link.PerformerId == sameNameDifferentPerson.Id);
         Assert.Equal(matchingStudio.Id, saved.StudioId);
@@ -1055,7 +1055,7 @@ public sealed class MetadataServerServiceTests
         var performer = new Performer { Name = "Local Jane" };
         performer.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-performer-1" });
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -1089,7 +1089,7 @@ public sealed class MetadataServerServiceTests
         Assert.Equal(EventType.PerformerUpdated, publishedEvent.Type);
         Assert.Equal(performer.Id, publishedEvent.EntityId);
 
-        var updated = await context.Performers.Include(item => item.Urls).SingleAsync();
+        var updated = await context.Performers.Include(item => item.Urls).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Local Jane", updated.Name);
         Assert.Equal(GenderEnum.Female, updated.Gender);
         Assert.Contains(updated.Urls, url => url.Url == "https://metadata.example/performers/remote-performer-1");
@@ -1105,7 +1105,7 @@ public sealed class MetadataServerServiceTests
         var second = new Performer { Name = "Second local" };
         second.RemoteIds.Add(new PerformerRemoteId { Endpoint = Endpoint, RemoteId = "remote-second" });
         context.AddRange(conflictingIdentity, first, second);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         using var httpClient = new HttpClient(new FixtureMetadataServerHandler(request =>
         {
@@ -1131,8 +1131,8 @@ public sealed class MetadataServerServiceTests
         Assert.Equal(1, result.Failed);
         Assert.Equal(1, result.Updated);
         context.ChangeTracker.Clear();
-        Assert.Equal("First local", (await context.Performers.SingleAsync(item => item.Id == first.Id)).Name);
-        var updated = await context.Performers.SingleAsync(item => item.Id == second.Id);
+        Assert.Equal("First local", (await context.Performers.SingleAsync(item => item.Id == first.Id, cancellationToken: TestContext.Current.CancellationToken)).Name);
+        var updated = await context.Performers.SingleAsync(item => item.Id == second.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Updated second", updated.Name);
         Assert.Equal("Second identity", updated.Disambiguation);
     }
@@ -1147,7 +1147,7 @@ public sealed class MetadataServerServiceTests
         var second = new Studio { Name = "Second studio" };
         second.RemoteIds.Add(new StudioRemoteId { Endpoint = Endpoint, RemoteId = "remote-second" });
         context.AddRange(existingParent, first, second);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         static string StudioJson(string id, string name, string? parentId = null, string? parentName = null)
         {
@@ -1193,9 +1193,9 @@ public sealed class MetadataServerServiceTests
 
         Assert.Equal(2, result.Updated);
         context.ChangeTracker.Clear();
-        var renamed = await context.Studios.SingleAsync(item => item.Id == first.Id);
-        var updatedSecond = await context.Studios.SingleAsync(item => item.Id == second.Id);
-        var createdParent = await context.Studios.SingleAsync(item => item.Name == "Former name");
+        var renamed = await context.Studios.SingleAsync(item => item.Id == first.Id, cancellationToken: TestContext.Current.CancellationToken);
+        var updatedSecond = await context.Studios.SingleAsync(item => item.Id == second.Id, cancellationToken: TestContext.Current.CancellationToken);
+        var createdParent = await context.Studios.SingleAsync(item => item.Name == "Former name", cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Renamed studio", renamed.Name);
         Assert.NotEqual(renamed.Id, createdParent.Id);
         Assert.Equal(createdParent.Id, updatedSecond.ParentId);
@@ -1228,7 +1228,7 @@ public sealed class MetadataServerServiceTests
         file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         video.Files.Add(file);
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         FixtureMetadataServerHandler? handler = null;
         handler = new FixtureMetadataServerHandler(request =>
@@ -1276,7 +1276,7 @@ public sealed class MetadataServerServiceTests
         file.Fingerprints.Add(new FileFingerprint { Type = "oshash", Value = "1a2b" });
         video.Files.Add(file);
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         FixtureMetadataServerHandler? handler = null;
         handler = new FixtureMetadataServerHandler(request =>

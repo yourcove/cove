@@ -23,6 +23,7 @@ interface WallMediaCardProps extends HTMLAttributes<HTMLDivElement> {
   useVideo?: boolean;
   muted?: boolean;
   videoStartTimeSec?: number;
+  videoEndTimeSec?: number;
   videoLoadRootMargin?: string;
   videoPlayThreshold?: number;
   aspectRatio?: string;
@@ -50,6 +51,7 @@ export function WallMediaCard({
   useVideo = false,
   muted = true,
   videoStartTimeSec = 0,
+  videoEndTimeSec,
   videoLoadRootMargin = "320px 0px",
   videoPlayThreshold = 0.6,
   aspectRatio = "1 / 1",
@@ -210,6 +212,25 @@ export function WallMediaCard({
     }
   };
 
+  const restartBoundedVideo = (video: HTMLVideoElement, nextTime: number) => {
+    if (videoEndTimeSec == null || !Number.isFinite(videoEndTimeSec) || nextTime < videoEndTimeSec) return false;
+
+    lastSeenTime.current = roundPlaybackTime(videoEndTimeSec);
+    flushInterval("active");
+    intervalStart.current = null;
+    const restartTime = Number.isFinite(videoStartTimeSec) && videoStartTimeSec >= 0
+      ? videoStartTimeSec
+      : 0;
+    video.currentTime = restartTime;
+    setCurrentTime(restartTime);
+    lastSeenTime.current = roundPlaybackTime(restartTime);
+    if (restartTime >= videoEndTimeSec) {
+      video.pause();
+      setIsPlaying(false);
+    }
+    return true;
+  };
+
   const syncVideoMetrics = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -278,7 +299,7 @@ export function WallMediaCard({
 
   useEffect(() => {
     seekToStartTime();
-  }, [videoSrc, videoStartTimeSec, videoAvailable, shouldLoadVideo]);
+  }, [videoSrc, videoStartTimeSec, videoEndTimeSec, videoAvailable, shouldLoadVideo]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -368,6 +389,7 @@ export function WallMediaCard({
             onTimeUpdate={() => {
               const video = videoRef.current;
               const nextTime = roundPlaybackTime(video && Number.isFinite(video.currentTime) ? video.currentTime : 0);
+              if (video && restartBoundedVideo(video, nextTime)) return;
               const previousTime = lastSeenTime.current;
               if (intervalStart.current !== null && nextTime + 0.25 < previousTime) {
                 flushInterval("active");

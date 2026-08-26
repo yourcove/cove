@@ -84,6 +84,12 @@ public partial class CoveContext : DbContext
     public DbSet<Audio> Audios => Set<Audio>();
     public DbSet<TextDocument> TextDocuments => Set<TextDocument>();
     public DbSet<Group> Groups => Set<Group>();
+    public DbSet<DuplicateSearch> DuplicateSearches => Set<DuplicateSearch>();
+    public DbSet<DuplicateSearchGroup> DuplicateSearchGroups => Set<DuplicateSearchGroup>();
+    public DbSet<DuplicateSearchItem> DuplicateSearchItems => Set<DuplicateSearchItem>();
+    public DbSet<DuplicateDeletionKeeperReservation> DuplicateDeletionKeeperReservations => Set<DuplicateDeletionKeeperReservation>();
+    public DbSet<PendingPhysicalFileDeletion> PendingPhysicalFileDeletions => Set<PendingPhysicalFileDeletion>();
+    public DbSet<VideoDeletionCommitMarker> VideoDeletionCommitMarkers => Set<VideoDeletionCommitMarker>();
     public DbSet<CustomFieldDefinition> CustomFieldDefinitions => Set<CustomFieldDefinition>();
     public DbSet<CustomFieldValue> CustomFieldValues => Set<CustomFieldValue>();
     public DbSet<TagApplication> TagApplications => Set<TagApplication>();
@@ -122,6 +128,7 @@ public partial class CoveContext : DbContext
     public DbSet<ExternalIdentityLink> ExternalIdentityLinks => Set<ExternalIdentityLink>();
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<Dashboard> Dashboards => Set<Dashboard>();
 
     // Extensions
     public DbSet<ExtensionData> ExtensionData => Set<ExtensionData>();
@@ -1237,21 +1244,21 @@ public partial class CoveContext : DbContext
             .ToArray();
         if (deletedUserIds.Length > 0)
         {
-            UserEntityAffinities.RemoveRange(UserEntityAffinities.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            Interactions.RemoveRange(Interactions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            PlaybackSessions.RemoveRange(PlaybackSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            UserSessions.RemoveRange(UserSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            Ratings.RemoveRange(Ratings.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            UserBookmarks.RemoveRange(UserBookmarks.Where(row => deletedUserIds.Contains(row.UserId)).ToList());
+            UserEntityAffinities.RemoveRange(UserEntityAffinities.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
+            Interactions.RemoveRange(Interactions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
+            PlaybackSessions.RemoveRange(PlaybackSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
+            UserSessions.RemoveRange(UserSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
+            Ratings.RemoveRange(Ratings.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
+            UserBookmarks.RemoveRange(UserBookmarks.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
         }
 
         foreach (var target in CollectDeletedEngagementTargets())
         {
-            UserEntityAffinities.RemoveRange(UserEntityAffinities.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
-            UserBookmarks.RemoveRange(UserBookmarks.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
-            Interactions.RemoveRange(Interactions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
-            PlaybackSessions.RemoveRange(PlaybackSessions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
-            Ratings.RemoveRange(Ratings.Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToList());
+            UserEntityAffinities.RemoveRange(UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
+            UserBookmarks.RemoveRange(UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
+            Interactions.RemoveRange(Interactions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
+            PlaybackSessions.RemoveRange(PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToList());
+            Ratings.RemoveRange(Ratings.IgnoreQueryFilters().Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToList());
         }
     }
 
@@ -1264,21 +1271,21 @@ public partial class CoveContext : DbContext
             .ToArray();
         if (deletedUserIds.Length > 0)
         {
-            UserEntityAffinities.RemoveRange(await UserEntityAffinities.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            Interactions.RemoveRange(await Interactions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            PlaybackSessions.RemoveRange(await PlaybackSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            UserSessions.RemoveRange(await UserSessions.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            Ratings.RemoveRange(await Ratings.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            UserBookmarks.RemoveRange(await UserBookmarks.Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
+            UserEntityAffinities.RemoveRange(await UserEntityAffinities.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
+            Interactions.RemoveRange(await Interactions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
+            PlaybackSessions.RemoveRange(await PlaybackSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
+            UserSessions.RemoveRange(await UserSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
+            Ratings.RemoveRange(await Ratings.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
+            UserBookmarks.RemoveRange(await UserBookmarks.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
         }
 
         foreach (var target in CollectDeletedEngagementTargets())
         {
-            UserEntityAffinities.RemoveRange(await UserEntityAffinities.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            UserBookmarks.RemoveRange(await UserBookmarks.Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            Interactions.RemoveRange(await Interactions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            PlaybackSessions.RemoveRange(await PlaybackSessions.Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
-            Ratings.RemoveRange(await Ratings.Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            UserEntityAffinities.RemoveRange(await UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            UserBookmarks.RemoveRange(await UserBookmarks.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            Interactions.RemoveRange(await Interactions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            PlaybackSessions.RemoveRange(await PlaybackSessions.IgnoreQueryFilters().Where(row => row.HostType == target.InteractionHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
+            Ratings.RemoveRange(await Ratings.IgnoreQueryFilters().Where(row => row.HostType == target.RatingHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));
         }
     }
 

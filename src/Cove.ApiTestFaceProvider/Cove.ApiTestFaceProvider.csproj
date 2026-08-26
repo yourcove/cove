@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <None Include="extension.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="assets\api-test-asset.*" CopyToOutputDirectory="PreserveNewest" TargetPath="%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

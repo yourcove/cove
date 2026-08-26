@@ -44,6 +44,10 @@ vi.mock("../hooks/useDocumentTitle", () => ({
   useDocumentTitle: () => {},
 }));
 
+vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({
+  useResolvedKeybindingOverrides: () => ({}),
+}));
+
 vi.mock("../api/client", () => ({
   galleries: mockGalleries,
   images: mockImages,
@@ -289,7 +293,7 @@ describe("GalleryDetailPage", () => {
     fireEvent.keyDown(window, { key: "s" });
     expect(await screen.findByText("Video One")).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: "f" });
+    fireEvent.keyDown(window, { key: "i" });
     expect(await screen.findByText("C:/galleries/summer-set")).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "a" });

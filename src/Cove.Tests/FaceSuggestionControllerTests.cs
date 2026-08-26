@@ -22,7 +22,7 @@ public sealed class FaceSuggestionControllerTests
 
         var face = new Face { Label = "Lead", PrimarySourceKey = "ext:ai.faces" };
         context.Faces.Add(face);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = CreateController(context, scope.PrincipalAccessor);
 
@@ -44,7 +44,7 @@ public sealed class FaceSuggestionControllerTests
         var performerB = new Performer { Name = "Performer B" };
         context.Faces.Add(face);
         context.Performers.AddRange(performerA, performerB);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = CreateController(
             context,
@@ -79,7 +79,7 @@ public sealed class FaceSuggestionControllerTests
         var remainingPerformer = new Performer { Name = "Remaining Performer" };
         context.Faces.Add(face);
         context.Performers.AddRange(rejectedPerformer, remainingPerformer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         SetCurrentUser(scope.PrincipalAccessor, 7, "tester");
 
@@ -101,7 +101,7 @@ public sealed class FaceSuggestionControllerTests
         var remaining = Assert.Single(suggestions);
         Assert.Equal(remainingPerformer.Id, remaining.PerformerId);
 
-        var persistedDecision = await context.FaceSuggestionDecisions.SingleAsync();
+        var persistedDecision = await context.FaceSuggestionDecisions.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(face.Id, persistedDecision.FaceId);
         Assert.Equal(rejectedPerformer.Id, persistedDecision.PerformerId);
         Assert.Equal(7, persistedDecision.UserId);
@@ -118,7 +118,7 @@ public sealed class FaceSuggestionControllerTests
         var performer = new Performer { Name = "Chosen Performer" };
         context.Faces.Add(face);
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         SetCurrentUser(scope.PrincipalAccessor, 11, "linker");
 
@@ -132,7 +132,7 @@ public sealed class FaceSuggestionControllerTests
         var acceptResult = await controller.RecordSuggestionDecision(face.Id, new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Accept), CancellationToken.None);
         Assert.IsType<OkObjectResult>(acceptResult.Result);
 
-        var persistedFace = await context.Faces.SingleAsync(item => item.Id == face.Id);
+        var persistedFace = await context.Faces.SingleAsync(item => item.Id == face.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(performer.Id, persistedFace.PerformerId);
 
         var suggestionsResult = await controller.GetSuggestions(face.Id, 5, CancellationToken.None);

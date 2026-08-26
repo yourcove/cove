@@ -210,13 +210,14 @@ public sealed partial class CoveClient
             cancellationToken);
     }
 
-    public Task<FaceBatchOperationResultDto> BatchDeleteFacesAsync(
+    public Task<BulkDeletionJobStartResponse> BatchDeleteFacesAsync(
         IReadOnlyList<int> faceIds,
         CancellationToken cancellationToken = default)
-        => SendAsync<FaceBatchOperationResultDto>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Post,
             "/api/faces/batch/delete",
             new FaceBatchDeleteDto(faceIds),
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
 
     public Task<FaceDto> RecordFaceSuggestionDecisionAsync(

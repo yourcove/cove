@@ -175,7 +175,7 @@ public sealed class ExtensionServiceOverlayTests
 
         using var scope = root.CreateScope();
         await using var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        await db.Database.OpenConnectionAsync();
+        await db.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(System.Data.ConnectionState.Open, db.Database.GetDbConnection().State);
     }
 

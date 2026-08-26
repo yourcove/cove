@@ -25,13 +25,15 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
     private readonly CoveConfiguration _config;
     private readonly IPermissionRegistry _registry;
     private readonly ILogger<TokenService> _log;
+    private readonly IAuditService? _audit;
 
-    public TokenService(CoveContext db, CoveConfiguration config, IPermissionRegistry registry, ILogger<TokenService> log)
+    public TokenService(CoveContext db, CoveConfiguration config, IPermissionRegistry registry, ILogger<TokenService> log, IAuditService? audit = null)
     {
         _db = db;
         _config = config;
         _registry = registry;
         _log = log;
+        _audit = audit;
     }
 
     public async Task<TokenPair> IssueForUserAsync(int userId, string? ip, string? userAgent, CancellationToken ct = default)
@@ -434,6 +436,7 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
             .ToList();
         var expanded = _registry.Expand(basePermissions);
         var (readRestrictedEntityKinds, readGrantedEntityKinds) = await GetReadAccessProfileAsync(roleIds, ct);
+        HashSet<string>? scopeSet = null;
 
         // Token scope is intersected with user permissions — never expansive.
         if (!string.IsNullOrEmpty(record.ScopePermissions))
@@ -443,14 +446,23 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
                 var scope = JsonSerializer.Deserialize<List<string>>(record.ScopePermissions);
                 if (scope is { Count: > 0 })
                 {
-                    var scopeSet = _registry.Expand(scope);
-                    expanded.IntersectWith(scopeSet);
+                    scopeSet = _registry.Expand(scope);
+                    expanded = PermissionSet.Intersect(expanded, scopeSet);
                 }
             }
             catch (JsonException ex)
             {
                 _log.LogWarning(ex, "Ignoring malformed scope permissions for API token {TokenId}", record.Id);
             }
+        }
+
+        if (scopeSet is not null)
+        {
+            readGrantedEntityKinds = readGrantedEntityKinds
+                .Where(entityKind =>
+                    CovePrincipal.TryGetReadGrantPermission(entityKind, out var readPermission)
+                    && PermissionSet.Grants(scopeSet, readPermission))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
         // Best-effort last-used update. This must complete before the request pipeline
@@ -581,11 +593,26 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
 
     public async Task<ApiTokenIssued> CreateApiTokenAsync(int userId, string name, IEnumerable<string>? scope, DateTime? expiresAt, CovePrincipal? actor, CancellationToken ct = default)
     {
+        var requestedScope = scope?.ToList();
+        var scopeList = requestedScope?
+            .Where(permission => !string.IsNullOrWhiteSpace(permission))
+            .Select(permission => permission.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (requestedScope is not null && scopeList is { Count: 0 })
+            throw new ForbiddenException("API token scopes cannot be empty or blank.");
+        if (scopeList is { Count: > 0 }
+            && (actor is null
+                || scopeList.Any(permission => !_registry.IsKnown(permission)
+                    || (!actor.Has(permission) && !actor.HasReadGrant(permission)))))
+        {
+            throw new ForbiddenException("API token scopes must be known permissions already held by the current user.");
+        }
+
         var (plain, hash) = NewBCryptToken();
         var id = Guid.NewGuid();
         var prefix = plain[..4];
         var raw = $"cove_pat_{id:N}_{plain}";
-        var scopeList = scope?.ToList();
         var entity = new ApiToken
         {
             Id = id,
@@ -604,9 +631,17 @@ public sealed class TokenService : ITokenService, IExistingUserPrincipalResolver
 
     public async Task RevokeApiTokenAsync(Guid id, CovePrincipal? actor, CancellationToken ct = default)
     {
-        await _db.ApiTokens
-            .Where(t => t.Id == id && t.RevokedAt == null)
+        if (actor?.UserId is not int userId)
+            return;
+
+        var affectedRows = await _db.ApiTokens
+            .Where(t => t.Id == id && t.UserId == userId && t.RevokedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, DateTime.UtcNow), ct);
+        if (affectedRows > 0 && _audit is not null)
+        {
+            await _audit.LogAsync(AuditActions.ApiTokenRevoke, AuditOutcomes.Success, actor,
+                "api_token", id.ToString(), null, ct);
+        }
     }
 
     public async Task<IReadOnlyList<ApiTokenDto>> ListApiTokensAsync(int userId, CancellationToken ct = default)

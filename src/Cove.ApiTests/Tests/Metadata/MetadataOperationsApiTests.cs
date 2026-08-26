@@ -1,11 +1,9 @@
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class MetadataOperationsApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -20,8 +18,8 @@ public sealed class MetadataOperationsApiTests(
         Directory.CreateDirectory(Path.Combine(childPath, "grandchild"));
 
         // Act
-        var roots = await AsUser(ApiTestUsers.Eva).GetMetadataLibraryFoldersAsync();
-        var children = await AsUser(ApiTestUsers.Eva).GetMetadataLibraryFoldersAsync(libraryPath);
+        var roots = await AsUser(ApiTestUsers.Eva).GetMetadataLibraryFoldersAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var children = await AsUser(ApiTestUsers.Eva).GetMetadataLibraryFoldersAsync(libraryPath, cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
         var root = roots.Should().ContainSingle(folder => folder.Path == libraryPath).Which;
@@ -59,13 +57,13 @@ public sealed class MetadataOperationsApiTests(
         var jobId = await AsUser(ApiTestUsers.Eva).StartMetadataScanAsync(new ScanOptionsDto
         {
             Paths = [filePath],
-        });
-        var job = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(jobId);
+        }, TestContext.Current.CancellationToken);
+        var job = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
 
         // Assert
         job.Type.Should().Be("scan");
         job.Status.Should().Be(JobStatus.Completed);
-        var text = (await AsUser(ApiTestUsers.Eva).GetTextsAsync()).Should().ContainSingle().Which;
+        var text = (await AsUser(ApiTestUsers.Eva).GetTextsAsync(TestContext.Current.CancellationToken)).Should().ContainSingle().Which;
         text.Files.Should().ContainSingle(file => Path.GetFullPath(file.Path) == Path.GetFullPath(filePath));
     }
 
@@ -76,10 +74,10 @@ public sealed class MetadataOperationsApiTests(
         // Arrange
         var filePath = AsTestFileSystem().CreateTextFile("A deterministic fingerprint source document.");
         File.SetLastWriteTimeUtc(filePath, DateTime.UtcNow.AddMinutes(-1));
-        var scanJobId = await AsUser().StartMetadataScanAsync(new ScanOptionsDto { Paths = [filePath] });
-        (await AsUser().WaitForTerminalJobAsync(scanJobId)).Status.Should().Be(JobStatus.Completed);
-        var textFile = (await AsUser().GetTextsAsync()).Should().ContainSingle().Which.Files.Should().ContainSingle().Which;
-        (await AsDbUser().GetFileFingerprintsAsync(textFile.Id)).Should().NotContainKey("phash");
+        var scanJobId = await AsUser().StartMetadataScanAsync(new ScanOptionsDto { Paths = [filePath] }, TestContext.Current.CancellationToken);
+        (await AsUser().WaitForTerminalJobAsync(scanJobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var textFile = (await AsUser().GetTextsAsync(TestContext.Current.CancellationToken)).Should().ContainSingle().Which.Files.Should().ContainSingle().Which;
+        (await AsDbUser().GetFileFingerprintsAsync(textFile.Id, TestContext.Current.CancellationToken)).Should().NotContainKey("phash");
 
         // Act
         var jobId = await AsUser(ApiTestUsers.Eva).StartMetadataGenerateAsync(new GenerateOptionsDto
@@ -87,13 +85,13 @@ public sealed class MetadataOperationsApiTests(
             Thumbnails = false,
             TextPhashes = true,
             Paths = [filePath],
-        });
-        var job = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(jobId);
+        }, TestContext.Current.CancellationToken);
+        var job = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
 
         // Assert
         job.Type.Should().Be("generate");
         job.Status.Should().Be(JobStatus.Completed);
-        var fingerprints = await AsDbUser().GetFileFingerprintsAsync(textFile.Id);
+        var fingerprints = await AsDbUser().GetFileFingerprintsAsync(textFile.Id, TestContext.Current.CancellationToken);
         fingerprints.Should().ContainKey("phash").WhoseValue.Should().NotBeNullOrWhiteSpace();
     }
 
@@ -101,7 +99,7 @@ public sealed class MetadataOperationsApiTests(
     public async Task GivenVideoSelectionAndNonVideoWorkWithoutPaths_WhenGenerateStarts_ThenBadRequestIsReturned()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Generate validation {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Generate validation {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var options = new GenerateOptionsDto
         {
             VideoIds = [video.Id],
@@ -120,16 +118,16 @@ public sealed class MetadataOperationsApiTests(
     public async Task GivenFilelessVideo_WhenCleanIsDryRun_ThenVideoIsPreserved()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Dry-run clean {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Dry-run clean {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
 
         // Act
-        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto { DryRun = true });
-        var job = await AsUser().WaitForTerminalJobAsync(jobId);
+        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto { DryRun = true }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
 
         // Assert
         job.Type.Should().Be("clean");
         job.Status.Should().Be(JobStatus.Completed);
-        (await AsUser().GetVideosAsync()).Should().ContainSingle(candidate => candidate.Id == video.Id);
+        (await AsUser().GetVideosAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(candidate => candidate.Id == video.Id);
     }
 
     [Fact]
@@ -137,23 +135,23 @@ public sealed class MetadataOperationsApiTests(
     public async Task GivenFilelessVideo_WhenCleanCompletes_ThenOrphanedVideoIsRemoved()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Orphan clean {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Orphan clean {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
 
         // Act
-        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto());
-        var job = await AsUser().WaitForTerminalJobAsync(jobId);
+        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto(), TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
 
         // Assert
         job.Type.Should().Be("clean");
         job.Status.Should().Be(JobStatus.Completed);
-        (await AsUser().GetVideosAsync()).Should().NotContain(candidate => candidate.Id == video.Id);
+        (await AsUser().GetVideosAsync(TestContext.Current.CancellationToken)).Should().NotContain(candidate => candidate.Id == video.Id);
     }
 
     [Fact]
     public async Task GivenMember_WhenCleanStarts_ThenForbiddenIsReturnedWithoutRemovingVideo()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Protected clean {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Protected clean {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser(ApiTestUsers.Eva).StartMetadataCleanAsync(new CleanOptionsDto());
@@ -161,7 +159,7 @@ public sealed class MetadataOperationsApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await AsUser().GetVideosAsync()).Should().ContainSingle(candidate => candidate.Id == video.Id);
+        (await AsUser().GetVideosAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(candidate => candidate.Id == video.Id);
     }
 
     [Fact]
@@ -169,13 +167,13 @@ public sealed class MetadataOperationsApiTests(
     public async Task GivenLiveAndOrphanedGeneratedFiles_WhenCleanGeneratedCompletes_ThenOnlyOrphanIsRemoved()
     {
         // Arrange
-        var video = await AsUser().CreateVideoAsync($"Generated artifact owner {Guid.NewGuid():N}");
+        var video = await AsUser().CreateVideoAsync($"Generated artifact owner {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var liveFile = AsTestFileSystem().CreateGeneratedFile($"thumbnails/{video.Id}.jpg", [1, 2, 3]);
         var orphanFile = AsTestFileSystem().CreateGeneratedFile($"thumbnails/{video.Id + 1_000_000}.jpg", [4, 5, 6]);
 
         // Act
-        var jobId = await AsUser().StartMetadataCleanGeneratedAsync();
-        var job = await AsUser().WaitForTerminalJobAsync(jobId);
+        var jobId = await AsUser().StartMetadataCleanGeneratedAsync(TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
 
         // Assert
         job.Type.Should().Be("clean-generated");

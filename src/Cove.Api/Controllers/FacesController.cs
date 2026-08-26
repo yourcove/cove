@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Data;
 using System.Linq.Expressions;
 using System.Text.Json;
+using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -33,7 +34,9 @@ public class FacesController(
     IEnumerable<IFaceSuggestionDecisionHandler>? faceSuggestionDecisionHandlers = null,
     IExtensionServiceExchange? serviceExchange = null,
     IFaceTopSuggestionMaintenance? suggestionMaintenance = null,
-    IReferencePerformerImporter? referencePerformerImporter = null) : ControllerBase
+    IReferencePerformerImporter? referencePerformerImporter = null,
+    BulkDeletionJobService? bulkDeletionJobService = null,
+    BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
 
@@ -864,47 +867,17 @@ public class FacesController(
 
     [HttpPost("batch/delete")]
     [RequiresPermission(Permissions.FacesDelete)]
-    public async Task<ActionResult<FaceBatchOperationResultDto>> BatchDelete([FromBody] FaceBatchDeleteDto dto, CancellationToken cancellationToken)
+    [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesDelete, ActionArgumentName = "dto", PropertyName = "FaceIds")]
+    public IActionResult BatchDelete([FromBody] FaceBatchDeleteDto dto, CancellationToken cancellationToken)
     {
-        var succeeded = new List<int>();
-        var skipped = new List<FaceBatchSkippedDto>();
-        var failed = new List<FaceBatchFailedDto>();
-        var clearedEvidence = new List<ClearedFaceRunEvidence>();
-        var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
-        {
-            db.ChangeTracker.Clear();
-            succeeded.Clear();
-            skipped.Clear();
-            failed.Clear();
-            clearedEvidence.Clear();
-            var propagationHosts = new HashSet<(FaceAppearanceHostType HostType, int HostId)>();
-            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var ids = dto.FaceIds.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one face to delete.");
 
-            foreach (var faceId in dto.FaceIds.Distinct())
-            {
-                try
-                {
-                    var deleted = await DeleteFaceAsync(faceId, cancellationToken, clearedEvidence, propagationHosts);
-                    if (deleted)
-                        succeeded.Add(faceId);
-                    else
-                        skipped.Add(new FaceBatchSkippedDto(faceId, "Face was not found."));
-                }
-                catch (Exception ex)
-                {
-                    failed.Add(new FaceBatchFailedDto(faceId, ex.Message));
-                }
-            }
-
-            await db.SaveChangesAsync(cancellationToken);
-            foreach (var (hostType, hostId) in propagationHosts)
-                await facePerformerPropagationService.ReconcileHostUnscopedAsync(hostType, hostId, cancellationToken);
-            await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        });
-        await NotifyHostFacesClearedAsync(clearedEvidence, cancellationToken);
-        return Ok(new FaceBatchOperationResultDto(succeeded, skipped, failed));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Face,
+            ids));
     }
 
     [HttpPost("{id:int}/create-performer")]
@@ -1004,6 +977,19 @@ public class FacesController(
     [RequiresEntityAccess(EntityKinds.Face, Permissions.FacesDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deletedBySharedService = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Face,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                cancellationToken,
+                publishEvent: false);
+            return deletedBySharedService ? NoContent() : NotFound();
+        }
+
         var clearedEvidence = new List<ClearedFaceRunEvidence>();
         var deleted = false;
         var strategy = db.Database.CreateExecutionStrategy();

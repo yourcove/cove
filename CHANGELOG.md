@@ -9,11 +9,20 @@ The About page in the app shows the most recent entries by parsing this file dir
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
 ## [Unreleased]
+- Enum values in responses from extension endpoints and other non-controller endpoints, and in the generated `/openapi/v1.json` schema document, are now camel-case strings, matching what controllers and real-time hub messages already send. A client generated from that document reads the permitted value set instead of an undifferentiated number, and can deserialize the host's own responses. Requests may still send either the numeric form or the string form, so existing callers keep working and the accepted input is wider rather than narrower. Extensions that depend on the string form should require the first Cove release that includes this change.
+
+## [1.3.1] - 2026-08-24
+
+Stronger access boundaries, safer metadata workflows, and more reliable face and media operations.
 
 - Tag, performer, and studio merges now share documented transfer rules for Cove-owned relationships, metadata, JSON references, engagement, security, artwork, and extension safeguards. Foreign keys in extension-owned tables block source deletion, uninspectable locations fail closed, and opaque non-foreign-key data remains the extension's responsibility.
 - Metadata-server, scraper, Stash, and Cove metadata-import paths now use the enforced performer and studio identity rules. Normalized duplicate Stash identities collapse deterministically without losing mapped relationships, Cove metadata JSON restores run transactionally, and non-unique performer aliases are never treated as identity keys.
 - Tag metadata refreshes preserve the local canonical name and skip newly supplied aliases when those remote claims belong to another tag, saving the remaining metadata and reporting the omitted claims as warnings instead of failing the entire refresh.
-- Enum values in responses from extension endpoints and other non-controller endpoints, and in the generated `/openapi/v1.json` schema document, are now camel-case strings, matching what controllers and real-time hub messages already send. A client generated from that document reads the permitted value set instead of an undifferentiated number, and can deserialize the host's own responses. Requests may still send either the numeric form or the string form, so existing callers keep working and the accepted input is wider rather than narrower. Extensions that depend on the string form should require the first Cove release that includes this change.
+- Scoped accounts now consistently respect content visibility across streams, group items, bulk edits, file operations, library-wide jobs, administrative transfers and maintenance, derived discovery, and telemetry. Sensitive configuration and observability data is redacted, access-artifact ownership is enforced, API token scopes are preserved, and unsafe AI data selectors are rejected.
+- Face workflows add occurrence splitting and batch actions across images and videos, preserve face evidence through reversible merges, and restore permitted similarity results and completed AI-run review for members.
+- Video segment updates preserve tags, while video merges retain relationships, hierarchy, spans, and child videos and reject unsafe ancestry. Persisted sub-videos inherit playable media correctly, compilation clips honor API bounds, and targeted rescans refresh replaced video metadata and image dimensions.
+- Audio and text cards now align with video cards and contribute to tag and studio usage counts. Multi-value filter summaries preserve their spacing, and audio and text updates return their persisted URLs.
+- Legacy plugin lifecycle transitions, performer scraper collections, UI configuration updates, display-rule tags, metadata imports, failed downloads, and database maintenance are more resilient and deterministic.
 
 ## [1.3.0] - 2026-08-19
 
@@ -22,6 +31,14 @@ Safer entity naming with a guided upgrade path for existing libraries.
 - Tag names and aliases now share one unique namespace, performer names are unique within each disambiguation, and studio names are unique.
 - Before upgrading, Cove checks for conflicting tag, performer, and studio names without changing the database or creating a backup. Libraries with conflicts are directed to the cleanup tools in the latest Cove 1.2.x release; libraries without conflicts upgrade directly.
 - The upgrade trims affected names, applies deterministic safe cleanup, guards against concurrent changes, validates the result, and enforces the new rules atomically.
+
+## [1.2.1] - 2026-08-25
+
+Safer and faster preparation for Cove 1.3's unique-name migration.
+
+- The Name Conflicts operation can apply every reviewed tag plan in one aggregate confirmation while preserving each selected survivor, rename, alias, and extension-reference decision.
+- Performer and studio conflicts support the same reviewed batch workflow, and all cleanup succeeds or rolls back atomically.
+- Failed confirmations no longer leak into later reviews, stale or linked plans are rejected safely, and validation guidance remains visible without duplicate global alerts.
 
 ## [1.2.0] - 2026-08-19
 

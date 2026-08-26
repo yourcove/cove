@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Database, Loader2 } from "lucide-react";
 import { Navbar } from "./components/Navbar";
-import { TutorialStoryboardDialog, TUTORIAL_STORYBOARD_EVENT, type TutorialOpenRequest } from "./components/TutorialStoryboardDialog";
+import { TutorialStoryboardDialog, TUTORIAL_STORYBOARD_EVENT, openTutorialStoryboard, type TutorialOpenRequest } from "./components/TutorialStoryboardDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RouteRegistryProvider, useRouteRegistry } from "./router/RouteRegistry";
 import { AppConfigProvider, useAppConfig } from "./state/AppConfigContext";
@@ -16,8 +16,8 @@ import { RedeemInvitePage } from "./pages/RedeemInvitePage";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { auth, database } from "./api/client";
 import { useKeySequence } from "./hooks/useKeySequence";
-import { useResolvedKeybindingOverrides } from "./hooks/useResolvedKeybindingOverrides";
-import { resolveKeybinding } from "./keyboard/keybindings";
+import { KeyboardShortcutProvider, useKeyboardShortcuts } from "./keyboard/KeyboardShortcutProvider";
+import { KeyboardShortcutsDialog } from "./components/KeyboardShortcutsDialog";
 import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, buildRouteUrl, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute, readStoredRoute, resolveCurrentRoute, syncRouteHistory } from "./router/location";
 import { DetailListStateCacheProvider } from "./hooks/useDetailListUrlState";
 import { AppFloatingUI } from "./components/AppFloatingUI";
@@ -25,6 +25,7 @@ import { ServerAvailabilityBanner } from "./components/ServerAvailabilityBanner"
 import { MutationFailureNotice } from "./components/MutationFailureNotice";
 import { StartupGate } from "./components/StartupGate";
 import { getApiValidationFailureDetail } from "./utils/requestFailure";
+import { ExtensionKeyboardActions } from "./extensions/ExtensionKeyboardActions";
 
 function normalizeRoute(route: Route): Route {
   if (route.page === "logs") {
@@ -161,7 +162,7 @@ export default function App() {
     } else {
       // Store the full route (including non-URL-serializable fields) in history.state
       // so the location change handler can recover it without URL round-tripping.
-      navigateToUrl(nextUrl, { state: r });
+      if (!navigateToUrl(nextUrl, { state: r })) return;
       setRoute(r);
       // Forward navigation to a different page should start at the top. Without this the
       // window keeps the previous page's scroll offset (e.g. a deep scroll position in the
@@ -169,20 +170,6 @@ export default function App() {
       // navigation goes through popstate instead and keeps the browser's restored position.
       window.scrollTo(0, 0);
     }
-  }, []);
-
-  // Keyboard shortcut: "/" focuses search
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) {
-        e.preventDefault();
-        const searchInput = document.querySelector<HTMLInputElement>("input[data-list-search='true']")
-          ?? document.querySelector<HTMLInputElement>("input[placeholder='Search all...']");
-        searchInput?.focus();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   return (
@@ -193,11 +180,14 @@ export default function App() {
         <StartupGate>
           <AuthGate>
             <ExtensionLoaderProvider>
-              <AppFloatingUI />
-              <VideoQueueProvider>
-                <AppKeyboardShortcuts navigate={navigate} />
-                <AppShell route={route} navigate={navigate} />
-              </VideoQueueProvider>
+              <KeyboardShortcutProvider>
+                <AppFloatingUI />
+                <VideoQueueProvider>
+                  <AppKeyboardShortcuts navigate={navigate} />
+                  <ExtensionKeyboardActions route={route} />
+                  <AppShell route={route} navigate={navigate} />
+                </VideoQueueProvider>
+              </KeyboardShortcutProvider>
             </ExtensionLoaderProvider>
           </AuthGate>
         </StartupGate>
@@ -207,24 +197,26 @@ export default function App() {
 }
 
 function AppKeyboardShortcuts({ navigate }: { navigate: (route: Route) => void }) {
-  const overrides = useResolvedKeybindingOverrides();
+  const { setShortcutDialogOpen } = useKeyboardShortcuts();
 
   const globalBindings = useMemo(() => [
-    { keys: resolveKeybinding(overrides, "global.home", "g h"), action: () => navigate({ page: "home" }) },
-    { keys: resolveKeybinding(overrides, "global.videos", "g s"), action: () => navigate({ page: "videos" }) },
-    { keys: resolveKeybinding(overrides, "global.audios", "g a"), action: () => navigate({ page: "audios" }) },
-    { keys: resolveKeybinding(overrides, "global.texts", "g x"), action: () => navigate({ page: "texts" }) },
-    { keys: resolveKeybinding(overrides, "global.segments", "g m"), action: () => navigate({ page: "segments" }) },
-    { keys: resolveKeybinding(overrides, "global.faces", "g f"), action: () => navigate({ page: "faces" }) },
-    { keys: resolveKeybinding(overrides, "global.images", "g i"), action: () => navigate({ page: "images" }) },
-    { keys: resolveKeybinding(overrides, "global.groups", "g v"), action: () => navigate({ page: "groups" }) },
-    { keys: resolveKeybinding(overrides, "global.galleries", "g l"), action: () => navigate({ page: "galleries" }) },
-    { keys: resolveKeybinding(overrides, "global.performers", "g p"), action: () => navigate({ page: "performers" }) },
-    { keys: resolveKeybinding(overrides, "global.studios", "g u"), action: () => navigate({ page: "studios" }) },
-    { keys: resolveKeybinding(overrides, "global.tags", "g t"), action: () => navigate({ page: "tags" }) },
-    { keys: resolveKeybinding(overrides, "global.settings", "g z"), action: () => navigate({ page: "settings" }) },
-    { keys: resolveKeybinding(overrides, "global.stats", "g d"), action: () => navigate({ page: "stats" }) },
-  ], [navigate, overrides]);
+    { id: "global.shortcuts", keys: "?", surface: "global" as const, action: () => setShortcutDialogOpen(true) },
+    { id: "global.help", keys: "", surface: "global" as const, action: () => openTutorialStoryboard() },
+    { id: "global.home", keys: "g h", surface: "global" as const, action: () => navigate({ page: "home" }) },
+    { id: "global.videos", keys: "g s", surface: "global" as const, action: () => navigate({ page: "videos" }) },
+    { id: "global.audios", keys: "g a", surface: "global" as const, action: () => navigate({ page: "audios" }) },
+    { id: "global.texts", keys: "g x", surface: "global" as const, action: () => navigate({ page: "texts" }) },
+    { id: "global.segments", keys: "g m", surface: "global" as const, action: () => navigate({ page: "segments" }) },
+    { id: "global.faces", keys: "g f", surface: "global" as const, action: () => navigate({ page: "faces" }) },
+    { id: "global.images", keys: "g i", surface: "global" as const, action: () => navigate({ page: "images" }) },
+    { id: "global.groups", keys: "g v", surface: "global" as const, action: () => navigate({ page: "groups" }) },
+    { id: "global.galleries", keys: "g l", surface: "global" as const, action: () => navigate({ page: "galleries" }) },
+    { id: "global.performers", keys: "g p", surface: "global" as const, action: () => navigate({ page: "performers" }) },
+    { id: "global.studios", keys: "g u", surface: "global" as const, action: () => navigate({ page: "studios" }) },
+    { id: "global.tags", keys: "g t", surface: "global" as const, action: () => navigate({ page: "tags" }) },
+    { id: "global.settings", keys: "g z", surface: "global" as const, action: () => navigate({ page: "settings" }) },
+    { id: "global.stats", keys: "g d", surface: "global" as const, action: () => navigate({ page: "stats" }) },
+  ], [navigate, setShortcutDialogOpen]);
 
   useKeySequence(globalBindings);
   return null;
@@ -308,6 +300,7 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
 function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
   const { config, configLoading, status, statusLoading } = useAppConfig();
   const { manifest } = useExtensions();
+  const { shortcutDialogOpen, setShortcutDialogOpen } = useKeyboardShortcuts();
   const queryClient = useQueryClient();
   const migrateMutation = useMutation({
     meta: { suppressGlobalError: true },
@@ -490,6 +483,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
           }
         }}
       />
+      <KeyboardShortcutsDialog open={shortcutDialogOpen} onClose={() => setShortcutDialogOpen(false)} />
     </div>
   );
 }
@@ -551,6 +545,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
   return (
     <>
       {route.page === "home" && <HomePage onNavigate={navigate} />}
+      {route.page === "dashboard" && route.id !== undefined && <HomePage dashboardId={route.id} onNavigate={navigate} />}
       {route.page === "manual" && <HomePage onNavigate={navigate} />}
       {route.page === "videos" && <VideosPage onNavigate={navigate} />}
       {route.page === "video" && route.id !== undefined && <VideoDetailPage id={route.id} initialSeekTo={route.seekTo} initialTab={route.videoTab} onNavigate={navigate} />}

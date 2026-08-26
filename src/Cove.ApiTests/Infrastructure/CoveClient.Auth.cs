@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
+using Cove.Plugins;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -16,6 +17,143 @@ public sealed partial class CoveClient
 
     internal Task<JsonElement> GetExternalLinksAsync(CancellationToken cancellationToken = default)
         => SendAsync<JsonElement>(HttpMethod.Get, WithCacheNonce("/api/auth/external/links"), null, cancellationToken);
+
+    internal Task<IReadOnlyList<ExternalIdentityLinkDto>> GetOwnExternalLinksAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<ExternalIdentityLinkDto>>(
+            HttpMethod.Get,
+            WithCacheNonce("/api/auth/external/links"),
+            null,
+            cancellationToken);
+
+    internal Task<ExtensionIdentityLinkPreparation> PrepareApiTestExternalLinkAsync(
+        string subject,
+        string providerLabel,
+        string? accountLabel,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ExtensionIdentityLinkPreparation>(
+            HttpMethod.Post,
+            "/api/plugins/com.cove.api-test-face-provider/api-test-auth/links/prepare",
+            new ApiTestExternalIdentityRequest(subject, providerLabel, accountLabel),
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    internal Task<PendingExternalIdentityLinkDto> PreviewExternalLinkAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<PendingExternalIdentityLinkDto>(
+            HttpMethod.Post,
+            "/api/auth/external/links/preview",
+            new { code },
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    internal Task<HttpStatusCode> TryPreviewExternalLinkStatusAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+        => SendCurrentBrowserForStatusAsync(
+            HttpMethod.Post,
+            "/api/auth/external/links/preview",
+            new { code },
+            cancellationToken);
+
+    internal Task<ExternalIdentityLinkDto> ConfirmExternalLinkAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ExternalIdentityLinkDto>(
+            HttpMethod.Post,
+            "/api/auth/external/links/confirm",
+            new { code },
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    internal Task CancelExternalLinkAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Post,
+            "/api/auth/external/links/cancel",
+            new { code },
+            cancellationToken);
+
+    internal Task<HttpStatusCode> TryCancelExternalLinkStatusAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+        => SendCurrentBrowserForStatusAsync(
+            HttpMethod.Post,
+            "/api/auth/external/links/cancel",
+            new { code },
+            cancellationToken);
+
+    internal Task RemoveOwnExternalLinkAsync(
+        int linkId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/auth/external/links/{linkId}",
+            new { },
+            cancellationToken);
+
+    internal Task<HttpStatusCode> TryRemoveOwnExternalLinkStatusAsync(
+        int linkId,
+        CancellationToken cancellationToken = default)
+        => SendCurrentBrowserForStatusAsync(
+            HttpMethod.Delete,
+            $"/api/auth/external/links/{linkId}",
+            payload: null,
+            cancellationToken);
+
+    internal Task<ApiTestExternalLoginBrowser> BeginApiTestExternalLoginAsync(
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ApiTestExternalLoginBrowser>(
+            HttpMethod.Post,
+            "/api/plugins/com.cove.api-test-face-provider/api-test-auth/login/begin",
+            new { },
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    internal Task<ExtensionLoginCompletion> CompleteApiTestExternalLoginAsync(
+        string browserBinding,
+        string subject,
+        string providerLabel,
+        string? accountLabel,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ExtensionLoginCompletion>(
+            HttpMethod.Post,
+            "/api/plugins/com.cove.api-test-face-provider/api-test-auth/login/complete",
+            new ApiTestExternalLoginCompletionRequest(
+                browserBinding,
+                new ApiTestExternalIdentityRequest(subject, providerLabel, accountLabel)),
+            HttpStatusCode.OK,
+            cancellationToken);
+
+    internal async Task<CoveAuthSession> RedeemExternalLoginAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _client.PostAsJsonAsync(
+            "/api/auth/external/redeem",
+            new { code },
+            ApiJson.Options,
+            cancellationToken);
+        if (response.StatusCode is not HttpStatusCode.OK)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"POST /api/auth/external/redeem returned {(int)response.StatusCode} ({response.StatusCode}); expected 200 (OK). Response: {body}");
+        }
+
+        return await ReadSessionAsync(response, "POST /api/auth/external/redeem", cancellationToken);
+    }
+
+    internal Task<HttpStatusCode> TryRedeemExternalLoginStatusAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+        => SendCurrentBrowserForStatusAsync(
+            HttpMethod.Post,
+            "/api/auth/external/redeem",
+            new { code },
+            cancellationToken);
 
     internal async Task<InviteTokenInfoDto> GetInviteInfoAsync(string token, CancellationToken cancellationToken = default)
     {
@@ -134,6 +272,19 @@ public sealed partial class CoveClient
         return response.StatusCode;
     }
 
+    private async Task<HttpStatusCode> SendCurrentBrowserForStatusAsync(
+        HttpMethod method,
+        string requestUri,
+        object? payload,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, requestUri);
+        if (payload is not null)
+            request.Content = JsonContent.Create(payload, options: ApiJson.Options);
+        using var response = await _client.SendAsync(request, cancellationToken);
+        return response.StatusCode;
+    }
+
     private async Task<T> SendAnonymousAsync<T>(
         HttpMethod method,
         string requestUri,
@@ -160,7 +311,18 @@ public sealed partial class CoveClient
     }
 
     private sealed record AuthSessionResponse(string Token, string RefreshToken, UserDto User);
+
+    private sealed record ApiTestExternalIdentityRequest(
+        string Subject,
+        string ProviderLabel,
+        string? AccountLabel);
+
+    private sealed record ApiTestExternalLoginCompletionRequest(
+        string BrowserBinding,
+        ApiTestExternalIdentityRequest Identity);
 }
+
+internal sealed record ApiTestExternalLoginBrowser(string BrowserBinding);
 
 internal sealed class CoveAuthSession : IDisposable
 {

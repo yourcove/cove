@@ -13,14 +13,14 @@ public sealed class EntityNameWriteValidationTests
         await using var db = CreateContext();
         var first = new Performer { Name = " Alpha ", Disambiguation = " One " };
         db.Performers.Add(first);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("Alpha", first.Name);
         Assert.Equal("One", first.Disambiguation);
         Assert.Equal(EntityNameRules.PerformerIdentityKey("Alpha", "One"), first.IdentityKey);
 
         db.Performers.Add(new Performer { Name = "alpha", Disambiguation = "one" });
-        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
+        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(NameConflictEntityTypes.Performer, exception.EntityType);
         Assert.Equal(
@@ -46,10 +46,10 @@ public sealed class EntityNameWriteValidationTests
                 Aliases = [new PerformerAlias { Alias = "Alpha" }, new PerformerAlias { Alias = "Shared" }],
             });
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, await db.Performers.CountAsync());
-        Assert.Equal(3, await db.Set<PerformerAlias>().CountAsync());
+        Assert.Equal(2, await db.Performers.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(3, await db.Set<PerformerAlias>().CountAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -58,10 +58,10 @@ public sealed class EntityNameWriteValidationTests
         await using var db = CreateContext();
         var first = new Performer { Name = "Alpha", Disambiguation = null };
         db.Performers.Add(first);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Performers.Add(new Performer { Name = " alpha ", Disambiguation = " \t " });
-        await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
+        await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -70,13 +70,13 @@ public sealed class EntityNameWriteValidationTests
         await using var db = CreateContext();
         var first = new Studio { Name = " Studio " };
         db.Studios.Add(first);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("Studio", first.Name);
         Assert.Equal(EntityNameRules.StudioIdentityKey("Studio"), first.NameKey);
         db.Studios.Add(new Studio { Name = "studio" });
 
-        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
+        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
         Assert.Equal(NameConflictEntityTypes.Studio, exception.EntityType);
         Assert.Equal(
             "A studio with name \"Studio\" already exists. Studio names must be unique.",
@@ -88,10 +88,10 @@ public sealed class EntityNameWriteValidationTests
     {
         await using var db = CreateContext();
         db.Performers.Add(new Performer { Name = "Single Name" });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Performers.Add(new Performer { Name = " single NAME ", Disambiguation = " " });
-        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync());
+        var exception = await Assert.ThrowsAsync<EntityNameConflictException>(() => db.SaveChangesAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(
             "A performer with name \"Single Name\" and no disambiguation already exists. Performer name and disambiguation combinations must be unique.",
@@ -108,12 +108,12 @@ public sealed class EntityNameWriteValidationTests
         var secondStudio = new Studio { Name = " duplicate STUDIO " };
         db.AddRange(first, second, firstStudio, secondStudio);
         using (db.SuppressEntityNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         second.Favorite = true;
-        await new PerformerRepository(db).UpdateAsync(second);
+        await new PerformerRepository(db).UpdateAsync(second, TestContext.Current.CancellationToken);
         secondStudio.Details = "Updated without changing its identity";
-        await new StudioRepository(db).UpdateAsync(secondStudio);
+        await new StudioRepository(db).UpdateAsync(secondStudio, TestContext.Current.CancellationToken);
 
         Assert.True(second.Favorite);
         Assert.Equal("duplicate", second.Name);
@@ -131,15 +131,15 @@ public sealed class EntityNameWriteValidationTests
         var first = new Performer { Name = "Alpha", Disambiguation = "One" };
         var second = new Performer { Name = "Beta", Disambiguation = "Two" };
         db.Performers.AddRange(first, second);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.ChangeTracker.Clear();
-        var detached = await db.Performers.AsNoTracking().SingleAsync(performer => performer.Id == second.Id);
+        var detached = await db.Performers.AsNoTracking().SingleAsync(performer => performer.Id == second.Id, cancellationToken: TestContext.Current.CancellationToken);
         detached.Name = " alpha ";
         detached.Disambiguation = " one ";
 
         var exception = await Assert.ThrowsAsync<EntityNameConflictException>(
-            () => new PerformerRepository(db).UpdateAsync(detached));
+            () => new PerformerRepository(db).UpdateAsync(detached, TestContext.Current.CancellationToken));
 
         Assert.Equal(NameConflictEntityTypes.Performer, exception.EntityType);
     }

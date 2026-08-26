@@ -34,7 +34,7 @@ public class EntityDetailCountControllerTests
         var gallery = new Gallery { Title = "Gallery" };
         var group = new Group { Name = "Group" };
         context.AddRange(performer, video, image, gallery, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.AddRange(
             new VideoPerformer { VideoId = video.Id, PerformerId = performer.Id },
@@ -50,13 +50,13 @@ public class EntityDetailCountControllerTests
                 HostId = video.Id,
                 VideoId = video.Id,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var storedPerformer = await context.Performers.SingleAsync(candidate => candidate.Id == performer.Id);
+        var storedPerformer = await context.Performers.SingleAsync(candidate => candidate.Id == performer.Id, cancellationToken: TestContext.Current.CancellationToken);
         storedPerformer.VideoCount = 0;
         storedPerformer.ImageCount = 0;
         storedPerformer.GalleryCount = 0;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new PerformersController(
             new PerformerRepository(context),
@@ -91,14 +91,14 @@ public class EntityDetailCountControllerTests
         var bravoSort = new Tag { Name = "Xylophone", SortName = "Bravo" };
         var deltaSort = new Tag { Name = "Antelope", SortName = "Delta" };
         context.AddRange(performer, zulu, alpha, bravoSort, deltaSort);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.AddRange(
             new PerformerTag { PerformerId = performer.Id, TagId = zulu.Id },
             new PerformerTag { PerformerId = performer.Id, TagId = alpha.Id },
             new PerformerTag { PerformerId = performer.Id, TagId = bravoSort.Id },
             new PerformerTag { PerformerId = performer.Id, TagId = deltaSort.Id });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new PerformersController(
             new PerformerRepository(context),
@@ -129,21 +129,21 @@ public class EntityDetailCountControllerTests
         var performerA = new Performer { Name = "A" };
         var performerB = new Performer { Name = "B" };
         context.AddRange(studio, childStudio, video, image, gallery, group, performerA, performerB);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.AddRange(
             new VideoPerformer { VideoId = video.Id, PerformerId = performerA.Id },
             new VideoPerformer { VideoId = video.Id, PerformerId = performerB.Id });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var storedStudio = await context.Studios.SingleAsync(candidate => candidate.Id == studio.Id);
+        var storedStudio = await context.Studios.SingleAsync(candidate => candidate.Id == studio.Id, cancellationToken: TestContext.Current.CancellationToken);
         storedStudio.VideoCount = 0;
         storedStudio.ImageCount = 0;
         storedStudio.GalleryCount = 0;
         storedStudio.GroupCount = 0;
         storedStudio.PerformerCount = 0;
         storedStudio.ChildStudioCount = 0;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new StudiosController(
             new StudioRepository(context),
@@ -163,9 +163,9 @@ public class EntityDetailCountControllerTests
 
         var childVideo = new Video { Title = "Child Video", StudioId = childStudio.Id };
         context.Videos.Add(childVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.Set<VideoPerformer>().Add(new VideoPerformer { VideoId = childVideo.Id, PerformerId = performerA.Id });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var recursiveResult = await controller.GetById(studio.Id, CancellationToken.None, -1);
         var recursiveDetail = Assert.IsType<OkObjectResult>(recursiveResult.Result).Value as StudioDto;
@@ -186,19 +186,19 @@ public class EntityDetailCountControllerTests
         var imageB = new Image { Title = "Image B" };
         var video = new Video { Title = "Video" };
         context.AddRange(studio, performer, gallery, imageA, imageB, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.AddRange(
             new ImageGallery { GalleryId = gallery.Id, ImageId = imageA.Id },
             new ImageGallery { GalleryId = gallery.Id, ImageId = imageB.Id },
             new VideoGallery { GalleryId = gallery.Id, VideoId = video.Id },
             new GalleryPerformer { GalleryId = gallery.Id, PerformerId = performer.Id });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var storedGallery = await context.Galleries.SingleAsync(candidate => candidate.Id == gallery.Id);
+        var storedGallery = await context.Galleries.SingleAsync(candidate => candidate.Id == gallery.Id, cancellationToken: TestContext.Current.CancellationToken);
         storedGallery.ImageCount = 0;
         storedGallery.VideoCount = 0;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new GalleriesController(
             new GalleryRepository(context),
@@ -245,14 +245,14 @@ public class EntityDetailCountControllerTests
         var image = new Image { Title = "Image" };
         var video = new Video { Title = "Video" };
         context.AddRange(gallery, image, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.AddRange(
             new ImageGallery { GalleryId = gallery.Id, ImageId = image.Id },
             new VideoGallery { GalleryId = gallery.Id, VideoId = video.Id },
             new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Image, HostId = image.Id, LikeCount = 2, DerivedLikeCount = 13 },
             new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Video, HostId = video.Id, LikeCount = 3 },
             new UserEntityAffinity { UserId = 2, HostType = AffinityHostType.Image, HostId = image.Id, LikeCount = 11 });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var controller = new GalleriesController(
             new GalleryRepository(context),
             context,

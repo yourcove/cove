@@ -1,10 +1,8 @@
 using System.Text.Json;
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Contracts;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class EndpointReadApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -30,7 +28,7 @@ public sealed class EndpointReadApiTests(
         var expectedShape = ReadEndpointCatalog.Get(endpoint).ExpectedShape;
 
         // Act
-        var response = await AsUser().ReadEndpointAsync(endpoint);
+        var response = await AsUser().ReadEndpointAsync(endpoint, TestContext.Current.CancellationToken);
 
         // Assert
         response.ValueKind.Should().Be(

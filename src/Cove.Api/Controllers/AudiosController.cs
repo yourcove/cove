@@ -18,7 +18,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.AudiosRead)]
-public class AudiosController(CoveContext db, CustomFieldService customFields, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null) : ControllerBase
+public class AudiosController(CoveContext db, CustomFieldService customFields, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -169,6 +169,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<AudioDto>> GetById(int id, CancellationToken ct)
     {
         var audio = await db.Audios.AsNoTracking()
@@ -188,6 +189,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     }
 
     [HttpGet("{id:int}/stream")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.StreamRead)]
     public async Task<IActionResult> Stream(int id, CancellationToken ct)
     {
@@ -305,6 +307,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
     [HttpPost]
     [RequiresPermission(Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<AudioDto>> Create([FromBody] AudioCreateDto dto, CancellationToken ct)
     {
         var tagIds = dto.TagIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
@@ -368,6 +372,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.AudiosWrite)]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<AudioDto>> Update(int id, [FromBody] AudioUpdateDto dto, CancellationToken ct)
     {
         var audio = await db.Audios
@@ -509,40 +515,52 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.AudiosDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "dto", PropertyName = "DeleteFiles")]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return new EntityMutationNoContentResult([]);
+        if (dto.DeleteFiles && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
 
-        var idsToDelete = ids.ToHashSet();
-        var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var items = await db.Audios.Include(item => item.Files).Where(item => ids.Contains(item.Id)).ToListAsync(ct);
-        var groupItems = await db.GroupItems.Where(item => item.HostType == "audio" && ids.Contains(item.HostId)).ToListAsync(ct);
-        db.GroupItems.RemoveRange(groupItems);
-        try
-        {
-            foreach (var item in items)
-                await DeleteAudioArtifactsAsync(item, idsToDelete, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
-        }
-        catch (AudioFileDeleteException ex)
-        {
-            return Conflict(new { error = ex.Message });
-        }
-        foreach (var id in ids)
-        {
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Audio, id, ct);
-        }
-        db.Audios.RemoveRange(items);
-        await db.SaveChangesAsync(ct);
-        return new EntityMutationNoContentResult(items.Select(item => item.Id).ToList());
+        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one audio item to delete.");
+
+        var queued = bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Audio,
+            ids,
+            dto.DeleteFiles,
+            dto.DeleteGenerated);
+        return Accepted(queued);
     }
 
     [HttpDelete("{id:int}")]
     [RequiresPermission(Permissions.AudiosDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "deleteFile")]
     [RequiresEntityAccess(EntityKinds.Audio, Permissions.AudiosDelete)]
     public async Task<IActionResult> Delete(int id, [FromQuery] bool deleteFile = false, [FromQuery] bool deleteGenerated = false, CancellationToken ct = default)
     {
+        if (deleteFile && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
+
+        if (bulkEntityDeletionService is not null)
+        {
+            var executionContext = new BulkDeletionExecutionContext();
+            if (!await bulkEntityDeletionService.DeleteAsync(
+                    BulkDeletionEntityKind.Audio,
+                    id,
+                    executionContext,
+                    deleteFile,
+                    deleteGenerated,
+                    ct,
+                    publishEvent: false))
+                return NotFound();
+            if (deleteFile)
+                physicalFileDeletionRecoverySignal?.Notify();
+            return NoContent();
+        }
+
         var audio = await db.Audios.Include(item => item.Files).FirstOrDefaultAsync(item => item.Id == id, ct);
         if (audio == null) return NotFound();
 
@@ -732,7 +750,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, audio => audio.Files);
         query = ApplyAudioFileStringCriterion(query, filter.FormatCriterion, "format");
         query = ApplyAudioFileStringCriterion(query, filter.AudioCodecCriterion, "audioCodec");
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, audio => audio.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasVideoFilesCriterion, audio => audio.HasVideoFiles);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, audio => audio.ImageBlobId != null && audio.ImageBlobId != string.Empty);
@@ -743,7 +761,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FilterHelpers.ApplyNullableTimestamp(query, filter.FileModTimeCriterion, audio => audio.MaxFileModTime);
         query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, audio => audio.FileCount);
         query = FilterHelpers.ApplyInt(query, filter.TrackCountCriterion, audio => audio.Tracks.Count);
-        query = FilterHelpers.ApplyString(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title));
         query = FilterHelpers.ApplyInt(query, filter.SampleRateCriterion, audio => audio.Files.Max(file => file.SampleRate) ?? 0);
         query = FilterHelpers.ApplyInt(query, filter.ChannelsCriterion, audio => audio.Files.Max(file => file.Channels) ?? 0);
         query = ApplyEffectiveTagCountCriterion(query, filter.TagCountCriterion);
@@ -764,33 +782,10 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
     private static IQueryable<Audio> ApplyAudioFileStringCriterion(IQueryable<Audio> query, StringCriterion? criterion, string field)
     {
-        if (criterion == null)
-            return query;
-
-        var value = criterion.Value.Trim();
-        var lowered = value.ToLowerInvariant();
         return field switch
         {
-            "format" => criterion.Modifier switch
-            {
-                CriterionModifier.Equals => query.Where(audio => audio.Files.Any(file => file.Format == value)),
-                CriterionModifier.NotEquals => query.Where(audio => !audio.Files.Any(file => file.Format == value)),
-                CriterionModifier.Includes => query.Where(audio => audio.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-                CriterionModifier.Excludes => query.Where(audio => !audio.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-                CriterionModifier.IsNull => query.Where(audio => !audio.Files.Any(file => file.Format != string.Empty)),
-                CriterionModifier.NotNull => query.Where(audio => audio.Files.Any(file => file.Format != string.Empty)),
-                _ => query,
-            },
-            "audioCodec" => criterion.Modifier switch
-            {
-                CriterionModifier.Equals => query.Where(audio => audio.Files.Any(file => file.AudioCodec == value)),
-                CriterionModifier.NotEquals => query.Where(audio => !audio.Files.Any(file => file.AudioCodec == value)),
-                CriterionModifier.Includes => query.Where(audio => audio.Files.Any(file => file.AudioCodec != null && file.AudioCodec.ToLower().Contains(lowered))),
-                CriterionModifier.Excludes => query.Where(audio => !audio.Files.Any(file => file.AudioCodec != null && file.AudioCodec.ToLower().Contains(lowered))),
-                CriterionModifier.IsNull => query.Where(audio => !audio.Files.Any(file => file.AudioCodec != string.Empty)),
-                CriterionModifier.NotNull => query.Where(audio => audio.Files.Any(file => file.AudioCodec != string.Empty)),
-                _ => query,
-            },
+            "format" => FilterHelpers.ApplyStringCollection(query, criterion, audio => audio.Files.Select(file => file.Format)),
+            "audioCodec" => FilterHelpers.ApplyStringCollection(query, criterion, audio => audio.Files.Select(file => file.AudioCodec)),
             _ => query,
         };
     }

@@ -110,8 +110,8 @@ public class GenerateJobServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(Path.Combine(originalRoot, "first.mp4"), [1]);
-            await File.WriteAllBytesAsync(Path.Combine(selectedRoot, "selected.mp4"), [2]);
+            await File.WriteAllBytesAsync(Path.Combine(originalRoot, "first.mp4"), [1], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(Path.Combine(selectedRoot, "selected.mp4"), [2], TestContext.Current.CancellationToken);
 
             var dbOptions = new DbContextOptionsBuilder<CoveContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -128,7 +128,7 @@ public class GenerateJobServiceTests
                     (1, originalRoot, "first.mp4"),
                     (2, selectedRoot, "selected.mp4"));
                 db.Videos.Add(video);
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
                 selectedFileId = video.Files.Single(file => file.Basename == "selected.mp4").Id;
             }
 
@@ -160,7 +160,7 @@ public class GenerateJobServiceTests
                 Overwrite = true,
                 Paths = [selectedRoot],
             });
-            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+            await jobs.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             Assert.Equal(selectedFileId, thumbnails.PreviewSourceFileId);
             var unit = Assert.Single(jobs.Progress.Units);

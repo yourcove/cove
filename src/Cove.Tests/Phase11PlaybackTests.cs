@@ -19,8 +19,8 @@ public sealed class Phase11PlaybackTests
     {
         await using var scope = await CreateContextAsync();
         scope.Context.Videos.Add(new Video { Title = "Playback Video" });
-        await scope.Context.SaveChangesAsync();
-        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(7));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -37,7 +37,7 @@ public sealed class Phase11PlaybackTests
 
         Assert.IsType<NoContentResult>(result);
 
-        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync();
+        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(7, session.UserId);
         Assert.Equal(InteractionHostType.Video, session.HostType);
         Assert.Equal(videoId, session.HostId);
@@ -46,7 +46,7 @@ public sealed class Phase11PlaybackTests
         Assert.Equal(42.0, session.LastPositionSec);
         Assert.Equal(PlaybackSessionState.Paused, session.State);
 
-        var intervals = await scope.Context.PlaybackIntervals.IgnoreQueryFilters().OrderBy(interval => interval.StartSec).ToListAsync();
+        var intervals = await scope.Context.PlaybackIntervals.IgnoreQueryFilters().OrderBy(interval => interval.StartSec).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, intervals.Count);
         Assert.Equal((0.0, 30.0), (intervals[0].StartSec, intervals[0].EndSec));
         Assert.Equal((30.0, 42.0), (intervals[1].StartSec, intervals[1].EndSec));
@@ -57,8 +57,8 @@ public sealed class Phase11PlaybackTests
     {
         await using var scope = await CreateContextAsync();
         scope.Context.Groups.Add(new Group { Name = "Compilation playback" });
-        await scope.Context.SaveChangesAsync();
-        var groupId = await scope.Context.Groups.Select(group => group.Id).SingleAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var groupId = await scope.Context.Groups.Select(group => group.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(11));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -82,7 +82,7 @@ public sealed class Phase11PlaybackTests
             "paused",
             [new PlaybackIntervalInputDto(12.0, 27.0)]), CancellationToken.None));
 
-        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync();
+        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(11, session.UserId);
         Assert.Equal(InteractionHostType.Group, session.HostType);
         Assert.Equal(groupId, session.HostId);
@@ -91,7 +91,7 @@ public sealed class Phase11PlaybackTests
         Assert.Equal(27.0, session.LastPositionSec);
         Assert.Equal(PlaybackSessionState.Paused, session.State);
 
-        var intervals = await scope.Context.PlaybackIntervals.IgnoreQueryFilters().OrderBy(interval => interval.StartSec).ToListAsync();
+        var intervals = await scope.Context.PlaybackIntervals.IgnoreQueryFilters().OrderBy(interval => interval.StartSec).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, intervals.Count);
         Assert.All(intervals, interval => Assert.Equal(InteractionHostType.Group, interval.HostType));
         Assert.Equal((0.0, 12.0), (intervals[0].StartSec, intervals[0].EndSec));
@@ -105,7 +105,7 @@ public sealed class Phase11PlaybackTests
         var video = new Video { Title = "Compilation Item" };
         var group = new Group { Name = "Compilation Context" };
         scope.Context.AddRange(video, group);
-        await scope.Context.SaveChangesAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(12));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -138,7 +138,7 @@ public sealed class Phase11PlaybackTests
             RecommendationSource: "home",
             Context: context), CancellationToken.None));
 
-        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync();
+        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("compilation", session.Surface);
         Assert.Equal($"group:{group.Id}", session.ScopeKey);
         Assert.Equal(InteractionHostType.Group, session.ParentHostType);
@@ -156,7 +156,7 @@ public sealed class Phase11PlaybackTests
         Assert.Equal("home", session.RecommendationSource);
         Assert.Equal(3, session.Context!.RootElement.GetProperty("itemIndex").GetInt32());
 
-        var interval = await scope.Context.PlaybackIntervals.IgnoreQueryFilters().SingleAsync();
+        var interval = await scope.Context.PlaybackIntervals.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("compilation", interval.Surface);
         Assert.Equal(InteractionHostType.Video, interval.ItemHostType);
         Assert.Equal(video.Id, interval.ItemHostId);
@@ -171,7 +171,7 @@ public sealed class Phase11PlaybackTests
         await using var scope = await CreateContextAsync();
         var video = new Video { Title = "Segment Host" };
         scope.Context.Videos.Add(video);
-        await scope.Context.SaveChangesAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var segment = new Segment
         {
             HostType = SegmentHostType.Video,
@@ -182,7 +182,7 @@ public sealed class Phase11PlaybackTests
             Title = "Tracked segment",
         };
         scope.Context.Segments.Add(segment);
-        await scope.Context.SaveChangesAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(13, Permissions.SegmentsRead));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -205,7 +205,7 @@ public sealed class Phase11PlaybackTests
             ClipStartSec: 10.0,
             ClipEndSec: 20.0), CancellationToken.None));
 
-        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync();
+        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(AffinityHostType.Segment, affinity.HostType);
         Assert.Equal(segment.Id, affinity.HostId);
         Assert.Equal(1, affinity.ViewCount);
@@ -229,7 +229,7 @@ public sealed class Phase11PlaybackTests
             var setupPrincipalAccessor = new CurrentPrincipalAccessor();
             await using (var setupContext = new PlaybackTestContext(options, setupPrincipalAccessor))
             {
-                await setupContext.Database.EnsureCreatedAsync();
+                await setupContext.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
                 setupContext.Users.Add(new User
                 {
                     Id = 29,
@@ -238,7 +238,7 @@ public sealed class Phase11PlaybackTests
                 });
                 var video = new Video { Title = "Concurrent Segment Host" };
                 setupContext.Videos.Add(video);
-                await setupContext.SaveChangesAsync();
+                await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
                 videoId = video.Id;
 
                 var segment = new Segment
@@ -251,7 +251,7 @@ public sealed class Phase11PlaybackTests
                     Title = "Concurrent segment",
                 };
                 setupContext.Segments.Add(segment);
-                await setupContext.SaveChangesAsync();
+                await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
                 segmentId = segment.Id;
             }
 
@@ -300,14 +300,14 @@ public sealed class Phase11PlaybackTests
 
             await using var verifyContext = new PlaybackTestContext(options, new CurrentPrincipalAccessor());
             var affinity = await verifyContext.UserEntityAffinities.IgnoreQueryFilters()
-                .SingleAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId);
+                .SingleAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(1, affinity.InteractionCount);
             Assert.Equal(1, affinity.SeekCount);
             Assert.Equal(1, affinity.PlayerControlCount);
             Assert.Equal(2.0, affinity.TotalConsumedSec, precision: 5);
             Assert.Equal(2.0, affinity.LastPositionSec);
             Assert.Equal(1, await verifyContext.UserEntityAffinities.IgnoreQueryFilters()
-                .CountAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId));
+                .CountAsync(row => row.UserId == 29 && row.HostType == AffinityHostType.Segment && row.HostId == segmentId, cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -323,8 +323,8 @@ public sealed class Phase11PlaybackTests
         await using var scope = await CreateContextAsync();
         await AddUserAsync(scope, 14);
         scope.Context.Images.Add(new Image { Title = "Lightbox image" });
-        await scope.Context.SaveChangesAsync();
-        var imageId = await scope.Context.Images.Select(image => image.Id).SingleAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var imageId = await scope.Context.Images.Select(image => image.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(14, Permissions.ImagesRead));
         var controller = CreateEngagementController(scope.Context, scope.PrincipalAccessor);
@@ -333,11 +333,11 @@ public sealed class Phase11PlaybackTests
         Assert.IsType<NoContentResult>(await controller.RecordInteraction(new EngagementInteractionWriteDto("image", imageId, "slideshowDelay"), CancellationToken.None));
         Assert.IsType<NoContentResult>(await controller.RecordInteraction(new EngagementInteractionWriteDto("image", imageId, "zoom"), CancellationToken.None));
 
-        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync();
+        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(3, affinity.InteractionCount);
         Assert.Equal(2, affinity.PlayerControlCount);
         Assert.Equal(1, affinity.ZoomCount);
-        Assert.Equal(3, await scope.Context.Interactions.IgnoreQueryFilters().CountAsync());
+        Assert.Equal(3, await scope.Context.Interactions.IgnoreQueryFilters().CountAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -346,8 +346,8 @@ public sealed class Phase11PlaybackTests
         await using var scope = await CreateContextAsync();
         await AddUserAsync(scope, 21, "{\"tracking\":{\"enabled\":false}}");
         scope.Context.Videos.Add(new Video { Title = "Muted tracking" });
-        await scope.Context.SaveChangesAsync();
-        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(21));
         var playbackController = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -367,9 +367,9 @@ public sealed class Phase11PlaybackTests
 
         Assert.IsType<NoContentResult>(interactionResult);
         Assert.IsType<NoContentResult>(playbackResult);
-        Assert.Empty(await scope.Context.Interactions.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await scope.Context.PlaybackSessions.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await scope.Context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await scope.Context.Interactions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await scope.Context.PlaybackSessions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await scope.Context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -378,8 +378,8 @@ public sealed class Phase11PlaybackTests
         await using var scope = await CreateContextAsync();
         await AddUserAsync(scope, 22);
         scope.Context.Videos.Add(new Video { Title = "Threshold view" });
-        await scope.Context.SaveChangesAsync();
-        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(22));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -393,8 +393,8 @@ public sealed class Phase11PlaybackTests
             "ended",
             [new PlaybackIntervalInputDto(0.0, 35.0)]), CancellationToken.None));
 
-        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync();
-        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync();
+        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var session = await scope.Context.PlaybackSessions.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(1, affinity.ViewCount);
         Assert.Equal(0, affinity.CompleteCount);
         Assert.Equal(35.0, affinity.LastPositionSec);
@@ -410,7 +410,7 @@ public sealed class Phase11PlaybackTests
         var completedVideo = new Video { Title = "Completed media" };
         var clippedVideo = new Video { Title = "End clip" };
         scope.Context.Videos.AddRange(completedVideo, clippedVideo);
-        await scope.Context.SaveChangesAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(27));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -435,7 +435,7 @@ public sealed class Phase11PlaybackTests
             ClipStartSec: 90.0,
             ClipEndSec: 99.98), CancellationToken.None));
 
-        var affinities = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().ToDictionaryAsync(row => row.HostId);
+        var affinities = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().ToDictionaryAsync(row => row.HostId, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(0.0, affinities[completedVideo.Id].LastPositionSec);
         Assert.Equal(99.98, affinities[clippedVideo.Id].LastPositionSec);
     }
@@ -446,8 +446,8 @@ public sealed class Phase11PlaybackTests
         await using var scope = await CreateContextAsync();
         await AddUserAsync(scope, 23);
         scope.Context.Images.Add(new Image { Title = "Dwell image" });
-        await scope.Context.SaveChangesAsync();
-        var imageId = await scope.Context.Images.Select(image => image.Id).SingleAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var imageId = await scope.Context.Images.Select(image => image.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(23, Permissions.ImagesRead));
         var playbackController = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -465,7 +465,7 @@ public sealed class Phase11PlaybackTests
             "ended",
             [new PlaybackIntervalInputDto(0.0, 6.0)]), CancellationToken.None));
 
-        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync();
+        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(AffinityHostType.Image, affinity.HostType);
         Assert.Equal(imageId, affinity.HostId);
         Assert.Equal(1, affinity.PageVisitCount);
@@ -478,8 +478,8 @@ public sealed class Phase11PlaybackTests
         await using var scope = await CreateContextAsync();
         await AddUserAsync(scope, 24);
         scope.Context.Videos.Add(new Video { Title = "Long session" });
-        await scope.Context.SaveChangesAsync();
-        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await scope.Context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         scope.PrincipalAccessor.Set(CreatePrincipal(24));
         var controller = CreateController(scope.Context, scope.PrincipalAccessor);
@@ -496,14 +496,14 @@ public sealed class Phase11PlaybackTests
 
         // Under the user-global session model the derived like is awarded when the session FINALIZES (a new
         // session begins after the idle timeout), not on the per-player "ended" — so none yet.
-        Assert.Equal(0, (await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync()).DerivedLikeCount);
+        Assert.Equal(0, (await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).DerivedLikeCount);
 
         // Simulate a 20-minute-long session that then went idle past the 30-min timeout, so the next activity
         // rolls over and finalizes it (awarding the derived like to the last entity).
-        var userSession = await scope.Context.UserSessions.IgnoreQueryFilters().SingleAsync();
+        var userSession = await scope.Context.UserSessions.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         userSession.StartedAt = DateTime.UtcNow.AddMinutes(-51);
         userSession.LastSeenAt = DateTime.UtcNow.AddMinutes(-31);
-        await scope.Context.SaveChangesAsync();
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.IsType<NoContentResult>(await controller.RecordIntervals(new PlaybackIntervalsRequestDto(
             "video",
@@ -514,8 +514,8 @@ public sealed class Phase11PlaybackTests
             "active",
             [new PlaybackIntervalInputDto(65.0, 70.0)]), CancellationToken.None));
 
-        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync();
-        var derivedLike = await scope.Context.Interactions.IgnoreQueryFilters().SingleAsync(interaction => interaction.Kind == InteractionKind.DerivedLike);
+        var affinity = await scope.Context.UserEntityAffinities.IgnoreQueryFilters().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var derivedLike = await scope.Context.Interactions.IgnoreQueryFilters().SingleAsync(interaction => interaction.Kind == InteractionKind.DerivedLike, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(1, affinity.DerivedLikeCount);
         Assert.Equal(InteractionHostType.Video, derivedLike.HostType);
         Assert.Equal(videoId, derivedLike.HostId);

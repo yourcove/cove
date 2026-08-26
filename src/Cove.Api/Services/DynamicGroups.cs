@@ -1301,7 +1301,9 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyString(query, filter.CodeCriterion, audio => audio.Code);
         query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, audio => audio.Details);
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, audio => audio.Files);
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.FormatCriterion, audio => audio.Files.Select(file => file.Format));
+        query = FilterHelpers.ApplyStringCollection(query, filter.AudioCodecCriterion, audio => audio.Files.Select(file => file.AudioCodec));
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, audio => audio.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, audio => audio.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasVideoFilesCriterion, audio => audio.HasVideoFiles);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, audio => audio.ImageBlobId != null && audio.ImageBlobId != string.Empty);
@@ -1312,7 +1314,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyNullableTimestamp(query, filter.FileModTimeCriterion, audio => audio.MaxFileModTime);
         query = FilterHelpers.ApplyInt(query, filter.FileCountCriterion, audio => audio.FileCount);
         query = FilterHelpers.ApplyInt(query, filter.TrackCountCriterion, audio => audio.Tracks.Count);
-        query = FilterHelpers.ApplyString(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.TrackTitleCriterion, audio => audio.Tracks.Select(track => track.Title));
         query = FilterHelpers.ApplyInt(query, filter.SampleRateCriterion, audio => audio.Files.Max(file => file.SampleRate) ?? 0);
         query = FilterHelpers.ApplyInt(query, filter.ChannelsCriterion, audio => audio.Files.Max(file => file.Channels) ?? 0);
         query = ApplyAudioEffectiveTagCountCriterion(query, filter.TagCountCriterion);
@@ -1345,7 +1347,8 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, text => text.Details);
         query = FilterHelpers.ApplyString(query, filter.ContentCriterion, text => text.SearchText);
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, text => text.Files);
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.FormatCriterion, text => text.Files.Select(file => file.Format));
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, text => text.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, text => text.ImageBlobId != null && text.ImageBlobId != string.Empty);
         query = FilterHelpers.ApplyDate(query, filter.DateCriterion, text => text.Date);

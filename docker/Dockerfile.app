@@ -9,19 +9,28 @@ RUN mkdir -p /build/src/Cove.Api/wwwroot
 COPY CHANGELOG.md /build/CHANGELOG.md
 RUN npm run build
 
-# ── Stage 2: Build backend ────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api-build
-ARG VERSION=0.0.0
+# ── Stage 2: Restore backend projects ─────────────────────────────
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS project-files
 WORKDIR /build/src
 COPY src/Cove.slnx ./
 COPY src/Cove.Api/Cove.Api.csproj Cove.Api/
+COPY src/Cove.ApiTestFaceProvider/Cove.ApiTestFaceProvider.csproj Cove.ApiTestFaceProvider/
+COPY src/Cove.ApiTests/Cove.ApiTests.csproj Cove.ApiTests/
 COPY src/Cove.Core/Cove.Core.csproj Cove.Core/
 COPY src/Cove.Data/Cove.Data.csproj Cove.Data/
+COPY src/Cove.PerformanceTests/Cove.PerformanceTests.csproj Cove.PerformanceTests/
 COPY src/Cove.Plugins/Cove.Plugins.csproj Cove.Plugins/
 COPY src/Cove.Sdk/Cove.Sdk.csproj Cove.Sdk/
-COPY src/Cove.PerformanceTests/Cove.PerformanceTests.csproj Cove.PerformanceTests/
 COPY src/Cove.Tests/Cove.Tests.csproj Cove.Tests/
+
+# Fast, solution-wide validation target for pull requests.
+FROM project-files AS restore-check
 RUN dotnet restore Cove.slnx
+
+# ── Stage 3: Build backend ────────────────────────────────────────
+FROM project-files AS api-build
+ARG VERSION=0.0.0
+RUN dotnet restore Cove.Api/Cove.Api.csproj
 
 COPY src/ ./
 # Cove.Api.csproj sets <ApplicationIcon>..\..\coveicon.ico</ApplicationIcon>, which resolves to the
@@ -37,7 +46,7 @@ RUN dotnet publish Cove.Api/Cove.Api.csproj \
     -p:DebugSymbols=false \
     -p:Version=${VERSION}
 
-# ── Stage 3: App-only runtime (FFmpeg + Cove, no PostgreSQL) ──────
+# ── Stage 4: App-only runtime (FFmpeg + Cove, no PostgreSQL) ──────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 
 # Install FFmpeg with hwaccel support (BtbN GPL static builds)

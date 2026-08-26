@@ -156,6 +156,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
   const canReadGroups = canReadEntity("group", hasPermission);
   const canReadStudio = canReadEntity("studio", hasPermission);
   const canReadFiles = hasPermission("files.read");
+  const canDeleteFiles = hasPermission("files.delete");
   const trackingEnabled = user?.uiPreferences?.tracking?.enabled ?? true;
   const canEngageText = canReadText && (user?.kind === "user" || user?.kind === "system");
   const trackTextActivity = canEngageText && trackingEnabled;
@@ -476,7 +477,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
         confirmLabel={deleteTextMut.isPending ? "Deleting..." : "Delete Text"}
         onConfirm={(options) => deleteTextMut.mutate(options)}
         onCancel={() => setConfirmDelete(false)}
-        showDeleteFile
+        showDeleteFile={canDeleteFiles}
         showDeleteGenerated
       />
       <MediaDetailLayout.Content>

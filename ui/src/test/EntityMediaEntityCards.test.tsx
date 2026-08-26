@@ -219,6 +219,15 @@ describe("entity card media contexts", () => {
   });
 });
 
+describe("studio usage counts", () => {
+  it("shows audio and text usage in the card footer", () => {
+    render(<StudioTile studio={{ ...studio, audioCount: 4, textCount: 2 } as any} onClick={vi.fn()} />);
+
+    expect(screen.getByTitle("Audios")).toHaveTextContent("4");
+    expect(screen.getByTitle("Texts")).toHaveTextContent("2");
+  });
+});
+
 describe("entity card host boundaries", () => {
   it("replaces both VideoCard visuals while preserving navigation, selection, and overlays", () => {
     const { container } = render(<VideoCard video={video as any} onClick={vi.fn()} selected onSelect={vi.fn()} />);
@@ -283,6 +292,47 @@ describe("entity card host boundaries", () => {
 });
 
 describe("entity list media contexts", () => {
+  it("uses the embedded zoom level to size wall columns", () => {
+    vi.stubGlobal("innerWidth", 1440);
+    const items = Array.from({ length: 8 }, (_, index) => ({
+      ...video,
+      id: index + 1,
+      title: `Wall Video ${index + 1}`,
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["engagement", "video", "batch", items.map((item) => item.id)], []);
+
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <RelatedEntityListView
+          entityType="videos"
+          items={items as any}
+          displayMode="wall"
+          zoomLevel={2}
+          infinitePageSize={false}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(view.container.firstElementChild?.children).toHaveLength(8);
+
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <RelatedEntityListView
+          entityType="videos"
+          items={items as any}
+          displayMode="wall"
+          zoomLevel={8}
+          infinitePageSize={false}
+          onNavigate={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(view.container.firstElementChild?.children).toHaveLength(2);
+  });
+
   it("routes tag list thumbnails through entity.media without changing the row chrome", () => {
     overrideRenderState.replace = false;
     const { container } = render(

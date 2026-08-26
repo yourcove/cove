@@ -29,7 +29,7 @@ public sealed class EntityMergeServiceTests
         };
         db.AddRange(target, source, tag, role, group, performerReference);
         using (db.SuppressEntityNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var targetAssignmentKey = FacePerformerAssignmentData.BuildKey(
             new FacePerformerAssignmentData.Assignment(71, target.Id, "video", 81));
@@ -196,18 +196,18 @@ public sealed class EntityMergeServiceTests
                     },
                 }),
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new PerformerMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new PerformerMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        Assert.False(await db.Performers.AnyAsync(performer => performer.Id == source.Id));
-        var application = Assert.Single(await db.TagApplications.ToListAsync());
+        Assert.False(await db.Performers.AnyAsync(performer => performer.Id == source.Id, cancellationToken: TestContext.Current.CancellationToken));
+        var application = Assert.Single(await db.TagApplications.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(target.Id, application.ContextId);
         Assert.Equal(0.8f, application.Confidence);
         Assert.Equal(12d, application.TotalDurationSec);
-        Assert.Equal((long)target.Id, (await db.Segments.SingleAsync()).RefId);
-        Assert.Equal((long)target.Id, (await db.Detections.SingleAsync()).RefId);
-        var face = await db.Faces.SingleAsync();
+        Assert.Equal((long)target.Id, (await db.Segments.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).RefId);
+        Assert.Equal((long)target.Id, (await db.Detections.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).RefId);
+        var face = await db.Faces.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Null(face.TopSuggestionPerformerId);
         Assert.Null(face.TopSuggestionLocalPerformerId);
         Assert.Null(face.TopSuggestionPerformerName);
@@ -217,35 +217,35 @@ public sealed class EntityMergeServiceTests
         Assert.False(face.TopSuggestionLocalPerformerHasImage);
         Assert.False(face.TopSuggestionLocalPerformerIsLocalOnly);
         Assert.Null(face.TopSuggestionComputedAt);
-        var groupItem = await db.GroupItems.SingleAsync();
+        var groupItem = await db.GroupItems.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, groupItem.HostId);
         Assert.Equal("performer", groupItem.HostType);
         Assert.Equal(GroupItemKind.Performer, groupItem.Kind);
         var customReferences = await db.CustomFieldValues
             .Where(value => value.DefinitionId == performerReference.Id)
             .OrderBy(value => value.Position)
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal([target.Id, 999], customReferences.Select(value => value.IntegerValue!.Value).ToArray());
         Assert.Equal([0, 1], customReferences.Select(value => value.Position).ToArray());
-        var scrapeAttempt = await db.ScrapeAttempts.SingleAsync();
+        var scrapeAttempt = await db.ScrapeAttempts.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, scrapeAttempt.EntityId);
         using (var input = JsonDocument.Parse(scrapeAttempt.InputJson))
             Assert.Equal(source.Id, input.RootElement.GetProperty("performerId").GetInt32());
         using (var result = JsonDocument.Parse(scrapeAttempt.ResultJson!))
             Assert.Equal(source.Id, result.RootElement.GetProperty("localPerformerId").GetInt32());
-        var embedding = await db.Embeddings.SingleAsync();
+        var embedding = await db.Embeddings.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, embedding.HostId);
         Assert.Equal(source.Id, embedding.Meta!.RootElement.GetProperty("performerId").GetInt32());
-        var aiRun = await db.AiRuns.SingleAsync();
+        var aiRun = await db.AiRuns.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(target.Id, aiRun.TargetId);
         Assert.Equal(source.Id, aiRun.Request!.RootElement.GetProperty("performerId").GetInt32());
         var assignment = Assert.Single(await db.ExtensionData
             .Where(row => row.ExtensionId == FacePerformerAssignmentData.ExtensionId)
-            .ToListAsync());
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(targetAssignmentKey, assignment.Key);
         using var assignmentValue = JsonDocument.Parse(assignment.Value);
         Assert.Equal(target.Id, assignmentValue.RootElement.GetProperty("performerId").GetInt32());
-        using var contentRule = JsonDocument.Parse((await db.RoleContentRules.SingleAsync()).ScopeValue);
+        using var contentRule = JsonDocument.Parse((await db.RoleContentRules.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ScopeValue);
         var expressionRules = contentRule.RootElement.GetProperty("rules");
         Assert.Equal(
             [target.Id],
@@ -265,12 +265,12 @@ public sealed class EntityMergeServiceTests
         var source = new Performer { Name = "Different name", Disambiguation = "2020" };
         var existingIdentity = new Performer { Name = " shared NAME ", Disambiguation = " 2020 " };
         db.Performers.AddRange(target, source, existingIdentity);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new PerformerMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new PerformerMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        Assert.False(await db.Performers.AnyAsync(performer => performer.Id == source.Id));
-        Assert.Null((await db.Performers.SingleAsync(performer => performer.Id == target.Id)).Disambiguation);
+        Assert.False(await db.Performers.AnyAsync(performer => performer.Id == source.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Null((await db.Performers.SingleAsync(performer => performer.Id == target.Id, cancellationToken: TestContext.Current.CancellationToken)).Disambiguation);
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public sealed class EntityMergeServiceTests
         var source = new Studio { Name = " studio " };
         db.Studios.AddRange(target, source);
         using (db.SuppressEntityNameValidation())
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.AddRange(
             new SavedFilter
@@ -312,14 +312,14 @@ public sealed class EntityMergeServiceTests
                 RefKind = "studio",
                 RefId = source.Id,
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await new StudioMergeService(db).MergeAsync(target.Id, [source.Id]);
+        await new StudioMergeService(db).MergeAsync(target.Id, [source.Id], TestContext.Current.CancellationToken);
 
-        Assert.False(await db.Studios.AnyAsync(studio => studio.Id == source.Id));
-        Assert.Equal((long)target.Id, (await db.Segments.SingleAsync()).RefId);
-        Assert.Equal((long)target.Id, (await db.Detections.SingleAsync()).RefId);
-        using var filter = JsonDocument.Parse((await db.SavedFilters.SingleAsync()).ObjectFilter!);
+        Assert.False(await db.Studios.AnyAsync(studio => studio.Id == source.Id, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal((long)target.Id, (await db.Segments.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).RefId);
+        Assert.Equal((long)target.Id, (await db.Detections.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).RefId);
+        using var filter = JsonDocument.Parse((await db.SavedFilters.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ObjectFilter!);
         Assert.Equal(target.Id, filter.RootElement.GetProperty("parentId").GetInt32());
         Assert.Equal(source.Id, filter.RootElement.GetProperty("unrelated").GetProperty("parentId").GetInt32());
     }

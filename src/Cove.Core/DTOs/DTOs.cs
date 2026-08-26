@@ -159,6 +159,8 @@ public record TagListDto(
     int GroupCount,
     int PerformerCount,
     int StudioCount,
+    int AudioCount,
+    int TextCount,
     string? ImagePath,
     bool? ShowAsSegment = null,
     string? SegmentColorOverride = null,
@@ -2153,6 +2155,50 @@ public record ReorderSubGroupsDto(List<int> SubGroupIds);
 
 // ===== BATCH/BULK DTOs =====
 public record BatchDeleteDto(List<int> Ids, bool DeleteFiles = false, bool DeleteGenerated = false);
+
+public sealed record DuplicateSearchRequestDto(
+    string MatchType = "fingerprint",
+    int Distance = 8,
+    double? DurationDiff = 10);
+
+public sealed record DuplicateSearchStartDto(Guid SearchId, string JobId, int CandidateCount);
+
+public sealed record DuplicateSearchInfoDto(
+    Guid Id,
+    string? JobId,
+    string MatchType,
+    int Distance,
+    double DurationDiff,
+    string Status,
+    string? Error,
+    int CandidateCount,
+    int GroupCount,
+    int VideoCount,
+    int UnkeptVideoCount,
+    int UnkeptFileCount,
+    long UnkeptBytes,
+    string? DeletionJobId,
+    DateTime CreatedAt,
+    DateTime? StartedAt,
+    DateTime? CompletedAt,
+    DateTime ExpiresAt);
+
+public sealed record DuplicateSearchGroupDecisionDto(IReadOnlyList<int> KeepVideoIds);
+
+public sealed record DuplicateSearchDeleteRequestDto(bool DeleteFiles = false, bool DeleteGenerated = false);
+
+public sealed record DuplicateSearchGroupDto(
+    int Id,
+    int Position,
+    IReadOnlyList<VideoDto> Videos,
+    IReadOnlyList<int> KeepVideoIds);
+
+public sealed record DuplicateSearchGroupPageDto(
+    IReadOnlyList<DuplicateSearchGroupDto> Items,
+    int TotalCount,
+    int Page,
+    int PerPage,
+    bool HasMore);
 
 public interface IEntityMutationResult
 {

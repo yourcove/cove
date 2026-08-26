@@ -1,4 +1,7 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
+using System.IO.Compression;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 
 namespace Cove.ApiTests.Infrastructure;
@@ -15,6 +18,112 @@ public sealed class ApiTestFileSystem
         "images",
         "galleries",
     ];
+
+    private const string ImportableEmptyStashSchema = """
+        CREATE TABLE blobs (checksum TEXT NOT NULL, blob BLOB);
+        CREATE TABLE folders (
+            id INTEGER PRIMARY KEY,
+            path TEXT NOT NULL,
+            parent_folder_id INTEGER,
+            mod_time TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE studios (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id INTEGER,
+            details TEXT,
+            rating INTEGER,
+            favorite INTEGER NOT NULL,
+            image_blob TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE tags (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            sort_name TEXT,
+            description TEXT,
+            favorite INTEGER NOT NULL,
+            image_blob TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE performers (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            disambiguation TEXT,
+            gender TEXT,
+            birthdate TEXT,
+            ethnicity TEXT,
+            country TEXT,
+            eye_color TEXT,
+            hair_color TEXT,
+            height INTEGER,
+            weight INTEGER,
+            measurements TEXT,
+            fake_tits TEXT,
+            penis_length REAL,
+            circumcised TEXT,
+            death_date TEXT,
+            tattoos TEXT,
+            piercings TEXT,
+            favorite INTEGER NOT NULL,
+            rating INTEGER,
+            details TEXT,
+            image_blob TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE groups (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            aliases TEXT,
+            duration INTEGER,
+            date TEXT,
+            rating INTEGER,
+            studio_id INTEGER,
+            director TEXT,
+            description TEXT
+        );
+        CREATE TABLE scenes (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            details TEXT,
+            date TEXT,
+            rating INTEGER,
+            studio_id INTEGER,
+            organized INTEGER NOT NULL,
+            code TEXT,
+            director TEXT,
+            resume_time REAL NOT NULL,
+            play_duration REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE groups_scenes (scene_id INTEGER NOT NULL, group_id INTEGER NOT NULL, scene_index INTEGER);
+        CREATE TABLE scenes_files (scene_id INTEGER NOT NULL, file_id INTEGER NOT NULL, [primary] INTEGER NOT NULL);
+        CREATE TABLE files (
+            id INTEGER PRIMARY KEY,
+            basename TEXT NOT NULL,
+            parent_folder_id INTEGER NOT NULL,
+            size INTEGER NOT NULL,
+            mod_time TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE video_files (
+            file_id INTEGER PRIMARY KEY,
+            duration REAL NOT NULL,
+            video_codec TEXT NOT NULL,
+            format TEXT NOT NULL,
+            audio_codec TEXT NOT NULL,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            frame_rate REAL NOT NULL,
+            bit_rate INTEGER NOT NULL
+        );
+        CREATE TABLE files_fingerprints (file_id INTEGER NOT NULL, type TEXT NOT NULL, fingerprint);
+        """;
 
     internal ApiTestFileSystem(string libraryPath, string generatedPath)
     {
@@ -41,6 +150,183 @@ public sealed class ApiTestFileSystem
         File.WriteAllText(path, contents);
         return path;
     }
+
+    public string CreateLibraryFile(string fileName, byte[] contents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(contents);
+        if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "API test media files must use a leaf filename under the library root.");
+
+        var path = Path.Combine(LibraryPath, fileName);
+        File.WriteAllBytes(path, contents);
+        return path;
+    }
+
+    public async Task<string> CreateSyntheticVideoAsync(
+        string ffmpegPath,
+        string fileName,
+        int width,
+        int height,
+        double durationSeconds,
+        string color,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ffmpegPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(color);
+        if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal)
+            || !string.Equals(Path.GetExtension(fileName), ".mp4", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "Synthetic videos must use a leaf .mp4 filename under the library root.");
+        if (width <= 0 || height <= 0 || width % 2 != 0 || height % 2 != 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Synthetic video dimensions must be positive even numbers.");
+        if (!double.IsFinite(durationSeconds) || durationSeconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(durationSeconds), "Synthetic video duration must be finite and positive.");
+        if (color.Any(character => !char.IsAsciiLetter(character)))
+            throw new ArgumentOutOfRangeException(nameof(color), "Synthetic video colors must use a named ASCII color.");
+
+        if (!File.Exists(ffmpegPath))
+            throw new FileNotFoundException("The Cove host's resolved FFmpeg executable was not found.", ffmpegPath);
+        var path = Path.Combine(LibraryPath, fileName);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        if (OperatingSystem.IsLinux())
+        {
+            var ffmpegDirectory = Path.GetDirectoryName(ffmpegPath)!;
+            startInfo.Environment.TryGetValue("LD_LIBRARY_PATH", out var inheritedLibraryPath);
+            startInfo.Environment["LD_LIBRARY_PATH"] = string.IsNullOrWhiteSpace(inheritedLibraryPath)
+                ? ffmpegDirectory
+                : $"{ffmpegDirectory}{Path.PathSeparator}{inheritedLibraryPath}";
+        }
+        foreach (var argument in new[]
+        {
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-f", "lavfi",
+            "-i", $"color=c={color}:s={width}x{height}:r=10:d={durationSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}",
+            "-threads", "1",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-an",
+            path,
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("FFmpeg could not be started for the synthetic API-test video fixture.");
+        var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            throw new TimeoutException("FFmpeg did not create the synthetic API-test video within 20 seconds.");
+        }
+
+        var error = await standardError;
+        if (process.ExitCode != 0 || !File.Exists(path) || new FileInfo(path).Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"FFmpeg failed to create the synthetic API-test video (exit {process.ExitCode}): {error}");
+        }
+
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-1));
+        return path;
+    }
+
+    public string CreateLibraryDirectory(string relativePath)
+    {
+        var path = ResolveLibraryChildPath(relativePath, nameof(relativePath));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    public string CreateLibraryNestedFile(string relativePath, byte[] contents)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
+        var path = ResolveLibraryChildPath(relativePath, nameof(relativePath));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, contents);
+        return path;
+    }
+
+    public string CreateGalleryArchive(string fileName, string imageFileName, byte[] imageContents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(imageFileName);
+        ArgumentNullException.ThrowIfNull(imageContents);
+        if (!string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal)
+            || !string.Equals(Path.GetExtension(fileName), ".zip", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentOutOfRangeException(nameof(fileName), "Gallery test archives must use a leaf .zip filename under the library root.");
+        if (!string.Equals(Path.GetFileName(imageFileName), imageFileName, StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(imageFileName), "Gallery archive entries must use a leaf filename.");
+
+        var path = Path.Combine(LibraryPath, fileName);
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        var entry = archive.CreateEntry(imageFileName, CompressionLevel.NoCompression);
+        entry.LastWriteTime = DateTimeOffset.UtcNow.AddMinutes(-1);
+        using var entryStream = entry.Open();
+        entryStream.Write(imageContents);
+        return path;
+    }
+
+    public void DeleteLibraryFile(string path)
+        => File.Delete(ResolveLibraryExistingPath(path, nameof(path)));
+
+    public bool LibraryFileExists(string path)
+        => File.Exists(ResolveLibraryExistingPath(path, nameof(path)));
+
+    public void ReplaceLibraryFile(string path, byte[] contents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(contents);
+        var fullPath = Path.GetFullPath(path);
+        var libraryRoot = Path.GetFullPath(LibraryPath) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(libraryRoot, StringComparison.Ordinal)
+            || !string.Equals(Path.GetDirectoryName(fullPath), Path.GetFullPath(LibraryPath), StringComparison.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(path), "API test media files must stay directly under the library root.");
+
+        File.WriteAllBytes(fullPath, contents);
+    }
+
+    public string CreateVideoScreenshot(int videoId, double seconds, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("screenshots", GetVideoBucket(videoId), $"{videoId}_t{(int)seconds}.jpg"),
+            contents);
+
+    public string CreateVideoSegmentPreview(int videoId, double seconds, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("segment-previews", GetVideoBucket(videoId), $"{videoId}_t{(int)seconds}.webp"),
+            contents);
+
+    public string CreateVideoPreview(int videoId, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("previews", GetVideoBucket(videoId), $"{videoId}.mp4"),
+            contents);
+
+    public string CreateVideoSprite(int videoId, byte[] contents)
+        => CreateGeneratedFile(
+            Path.Combine("vtt", GetVideoBucket(videoId), $"{videoId}_sprite.jpg"),
+            contents);
+
+    public string CreateVideoSpriteVtt(int videoId, string contents)
+        => CreateGeneratedFile(
+            Path.Combine("vtt", GetVideoBucket(videoId), $"{videoId}_thumbs.vtt"),
+            System.Text.Encoding.UTF8.GetBytes(contents));
 
     public string CreatePcmWaveFile(string fileName, int sampleFrames, int sampleRate = 8_000)
     {
@@ -94,6 +380,19 @@ public sealed class ApiTestFileSystem
         return path;
     }
 
+    public async Task<string> CreateImportableEmptyStashDatabaseAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var path = Path.Combine(LibraryPath, $"stash-import-{Guid.NewGuid():N}.sqlite");
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = ImportableEmptyStashSchema;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        return path;
+    }
+
     private static void ResetDirectory(string path)
     {
         Directory.CreateDirectory(path);
@@ -101,6 +400,40 @@ public sealed class ApiTestFileSystem
             File.Delete(file);
         foreach (var directory in Directory.EnumerateDirectories(path))
             Directory.Delete(directory, recursive: true);
+    }
+
+    private static string GetVideoBucket(int videoId)
+        => Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(videoId)))[..2];
+
+    private string ResolveLibraryChildPath(string relativePath, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath, parameterName);
+        if (Path.IsPathFullyQualified(relativePath))
+            throw new ArgumentOutOfRangeException(parameterName, "API test library paths must be relative to the disposable library root.");
+
+        return ResolveLibraryPath(Path.Combine(LibraryPath, relativePath), parameterName);
+    }
+
+    private string ResolveLibraryExistingPath(string path, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path, parameterName);
+        return ResolveLibraryPath(path, parameterName);
+    }
+
+    private string ResolveLibraryPath(string path, string parameterName)
+    {
+        var root = Path.GetFullPath(LibraryPath);
+        var fullPath = Path.GetFullPath(path);
+        var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!fullPath.StartsWith(rootWithSeparator, comparison))
+            throw new ArgumentOutOfRangeException(parameterName, "API test filesystem paths must stay under the disposable library root.");
+
+        return fullPath;
     }
 
     private static void WritePcmWaveFile(string path, int sampleFrames, int sampleRate)

@@ -28,16 +28,16 @@ public class VideoEngagementControllerTests
         context.Audios.Add(new Audio { Title = "Liked Audio" });
         context.TextDocuments.Add(new TextDocument { Title = "Liked Text" });
         context.Performers.Add(new Performer { Name = "Aggregate Performer" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         principalAccessor.Set(CreatePrincipal(7));
         var service = new UserEngagementService(context, principalAccessor);
         var historicalAt = new DateTime(2022, 7, 3, 12, 0, 0, DateTimeKind.Utc);
 
         foreach (var (hostType, hostId) in new[]
         {
-            (AffinityHostType.Image, await context.Images.Select(item => item.Id).SingleAsync()),
-            (AffinityHostType.Audio, await context.Audios.Select(item => item.Id).SingleAsync()),
-            (AffinityHostType.Text, await context.TextDocuments.Select(item => item.Id).SingleAsync()),
+            (AffinityHostType.Image, await context.Images.Select(item => item.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken)),
+            (AffinityHostType.Audio, await context.Audios.Select(item => item.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken)),
+            (AffinityHostType.Text, await context.TextDocuments.Select(item => item.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken)),
         })
         {
             var snapshot = await service.IncrementLikeAsync(hostType, hostId, CancellationToken.None);
@@ -56,7 +56,7 @@ public class VideoEngagementControllerTests
             Assert.Single(history.LikeHistory);
         }
 
-        var performerId = await context.Performers.Select(item => item.Id).SingleAsync();
+        var performerId = await context.Performers.Select(item => item.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Null(await service.IncrementLikeAsync(AffinityHostType.Performer, performerId, CancellationToken.None));
     }
 
@@ -67,19 +67,19 @@ public class VideoEngagementControllerTests
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         context.Videos.Add(new Video { Title = "Selected Like Video" });
-        await context.SaveChangesAsync();
-        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         principalAccessor.Set(CreatePrincipal(7));
         var service = new UserEngagementService(context, principalAccessor);
         var firstAt = new DateTime(2022, 4, 3, 14, 30, 0, DateTimeKind.Utc);
         var selectedAt = firstAt.AddDays(1);
-        await service.AddHistoricalVideoLikeAsync(videoId, firstAt);
-        await service.AddHistoricalVideoLikeAsync(videoId, selectedAt);
+        await service.AddHistoricalVideoLikeAsync(videoId, firstAt, TestContext.Current.CancellationToken);
+        await service.AddHistoricalVideoLikeAsync(videoId, selectedAt, TestContext.Current.CancellationToken);
 
-        var snapshot = await service.DeleteLikeAtAsync(AffinityHostType.Video, videoId, selectedAt);
+        var snapshot = await service.DeleteLikeAtAsync(AffinityHostType.Video, videoId, selectedAt, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, snapshot!.LikeCount);
-        var history = await service.GetVideoHistoryAsync(videoId);
+        var history = await service.GetVideoHistoryAsync(videoId, TestContext.Current.CancellationToken);
         Assert.Equal(firstAt.ToString("o"), Assert.Single(history!.LikeHistory));
     }
 
@@ -90,8 +90,8 @@ public class VideoEngagementControllerTests
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         context.Videos.Add(new Video { Title = "Historical Like Video" });
-        await context.SaveChangesAsync();
-        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         principalAccessor.Set(CreatePrincipal(7));
         var controller = CreateVideosController(context, principalAccessor);
         var historicalAt = new DateTime(2022, 4, 3, 14, 30, 0, DateTimeKind.Utc);
@@ -100,7 +100,7 @@ public class VideoEngagementControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         Assert.Equal(1, Assert.IsType<int>(ok.Value));
-        var history = await new UserEngagementService(context, principalAccessor).GetVideoHistoryAsync(videoId);
+        var history = await new UserEngagementService(context, principalAccessor).GetVideoHistoryAsync(videoId, TestContext.Current.CancellationToken);
         Assert.Equal(historicalAt.ToString("o"), Assert.Single(history!.LikeHistory));
     }
 
@@ -112,8 +112,8 @@ public class VideoEngagementControllerTests
         var principalAccessor = scope.PrincipalAccessor;
 
         context.Videos.Add(new Video { Title = "Traceable Video" });
-        await context.SaveChangesAsync();
-        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         principalAccessor.Set(CreatePrincipal(7));
         var logger = new RecordingLogger<UserEngagementService>();
@@ -179,8 +179,8 @@ public class VideoEngagementControllerTests
         var principalAccessor = scope.PrincipalAccessor;
 
         context.Videos.Add(new Video { Title = "Scoped Video" });
-        await context.SaveChangesAsync();
-        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         var videosController = CreateVideosController(context, principalAccessor);
         var playbackController = CreatePlaybackController(context, principalAccessor);
@@ -269,7 +269,7 @@ public class VideoEngagementControllerTests
         var userTwoRatingsDto = Assert.IsType<EntityRatingsDto>(userTwoRatingsOk.Value);
         Assert.Empty(userTwoRatingsDto.Ratings);
 
-        var affinityRows = await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync();
+        var affinityRows = await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         var affinity = Assert.Single(affinityRows);
         Assert.Equal(7, affinity.UserId);
         Assert.Equal(2, affinity.ViewCount);
@@ -277,7 +277,7 @@ public class VideoEngagementControllerTests
         Assert.Equal(1, affinity.CompleteCount);
         Assert.Equal(59.5, affinity.TotalConsumedSec, precision: 5);
 
-        var playbackSessions = await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync();
+        var playbackSessions = await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         var playbackSession = Assert.Single(playbackSessions);
         Assert.Equal(7, playbackSession.UserId);
         Assert.Equal(InteractionHostType.Video, playbackSession.HostType);
@@ -287,7 +287,7 @@ public class VideoEngagementControllerTests
         Assert.Equal(59.5, playbackSession.TotalWatchedSec, precision: 5);
         Assert.Equal(120.0, playbackSession.LastPositionSec);
 
-        var playbackIntervals = await context.PlaybackIntervals.IgnoreQueryFilters().OrderBy(iv => iv.StartSec).ToListAsync();
+        var playbackIntervals = await context.PlaybackIntervals.IgnoreQueryFilters().OrderBy(iv => iv.StartSec).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, playbackIntervals.Count);
         Assert.Equal(playbackSession.Id, playbackIntervals[0].PlaybackSessionId);
         Assert.Equal(7, playbackIntervals[0].UserId);
@@ -296,7 +296,7 @@ public class VideoEngagementControllerTests
         Assert.Equal(66.0, playbackIntervals[1].StartSec);
         Assert.Equal(120.0, playbackIntervals[1].EndSec);
 
-        var ratingRows = await context.Ratings.IgnoreQueryFilters().OrderBy(rating => rating.Aspect).ToListAsync();
+        var ratingRows = await context.Ratings.IgnoreQueryFilters().OrderBy(rating => rating.Aspect).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(2, ratingRows.Count);
         Assert.Collection(
             ratingRows,

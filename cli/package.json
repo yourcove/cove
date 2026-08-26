@@ -1,0 +1,37 @@
+{
+  "name": "@yourcove/cli",
+  "version": "0.0.1",
+  "description": "A REST API command-line client for Cove",
+  "type": "module",
+  "bin": {
+    "cove-cli": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile dist/cove-cli",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:compiled": "bun test ./test/compiled-smoke.ts"
+  },
+  "keywords": [
+    "cove",
+    "cli"
+  ],
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.0.1",
+    "commander": "^14.0.3",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "typescript": "^6.0.2"
+  }
+}

@@ -25,24 +25,24 @@ public class BackupServiceIntegrationTests
         try
         {
             var configPath = Path.Combine(dataRoot, "cove-config.json");
-            await File.WriteAllTextAsync(configPath, "{\"title\":\"before\"}");
+            await File.WriteAllTextAsync(configPath, "{\"title\":\"before\"}", TestContext.Current.CancellationToken);
 
             var service = new BackupService(new NullJobService(), new CoveConfiguration(), NullLogger<BackupService>.Instance, dataRoot);
-            var backup = await service.CreateConfigBackupAsync("integration_test");
+            var backup = await service.CreateConfigBackupAsync("integration_test", TestContext.Current.CancellationToken);
 
             Assert.NotNull(backup);
             Assert.True(File.Exists(backup.BackupPath));
             Assert.True(backup.SizeBytes > 0);
 
-            await File.WriteAllTextAsync(configPath, "{\"title\":\"after\"}");
+            await File.WriteAllTextAsync(configPath, "{\"title\":\"after\"}", TestContext.Current.CancellationToken);
 
-            await service.RestoreConfigBackupAsync(backup.BackupPath);
+            await service.RestoreConfigBackupAsync(backup.BackupPath, TestContext.Current.CancellationToken);
 
-            Assert.Equal("{\"title\":\"before\"}", await File.ReadAllTextAsync(configPath));
-            var latestBackup = await service.GetLatestConfigBackupPathAsync();
+            Assert.Equal("{\"title\":\"before\"}", await File.ReadAllTextAsync(configPath, TestContext.Current.CancellationToken));
+            var latestBackup = await service.GetLatestConfigBackupPathAsync(TestContext.Current.CancellationToken);
             Assert.NotNull(latestBackup);
             Assert.Contains("pre_restore", Path.GetFileName(latestBackup));
-            Assert.Equal("{\"title\":\"after\"}", await File.ReadAllTextAsync(latestBackup));
+            Assert.Equal("{\"title\":\"after\"}", await File.ReadAllTextAsync(latestBackup, TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -102,33 +102,33 @@ public class BackupServiceIntegrationTests
 
             await using (var conn = new NpgsqlConnection(connectionString))
             {
-                await conn.OpenAsync();
+                await conn.OpenAsync(TestContext.Current.CancellationToken);
 
                 await ExecuteNonQueryAsync(conn, "CREATE TABLE IF NOT EXISTS backup_probe (id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text NOT NULL);");
                 await ExecuteNonQueryAsync(conn, "INSERT INTO backup_probe (name) VALUES ('before backup');");
             }
 
             var service = new BackupService(new NullJobService(), config, NullLogger<BackupService>.Instance);
-            var backup = await service.CreateBackupAsync("integration_test");
+            var backup = await service.CreateBackupAsync("integration_test", TestContext.Current.CancellationToken);
             backupPath = backup.BackupPath;
 
             Assert.True(File.Exists(backupPath));
             Assert.True(backup.SizeBytes > 0);
-            Assert.Equal(backupPath, await service.GetLatestBackupPathAsync());
+            Assert.Equal(backupPath, await service.GetLatestBackupPathAsync(TestContext.Current.CancellationToken));
 
             await using (var conn = new NpgsqlConnection(connectionString))
             {
-                await conn.OpenAsync();
+                await conn.OpenAsync(TestContext.Current.CancellationToken);
                 await ExecuteNonQueryAsync(conn, "INSERT INTO backup_probe (name) VALUES ('after backup');");
                 var namesBeforeRestore = await ReadProbeNamesAsync(conn);
                 Assert.Equal(["before backup", "after backup"], namesBeforeRestore);
             }
 
-            await service.RestoreBackupAsync(backupPath);
+            await service.RestoreBackupAsync(backupPath, TestContext.Current.CancellationToken);
 
             await using (var conn = new NpgsqlConnection(connectionString))
             {
-                await conn.OpenAsync();
+                await conn.OpenAsync(TestContext.Current.CancellationToken);
                 var namesAfterRestore = await ReadProbeNamesAsync(conn);
                 Assert.Equal(["before backup"], namesAfterRestore);
             }
@@ -178,7 +178,7 @@ public class BackupServiceIntegrationTests
 
             await using (var conn = new NpgsqlConnection(connectionString))
             {
-                await conn.OpenAsync();
+                await conn.OpenAsync(TestContext.Current.CancellationToken);
                 // A parent table whose PK is referenced by FKs on other tables — mirrors tags <- video_tags.
                 await ExecuteNonQueryAsync(conn, "CREATE TABLE tags (id integer GENERATED ALWAYS AS IDENTITY CONSTRAINT \"PK_tags\" PRIMARY KEY, name text NOT NULL);");
                 await ExecuteNonQueryAsync(conn, "CREATE TABLE video_tags (video_id integer NOT NULL, tag_id integer NOT NULL CONSTRAINT \"FK_video_tags_tags_TagId\" REFERENCES tags (id));");
@@ -187,13 +187,13 @@ public class BackupServiceIntegrationTests
             }
 
             var service = new BackupService(new NullJobService(), config, NullLogger<BackupService>.Instance);
-            var backup = await service.CreateBackupAsync("fk_integration_test");
+            var backup = await service.CreateBackupAsync("fk_integration_test", TestContext.Current.CancellationToken);
             backupPath = backup.BackupPath;
             Assert.True(File.Exists(backupPath));
 
             await using (var conn = new NpgsqlConnection(connectionString))
             {
-                await conn.OpenAsync();
+                await conn.OpenAsync(TestContext.Current.CancellationToken);
                 // Rename the FK to a legacy name the backup script won't know to drop, reproducing the
                 // live-vs-dump constraint-name mismatch from the bug report.
                 await ExecuteNonQueryAsync(conn, "ALTER TABLE video_tags RENAME CONSTRAINT \"FK_video_tags_tags_TagId\" TO \"FK_scene_tags_tags_TagId\";");
@@ -202,16 +202,16 @@ public class BackupServiceIntegrationTests
             }
 
             // Without the schema reset this throws ("cannot drop constraint PK_tags ...").
-            await service.RestoreBackupAsync(backupPath);
+            await service.RestoreBackupAsync(backupPath, TestContext.Current.CancellationToken);
 
             await using (var conn = new NpgsqlConnection(connectionString))
             {
-                await conn.OpenAsync();
+                await conn.OpenAsync(TestContext.Current.CancellationToken);
                 await using var cmd = conn.CreateCommand();
                 cmd.CommandText = "SELECT name FROM tags ORDER BY id";
                 var names = new List<string>();
-                await using var reader = await cmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
+                await using var reader = await cmd.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+                while (await reader.ReadAsync(TestContext.Current.CancellationToken))
                     names.Add(reader.GetString(0));
                 Assert.Equal(["keep"], names);
             }

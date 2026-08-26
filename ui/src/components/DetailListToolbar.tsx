@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, Tags, FolderTree, Grid3X3, LayoutGrid, List, Monito
 import type { FindFilter } from "../api/types";
 import { isValidElement, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
+import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
@@ -10,6 +11,7 @@ import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu
 import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
 import { ListSearchControl } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
+import { WallSizeControl } from "./WallSizeControl";
 
 export type DetailListDisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -131,6 +133,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
+  useRegisterKeyboardActionHandler("list.filters", () => setFilterDialogOpen(true), {
+    enabled: Boolean(criteriaDefinitions && onObjectFilterChange),
+    surface: "list",
+  });
   const sortedSortOptions = useMemo(
     () => [...sortOptions].sort((left, right) => left.label.localeCompare(right.label)),
     [sortOptions]
@@ -281,7 +287,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: nextPerPage, page: 1 })}
           />
 
-          {effectiveZoomLevel !== undefined && onZoomChange && (
+          {effectiveZoomLevel !== undefined && onZoomChange && (displayMode === "grid" || displayMode === "list" || displayMode == null) && (
             <div className="hidden items-center gap-1 pl-1 md:flex">
               <ZoomOut className="w-3 h-3 text-muted" />
               <input
@@ -295,6 +301,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
               />
               <ZoomIn className="w-3 h-3 text-muted" />
             </div>
+          )}
+
+          {displayMode === "wall" && effectiveZoomLevel !== undefined && onZoomChange && (
+            <WallSizeControl sizeLevel={effectiveZoomLevel} onChange={handleZoomChange} />
           )}
         </div>
       </div>

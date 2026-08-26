@@ -275,7 +275,7 @@ public class PerformerScrapeService(
             return null;
         }
 
-        List<string> GetStringList(params string[] keys)
+        List<string> GetStringList(ScrapeListValueKind valueKind, params string[] keys)
         {
             var values = new List<string>();
             foreach (var key in keys)
@@ -284,33 +284,7 @@ public class PerformerScrapeService(
                 {
                     if (!string.Equals(entryKey, key, StringComparison.OrdinalIgnoreCase))
                         continue;
-
-                    switch (entryValue)
-                    {
-                        case string text when !string.IsNullOrWhiteSpace(text):
-                            values.AddRange(text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-                            break;
-                        case System.Collections.IEnumerable list:
-                            foreach (var item in list)
-                            {
-                                switch (item)
-                                {
-                                    case string stringItem when !string.IsNullOrWhiteSpace(stringItem):
-                                        values.Add(stringItem.Trim());
-                                        break;
-                                    case IDictionary<string, string> map:
-                                        if (map.TryGetValue("Name", out var namedValue) || map.TryGetValue("name", out namedValue))
-                                            values.Add(namedValue);
-                                        break;
-                                    case System.Collections.IDictionary genericMap:
-                                        var candidate = genericMap["Name"] ?? genericMap["name"] ?? genericMap["Title"] ?? genericMap["title"];
-                                        if (candidate is string namedText && !string.IsNullOrWhiteSpace(namedText))
-                                            values.Add(namedText.Trim());
-                                        break;
-                                }
-                            }
-                            break;
-                    }
+                    values.AddRange(ExtractStringValues(entryValue, valueKind, splitScalarString: true));
                 }
             }
 
@@ -339,12 +313,12 @@ public class PerformerScrapeService(
             Piercings = GetString("Piercings", "piercings"),
             Details = GetString("Details", "details", "Description", "description", "Bio", "bio"),
             ImageUrl = resolvedImageUrl,
-            Urls = GetStringList("URLs", "urls", "URL", "url")
+            Urls = GetStringList(ScrapeListValueKind.Url, "URLs", "urls", "URL", "url")
                 .Select(url => ResolveAbsoluteUrl(url, sourceUrl) ?? url)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList(),
-            Aliases = GetStringList("Aliases", "aliases", "Alias", "alias"),
-            TagNames = GetStringList("Tags", "tags", "Tag", "tag", "TagNames", "tagNames"),
+            Aliases = GetStringList(ScrapeListValueKind.Name, "Aliases", "aliases", "Alias", "alias"),
+            TagNames = GetStringList(ScrapeListValueKind.Name, "Tags", "tags", "Tag", "tag", "TagNames", "tagNames"),
         };
 
         if (!string.IsNullOrWhiteSpace(sourceUrl) && !dto.Urls.Contains(sourceUrl, StringComparer.OrdinalIgnoreCase))
@@ -535,15 +509,108 @@ public class PerformerScrapeService(
         return builder.ToString().Trim();
     }
 
-    private static string? ExtractCandidateUrl(IReadOnlyDictionary<string, object> candidate)
+    internal static string? ExtractCandidateUrl(IReadOnlyDictionary<string, object> candidate)
     {
-        foreach (var field in new[] { "URL", "Url" })
+        foreach (var (field, value) in candidate)
         {
-            if (candidate.TryGetValue(field, out var value) && value is string text && !string.IsNullOrWhiteSpace(text))
-                return text.Trim();
+            if (!string.Equals(field, "url", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(field, "urls", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var extracted = ExtractStringValues(value, ScrapeListValueKind.Url, splitScalarString: false).FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(extracted))
+                return extracted;
         }
 
         return null;
+    }
+
+    private static IEnumerable<string> ExtractStringValues(
+        object? value,
+        ScrapeListValueKind valueKind,
+        bool splitScalarString)
+    {
+        switch (value)
+        {
+            case null:
+                yield break;
+            case string text:
+                if (splitScalarString)
+                {
+                    foreach (var item in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        yield return item;
+                }
+                else if (!string.IsNullOrWhiteSpace(text))
+                {
+                    yield return text.Trim();
+                }
+                yield break;
+            case System.Text.Json.JsonElement element:
+                switch (element.ValueKind)
+                {
+                    case System.Text.Json.JsonValueKind.String:
+                        foreach (var item in ExtractStringValues(element.GetString(), valueKind, splitScalarString))
+                            yield return item;
+                        break;
+                    case System.Text.Json.JsonValueKind.Array:
+                        foreach (var child in element.EnumerateArray())
+                            foreach (var item in ExtractStringValues(child, valueKind, splitScalarString: false))
+                                yield return item;
+                        break;
+                    case System.Text.Json.JsonValueKind.Object:
+                        var jsonValue = FindObjectValue(element.EnumerateObject().Select(property => (property.Name, (object?)property.Value)), valueKind);
+                        foreach (var item in ExtractStringValues(jsonValue, valueKind, splitScalarString: false))
+                            yield return item;
+                        break;
+                }
+                yield break;
+            case IDictionary<string, string> map:
+                var stringMapValue = FindObjectValue(map.Select(entry => (entry.Key, (object?)entry.Value)), valueKind);
+                foreach (var item in ExtractStringValues(stringMapValue, valueKind, splitScalarString: false))
+                    yield return item;
+                yield break;
+            case System.Collections.IDictionary map:
+                var mapValues = map.Cast<System.Collections.DictionaryEntry>()
+                    .Where(entry => entry.Key is string)
+                    .Select(entry => ((string)entry.Key, entry.Value));
+                var mapValue = FindObjectValue(mapValues, valueKind);
+                foreach (var item in ExtractStringValues(mapValue, valueKind, splitScalarString: false))
+                    yield return item;
+                yield break;
+            case System.Collections.IEnumerable list:
+                foreach (var child in list)
+                    foreach (var item in ExtractStringValues(child, valueKind, splitScalarString: false))
+                        yield return item;
+                yield break;
+        }
+    }
+
+    private static object? FindObjectValue(IEnumerable<(string Key, object? Value)> entries, ScrapeListValueKind valueKind)
+    {
+        var values = entries.ToList();
+        var preferredKeys = valueKind == ScrapeListValueKind.Url
+            ? new[] { "url" }
+            : new[] { "name", "title" };
+
+        foreach (var preferredKey in preferredKeys)
+        {
+            var match = values.FirstOrDefault(entry => entry.Key.Equals(preferredKey, StringComparison.OrdinalIgnoreCase));
+            if (match.Key is null)
+                continue;
+
+            var extracted = ExtractStringValues(match.Value, valueKind, splitScalarString: false)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            if (extracted is not null)
+                return extracted;
+        }
+
+        return null;
+    }
+
+    private enum ScrapeListValueKind
+    {
+        Name,
+        Url,
     }
 
     private async Task TryApplyImageAsync(Performer performer, string? imageUrl, CancellationToken ct)

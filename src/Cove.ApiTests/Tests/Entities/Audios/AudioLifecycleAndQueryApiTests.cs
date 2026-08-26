@@ -2,11 +2,9 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Audios;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class AudioLifecycleAndQueryApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -17,12 +15,12 @@ public sealed class AudioLifecycleAndQueryApiTests(
     public async Task GivenAudioMetadata_WhenMemberCreatesAndReadsIt_ThenRelationshipsRoundTrip()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync($"Audio studio {Guid.NewGuid():N}");
-        var tag = await AsUser().CreateTagAsync($"Audio tag {Guid.NewGuid():N}");
+        var studio = await AsUser().CreateStudioAsync($"Audio studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync($"Audio tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Audio performer {Guid.NewGuid():N}")
-            .Build());
-        var group = await AsUser().CreateGroupAsync($"Audio group {Guid.NewGuid():N}");
+            .Build(), TestContext.Current.CancellationToken);
+        var group = await AsUser().CreateGroupAsync($"Audio group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var request = new AudioBuilder()
             .WithTitle("  Audio lifecycle title  ")
             .WithCode("  AUDIO-CODE  ")
@@ -37,8 +35,8 @@ public sealed class AudioLifecycleAndQueryApiTests(
             .Build();
 
         // Act
-        var created = await AsUser(ApiTestUsers.Eva).CreateAudioAsync(request);
-        var retrieved = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id);
+        var created = await AsUser(ApiTestUsers.Eva).CreateAudioAsync(request, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id, TestContext.Current.CancellationToken);
 
         // Assert
         retrieved.Title.Should().Be("Audio lifecycle title");
@@ -63,22 +61,22 @@ public sealed class AudioLifecycleAndQueryApiTests(
         const string fileName = "audio-file-lifecycle.wav";
         var fileSystem = AsTestFileSystem();
         var path = fileSystem.CreatePcmWaveFile(fileName, sampleFrames: 8_000);
-        var expectedStream = await File.ReadAllBytesAsync(path);
+        var expectedStream = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
 
         // Act
-        var created = await AsUser(ApiTestUsers.Eva).CreateAudioFromFileAsync(path);
-        var read = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id);
-        var streamed = await AsUser(ApiTestUsers.Eva).GetAudioStreamAsync(created.Id);
+        var created = await AsUser(ApiTestUsers.Eva).CreateAudioFromFileAsync(path, TestContext.Current.CancellationToken);
+        var read = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id, TestContext.Current.CancellationToken);
+        var streamed = await AsUser(ApiTestUsers.Eva).GetAudioStreamAsync(created.Id, TestContext.Current.CancellationToken);
         var createdFile = created.Files.Should().ContainSingle().Which;
         var originalFile = read.Files.Should().ContainSingle().Which;
         fileSystem.ReplacePcmWaveFile(path, sampleFrames: 16_000);
-        var expectedRescannedStream = await File.ReadAllBytesAsync(path);
+        var expectedRescannedStream = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
         File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-1));
-        var jobId = await AsUser(ApiTestUsers.Eva).RescanAudioAsync(created.Id);
-        var job = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(jobId);
-        var rescanned = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id);
+        var jobId = await AsUser(ApiTestUsers.Eva).RescanAudioAsync(created.Id, TestContext.Current.CancellationToken);
+        var job = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+        var rescanned = await AsUser(ApiTestUsers.Eva).GetAudioByIdAsync(created.Id, TestContext.Current.CancellationToken);
         var rescannedFile = rescanned.Files.Should().ContainSingle().Which;
-        var rescannedStream = await AsUser(ApiTestUsers.Eva).GetAudioStreamAsync(created.Id);
+        var rescannedStream = await AsUser(ApiTestUsers.Eva).GetAudioStreamAsync(created.Id, TestContext.Current.CancellationToken);
 
         // Assert
         created.Title.Should().Be(Path.GetFileNameWithoutExtension(path));
@@ -112,12 +110,12 @@ public sealed class AudioLifecycleAndQueryApiTests(
     public async Task GivenAudioMetadata_WhenMemberPartiallyUpdatesIt_ThenResponseAndReadPreserveRelationships()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync($"Original audio studio {Guid.NewGuid():N}");
-        var tag = await AsUser().CreateTagAsync($"Original audio tag {Guid.NewGuid():N}");
+        var studio = await AsUser().CreateStudioAsync($"Original audio studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync($"Original audio tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Original audio performer {Guid.NewGuid():N}")
-            .Build());
-        var group = await AsUser().CreateGroupAsync($"Original audio group {Guid.NewGuid():N}");
+            .Build(), TestContext.Current.CancellationToken);
+        var group = await AsUser().CreateGroupAsync($"Original audio group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var audio = await AsUser().CreateAudioAsync(new AudioBuilder()
             .WithTitle($"Original audio {Guid.NewGuid():N}")
             .WithCode("ORIGINAL-CODE")
@@ -128,7 +126,7 @@ public sealed class AudioLifecycleAndQueryApiTests(
             .WithTag(tag)
             .WithPerformer(performer)
             .WithGroup(group)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var updated = await AsUser(ApiTestUsers.Eva).UpdateAudioAsync(audio.Id, new
@@ -137,8 +135,8 @@ public sealed class AudioLifecycleAndQueryApiTests(
             details = "Updated details",
             urls = new[] { "https://audio.example/updated" },
             clearFields = new[] { "studioId" },
-        });
-        var retrieved = await AsUser().GetAudioByIdAsync(audio.Id);
+        }, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser().GetAudioByIdAsync(audio.Id, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Title.Should().Be("Updated audio title");
@@ -173,9 +171,9 @@ public sealed class AudioLifecycleAndQueryApiTests(
     {
         // Arrange
         var suffix = Guid.NewGuid().ToString("N");
-        var first = await AsUser().CreateAudioAsync(new AudioBuilder().WithTitle($"A filtered audio {suffix}").AsOrganized().Build());
-        var second = await AsUser().CreateAudioAsync(new AudioBuilder().WithTitle($"B filtered audio {suffix}").AsOrganized().Build());
-        await AsUser().CreateAudioAsync(new AudioBuilder().WithTitle($"Excluded audio {suffix}").Build());
+        var first = await AsUser().CreateAudioAsync(new AudioBuilder().WithTitle($"A filtered audio {suffix}").AsOrganized().Build(), TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateAudioAsync(new AudioBuilder().WithTitle($"B filtered audio {suffix}").AsOrganized().Build(), TestContext.Current.CancellationToken);
+        await AsUser().CreateAudioAsync(new AudioBuilder().WithTitle($"Excluded audio {suffix}").Build(), TestContext.Current.CancellationToken);
         var request = new FilteredQueryRequest<AudioFilter>
         {
             ObjectFilter = new AudioFilter { OrganizedCriterion = new BoolCriterion { Value = true } },
@@ -183,7 +181,7 @@ public sealed class AudioLifecycleAndQueryApiTests(
         };
 
         // Act
-        var result = await AsUser(ApiTestUsers.Eva).FindAudiosAsync(request);
+        var result = await AsUser(ApiTestUsers.Eva).FindAudiosAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         result.TotalCount.Should().Be(2);
@@ -198,16 +196,16 @@ public sealed class AudioLifecycleAndQueryApiTests(
     public async Task GivenSelectedAudios_WhenAggregated_ThenNonzeroTotalsAreScopedToSelection()
     {
         // Arrange
-        var first = await AsUser().CreateAudioAsync($"Aggregate audio first {Guid.NewGuid():N}");
-        var second = await AsUser().CreateAudioAsync($"Aggregate audio second {Guid.NewGuid():N}");
-        var excluded = await AsUser().CreateAudioAsync($"Aggregate audio excluded {Guid.NewGuid():N}");
-        await AsDbUser().AttachAudioFileAsync(first.Id, duration: 12.5, size: 1_000);
-        await AsDbUser().AttachAudioFileAsync(second.Id, duration: 7.25, size: 2_500);
-        await AsDbUser().AttachAudioFileAsync(excluded.Id, duration: 90, size: 9_999);
+        var first = await AsUser().CreateAudioAsync($"Aggregate audio first {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateAudioAsync($"Aggregate audio second {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var excluded = await AsUser().CreateAudioAsync($"Aggregate audio excluded {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        await AsDbUser().AttachAudioFileAsync(first.Id, duration: 12.5, size: 1_000, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().AttachAudioFileAsync(second.Id, duration: 7.25, size: 2_500, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().AttachAudioFileAsync(excluded.Id, duration: 90, size: 9_999, cancellationToken: TestContext.Current.CancellationToken);
         var request = new FilteredQueryRequest<AudioFilter> { Ids = [first.Id, second.Id] };
 
         // Act
-        var aggregate = await AsUser(ApiTestUsers.Eva).AggregateAudiosAsync(request);
+        var aggregate = await AsUser(ApiTestUsers.Eva).AggregateAudiosAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         aggregate.Should().Be(new AudioAggregate(Count: 2, Duration: 19.75, FileSize: 3_500));
@@ -218,15 +216,15 @@ public sealed class AudioLifecycleAndQueryApiTests(
     public async Task GivenAudiosWithRelationships_WhenMemberBulkSetsValues_ThenOnlySelectedAudiosChange()
     {
         // Arrange
-        var originalStudio = await AsUser().CreateStudioAsync($"Original bulk audio studio {Guid.NewGuid():N}");
-        var originalTag = await AsUser().CreateTagAsync($"Original bulk audio tag {Guid.NewGuid():N}");
+        var originalStudio = await AsUser().CreateStudioAsync($"Original bulk audio studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var originalTag = await AsUser().CreateTagAsync($"Original bulk audio tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var originalPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Original bulk audio performer {Guid.NewGuid():N}")
-            .Build());
-        var replacementTag = await AsUser().CreateTagAsync($"Replacement bulk audio tag {Guid.NewGuid():N}");
+            .Build(), TestContext.Current.CancellationToken);
+        var replacementTag = await AsUser().CreateTagAsync($"Replacement bulk audio tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var replacementPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Replacement bulk audio performer {Guid.NewGuid():N}")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var selected = await Task.WhenAll(Enumerable.Range(1, 2).Select(index => AsUser().CreateAudioAsync(new AudioBuilder()
             .WithTitle($"Selected bulk audio {index} {Guid.NewGuid():N}")
             .WithCode($"ORIGINAL-{index}")
@@ -244,7 +242,7 @@ public sealed class AudioLifecycleAndQueryApiTests(
             .WithStudio(originalStudio)
             .WithTag(originalTag)
             .WithPerformer(originalPerformer)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var request = new BulkAudioUpdateDto
         {
             Ids = selected.Select(audio => audio.Id).ToList(),
@@ -259,9 +257,9 @@ public sealed class AudioLifecycleAndQueryApiTests(
         };
 
         // Act
-        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdateAudiosAsync(request);
+        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdateAudiosAsync(request, TestContext.Current.CancellationToken);
         var updated = await Task.WhenAll(selected.Select(audio => AsUser().GetAudioByIdAsync(audio.Id)));
-        var control = await AsUser().GetAudioByIdAsync(unselected.Id);
+        var control = await AsUser().GetAudioByIdAsync(unselected.Id, TestContext.Current.CancellationToken);
 
         // Assert
         updatedCount.Should().Be(2);
@@ -288,9 +286,9 @@ public sealed class AudioLifecycleAndQueryApiTests(
     [CoversEndpoint("DELETE", "/api/audios/{id:int}")]
     public async Task GivenAudio_WhenOwnerDeletesIt_ThenItCanNoLongerBeRead()
     {
-        var audio = await AsUser().CreateAudioAsync($"Single delete audio {Guid.NewGuid():N}");
+        var audio = await AsUser().CreateAudioAsync($"Single delete audio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
 
-        await AsUser().DeleteAudioAsync(audio.Id);
+        await AsUser().DeleteAudioAsync(audio.Id, cancellationToken: TestContext.Current.CancellationToken);
 
         var read = () => AsUser().GetAudioByIdAsync(audio.Id);
         await read.Should().ThrowAsync<InvalidOperationException>()
@@ -300,13 +298,13 @@ public sealed class AudioLifecycleAndQueryApiTests(
     [Fact]
     public async Task GivenAudio_WhenMemberDeletesIt_ThenForbiddenIsReturnedWithoutRemovingIt()
     {
-        var audio = await AsUser().CreateAudioAsync($"Protected delete audio {Guid.NewGuid():N}");
+        var audio = await AsUser().CreateAudioAsync($"Protected delete audio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
 
         var deletion = () => AsUser(ApiTestUsers.Eva).DeleteAudioAsync(audio.Id);
 
         await deletion.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await AsUser().GetAudioByIdAsync(audio.Id)).Id.Should().Be(audio.Id);
+        (await AsUser().GetAudioByIdAsync(audio.Id, TestContext.Current.CancellationToken)).Id.Should().Be(audio.Id);
     }
 
     [Fact]
@@ -314,25 +312,31 @@ public sealed class AudioLifecycleAndQueryApiTests(
     public async Task GivenAudiosAndMissingId_WhenBulkDeleteRuns_ThenPermissionAndSelectionAreEnforced()
     {
         // Arrange
-        var first = await AsUser().CreateAudioAsync($"Bulk delete audio first {Guid.NewGuid():N}");
-        var second = await AsUser().CreateAudioAsync($"Bulk delete audio second {Guid.NewGuid():N}");
-        var retained = await AsUser().CreateAudioAsync($"Bulk delete audio retained {Guid.NewGuid():N}");
+        var first = await AsUser().CreateAudioAsync($"Bulk delete audio first {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateAudioAsync($"Bulk delete audio second {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var retained = await AsUser().CreateAudioAsync($"Bulk delete audio retained {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var request = new BatchDeleteDto([first.Id, int.MaxValue, second.Id]);
 
         // Act
         var forbidden = () => AsUser(ApiTestUsers.Eva).BulkDeleteAudiosAsync(request);
         await forbidden.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        await AsUser().BulkDeleteAudiosAsync(request);
+        var owner = AsUser();
+        var queued = await owner.BulkDeleteAudiosAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
         // Assert
         foreach (var deleted in new[] { first, second })
         {
-            var read = () => AsUser().GetAudioByIdAsync(deleted.Id);
+            var read = () => owner.GetAudioByIdAsync(deleted.Id);
             await read.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 404 (NotFound)*");
         }
-        (await AsUser().GetAudioByIdAsync(retained.Id)).Id.Should().Be(retained.Id);
+        (await owner.GetAudioByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
     }
 
 }

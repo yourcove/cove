@@ -19,12 +19,12 @@ public class TagsControllerSegmentTests
         var child = new Tag { Name = "Child" };
         var image = new Image { Title = "Shared image" };
         context.AddRange(parent, child, image);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.AddRange(
             new TagParent { ParentId = parent.Id, ChildId = child.Id },
             new ImageTag { ImageId = image.Id, TagId = parent.Id },
             new ImageTag { ImageId = image.Id, TagId = child.Id });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
         var result = await controller.GetById(parent.Id, CancellationToken.None, -1);
@@ -45,7 +45,7 @@ public class TagsControllerSegmentTests
             RemoteId = "remote-tag-1",
         });
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
@@ -67,7 +67,7 @@ public class TagsControllerSegmentTests
         var otherTag = new Tag { Name = "Other" };
         var video = new Video { Title = "Imported Video" };
         context.AddRange(tag, otherTag, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -111,7 +111,7 @@ public class TagsControllerSegmentTests
                 StartSec = 20.0,
                 EndSec = 25.0,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
@@ -144,7 +144,7 @@ public class TagsControllerSegmentTests
         var gallery = new Gallery { Title = "Gallery" };
         var group = new Group { Name = "Group" };
         context.AddRange(tag, video, performer, studio, image, gallery, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.AddRange(
             new VideoTag { VideoId = video.Id, TagId = tag.Id },
@@ -163,16 +163,16 @@ public class TagsControllerSegmentTests
                 StartSec = 1,
                 EndSec = 2,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var storedTag = await context.Tags.SingleAsync(candidate => candidate.Id == tag.Id);
+        var storedTag = await context.Tags.SingleAsync(candidate => candidate.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken);
         storedTag.VideoCount = 0;
         storedTag.ImageCount = 0;
         storedTag.GalleryCount = 0;
         storedTag.GroupCount = 0;
         storedTag.PerformerCount = 0;
         storedTag.StudioCount = 0;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
@@ -195,7 +195,7 @@ public class TagsControllerSegmentTests
         var tag = new Tag { Name = "Body" };
         var video = new Video { Title = "Imported Video" };
         context.AddRange(tag, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var segment = new Segment
         {
@@ -209,15 +209,15 @@ public class TagsControllerSegmentTests
         };
 
         context.Segments.Add(segment);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var addedTag = await context.Tags.AsNoTracking().SingleAsync(candidate => candidate.Id == tag.Id);
+        var addedTag = await context.Tags.AsNoTracking().SingleAsync(candidate => candidate.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(1, addedTag.SegmentCount);
 
         context.Segments.Remove(segment);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var removedTag = await context.Tags.AsNoTracking().SingleAsync(candidate => candidate.Id == tag.Id);
+        var removedTag = await context.Tags.AsNoTracking().SingleAsync(candidate => candidate.Id == tag.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(0, removedTag.SegmentCount);
     }
 
@@ -233,7 +233,7 @@ public class TagsControllerSegmentTests
             SegmentLaneOverride = 2,
         };
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
@@ -291,7 +291,7 @@ public class TagsControllerSegmentTests
             appleParent,
             bravoSortParent,
             deltaSortParent);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Set<TagParent>().AddRange(
             new TagParent { ParentId = parent.Id, ChildId = zebraChild.Id },
@@ -302,7 +302,7 @@ public class TagsControllerSegmentTests
             new TagParent { ParentId = appleParent.Id, ChildId = child.Id },
             new TagParent { ParentId = bravoSortParent.Id, ChildId = child.Id },
             new TagParent { ParentId = deltaSortParent.Id, ChildId = child.Id });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 
@@ -366,7 +366,7 @@ public class TagsControllerSegmentTests
                 StartSec = 35.0,
                 Title = null,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new TagsController(null!, context, new CustomFieldService(context), null!);
 

@@ -29,13 +29,13 @@ public class TextExtractionServiceTests
                 </article>
               </body>
             </html>
-            """);
+            """, TestContext.Current.CancellationToken);
 
         try
         {
             var service = new TextExtractionService();
 
-            var content = await service.ExtractContentAsync(path);
+            var content = await service.ExtractContentAsync(path, TestContext.Current.CancellationToken);
           var normalized = content.Content.Replace("\r\n", "\n", StringComparison.Ordinal);
 
             Assert.Equal("html", content.Format);
@@ -76,13 +76,13 @@ public class TextExtractionServiceTests
                 <section class="comments">Comment junk</section>
               </body>
             </html>
-            """);
+            """, TestContext.Current.CancellationToken);
 
         try
         {
             var service = new TextExtractionService();
 
-            var content = await service.ExtractContentAsync(path);
+            var content = await service.ExtractContentAsync(path, TestContext.Current.CancellationToken);
             var normalized = content.Content.Replace("\r\n", "\n", StringComparison.Ordinal);
 
             Assert.Equal("html", content.RenderMode);

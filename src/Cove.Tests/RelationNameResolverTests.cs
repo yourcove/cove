@@ -14,9 +14,9 @@ public sealed class RelationNameResolverTests
         var latinI = new Performer { Name = "I" };
         var dotlessI = new Performer { Name = "ı" };
         db.Performers.AddRange(latinI, dotlessI);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var matches = await RelationNameResolver.ResolvePerformersAsync(db, ["I", "ı"]);
+        var matches = await RelationNameResolver.ResolvePerformersAsync(db, ["I", "ı"], TestContext.Current.CancellationToken);
 
         Assert.Equal(2, matches.Count);
         Assert.Equal(latinI.Id, matches["I"].Id);
@@ -30,9 +30,9 @@ public sealed class RelationNameResolverTests
         var latinI = new Studio { Name = "I" };
         var dotlessI = new Studio { Name = "ı" };
         db.Studios.AddRange(latinI, dotlessI);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var matches = await RelationNameResolver.ResolveStudiosAsync(db, ["I", "ı"]);
+        var matches = await RelationNameResolver.ResolveStudiosAsync(db, ["I", "ı"], TestContext.Current.CancellationToken);
 
         Assert.Equal(2, matches.Count);
         Assert.Equal(latinI.Id, matches["I"].Id);
@@ -55,9 +55,9 @@ public sealed class RelationNameResolverTests
                 Disambiguation = "Specific person",
                 Aliases = [new PerformerAlias { Alias = "Shared relation" }],
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var matches = await RelationNameResolver.ResolvePerformersAsync(db, ["Shared relation"]);
+        var matches = await RelationNameResolver.ResolvePerformersAsync(db, ["Shared relation"], TestContext.Current.CancellationToken);
 
         Assert.Empty(matches);
     }

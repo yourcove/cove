@@ -21,6 +21,7 @@ public class DatabaseController(
 {
     [HttpPost("backup")]
     [RequiresPermission(Permissions.SystemBackup)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<ActionResult<BackupResultDto>> BackupDatabase(CancellationToken ct)
     {
         var backup = await backupService.CreateBackupAsync("manual", ct);
@@ -29,6 +30,9 @@ public class DatabaseController(
 
     [HttpPost("restore")]
     [RequiresPermission(Permissions.SystemRestore)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<RestoreBackupResultDto>> RestoreDatabase([FromBody] RestoreBackupRequestDto request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.BackupPath))
@@ -43,6 +47,9 @@ public class DatabaseController(
 
     [HttpPost("migrate")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<DatabaseMigrationResultDto>> MigrateDatabase(CancellationToken ct)
     {
         var pendingMigrations = (await db.Database.GetPendingMigrationsAsync(ct)).ToArray();
@@ -212,6 +219,8 @@ public class DatabaseController(
 
     [HttpPost("wipe")]
     [RequiresPermission(Permissions.SystemWipe)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("delete")]
     public async Task<ActionResult<WipeResultDto>> WipeDatabase(CancellationToken ct)
     {
         logger.LogWarning("Database + config wipe initiated");
@@ -275,7 +284,7 @@ public class DatabaseController(
     }
 
     [HttpGet("config/latest-backup")]
-    [RequiresPermission(Permissions.SystemRead)]
+    [RequiresPermission(Permissions.SystemBackup)]
     public async Task<ActionResult<object>> GetLatestConfigBackup(CancellationToken ct)
     {
         var path = await backupService.GetLatestConfigBackupPathAsync(ct);

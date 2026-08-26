@@ -78,7 +78,7 @@ The `v1` barrel groups these exports:
 
 | Area | Public exports |
 | --- | --- |
-| Detail and list composition | `MediaDetailLayout`, `DetailListToolbar`, `DetailListPagination`, `ListPage`, `RelatedEntityListView`, `getRelatedEntityDisplayModes`, `FilterButton`, `FilterDialog`, `VIDEO_CRITERIA`, `BulkEditDialog`, `getDefaultFilter`, `Pager`, `VIDEO_SORT_OPTIONS` |
+| Detail and list composition | `MediaDetailLayout`, `DetailListToolbar`, `DetailListPagination`, `ListPage`, `RelatedEntityListView`, `GroupItemFeed`, `getRelatedEntityDisplayModes`, `FilterButton`, `FilterDialog`, `VIDEO_CRITERIA`, `BulkEditDialog`, `getDefaultFilter`, `Pager`, `VIDEO_SORT_OPTIONS` |
 | Entity display and media | `PopoverButton`, `VideoCardPopovers`, `PerformerTile`, `VideoCard`, `VideoTile`, `ImageTile`, `VideoPlayer`, `Lightbox`, `ENTITY_MEDIA_TARGET` |
 | Entity selection | `EntityReferenceSelector`, `EntityReferenceMultiSelector`, `EntityReferenceValue` |
 | Forms and dialogs | `ConfirmDialog`, `EditModal`, `Field`, `TextInput`, `TextArea`, `NumberInput`, `SelectInput`, `SaveButton`, `ImageInput` |
@@ -86,6 +86,8 @@ The `v1` barrel groups these exports:
 | Utilities and custom fields | `TagBadge`, `formatDuration`, `formatFileSize`, `formatDate`, `getResolutionLabel`, `CustomFieldsDisplay`, `CustomFieldsEditor` |
 | Host integration | `openTutorialStoryboard`, `registerManualContext`, `useManualContext`, `useMultiSelect`, `useKeySequence`, `useListUrlState`, `useAppConfig`, `APP_FLOATING_UI_SLOT`, `MEDIA_PLAYER_ACTIONS_SLOT`, `MEDIA_PLAYER_OVERLAY_SLOT` |
 | Types | `MediaDetailLayoutProps`, `MediaDetailTab`, `MediaDetailSectionProps`, `LightboxImage`, `DisplayMode`, `CriterionDefinition`, `TutorialOpenRequest`, `FindFilter`, `EntityMediaFit`, `EntityMediaRenderProps`, `EntityMediaSurface`, `EntityReferenceOption`, `EntityReferenceType`, `MediaPlayerContentRect`, `MediaPlayerExtensionContext`, `MediaPlayerInteractionModeOptions`, `MediaPlayerSurface`, `VideoPlayerSeek`, `VideoPlayerPlaybackControls`, `DetailListPaginationProps` |
+
+The `@cove/extension-sdk` package also publishes `DashboardWidgetProps`, `DashboardWidgetEditorProps`, `DashboardWidgetContribution`, `DashboardWidgetPresentation`, and `JsonValue` for typing dashboard bundles. Render and editor props include the saved `flow` or `canvas` presentation. These are compile-time contracts; widget bundles still import React and request helpers from the versioned `@cove/runtime/*` modules.
 
 The table groups helper families for readability. Check the matching runtime type declarations when a helper has several arguments.
 

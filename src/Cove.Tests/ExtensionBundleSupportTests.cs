@@ -25,7 +25,7 @@ public class ExtensionBundleSupportTests
     public async Task Extension_migrations_execute_literal_braces_without_composite_formatting()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         var services = new ServiceCollection();
         services.AddDbContext<CoveContext>(options => options.UseSqlite(connection));
@@ -40,13 +40,11 @@ public class ExtensionBundleSupportTests
         });
         manager.Register(new LiteralBraceMigrationExtension());
 
-        Assert.True(await manager.InitializeExtensionAsync(
-            LiteralBraceMigrationExtension.ExtensionId,
-            provider));
+        Assert.True(await manager.InitializeExtensionAsync(LiteralBraceMigrationExtension.ExtensionId, provider, TestContext.Current.CancellationToken));
 
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT sql FROM sqlite_master WHERE name = 'brace_migration'";
-        var schema = Assert.IsType<string>(await command.ExecuteScalarAsync());
+        var schema = Assert.IsType<string>(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
         Assert.Contains("DEFAULT '{}'", schema);
     }
 
@@ -79,6 +77,81 @@ public class ExtensionBundleSupportTests
         Assert.Equal("catalog.extension", tab.ExtensionId);
         Assert.Equal(["extensions.configure", "videos.read", "performers.read"], Assert.IsType<string[]>(tab.RequiredPermissions));
         Assert.Equal(PermissionMode.All, tab.RequiredPermissionMode);
+    }
+
+    [Fact]
+    public void Manifest_builder_owner_stamps_dashboard_widgets_and_keeps_editor_metadata()
+    {
+        var configuration = JsonSerializer.SerializeToElement(new { metrics = new[] { "videos", "groups" } });
+        var manifest = new UIManifestBuilder("catalog.extension")
+            .AddDashboardWidget(new UIDashboardWidgetContribution(
+                "library-pulse", "Library Pulse", "spoofed.extension", "LibraryPulseWidget",
+                EditorComponentName: "LibraryPulseEditor",
+                DefaultConfiguration: configuration,
+                AllowMultiple: false)
+            {
+                RequiredPermissions = ["extensions.read", "videos.read"],
+                RequiredPermissionMode = PermissionMode.All,
+                SupportedPresentations = [DashboardWidgetPresentation.Canvas],
+                DefaultPresentation = DashboardWidgetPresentation.Canvas,
+            })
+            .Build();
+
+        var widget = Assert.Single(manifest.DashboardWidgets);
+        Assert.Equal("catalog.extension", widget.ExtensionId);
+        Assert.Equal("LibraryPulseWidget", widget.ComponentName);
+        Assert.Equal("LibraryPulseEditor", widget.EditorComponentName);
+        Assert.False(widget.AllowMultiple);
+        Assert.Equal("videos", widget.DefaultConfiguration?.GetProperty("metrics")[0].GetString());
+        Assert.Equal(["extensions.read", "videos.read"], Assert.IsType<string[]>(widget.RequiredPermissions));
+        Assert.Equal([DashboardWidgetPresentation.Canvas], widget.SupportedPresentations);
+        Assert.Equal(DashboardWidgetPresentation.Canvas, widget.DefaultPresentation);
+    }
+
+    [Fact]
+    public void Manifest_builder_rejects_an_unsupported_default_widget_presentation()
+    {
+        var builder = new UIManifestBuilder("catalog.extension");
+        var widget = new UIDashboardWidgetContribution("feed", "Feed", "", "FeedWidget")
+        {
+            SupportedPresentations = [DashboardWidgetPresentation.Flow],
+            DefaultPresentation = DashboardWidgetPresentation.Canvas,
+        };
+
+        var error = Assert.Throws<ArgumentException>(() => builder.AddDashboardWidget(widget));
+
+        Assert.Contains("default", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Manifest_builder_registers_flow_and_explicitly_presented_widgets_through_one_method()
+    {
+        var manifest = new UIManifestBuilder("catalog.extension")
+            .AddDashboardWidget("flow", "Flow", "FlowWidget")
+            .AddDashboardWidget(
+                "canvas",
+                "Canvas",
+                "CanvasWidget",
+                defaultPresentation: DashboardWidgetPresentation.Canvas,
+                supportedPresentations: [DashboardWidgetPresentation.Canvas])
+            .Build();
+
+        Assert.Equal(DashboardWidgetPresentation.Flow, manifest.DashboardWidgets[0].DefaultPresentation);
+        Assert.Equal([DashboardWidgetPresentation.Canvas], manifest.DashboardWidgets[1].SupportedPresentations);
+    }
+
+    [Fact]
+    public void Manifest_builder_scalar_overload_requires_supported_presentations_for_a_non_flow_default()
+    {
+        var builder = new UIManifestBuilder("catalog.extension");
+
+        var error = Assert.Throws<ArgumentException>(() => builder.AddDashboardWidget(
+            "canvas",
+            "Canvas",
+            "CanvasWidget",
+            defaultPresentation: DashboardWidgetPresentation.Canvas));
+
+        Assert.Contains("default", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -147,7 +220,7 @@ public class ExtensionBundleSupportTests
         var installations = manager.Installations;
 
         manager.Register(new ComponentOverrideExtension("b.extension", "BetaComponent"), "local");
-        await manager.SetInstallationSourceAsync("a.extension", "registry");
+        await manager.SetInstallationSourceAsync("a.extension", "registry", TestContext.Current.CancellationToken);
 
         Assert.Single(extensions);
         Assert.DoesNotContain(extensions, extension => extension.Id == "b.extension");
@@ -249,15 +322,15 @@ public class ExtensionBundleSupportTests
         manager.Register(existing, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
 
-        var unload = manager.UnloadExtensionAsync(existing.Id, services);
-        await existing.UninstallEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var unload = manager.UnloadExtensionAsync(existing.Id, services, TestContext.Current.CancellationToken);
+        await existing.UninstallEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         var replacement = new ComponentOverrideExtension(existing.Id, "ReplacementComponent");
         var error = Assert.Throws<InvalidOperationException>(() => manager.Register(replacement, "local"));
         Assert.Contains("currently being unloaded", error.Message);
 
         existing.ReleaseUninstall.TrySetResult();
-        Assert.True(await unload.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(await unload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         manager.Register(replacement, "local");
 
         Assert.Same(replacement, manager.GetExtension(existing.Id));
@@ -281,10 +354,10 @@ public class ExtensionBundleSupportTests
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
         using var services = serviceCollection.BuildServiceProvider();
-        await manager.InitializeAllAsync(services);
+        await manager.InitializeAllAsync(services, TestContext.Current.CancellationToken);
 
-        var disable = manager.DisableExtensionAsync(dependencyId);
-        await existingDependent.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var disable = manager.DisableExtensionAsync(dependencyId, TestContext.Current.CancellationToken);
+        await existingDependent.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         var newDependent = new DependentExtension("new.dependent", dependencyId);
         var registrationAttempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -292,14 +365,14 @@ public class ExtensionBundleSupportTests
         {
             registrationAttempted.TrySetResult();
             manager.Register(newDependent, "local");
-        });
-        await registrationAttempted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await registerDependent.WaitAsync(TimeSpan.FromSeconds(5));
+        }, TestContext.Current.CancellationToken);
+        await registrationAttempted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await registerDependent.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.False(disable.IsCompleted);
         Assert.False(manager.IsEnabled(newDependent.Id));
         existingDependent.ReleaseShutdown.TrySetResult();
-        await disable.WaitAsync(TimeSpan.FromSeconds(5));
+        await disable.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.False(manager.IsEnabled(dependencyId));
         Assert.False(manager.IsEnabled(newDependent.Id));
@@ -344,7 +417,7 @@ public class ExtensionBundleSupportTests
         var dependent = new DependentExtension("dependent.extension", replacementId);
         manager.Register(dependent, "local");
 
-        await manager.DisableExtensionAsync(dependencyId);
+        await manager.DisableExtensionAsync(dependencyId, TestContext.Current.CancellationToken);
         Assert.True(manager.IsEnabled(replacementId));
         Assert.True(manager.IsEnabled(dependent.Id));
 
@@ -369,7 +442,7 @@ public class ExtensionBundleSupportTests
         var existing = new ComponentOverrideExtension(extensionId, "OriginalComponent");
         manager.Register(existing, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
-        await manager.InitializeAllAsync(services);
+        await manager.InitializeAllAsync(services, TestContext.Current.CancellationToken);
 
         var error = Assert.Throws<InvalidOperationException>(() =>
             manager.Register(new ComponentOverrideExtension(extensionId, "ReplacementComponent"), "local"));
@@ -395,12 +468,12 @@ public class ExtensionBundleSupportTests
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
         using var services = serviceCollection.BuildServiceProvider();
-        await manager.InitializeAllAsync(services);
+        await manager.InitializeAllAsync(services, TestContext.Current.CancellationToken);
 
-        var unload = manager.UnloadExtensionAsync(dependencyId, services);
-        await dependent.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var concurrentUnload = manager.UnloadExtensionAsync(dependencyId, services);
-        var enableWhileUnloading = await manager.EnableExtensionAsync(dependent.Id);
+        var unload = manager.UnloadExtensionAsync(dependencyId, services, TestContext.Current.CancellationToken);
+        await dependent.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var concurrentUnload = manager.UnloadExtensionAsync(dependencyId, services, TestContext.Current.CancellationToken);
+        var enableWhileUnloading = await manager.EnableExtensionAsync(dependent.Id, TestContext.Current.CancellationToken);
 
         Assert.False(unload.IsCompleted);
         Assert.False(concurrentUnload.IsCompleted);
@@ -409,12 +482,12 @@ public class ExtensionBundleSupportTests
         Assert.NotNull(manager.GetExtension(dependencyId));
 
         dependent.ReleaseShutdown.TrySetResult();
-        Assert.True(await unload.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.True(await concurrentUnload.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(await unload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Assert.True(await concurrentUnload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
 
         Assert.Null(manager.GetExtension(dependencyId));
         Assert.False(manager.IsEnabled(dependent.Id));
-        Assert.False(await manager.EnsureExtensionInitializedAsync(dependent.Id));
+        Assert.False(await manager.EnsureExtensionInitializedAsync(dependent.Id, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -521,6 +594,28 @@ public class ExtensionBundleSupportTests
 
         var settingsPanel = Assert.Single(manifest.SettingsPanels);
         Assert.Equal("extensions/example", settingsPanel.TargetTab);
+    }
+
+    [Fact]
+    public void AggregatedManifest_NamespacesKeyboardActionsAndPresetReferences()
+    {
+        var manager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "1.0.0",
+        });
+        manager.Register(new KeyboardShortcutContributionExtension(), "local");
+
+        var manifest = manager.GetAggregatedManifest();
+
+        var action = Assert.Single(manifest.KeyboardActions);
+        Assert.Equal("extension:com.example.keyboard:open-panel", action.Id);
+        var preset = Assert.Single(manifest.KeyboardShortcutPresets);
+        Assert.Equal("extension:com.example.keyboard:alternate", preset.Id);
+        Assert.Equal("extension:com.example.keyboard:base", preset.BasePresetId);
+        Assert.Equal(["Mod+K"], preset.Bindings["extension:com.example.keyboard:open-panel"]);
+        Assert.Equal(["?"], preset.Bindings["global.shortcuts"]);
     }
 
     [Fact]
@@ -717,28 +812,26 @@ public class ExtensionBundleSupportTests
         manager.CaptureHostServices(hostServices);
         using var services = hostServices.BuildServiceProvider();
         manager.PrepareRuntimeServices(services);
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
         Assert.True(RebuildRuntimeProvider(manager, extension.Id.ToUpperInvariant()));
 
         var runtime = new ExtensionEntityFilterRuntime(manager);
         using var execution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
-            await runtime.OpenEntityFilterAsync(extension.Id, "segments", "owned-filter", default));
-        var result = await execution.ResolveAsync(
-            new ExtensionEntityFilterRequest(
+            await runtime.OpenEntityFilterAsync(extension.Id, "segments", "owned-filter", TestContext.Current.CancellationToken));
+        var result = await execution.ResolveAsync(new ExtensionEntityFilterRequest(
                 extension.Id,
                 "segments",
                 "owned-filter",
                 "equals",
                 JsonSerializer.SerializeToElement(true),
                 [11, 12],
-                new ExtensionFilterPrincipal(null, "system", "System", [], ["*"])),
-            default);
+                new ExtensionFilterPrincipal(null, "system", "System", [], ["*"])), TestContext.Current.CancellationToken);
 
         Assert.Equal("segments", execution.Declaration.EntityType);
         Assert.Equal(extension.Id, execution.Declaration.ExtensionId);
         Assert.Equal([11], result.MatchingEntityIds);
 
-        await manager.DisableExtensionAsync(extension.Id);
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -765,14 +858,14 @@ public class ExtensionBundleSupportTests
         hostServices.AddLogging();
         manager.ConfigureServices(hostServices);
         using var services = hostServices.BuildServiceProvider();
-        Assert.True(await manager.InitializeExtensionAsync(first.Id, services));
-        Assert.True(await manager.InitializeExtensionAsync(second.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(first.Id, services, TestContext.Current.CancellationToken));
+        Assert.True(await manager.InitializeExtensionAsync(second.Id, services, TestContext.Current.CancellationToken));
 
         var runtime = new ExtensionEntityFilterRuntime(manager);
         using var firstExecution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
-            await runtime.OpenEntityFilterAsync(first.Id, "tags", "owned-filter", default));
+            await runtime.OpenEntityFilterAsync(first.Id, "tags", "owned-filter", TestContext.Current.CancellationToken));
         using var secondExecution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
-            await runtime.OpenEntityFilterAsync(second.Id, "tags", "owned-filter", default));
+            await runtime.OpenEntityFilterAsync(second.Id, "tags", "owned-filter", TestContext.Current.CancellationToken));
         var request = new ExtensionEntityFilterRequest(
             first.Id,
             "tags",
@@ -782,8 +875,8 @@ public class ExtensionBundleSupportTests
             [1, 2],
             new ExtensionFilterPrincipal(null, "system", "System", [], ["*"]));
 
-        var firstResult = await firstExecution.ResolveAsync(request, default);
-        var secondResult = await secondExecution.ResolveAsync(request with { ExtensionId = second.Id }, default);
+        var firstResult = await firstExecution.ResolveAsync(request, TestContext.Current.CancellationToken);
+        var secondResult = await secondExecution.ResolveAsync(request with { ExtensionId = second.Id }, TestContext.Current.CancellationToken);
 
         Assert.Equal([1], firstResult.MatchingEntityIds);
         Assert.Equal([2], secondResult.MatchingEntityIds);
@@ -863,9 +956,7 @@ public class ExtensionBundleSupportTests
             Categories = ["docs"],
         };
 
-        await File.WriteAllTextAsync(
-            Path.Combine(bundleDir, "extension.json"),
-            JsonSerializer.Serialize(manifest));
+        await File.WriteAllTextAsync(Path.Combine(bundleDir, "extension.json"), JsonSerializer.Serialize(manifest), TestContext.Current.CancellationToken);
 
         try
         {
@@ -892,8 +983,7 @@ public class ExtensionBundleSupportTests
             Assert.Equal("bundle", bundle.Kind);
             Assert.Equal(2, bundle.Dependencies.Count);
 
-            var uninstallResult = await controller.RegistryUninstall(
-                new RegistryUninstallRequest { ExtensionId = "docs.full" });
+            var uninstallResult = await controller.RegistryUninstall(new RegistryUninstallRequest { ExtensionId = "docs.full" }, TestContext.Current.CancellationToken);
             Assert.IsType<OkObjectResult>(uninstallResult);
             Assert.Null(manager.GetInstallation("docs.full"));
             Assert.False(Directory.Exists(bundleDir));
@@ -961,7 +1051,7 @@ public class ExtensionBundleSupportTests
                 }
                 """;
 
-                await File.WriteAllTextAsync(Path.Combine(bundleDir, "extension.json"), manifestJson);
+                await File.WriteAllTextAsync(Path.Combine(bundleDir, "extension.json"), manifestJson, TestContext.Current.CancellationToken);
 
                 try
                 {
@@ -1011,7 +1101,7 @@ public class ExtensionBundleSupportTests
         manager.Register(new TestExtension("middle", "Middle", new Dictionary<string, string> { ["base"] = ">=1.0.0" }), "local");
         manager.Register(new TestExtension("leaf", "Leaf", new Dictionary<string, string> { ["middle"] = ">=1.0.0" }), "local");
 
-        var disabled = await manager.DisableExtensionAsync("base");
+        var disabled = await manager.DisableExtensionAsync("base", TestContext.Current.CancellationToken);
 
         Assert.Equal(["base", "leaf", "middle"], disabled.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToArray());
         Assert.False(manager.IsEnabled("base"));
@@ -1033,8 +1123,8 @@ public class ExtensionBundleSupportTests
         manager.Register(new TestExtension("middle", "Middle", new Dictionary<string, string> { ["base"] = ">=1.0.0" }), "local");
         manager.Register(new TestExtension("leaf", "Leaf", new Dictionary<string, string> { ["middle"] = ">=1.0.0" }), "local");
 
-        await manager.DisableExtensionAsync("base");
-        var enabled = await manager.EnableExtensionAsync("leaf");
+        await manager.DisableExtensionAsync("base", TestContext.Current.CancellationToken);
+        var enabled = await manager.EnableExtensionAsync("leaf", TestContext.Current.CancellationToken);
 
         Assert.Equal(["base", "middle", "leaf"], enabled.ToArray());
         Assert.True(manager.IsEnabled("base"));
@@ -1055,16 +1145,16 @@ public class ExtensionBundleSupportTests
         manager.Register(extension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
 
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
 
-        await manager.DisableExtensionAsync(extension.Id);
-        await manager.DisableExtensionAsync(extension.Id);
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, extension.InitializeCount);
         Assert.Equal(1, extension.ShutdownCount);
 
-        await manager.EnableExtensionAsync(extension.Id);
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        await manager.EnableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
 
         Assert.Equal(2, extension.InitializeCount);
         Assert.Equal(1, extension.ShutdownCount);
@@ -1089,30 +1179,28 @@ public class ExtensionBundleSupportTests
         manager.CaptureHostServices(hostServices);
         using var services = hostServices.BuildServiceProvider();
         manager.PrepareRuntimeServices(services);
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
 
         var runtime = new ExtensionEntityFilterRuntime(manager);
         var execution = Assert.IsAssignableFrom<IExtensionEntityFilterExecution>(
-            await runtime.OpenEntityFilterAsync(extension.Id, "tags", "owned-filter", default));
-        var resolve = execution.ResolveAsync(
-            new ExtensionEntityFilterRequest(
+            await runtime.OpenEntityFilterAsync(extension.Id, "tags", "owned-filter", TestContext.Current.CancellationToken));
+        var resolve = execution.ResolveAsync(new ExtensionEntityFilterRequest(
                 extension.Id,
                 "tags",
                 "owned-filter",
                 "equals",
                 JsonSerializer.SerializeToElement(true),
                 [1],
-                new ExtensionFilterPrincipal(null, "system", "System", [], ["*"])),
-            default);
-        await provider.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                new ExtensionFilterPrincipal(null, "system", "System", [], ["*"])), TestContext.Current.CancellationToken);
+        await provider.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-        var disable = manager.DisableExtensionAsync(extension.Id);
-        await disable.WaitAsync(TimeSpan.FromSeconds(5));
+        var disable = manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+        await disable.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(1, extension.ShutdownCount);
         Assert.Equal(0, provider.DisposeCount);
 
         execution.Dispose();
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
         Assert.False(resolve.IsCompleted);
         Assert.Equal(0, provider.DisposeCount);
 
@@ -1142,35 +1230,30 @@ public class ExtensionBundleSupportTests
         manager.CaptureHostServices(hostServices);
         using var services = hostServices.BuildServiceProvider();
         manager.PrepareRuntimeServices(services);
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
         var filters = new ExtensionEntityFilterService(
             new ExtensionEntityFilterRuntime(manager),
             providerTimeout: TimeSpan.FromMilliseconds(100));
 
         var error = await Assert.ThrowsAsync<ExtensionEntityFilterProviderException>(() =>
-            filters.ApplyAsync(
-                "tags",
-                [new ExtensionFilterCriterion
+            filters.ApplyAsync("tags", [new ExtensionFilterCriterion
                 {
                     ExtensionId = extension.Id,
                     FilterId = "owned-filter",
                     Modifier = "equals",
                     Value = JsonSerializer.SerializeToElement(true),
-                }],
-                [1],
-                CovePrincipal.System(),
-                default));
+                }], [1], CovePrincipal.System(), TestContext.Current.CancellationToken));
 
         Assert.Contains("timed out", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(provider.Entered.Task.IsCompletedSuccessfully);
         Assert.Equal(0, provider.DisposeCount);
 
-        await manager.DisableExtensionAsync(extension.Id).WaitAsync(TimeSpan.FromSeconds(5));
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(1, extension.ShutdownCount);
         Assert.Equal(0, provider.DisposeCount);
 
         provider.Release.TrySetResult();
-        await provider.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await provider.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(1, provider.DisposeCount);
     }
 
@@ -1197,11 +1280,11 @@ public class ExtensionBundleSupportTests
         manager.Register(middleExtension, "local");
         manager.Register(leafExtension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
-        Assert.True(await manager.InitializeExtensionAsync(baseExtension.Id, services));
-        Assert.True(await manager.InitializeExtensionAsync(middleExtension.Id, services));
-        Assert.True(await manager.InitializeExtensionAsync(leafExtension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(baseExtension.Id, services, TestContext.Current.CancellationToken));
+        Assert.True(await manager.InitializeExtensionAsync(middleExtension.Id, services, TestContext.Current.CancellationToken));
+        Assert.True(await manager.InitializeExtensionAsync(leafExtension.Id, services, TestContext.Current.CancellationToken));
 
-        await manager.DisableExtensionAsync(baseExtension.Id);
+        await manager.DisableExtensionAsync(baseExtension.Id, TestContext.Current.CancellationToken);
 
         Assert.Equal(["leaf", "middle", "base"], shutdownOrder);
     }
@@ -1225,19 +1308,19 @@ public class ExtensionBundleSupportTests
         manager.Register(baseExtension, "local");
         manager.Register(failingDependent, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
-        Assert.True(await manager.InitializeExtensionAsync(baseExtension.Id, services));
-        Assert.True(await manager.InitializeExtensionAsync(failingDependent.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(baseExtension.Id, services, TestContext.Current.CancellationToken));
+        Assert.True(await manager.InitializeExtensionAsync(failingDependent.Id, services, TestContext.Current.CancellationToken));
 
-        await manager.DisableExtensionAsync(baseExtension.Id);
-        await manager.DisableExtensionAsync(baseExtension.Id);
+        await manager.DisableExtensionAsync(baseExtension.Id, TestContext.Current.CancellationToken);
+        await manager.DisableExtensionAsync(baseExtension.Id, TestContext.Current.CancellationToken);
 
         Assert.Equal(["dependent", "base"], shutdownOrder);
         Assert.Equal(1, failingDependent.ShutdownCount);
         Assert.Equal(1, baseExtension.ShutdownCount);
 
-        await manager.EnableExtensionAsync(failingDependent.Id);
-        Assert.True(await manager.InitializeExtensionAsync(baseExtension.Id, services));
-        Assert.True(await manager.InitializeExtensionAsync(failingDependent.Id, services));
+        await manager.EnableExtensionAsync(failingDependent.Id, TestContext.Current.CancellationToken);
+        Assert.True(await manager.InitializeExtensionAsync(baseExtension.Id, services, TestContext.Current.CancellationToken));
+        Assert.True(await manager.InitializeExtensionAsync(failingDependent.Id, services, TestContext.Current.CancellationToken));
 
         Assert.Equal(2, baseExtension.InitializeCount);
         Assert.Equal(2, failingDependent.InitializeCount);
@@ -1255,10 +1338,10 @@ public class ExtensionBundleSupportTests
         var extension = new LifecycleExtension("lifecycle");
         manager.Register(extension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
 
-        await manager.DisableExtensionAsync(extension.Id);
-        await manager.ShutdownAllAsync();
+        await manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+        await manager.ShutdownAllAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, extension.ShutdownCount);
     }
@@ -1276,16 +1359,16 @@ public class ExtensionBundleSupportTests
         manager.Register(extension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
 
-        var first = manager.InitializeExtensionAsync(extension.Id, services);
-        await extension.InitializeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var second = manager.InitializeExtensionAsync(extension.Id, services);
+        var first = manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken);
+        await extension.InitializeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var second = manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, extension.InitializeCount);
 
         extension.ReleaseInitialize();
 
-        Assert.True(await first.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.True(await second.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(await first.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Assert.True(await second.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         Assert.Equal(1, extension.InitializeCount);
     }
 
@@ -1301,9 +1384,9 @@ public class ExtensionBundleSupportTests
         var extension = new LifecycleExtension("reload-idempotence");
         manager.Register(extension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
 
-        await manager.InitializeAllAsync(services);
+        await manager.InitializeAllAsync(services, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, extension.InitializeCount);
         Assert.Equal(0, extension.ShutdownCount);
@@ -1321,19 +1404,19 @@ public class ExtensionBundleSupportTests
         var extension = new BlockingLifecycleExtension("reload-disable", blockShutdown: true);
         manager.Register(extension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
 
-        var disable = manager.DisableExtensionAsync(extension.Id);
-        await extension.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var reload = manager.InitializeAllAsync(services);
+        var disable = manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+        await extension.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var reload = manager.InitializeAllAsync(services, TestContext.Current.CancellationToken);
 
         Assert.False(reload.IsCompleted);
         Assert.Equal(1, extension.InitializeCount);
 
         extension.ReleaseShutdown();
 
-        await disable.WaitAsync(TimeSpan.FromSeconds(5));
-        await reload.WaitAsync(TimeSpan.FromSeconds(5));
+        await disable.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await reload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.False(manager.IsEnabled(extension.Id));
         Assert.Equal(1, extension.InitializeCount);
         Assert.Equal(1, extension.ShutdownCount);
@@ -1352,17 +1435,17 @@ public class ExtensionBundleSupportTests
         manager.Register(extension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
 
-        var initialize = manager.InitializeExtensionAsync(extension.Id, services);
-        await extension.InitializeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var disable = manager.DisableExtensionAsync(extension.Id);
+        var initialize = manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken);
+        await extension.InitializeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var disable = manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
 
         Assert.False(disable.IsCompleted);
         Assert.Equal(0, extension.ShutdownCount);
 
         extension.ReleaseInitialize();
 
-        Assert.True(await initialize.WaitAsync(TimeSpan.FromSeconds(5)));
-        await disable.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(await initialize.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        await disable.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(["initialize", "shutdown"], extension.Events);
         Assert.Equal(1, extension.InitializeCount);
         Assert.Equal(1, extension.ShutdownCount);
@@ -1381,18 +1464,18 @@ public class ExtensionBundleSupportTests
         var extension = new BlockingLifecycleExtension("disable-enable", blockShutdown: true);
         manager.Register(extension, "local");
         using var services = new ServiceCollection().BuildServiceProvider();
-        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services));
+        Assert.True(await manager.InitializeExtensionAsync(extension.Id, services, TestContext.Current.CancellationToken));
 
-        var disable = manager.DisableExtensionAsync(extension.Id);
-        await extension.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var enable = manager.EnableExtensionAsync(extension.Id);
+        var disable = manager.DisableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
+        await extension.ShutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var enable = manager.EnableExtensionAsync(extension.Id, TestContext.Current.CancellationToken);
 
         Assert.False(enable.IsCompleted);
 
         extension.ReleaseShutdown();
 
-        await disable.WaitAsync(TimeSpan.FromSeconds(5));
-        await enable.WaitAsync(TimeSpan.FromSeconds(5));
+        await disable.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await enable.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(manager.IsEnabled(extension.Id));
         Assert.Equal(1, extension.ShutdownCount);
     }
@@ -1412,8 +1495,8 @@ public class ExtensionBundleSupportTests
         manager.SetRouteBuilder(app);
         manager.SetupDynamicEndpoints();
 
-        Assert.False(await manager.InitializeExtensionAsync(extension.Id, app.Services));
-        await extension.WorkerStopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(await manager.InitializeExtensionAsync(extension.Id, app.Services, TestContext.Current.CancellationToken));
+        await extension.WorkerStopped.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, extension.InitializeCount);
         Assert.Equal(1, extension.ShutdownCount);
@@ -1440,7 +1523,7 @@ public class ExtensionBundleSupportTests
             Name = "Base Pack",
             Version = "1.0.0",
             Kind = "scraper-pack",
-        }));
+        }), TestContext.Current.CancellationToken);
 
         await File.WriteAllTextAsync(Path.Combine(dependentDir, "extension.json"), JsonSerializer.Serialize(new ExtensionManifestFile
         {
@@ -1449,7 +1532,7 @@ public class ExtensionBundleSupportTests
             Version = "1.0.0",
             Kind = "bundle",
             Dependencies = new Dictionary<string, string> { ["base.pack"] = ">=1.0.0" },
-        }));
+        }), TestContext.Current.CancellationToken);
 
         try
         {
@@ -1463,8 +1546,7 @@ public class ExtensionBundleSupportTests
             manager.DiscoverExtensions(extensionsDir);
             var controller = CreateController(manager, new ServiceCollection().BuildServiceProvider());
 
-            var previewResult = await controller.RegistryUninstall(
-                new RegistryUninstallRequest { ExtensionId = "base.pack" });
+            var previewResult = await controller.RegistryUninstall(new RegistryUninstallRequest { ExtensionId = "base.pack" }, TestContext.Current.CancellationToken);
             var previewOk = Assert.IsType<OkObjectResult>(previewResult);
             var preview = JsonSerializer.SerializeToElement(previewOk.Value);
             Assert.True(preview.GetProperty("requiresDependents").GetBoolean());
@@ -1472,12 +1554,11 @@ public class ExtensionBundleSupportTests
             Assert.True(Directory.Exists(baseDir));
             Assert.True(Directory.Exists(dependentDir));
 
-            var uninstallResult = await controller.RegistryUninstall(
-                new RegistryUninstallRequest
+            var uninstallResult = await controller.RegistryUninstall(new RegistryUninstallRequest
                 {
                     ExtensionId = "base.pack",
                     UninstallDependents = true,
-                });
+                }, TestContext.Current.CancellationToken);
             Assert.IsType<OkObjectResult>(uninstallResult);
             Assert.False(Directory.Exists(baseDir));
             Assert.False(Directory.Exists(dependentDir));
@@ -1568,6 +1649,32 @@ public class ExtensionBundleSupportTests
                     "Example",
                     description: "Example settings tab from a normal extension.")
                 .AddSettingsSection("extensions/example", "Example Settings", "ExampleSettingsPanel")
+                .Build();
+    }
+
+    private sealed class KeyboardShortcutContributionExtension : CoveExtensionBase
+    {
+        public override string Id => "com.example.keyboard";
+        public override string Name => "Keyboard Extension";
+        public override string Version => "1.0.0";
+
+        public override UIManifest GetUIManifest()
+            => ManifestBuilder()
+                .AddKeyboardAction(
+                    "open-panel",
+                    "Open panel",
+                    ["Mod+K"],
+                    [new UIKeyboardActionScope("page", Page: "videos")],
+                    handlerName: "openPanel")
+                .AddKeyboardShortcutPreset(
+                    "alternate",
+                    "Alternate",
+                    new Dictionary<string, string[]>
+                    {
+                        ["open-panel"] = ["Mod+K"],
+                        ["global.shortcuts"] = ["?"],
+                    },
+                    basePresetId: "base")
                 .Build();
     }
 

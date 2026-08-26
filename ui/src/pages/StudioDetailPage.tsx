@@ -3,7 +3,7 @@ import { audios, galleries, groups, images, performers, videos, studios, texts, 
 import type { Audio, AudioFilterCriteria, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, MetadataServer, MetadataServerStudioMatch, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, Studio, StudioFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
 import { ChevronDown, Building2, CloudDownload, CloudUpload, FileText, Film, FolderOpen, GitMerge, Headphones, ImageIcon, Layers, Link as LinkIcon, Loader2, MoreVertical, Music, Pencil, Search, Trash2, UserRound } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StudioEditModal } from "./StudioEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailMergeDialog } from "../components/DetailMergeDialog";
@@ -25,6 +25,7 @@ import { ContextualImageListView, ContextualVideoListView } from "../components/
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, VIDEO_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA } from "../components/FilterDialog";
 import { useBackNavigation } from "../hooks/useBackNavigation";
+import { useKeySequence } from "../hooks/useKeySequence";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { PERFORMER_SORT_OPTIONS } from "../components/performerSortOptions";
 import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
@@ -141,19 +142,10 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     return () => document.removeEventListener("mousedown", handler);
   }, [showOpsMenu]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      switch (e.key) {
-        case "e": if (canWriteStudio) setEditing((v) => !v); break;
-        case "f": if (studio && canEngageStudio) setStudioFavorite(!studioFavorite); break;
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [canEngageStudio, canWriteStudio, studio, studioFavorite, setStudioFavorite]);
+  useKeySequence(useMemo(() => [
+    { id: "detail.edit", keys: "e", surface: "detail" as const, action: () => { if (canWriteStudio) setEditing((value) => !value); } },
+    { id: "detail.favorite", keys: "o", surface: "detail" as const, action: () => { if (studio && canEngageStudio) setStudioFavorite(!studioFavorite); } },
+  ], [canEngageStudio, canWriteStudio, studio, studioFavorite, setStudioFavorite]));
 
   useEffect(() => {
     if (visibleStudioTabs.length > 0 && !visibleStudioTabs.some((tab) => tab.key === activeTab)) {

@@ -5,11 +5,9 @@ using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Faces;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class FaceProviderSuggestionApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -19,11 +17,11 @@ public sealed class FaceProviderSuggestionApiTests(
     public async Task GivenPlannedProviderSuggestions_WhenMemberReadsAnUnlinkedFace_ThenRankedDeduplicatedAndCappedSuggestionsAreReturned()
     {
         // Arrange
-        var highest = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Highest planned performer").Build());
-        var second = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Second planned performer").Build());
-        var third = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Third planned performer").Build());
-        var candidate = await AsUser().CreateFaceAsync(new FaceCreateDto("Provider candidate", null, false, null));
-        var linked = await AsUser().CreateFaceAsync(new FaceCreateDto("Already linked", highest.Id, false, null));
+        var highest = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Highest planned performer").Build(), TestContext.Current.CancellationToken);
+        var second = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Second planned performer").Build(), TestContext.Current.CancellationToken);
+        var third = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Third planned performer").Build(), TestContext.Current.CancellationToken);
+        var candidate = await AsUser().CreateFaceAsync(new FaceCreateDto("Provider candidate", null, false, null), TestContext.Current.CancellationToken);
+        var linked = await AsUser().CreateFaceAsync(new FaceCreateDto("Already linked", highest.Id, false, null), TestContext.Current.CancellationToken);
         await ConfigureFaceSuggestionPlanAsync(new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>
         {
             [candidate.Id] =
@@ -33,11 +31,11 @@ public sealed class FaceProviderSuggestionApiTests(
                 Suggest(highest, 0.95f, evidenceCount: 2),
                 Suggest(second, 0.9f),
             ],
-        });
+        }, TestContext.Current.CancellationToken);
 
         // Act
-        var suggestions = await AsUser(ApiTestUsers.Eva).GetFaceSuggestionsAsync(candidate.Id, maxResults: 2);
-        var linkedSuggestions = await AsUser(ApiTestUsers.Eva).GetFaceSuggestionsAsync(linked.Id);
+        var suggestions = await AsUser(ApiTestUsers.Eva).GetFaceSuggestionsAsync(candidate.Id, maxResults: 2, cancellationToken: TestContext.Current.CancellationToken);
+        var linkedSuggestions = await AsUser(ApiTestUsers.Eva).GetFaceSuggestionsAsync(linked.Id, cancellationToken: TestContext.Current.CancellationToken);
         var missing = () => AsUser(ApiTestUsers.Eva).GetFaceSuggestionsAsync(int.MaxValue);
 
         // Assert
@@ -54,14 +52,14 @@ public sealed class FaceProviderSuggestionApiTests(
     public async Task GivenMixedPlannedSuggestions_WhenMemberBatchLinksTopMatches_ThenEligibleFacesAndHostPropagationAreExact()
     {
         // Arrange
-        var top = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Batch top performer").Build());
-        var competing = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Batch competing performer").Build());
-        var video = await AsUser().CreateVideoAsync($"Batch suggestion host {Guid.NewGuid():N}");
-        var linkable = await AsUser().CreateFaceAsync(new FaceCreateDto("Linkable face", null, false, null));
-        var alreadyLinked = await AsUser().CreateFaceAsync(new FaceCreateDto("Already linked face", top.Id, false, null));
-        var withoutSuggestion = await AsUser().CreateFaceAsync(new FaceCreateDto("No suggestion face", null, false, null));
-        var conflict = await AsUser().CreateFaceAsync(new FaceCreateDto("Conflicting face", null, false, null));
-        await AsUser().CreateVideoFaceDetectionAsync(video, linkable);
+        var top = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Batch top performer").Build(), TestContext.Current.CancellationToken);
+        var competing = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Batch competing performer").Build(), TestContext.Current.CancellationToken);
+        var video = await AsUser().CreateVideoAsync($"Batch suggestion host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var linkable = await AsUser().CreateFaceAsync(new FaceCreateDto("Linkable face", null, false, null), TestContext.Current.CancellationToken);
+        var alreadyLinked = await AsUser().CreateFaceAsync(new FaceCreateDto("Already linked face", top.Id, false, null), TestContext.Current.CancellationToken);
+        var withoutSuggestion = await AsUser().CreateFaceAsync(new FaceCreateDto("No suggestion face", null, false, null), TestContext.Current.CancellationToken);
+        var conflict = await AsUser().CreateFaceAsync(new FaceCreateDto("Conflicting face", null, false, null), TestContext.Current.CancellationToken);
+        await AsUser().CreateVideoFaceDetectionAsync(video, linkable, TestContext.Current.CancellationToken);
         await ConfigureFaceSuggestionPlanAsync(new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>
         {
             [linkable.Id] =
@@ -75,16 +73,14 @@ public sealed class FaceProviderSuggestionApiTests(
                 Suggest(competing, 0.93f, conflictGroupId: "planned-conflict"),
                 Suggest(top, 0.9f, conflictGroupId: "planned-conflict"),
             ],
-        });
+        }, TestContext.Current.CancellationToken);
 
         // Act
-        var defaultResult = await AsUser(ApiTestUsers.Eva).BatchLinkTopSuggestionAsync(
-            new FaceBatchLinkTopSuggestionDto([linkable.Id, linkable.Id, alreadyLinked.Id, withoutSuggestion.Id, conflict.Id, int.MaxValue]));
-        var conflictResult = await AsUser(ApiTestUsers.Eva).BatchLinkTopSuggestionAsync(
-            new FaceBatchLinkTopSuggestionDto([conflict.Id], LinkConflicting: true));
-        var linked = await AsUser(ApiTestUsers.Eva).GetFaceByIdAsync(linkable.Id);
-        var conflictLinked = await AsUser(ApiTestUsers.Eva).GetFaceByIdAsync(conflict.Id);
-        var propagatedVideos = await AsUser(ApiTestUsers.Eva).GetVideosByPerformerAsync(top.Id);
+        var defaultResult = await AsUser(ApiTestUsers.Eva).BatchLinkTopSuggestionAsync(new FaceBatchLinkTopSuggestionDto([linkable.Id, linkable.Id, alreadyLinked.Id, withoutSuggestion.Id, conflict.Id, int.MaxValue]), TestContext.Current.CancellationToken);
+        var conflictResult = await AsUser(ApiTestUsers.Eva).BatchLinkTopSuggestionAsync(new FaceBatchLinkTopSuggestionDto([conflict.Id], LinkConflicting: true), TestContext.Current.CancellationToken);
+        var linked = await AsUser(ApiTestUsers.Eva).GetFaceByIdAsync(linkable.Id, TestContext.Current.CancellationToken);
+        var conflictLinked = await AsUser(ApiTestUsers.Eva).GetFaceByIdAsync(conflict.Id, TestContext.Current.CancellationToken);
+        var propagatedVideos = await AsUser(ApiTestUsers.Eva).GetVideosByPerformerAsync(top.Id, TestContext.Current.CancellationToken);
 
         // Assert
         defaultResult.Succeeded.Should().Equal(linkable.Id);
@@ -108,43 +104,43 @@ public sealed class FaceProviderSuggestionApiTests(
     public async Task GivenCompletedMediaRunEvidence_WhenMemberReviewsTheRun_ThenOnlyTheSingleVisibleReviewableTargetIsReturned()
     {
         // Arrange
-        var reviewVideo = await AsUser().CreateVideoAsync($"AI review host {Guid.NewGuid():N}");
-        var included = await AsUser().CreateFaceAsync(new FaceCreateDto("Reviewable run face", null, false, null));
-        var ignored = await AsUser().CreateFaceAsync(new FaceCreateDto("Ignored run face", null, true, null));
-        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Run-linked performer").Build());
-        var linked = await AsUser().CreateFaceAsync(new FaceCreateDto("Linked run face", performer.Id, false, null));
+        var reviewVideo = await AsUser().CreateVideoAsync($"AI review host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var included = await AsUser().CreateFaceAsync(new FaceCreateDto("Reviewable run face", null, false, null), TestContext.Current.CancellationToken);
+        var ignored = await AsUser().CreateFaceAsync(new FaceCreateDto("Ignored run face", null, true, null), TestContext.Current.CancellationToken);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName("Run-linked performer").Build(), TestContext.Current.CancellationToken);
+        var linked = await AsUser().CreateFaceAsync(new FaceCreateDto("Linked run face", performer.Id, false, null), TestContext.Current.CancellationToken);
         var startedAt = DateTime.UtcNow.AddMinutes(-3);
         var completedAt = startedAt.AddMinutes(1);
         var matchingRunKey = $"api-test-run-{Guid.NewGuid():N}";
-        await AsDbUser().CreateFaceAppearanceAsync(included.Id, FaceAppearanceHostType.Video, reviewVideo.Id, 4, 3, 1, 1, 8, 0.97f, sourceRunId: matchingRunKey);
-        await AsDbUser().CreateFaceAppearanceAsync(ignored.Id, FaceAppearanceHostType.Video, reviewVideo.Id, 3, 2, 1, 2, 7, 0.95f, sourceRunId: matchingRunKey);
-        await AsDbUser().CreateFaceAppearanceAsync(linked.Id, FaceAppearanceHostType.Video, reviewVideo.Id, 2, 1, 1, 3, 6, 0.9f, sourceRunId: matchingRunKey);
-        await AsDbUser().CreateCompletedAiRunAsync(matchingRunKey, AiRunTargetType.Video, reviewVideo.Id, startedAt, completedAt);
+        await AsDbUser().CreateFaceAppearanceAsync(included.Id, FaceAppearanceHostType.Video, reviewVideo.Id, 4, 3, 1, 1, 8, 0.97f, sourceRunId: matchingRunKey, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateFaceAppearanceAsync(ignored.Id, FaceAppearanceHostType.Video, reviewVideo.Id, 3, 2, 1, 2, 7, 0.95f, sourceRunId: matchingRunKey, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateFaceAppearanceAsync(linked.Id, FaceAppearanceHostType.Video, reviewVideo.Id, 2, 1, 1, 3, 6, 0.9f, sourceRunId: matchingRunKey, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateCompletedAiRunAsync(matchingRunKey, AiRunTargetType.Video, reviewVideo.Id, startedAt, completedAt, TestContext.Current.CancellationToken);
 
-        var hiddenVideo = await AsUser().CreateVideoAsync($"Hidden AI review host {Guid.NewGuid():N}");
-        var hiddenFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Hidden run face", null, false, null));
+        var hiddenVideo = await AsUser().CreateVideoAsync($"Hidden AI review host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var hiddenFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Hidden run face", null, false, null), TestContext.Current.CancellationToken);
         var hiddenRunKey = $"api-test-hidden-run-{Guid.NewGuid():N}";
-        await AsDbUser().CreateFaceAppearanceAsync(hiddenFace.Id, FaceAppearanceHostType.Video, hiddenVideo.Id, 2, 1, 1, 1, 2, 0.91f, sourceRunId: hiddenRunKey);
-        await AsDbUser().CreateCompletedAiRunAsync(hiddenRunKey, AiRunTargetType.Video, hiddenVideo.Id, startedAt, completedAt);
-        var memberRole = (await AsUser().GetRolesAsync()).Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
+        await AsDbUser().CreateFaceAppearanceAsync(hiddenFace.Id, FaceAppearanceHostType.Video, hiddenVideo.Id, 2, 1, 1, 1, 2, 0.91f, sourceRunId: hiddenRunKey, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateCompletedAiRunAsync(hiddenRunKey, AiRunTargetType.Video, hiddenVideo.Id, startedAt, completedAt, TestContext.Current.CancellationToken);
+        var memberRole = (await AsUser().GetRolesAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
         await AsUser().CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.Video,
             hiddenVideo.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
-            "read"));
+            "read"), TestContext.Current.CancellationToken);
 
-        var outOfWindowVideo = await AsUser().CreateVideoAsync($"Out of window AI review host {Guid.NewGuid():N}");
-        var outOfWindowFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Out of window run face", null, false, null));
+        var outOfWindowVideo = await AsUser().CreateVideoAsync($"Out of window AI review host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var outOfWindowFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Out of window run face", null, false, null), TestContext.Current.CancellationToken);
         var outOfWindowRunKey = $"api-test-old-run-{Guid.NewGuid():N}";
-        await AsDbUser().CreateFaceAppearanceAsync(outOfWindowFace.Id, FaceAppearanceHostType.Video, outOfWindowVideo.Id, 2, 1, 1, 1, 2, 0.8f, sourceRunId: outOfWindowRunKey);
-        await AsDbUser().CreateCompletedAiRunAsync(outOfWindowRunKey, AiRunTargetType.Video, outOfWindowVideo.Id, startedAt.AddHours(-2), completedAt.AddHours(-2));
+        await AsDbUser().CreateFaceAppearanceAsync(outOfWindowFace.Id, FaceAppearanceHostType.Video, outOfWindowVideo.Id, 2, 1, 1, 1, 2, 0.8f, sourceRunId: outOfWindowRunKey, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateCompletedAiRunAsync(outOfWindowRunKey, AiRunTargetType.Video, outOfWindowVideo.Id, startedAt.AddHours(-2), completedAt.AddHours(-2), TestContext.Current.CancellationToken);
 
-        var nonMediaVideo = await AsUser().CreateVideoAsync($"Non-media AI review host {Guid.NewGuid():N}");
-        var nonMediaFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Non-media run face", null, false, null));
+        var nonMediaVideo = await AsUser().CreateVideoAsync($"Non-media AI review host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var nonMediaFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Non-media run face", null, false, null), TestContext.Current.CancellationToken);
         var nonMediaRunKey = $"api-test-non-media-run-{Guid.NewGuid():N}";
-        await AsDbUser().CreateFaceAppearanceAsync(nonMediaFace.Id, FaceAppearanceHostType.Video, nonMediaVideo.Id, 2, 1, 1, 1, 2, 0.8f, sourceRunId: nonMediaRunKey);
-        await AsDbUser().CreateCompletedAiRunAsync(nonMediaRunKey, AiRunTargetType.Performer, performer.Id, startedAt, completedAt);
+        await AsDbUser().CreateFaceAppearanceAsync(nonMediaFace.Id, FaceAppearanceHostType.Video, nonMediaVideo.Id, 2, 1, 1, 1, 2, 0.8f, sourceRunId: nonMediaRunKey, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateCompletedAiRunAsync(nonMediaRunKey, AiRunTargetType.Performer, performer.Id, startedAt, completedAt, TestContext.Current.CancellationToken);
 
         await ConfigureFaceSuggestionPlanAsync(new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>
         {
@@ -152,11 +148,11 @@ public sealed class FaceProviderSuggestionApiTests(
             [hiddenFace.Id] = [Suggest(performer, 0.99f)],
             [outOfWindowFace.Id] = [Suggest(performer, 0.8f)],
             [nonMediaFace.Id] = [Suggest(performer, 0.8f)],
-        });
+        }, TestContext.Current.CancellationToken);
 
         // Act
-        var noWindow = await AsUser(ApiTestUsers.Eva).GetAiRunFaceReviewAsync(startedAt: null, completedAt: null);
-        var review = await AsUser(ApiTestUsers.Eva).GetAiRunFaceReviewAsync(startedAt, completedAt, take: 200);
+        var noWindow = await AsUser(ApiTestUsers.Eva).GetAiRunFaceReviewAsync(startedAt: null, completedAt: null, cancellationToken: TestContext.Current.CancellationToken);
+        var review = await AsUser(ApiTestUsers.Eva).GetAiRunFaceReviewAsync(startedAt, completedAt, take: 200, cancellationToken: TestContext.Current.CancellationToken);
         var deniedVideo = () => AsUser(ApiTestUsers.Eva).GetVideoByIdAsync(hiddenVideo.Id);
 
         // Assert
@@ -168,18 +164,18 @@ public sealed class FaceProviderSuggestionApiTests(
         review.Single().TopSuggestion!.PerformerId.Should().Be(performer.Id);
 
         // A second matching media target intentionally makes the run-review selection ambiguous.
-        var secondTargetVideo = await AsUser().CreateVideoAsync($"Second AI review host {Guid.NewGuid():N}");
-        var secondTargetFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Second target run face", null, false, null));
+        var secondTargetVideo = await AsUser().CreateVideoAsync($"Second AI review host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var secondTargetFace = await AsUser().CreateFaceAsync(new FaceCreateDto("Second target run face", null, false, null), TestContext.Current.CancellationToken);
         var secondTargetRunKey = $"api-test-second-run-{Guid.NewGuid():N}";
-        await AsDbUser().CreateFaceAppearanceAsync(secondTargetFace.Id, FaceAppearanceHostType.Video, secondTargetVideo.Id, 2, 1, 1, 1, 2, 0.8f, sourceRunId: secondTargetRunKey);
-        await AsDbUser().CreateCompletedAiRunAsync(secondTargetRunKey, AiRunTargetType.Video, secondTargetVideo.Id, startedAt, completedAt);
+        await AsDbUser().CreateFaceAppearanceAsync(secondTargetFace.Id, FaceAppearanceHostType.Video, secondTargetVideo.Id, 2, 1, 1, 1, 2, 0.8f, sourceRunId: secondTargetRunKey, cancellationToken: TestContext.Current.CancellationToken);
+        await AsDbUser().CreateCompletedAiRunAsync(secondTargetRunKey, AiRunTargetType.Video, secondTargetVideo.Id, startedAt, completedAt, TestContext.Current.CancellationToken);
         await ConfigureFaceSuggestionPlanAsync(new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>
         {
             [included.Id] = [Suggest(performer, 0.96f)],
             [secondTargetFace.Id] = [Suggest(performer, 0.85f)],
-        });
+        }, TestContext.Current.CancellationToken);
 
-        var ambiguousReview = await AsUser(ApiTestUsers.Eva).GetAiRunFaceReviewAsync(startedAt, completedAt);
+        var ambiguousReview = await AsUser(ApiTestUsers.Eva).GetAiRunFaceReviewAsync(startedAt, completedAt, cancellationToken: TestContext.Current.CancellationToken);
         ambiguousReview.Should().BeEmpty();
     }
 

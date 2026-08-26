@@ -25,7 +25,7 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("direct", folderPath: @"C:\library\matching", basename: "direct.mp4"),
             CreateVideoWithFile("nested", folderPath: @"C:\library\matching\nested", basename: "nested.mp4"),
             CreateVideoWithFile("prefix-only", folderPath: @"C:\library\matching-other", basename: "other.mp4"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -37,7 +37,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["direct", "nested"], items.Select(video => video.Title ?? string.Empty).Order().ToArray());
@@ -58,7 +58,7 @@ public class VideoFilterBehaviorTests
         context.Videos.AddRange(
             mixed,
             CreateVideoWithFile("outside", folderPath: @"C:\library\outside", basename: "outside.mp4"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -70,7 +70,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["outside"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -83,12 +83,10 @@ public class VideoFilterBehaviorTests
         context.Videos.AddRange(
             CreateVideoWithFile("exact-case", folderPath: "/library/Media", basename: "clip.mp4"),
             CreateVideoWithFile("different-case", folderPath: "/library/media", basename: "clip.mp4"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
-        var (items, totalCount) = await repository.FindAsync(
-            new VideoFilter { PathCriterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath } },
-            new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(new VideoFilter { PathCriterion = new StringCriterion { Value = "/library/Media", Modifier = CriterionModifier.UnderPath } }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(FilesystemPaths.PathComparison == StringComparison.OrdinalIgnoreCase ? 2 : 1, totalCount);
         Assert.Contains(items, video => video.Title == "exact-case");
@@ -102,7 +100,7 @@ public class VideoFilterBehaviorTests
         context.Videos.AddRange(
             CreateVideoWithFile("match", folderPath: @"C:\library\matching", basename: "clip.mp4"),
             CreateVideoWithFile("same-name-other-folder", folderPath: @"C:\library\other", basename: "clip.mp4"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -114,7 +112,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["match"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -127,25 +125,21 @@ public class VideoFilterBehaviorTests
         var undated = CreateVideoWithFile("undated", basename: "undated.mp4");
         undated.Date = null;
         context.Videos.AddRange(CreateVideoWithFile("dated", videoDate: new DateOnly(2024, 5, 1)), undated);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
         // The filter UI sends an empty value for IS_NULL/NOT_NULL, so these must not
         // depend on Value parsing as a date.
-        var (isNullItems, isNullCount) = await repository.FindAsync(
-            new VideoFilter
+        var (isNullItems, isNullCount) = await repository.FindAsync(new VideoFilter
             {
                 DateCriterion = new DateCriterion { Value = string.Empty, Modifier = CriterionModifier.IsNull },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (notNullItems, notNullCount) = await repository.FindAsync(
-            new VideoFilter
+        var (notNullItems, notNullCount) = await repository.FindAsync(new VideoFilter
             {
                 DateCriterion = new DateCriterion { Value = string.Empty, Modifier = CriterionModifier.NotNull },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, isNullCount);
         Assert.Equal(["undated"], isNullItems.Select(video => video.Title ?? string.Empty).ToArray());
@@ -160,16 +154,14 @@ public class VideoFilterBehaviorTests
         context.Performers.AddRange(
             new Performer { Name = "living", Birthdate = new DateOnly(1990, 3, 4) },
             new Performer { Name = "unknown-birthdate", Birthdate = null });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new PerformerRepository(context);
 
-        var (isNullItems, isNullCount) = await repository.FindAsync(
-            new PerformerFilter
+        var (isNullItems, isNullCount) = await repository.FindAsync(new PerformerFilter
             {
                 BirthdateCriterion = new DateCriterion { Value = string.Empty, Modifier = CriterionModifier.IsNull },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, isNullCount);
         Assert.Equal(["unknown-birthdate"], isNullItems.Select(performer => performer.Name).ToArray());
@@ -183,42 +175,36 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("aac-video", audioCodec: "AAC"),
             CreateVideoWithFile("mp3-video", audioCodec: "MP3"),
             CreateVideoWithFile("missing-audio", audioCodec: ""));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
-        var (notRegexItems, notRegexCount) = await repository.FindAsync(
-            new VideoFilter
+        var (notRegexItems, notRegexCount) = await repository.FindAsync(new VideoFilter
             {
                 AudioCodecCriterion = new StringCriterion
                 {
                     Value = "^aa",
                     Modifier = CriterionModifier.NotMatchesRegex,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (nullItems, nullCount) = await repository.FindAsync(
-            new VideoFilter
+        var (nullItems, nullCount) = await repository.FindAsync(new VideoFilter
             {
                 AudioCodecCriterion = new StringCriterion
                 {
                     Value = string.Empty,
                     Modifier = CriterionModifier.IsNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (notNullItems, notNullCount) = await repository.FindAsync(
-            new VideoFilter
+        var (notNullItems, notNullCount) = await repository.FindAsync(new VideoFilter
             {
                 AudioCodecCriterion = new StringCriterion
                 {
                     Value = string.Empty,
                     Modifier = CriterionModifier.NotNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, notRegexCount);
         Assert.Equal(["missing-audio", "mp3-video"], notRegexItems.Select(video => video.Title ?? string.Empty).OrderBy(title => title).ToArray());
@@ -236,7 +222,7 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("high-bitrate", bitRate: 2_500_000),
             CreateVideoWithFile("low-bitrate", bitRate: 500_000),
             new Video { Title = "no-file" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -248,7 +234,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["high-bitrate"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -262,7 +248,7 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("high-bitrate", bitRate: 2_500_000),
             CreateVideoWithFile("low-bitrate", bitRate: 500_000),
             CreateVideoWithFile("mid-bitrate", bitRate: 1_500_000));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var (items, totalCount) = await repository.FindAsync(null, new FindFilter
@@ -271,7 +257,7 @@ public class VideoFilterBehaviorTests
             PerPage = 50,
             Sort = "bitrate",
             Direction = SortDirection.Asc,
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, totalCount);
         Assert.Equal(["low-bitrate", "mid-bitrate", "high-bitrate"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -284,7 +270,7 @@ public class VideoFilterBehaviorTests
         context.Videos.AddRange(
             CreateVideoWithFile("jane-video", director: "Jane Smith"),
             CreateVideoWithFile("john-video", director: "John Doe"));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -296,7 +282,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["john-video"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -311,7 +297,7 @@ public class VideoFilterBehaviorTests
         context.Videos.AddRange(
             CreateVideoWithFile("before-birthday", videoDate: new DateOnly(2024, 1, 10), performer: performer),
             CreateVideoWithFile("after-birthday", videoDate: new DateOnly(2024, 1, 20), performer: performer));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -323,7 +309,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["after-birthday"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -339,7 +325,7 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Videos.AddRange(taggedVideo, untaggedVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.Add(new TagApplication
         {
@@ -350,7 +336,7 @@ public class VideoFilterBehaviorTests
             TagId = tag.Id,
             SourceKey = "test",
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -362,7 +348,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["tagged-performer-video"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -381,7 +367,7 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Videos.AddRange(targetTaggedVideo, wrongPerformerTaggedVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             new TagApplication
@@ -402,7 +388,7 @@ public class VideoFilterBehaviorTests
                 TagId = tag.Id,
                 SourceKey = "test",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -419,7 +405,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["target-tagged"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -443,7 +429,7 @@ public class VideoFilterBehaviorTests
             _ => throw new ArgumentOutOfRangeException(nameof(hostType), hostType, null),
         };
         context.Tags.Add(tag);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = new TagApplicationService(context);
         var application = await service.AddAsync(
@@ -470,12 +456,12 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Images.AddRange(targetTaggedImage, wrongPerformerTaggedImage);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             CreatePerformerOccurrenceApplication(AffinityHostType.Image, targetTaggedImage.Id, targetPerformer.Id, tag.Id),
             CreatePerformerOccurrenceApplication(AffinityHostType.Image, wrongPerformerTaggedImage.Id, otherPerformer.Id, tag.Id));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new ImageRepository(context);
         var filter = new ImageFilter
@@ -492,7 +478,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["target-tagged-image"], items.Select(image => image.Title ?? string.Empty).ToArray());
@@ -511,12 +497,12 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Audios.AddRange(targetTaggedAudio, wrongPerformerTaggedAudio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             CreatePerformerOccurrenceApplication(AffinityHostType.Audio, targetTaggedAudio.Id, targetPerformer.Id, tag.Id),
             CreatePerformerOccurrenceApplication(AffinityHostType.Audio, wrongPerformerTaggedAudio.Id, otherPerformer.Id, tag.Id));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new AudiosController(context, new CustomFieldService(context), null!, null!, null!, null);
         var response = await controller.FindPost(new FilteredQueryRequest<AudioFilter>
@@ -549,12 +535,12 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.TextDocuments.AddRange(targetTaggedText, wrongPerformerTaggedText);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             CreatePerformerOccurrenceApplication(AffinityHostType.Text, targetTaggedText.Id, targetPerformer.Id, tag.Id),
             CreatePerformerOccurrenceApplication(AffinityHostType.Text, wrongPerformerTaggedText.Id, otherPerformer.Id, tag.Id));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new TextsController(context, new CustomFieldService(context), null!, null!, null!, null!, null);
         var response = await controller.FindPost(new FilteredQueryRequest<TextDocumentFilter>
@@ -586,7 +572,7 @@ public class VideoFilterBehaviorTests
 
         context.Tags.AddRange(shortTag, percentTag);
         context.Videos.AddRange(matchingVideo, longVideo, lowPercentVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             CreateDurationApplication(matchingVideo.Id, shortTag.Id, totalDurationSec: 20, hostDurationSec: 100),
@@ -595,7 +581,7 @@ public class VideoFilterBehaviorTests
             CreateDurationApplication(longVideo.Id, percentTag.Id, totalDurationSec: 20, hostDurationSec: 100),
             CreateDurationApplication(lowPercentVideo.Id, shortTag.Id, totalDurationSec: 20, hostDurationSec: 100),
             CreateDurationApplication(lowPercentVideo.Id, percentTag.Id, totalDurationSec: 5, hostDurationSec: 100));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -610,7 +596,7 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["matching-duration"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -624,11 +610,9 @@ public class VideoFilterBehaviorTests
             new Video { Title = "included", Organized = true, MaxDuration = 90.5, MaxFileSize = 1_500 },
             new Video { Title = "also included", Organized = true, MaxDuration = 29.5, MaxFileSize = 2_500 },
             new Video { Title = "excluded", Organized = false, MaxDuration = 600, MaxFileSize = 50_000 });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var aggregate = await new VideoRepository(context).AggregateAsync(
-            new VideoFilter { Organized = true },
-            new FindFilter());
+        var aggregate = await new VideoRepository(context).AggregateAsync(new VideoFilter { Organized = true }, new FindFilter(), TestContext.Current.CancellationToken);
 
         Assert.Equal(2, aggregate.Count);
         Assert.Equal(120, aggregate.Duration);
@@ -654,10 +638,9 @@ public class VideoFilterBehaviorTests
         var excludedGallery = new Gallery { Title = "excluded gallery", Organized = false };
         excludedGallery.Files.Add(new GalleryFile { Basename = "excluded.zip", Path = "/media/excluded.zip", ParentFolder = folder, Size = 90_000 });
         context.Galleries.AddRange(gallery, excludedGallery);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var imageAggregate = await new ImageRepository(context).AggregateAsync(
-            new ImageFilter { Ids = [image.Id] }, new FindFilter());
+        var imageAggregate = await new ImageRepository(context).AggregateAsync(new ImageFilter { Ids = [image.Id] }, new FindFilter(), TestContext.Current.CancellationToken);
         Assert.Equal(1, imageAggregate.Count);
         Assert.Equal(4_000, imageAggregate.FileSize);
 
@@ -672,8 +655,7 @@ public class VideoFilterBehaviorTests
         var textAggregate = Assert.IsType<TextAggregate>(Assert.IsType<OkObjectResult>(textResponse.Result).Value);
         Assert.Equal(6_000, textAggregate.FileSize);
 
-        var galleryAggregate = await new GalleryRepository(context).AggregateAsync(
-            new GalleryFilter { Ids = [gallery.Id] }, new FindFilter());
+        var galleryAggregate = await new GalleryRepository(context).AggregateAsync(new GalleryFilter { Ids = [gallery.Id] }, new FindFilter(), TestContext.Current.CancellationToken);
         Assert.Equal(1, galleryAggregate.Count);
         Assert.Equal(7_000, galleryAggregate.FileSize);
     }
@@ -690,13 +672,13 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Videos.AddRange(qualifyingVideo, belowThresholdVideo, manualVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             CreateDurationApplication(qualifyingVideo.Id, tag.Id, totalDurationSec: 82, hostDurationSec: 100),
             CreateDurationApplication(belowThresholdVideo.Id, tag.Id, totalDurationSec: 72, hostDurationSec: 100),
             CreateDurationApplication(manualVideo.Id, tag.Id, totalDurationSec: 72, hostDurationSec: 100));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var binaryFilter = new VideoFilter
@@ -714,8 +696,8 @@ public class VideoFilterBehaviorTests
             },
         };
 
-        var (binaryItems, binaryCount) = await repository.FindAsync(binaryFilter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
-        var (durationItems, durationCount) = await repository.FindAsync(explicitDurationFilter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
+        var (binaryItems, binaryCount) = await repository.FindAsync(binaryFilter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
+        var (durationItems, durationCount) = await repository.FindAsync(explicitDurationFilter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, binaryCount);
         Assert.Equal(["manual-tagged", "qualifying-derived"], binaryItems.Select(video => video.Title ?? string.Empty).ToArray());
@@ -734,13 +716,13 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Videos.AddRange(secondsVideo, percentVideo, neitherVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             CreateDurationApplication(secondsVideo.Id, tag.Id, totalDurationSec: 35, hostDurationSec: 100),
             CreateDurationApplication(percentVideo.Id, tag.Id, totalDurationSec: 8, hostDurationSec: 10),
             CreateDurationApplication(neitherVideo.Id, tag.Id, totalDurationSec: 20, hostDurationSec: 100));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -748,7 +730,7 @@ public class VideoFilterBehaviorTests
             TagsCriterion = new MultiIdCriterion { Value = [tag.Id], Modifier = CriterionModifier.Includes },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["percent-match", "seconds-match"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -763,10 +745,10 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.Add(CreateDurationApplication(video.Id, tag.Id, totalDurationSec: 72, hostDurationSec: 100));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = CreateVideosControllerWithRepository(context);
         var initialResponse = await controller.GetById(video.Id, CancellationToken.None);
@@ -775,7 +757,7 @@ public class VideoFilterBehaviorTests
         Assert.Empty(initialVideo.Tags);
 
         tag.MinOccurrencePercent = 70;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var updatedResponse = await controller.GetById(video.Id, CancellationToken.None);
         var updatedOk = Assert.IsType<OkObjectResult>(updatedResponse.Result);
@@ -797,7 +779,7 @@ public class VideoFilterBehaviorTests
         video.VideoTags.Add(new VideoTag { Tag = tag });
 
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.Add(new TagApplication
         {
@@ -809,7 +791,7 @@ public class VideoFilterBehaviorTests
             ModelKey = "tagger-v1",
             Confidence = 0.9f,
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = CreateVideosControllerWithRepository(context);
         var response = await controller.GetById(video.Id, CancellationToken.None);
@@ -831,17 +813,17 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.Add(CreateDurationApplication(video.Id, tag.Id, totalDurationSec: 82, hostDurationSec: 100));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        await context.Entry(tag).ReloadAsync();
+        await context.Entry(tag).ReloadAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, tag.VideoCount);
 
         tag.MinOccurrencePercent = 90;
-        await context.SaveChangesAsync();
-        await context.Entry(tag).ReloadAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await context.Entry(tag).ReloadAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, tag.VideoCount);
     }
@@ -856,7 +838,7 @@ public class VideoFilterBehaviorTests
 
         context.Tags.Add(tag);
         context.Audios.AddRange(matchingAudio, belowThresholdAudio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.AddRange(
             new TagApplication
@@ -877,7 +859,7 @@ public class VideoFilterBehaviorTests
                 HostDurationSec = 60,
                 SourceKey = "test",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new AudiosController(context, new CustomFieldService(context), null!, null!, null!);
         var response = await controller.FindPost(new FilteredQueryRequest<AudioFilter>
@@ -919,31 +901,27 @@ public class VideoFilterBehaviorTests
                     new FileFingerprint { Type = "oshash", Value = "osh-other" },
                     new FileFingerprint { Type = "md5", Value = "md5-other" },
                 ]));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
-        var (hashItems, hashCount) = await repository.FindAsync(
-            new VideoFilter
+        var (hashItems, hashCount) = await repository.FindAsync(new VideoFilter
             {
                 HashCriterion = new StringCriterion
                 {
                     Value = "osh-match",
                     Modifier = CriterionModifier.Equals,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (checksumItems, checksumCount) = await repository.FindAsync(
-            new VideoFilter
+        var (checksumItems, checksumCount) = await repository.FindAsync(new VideoFilter
             {
                 ChecksumCriterion = new StringCriterion
                 {
                     Value = "md5-match",
                     Modifier = CriterionModifier.Equals,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, hashCount);
         Assert.Equal(["matching-hashes"], hashItems.Select(video => video.Title ?? string.Empty).ToArray());
@@ -972,12 +950,11 @@ public class VideoFilterBehaviorTests
                     new FileFingerprint { Type = "md5", Value = "md5-other" },
                     new FileFingerprint { Type = "phash", Value = "phash-other" },
                 ]));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
-        var (oshashItems, oshashCount) = await repository.FindAsync(
-            new VideoFilter
+        var (oshashItems, oshashCount) = await repository.FindAsync(new VideoFilter
             {
                 FingerprintCriterion = new FingerprintCriterion
                 {
@@ -985,11 +962,9 @@ public class VideoFilterBehaviorTests
                     Value = "osh-match",
                     Modifier = CriterionModifier.Equals,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (md5Items, md5Count) = await repository.FindAsync(
-            new VideoFilter
+        var (md5Items, md5Count) = await repository.FindAsync(new VideoFilter
             {
                 FingerprintCriterion = new FingerprintCriterion
                 {
@@ -997,11 +972,9 @@ public class VideoFilterBehaviorTests
                     Value = "md5-match",
                     Modifier = CriterionModifier.Equals,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
-        var (phashItems, phashCount) = await repository.FindAsync(
-            new VideoFilter
+        var (phashItems, phashCount) = await repository.FindAsync(new VideoFilter
             {
                 FingerprintCriterion = new FingerprintCriterion
                 {
@@ -1009,8 +982,7 @@ public class VideoFilterBehaviorTests
                     Value = "phash-match",
                     Modifier = CriterionModifier.Equals,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 50 });
+            }, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, oshashCount);
         Assert.Equal(["matching-fingerprint-types"], oshashItems.Select(video => video.Title ?? string.Empty).ToArray());
@@ -1027,7 +999,7 @@ public class VideoFilterBehaviorTests
         var withSegments = CreateVideoWithFile("with-segments");
         var withoutSegments = CreateVideoWithFile("without-segments");
         context.Videos.AddRange(withSegments, withoutSegments);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Segments.AddRange(
             new Segment
@@ -1046,17 +1018,13 @@ public class VideoFilterBehaviorTests
                 EndSec = 2,
                 SourceKey = "user",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
-        var (withSegmentItems, withSegmentCount) = await repository.FindAsync(
-            new VideoFilter { HasSegmentsCriterion = new BoolCriterion { Value = true } },
-            new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
+        var (withSegmentItems, withSegmentCount) = await repository.FindAsync(new VideoFilter { HasSegmentsCriterion = new BoolCriterion { Value = true } }, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
 
-        var (withoutSegmentItems, withoutSegmentCount) = await repository.FindAsync(
-            new VideoFilter { HasSegmentsCriterion = new BoolCriterion { Value = false } },
-            new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
+        var (withoutSegmentItems, withoutSegmentCount) = await repository.FindAsync(new VideoFilter { HasSegmentsCriterion = new BoolCriterion { Value = false } }, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, withSegmentCount);
         Assert.Equal(["with-segments"], withSegmentItems.Select(video => video.Title ?? string.Empty).ToArray());
@@ -1072,7 +1040,7 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("duplicate-a", fingerprints: [new FileFingerprint { Type = "phash", Value = "same-phash" }]),
             CreateVideoWithFile("duplicate-b", fingerprints: [new FileFingerprint { Type = "phash", Value = "same-phash" }]),
             CreateVideoWithFile("unique", fingerprints: [new FileFingerprint { Type = "phash", Value = "unique-phash" }]));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var filter = new VideoFilter
@@ -1080,7 +1048,7 @@ public class VideoFilterBehaviorTests
             DuplicatedPhashCriterion = new BoolCriterion { Value = true },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 50, Sort = "title" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["duplicate-a", "duplicate-b"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -1094,11 +1062,47 @@ public class VideoFilterBehaviorTests
         await using var context = CreateContext();
         var controller = new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
 
-        await controller.Find(q: null, page: 1, perPage: 25, sort: "random", direction: "desc", seed: 12345, ct: default);
+        await controller.Find(q: null, page: 1, perPage: 25, sort: "random", direction: "desc", seed: 12345, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(12345, repository.LastFindFilter?.Seed);
         Assert.Equal("random", repository.LastFindFilter?.Sort);
         Assert.Equal(Cove.Core.Enums.SortDirection.Desc, repository.LastFindFilter?.Direction);
+    }
+
+    [Fact]
+    public async Task VideosController_DeleteChecksPhysicalFilePermissionBeforeEntityLookup()
+    {
+        var principals = new CurrentPrincipalAccessor();
+        principals.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "record-delete-only",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { Permissions.VideosDelete },
+            Roles = new HashSet<string>(),
+        });
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseInMemoryDatabase($"video-delete-permission-{Guid.NewGuid():N}")
+            .Options;
+        await using var context = new TestCoveContext(options, principals);
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var controller = new VideosController(
+            new VideoRepository(context),
+            context,
+            null!,
+            null!,
+            null!,
+            memoryCache,
+            null!,
+            null!,
+            new NoOpUserEngagementService(),
+            new CustomFieldService(context),
+            new EventBus(),
+            principalAccessor: principals);
+
+        var result = await controller.Delete(999, deleteFile: true);
+
+        Assert.IsType<ForbidResult>(result);
     }
 
     [Fact]
@@ -1109,7 +1113,7 @@ public class VideoFilterBehaviorTests
         await using var context = CreateContext();
         var controller = new VideosController(repository, context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
 
-        await controller.Find(q: null, page: 1, perPage: 25, sort: null, direction: null, seed: null, sorts: "studio:asc,date:desc", ct: default);
+        await controller.Find(q: null, page: 1, perPage: 25, sort: null, direction: null, seed: null, sorts: "studio:asc,date:desc", ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             [
@@ -1140,7 +1144,7 @@ public class VideoFilterBehaviorTests
         betaNew.Date = new DateOnly(2024, 2, 1);
 
         context.Videos.AddRange(betaOld, alphaOld, betaNew, alphaNew);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
         var (items, totalCount) = await repository.FindAsync(null, new FindFilter
@@ -1153,7 +1157,7 @@ public class VideoFilterBehaviorTests
                 null!,
                 new SortClause("date", Cove.Core.Enums.SortDirection.Desc),
             ],
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.Equal(4, totalCount);
         Assert.Equal(
@@ -1169,7 +1173,7 @@ public class VideoFilterBehaviorTests
         video.CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         video.UpdatedAt = video.CreatedAt;
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Groups.AddRange(
             new Group
@@ -1196,14 +1200,11 @@ public class VideoFilterBehaviorTests
                 ShowInVideoLists = false,
                 GroupItems = [new GroupItem { Kind = GroupItemKind.VideoRange, VideoId = video.Id, HostId = video.Id, StartSec = 20, EndSec = 30 }],
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = CreateVideosController(context);
 
-        var response = await controller.FindWithCompilations(
-            q: null, page: 1, perPage: 10, sort: "created_at", direction: "desc", seed: null,
-            title: null, rating: null, organized: null, studioId: null, groupId: null, galleryId: null,
-            tagIds: null, performerIds: null, ct: default);
+        var response = await controller.FindWithCompilations(q: null, page: 1, perPage: 10, sort: "created_at", direction: "desc", seed: null, title: null, rating: null, organized: null, studioId: null, groupId: null, galleryId: null, tagIds: null, performerIds: null, ct: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var payload = Assert.IsType<PaginatedResponse<VideoListEntryDto>>(ok.Value);
@@ -1218,7 +1219,7 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
-    public async Task VideosController_FindDuplicates_ExactFingerprint_UsesMd5AndOshash()
+    public async Task DuplicateSearch_ExactFingerprint_UsesMd5AndOshash()
     {
         await using var context = CreateContext();
         context.Videos.AddRange(
@@ -1227,33 +1228,25 @@ public class VideoFilterBehaviorTests
             CreateVideoWithFile("oshash duplicate a", basename: "c.mp4", fingerprints: [new FileFingerprint { Type = "oshash", Value = "same-oshash" }]),
             CreateVideoWithFile("oshash duplicate b", basename: "d.mp4", fingerprints: [new FileFingerprint { Type = "oshash", Value = "same-oshash" }]),
             CreateVideoWithFile("unique", basename: "e.mp4", fingerprints: [new FileFingerprint { Type = "md5", Value = "unique-md5" }]));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var controller = CreateVideosController(context);
-
-        var response = await controller.FindDuplicates(matchType: "fingerprint", ct: default);
-
-        var groups = GetDuplicateGroups(response);
+        var groups = await ExecuteDuplicateSearchAsync(context, "fingerprint");
         Assert.Contains(groups, group => group.Select(video => video.Title ?? "").OrderBy(title => title).SequenceEqual(["md5 duplicate a", "md5 duplicate b"]));
         Assert.Contains(groups, group => group.Select(video => video.Title ?? "").OrderBy(title => title).SequenceEqual(["oshash duplicate a", "oshash duplicate b"]));
         Assert.DoesNotContain(groups.SelectMany(group => group), video => video.Title == "unique");
     }
 
     [Fact]
-    public async Task VideosController_FindDuplicates_Phash_UsesDistanceAndDurationTolerance()
+    public async Task DuplicateSearch_Phash_UsesDistanceAndDurationTolerance()
     {
         await using var context = CreateContext();
         context.Videos.AddRange(
             CreateVideoWithFile("visual duplicate a", basename: "a.mp4", fingerprints: [new FileFingerprint { Type = "phash", Value = "0000000000000000" }]),
             CreateVideoWithFile("visual duplicate b", basename: "b.mp4", fingerprints: [new FileFingerprint { Type = "phash", Value = "0000000000000001" }]),
             CreateVideoWithFile("different visual", basename: "c.mp4", fingerprints: [new FileFingerprint { Type = "phash", Value = "ffffffffffffffff" }]));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var controller = CreateVideosController(context);
-
-        var response = await controller.FindDuplicates(matchType: "phash", distance: 1, durationDiff: 0, ct: default);
-
-        var groups = GetDuplicateGroups(response);
+        var groups = await ExecuteDuplicateSearchAsync(context, "phash", distance: 1, durationDiff: 0);
         var group = Assert.Single(groups);
         Assert.Equal(["visual duplicate a", "visual duplicate b"], group.Select(video => video.Title ?? "").OrderBy(title => title).ToArray());
     }
@@ -1266,24 +1259,22 @@ public class VideoFilterBehaviorTests
         var olderPlay = new Video { Title = "older-play" };
         var recentPlay = new Video { Title = "recent-play" };
         context.Videos.AddRange(neverPlayed, olderPlay, recentPlay);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.UserEntityAffinities.AddRange(
             new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Video, HostId = olderPlay.Id, LastConsumedAt = new DateTime(2024, 1, 10, 8, 0, 0, DateTimeKind.Utc) },
             new UserEntityAffinity { UserId = 1, HostType = AffinityHostType.Video, HostId = recentPlay.Id, LastConsumedAt = new DateTime(2024, 1, 12, 8, 0, 0, DateTimeKind.Utc) });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
-        var (items, totalCount) = await repository.FindAsync(
-            filter: null,
-            new FindFilter
+        var (items, totalCount) = await repository.FindAsync(filter: null, new FindFilter
             {
                 Page = 1,
                 PerPage = 50,
                 Sort = "last_played_at",
                 Direction = Cove.Core.Enums.SortDirection.Desc,
-            });
+            }, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(3, totalCount);
         Assert.Equal(["recent-play", "older-play", "never-played"], items.Select(video => video.Title ?? string.Empty).ToArray());
@@ -1474,10 +1465,50 @@ public class VideoFilterBehaviorTests
         return new VideosController(new VideoRepository(context), context, null!, null!, null!, memoryCache, null!, null!, new NoOpUserEngagementService(), new CustomFieldService(context), new EventBus());
     }
 
-    private static List<List<VideoDto>> GetDuplicateGroups(ActionResult<List<List<VideoDto>>> response)
+    private static async Task<List<List<Video>>> ExecuteDuplicateSearchAsync(
+        CoveContext context,
+        string matchType,
+        int distance = 0,
+        double durationDiff = 10)
     {
-        var ok = Assert.IsType<OkObjectResult>(response.Result);
-        return Assert.IsType<List<List<VideoDto>>>(ok.Value);
+        var search = new DuplicateSearch
+        {
+            MatchType = matchType,
+            Distance = distance,
+            DurationDifference = durationDiff,
+        };
+        context.DuplicateSearches.Add(search);
+        await context.SaveChangesAsync();
+        var candidateIds = await context.Videos.Select(video => video.Id).ToArrayAsync();
+        var service = new DuplicateSearchExecutionService(
+            context,
+            new InlineJobService(),
+            new CoveConfiguration { MaxParallelTasks = 2 });
+        await service.ExecuteAsync(search.Id, candidateIds, new InlineProgress(), CancellationToken.None);
+
+        var groups = await context.DuplicateSearchGroups
+            .Where(group => group.SearchId == search.Id)
+            .Include(group => group.Items)
+            .OrderBy(group => group.Position)
+            .AsNoTracking()
+            .ToListAsync();
+        var videos = await context.Videos.AsNoTracking().ToDictionaryAsync(video => video.Id);
+        return groups.Select(group => group.Items.Select(item => videos[item.VideoId]).ToList()).ToList();
+    }
+
+    private sealed class InlineJobService : IJobService
+    {
+        public string Enqueue(string type, string description, Func<IJobProgress, CancellationToken, Task> work, bool exclusive = true) => "inline";
+        public bool Cancel(string jobId) => false;
+        public bool ReorderQueued(string jobId, string? beforeJobId) => false;
+        public Cove.Core.Interfaces.JobInfo? GetJob(string jobId) => null;
+        public IReadOnlyList<Cove.Core.Interfaces.JobInfo> GetAllJobs() => [];
+        public IReadOnlyList<Cove.Core.Interfaces.JobInfo> GetJobHistory() => [];
+    }
+
+    private sealed class InlineProgress : IJobProgress
+    {
+        public void Report(double progress, string? subTask = null) { }
     }
 
     private sealed class TestCoveContext(DbContextOptions<CoveContext> options, ICurrentPrincipalAccessor principalAccessor) : CoveContext(options, principalAccessor)
