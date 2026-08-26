@@ -200,6 +200,7 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
   const [studioId, setStudioId] = useState<number | undefined>(undefined);
   const [urls, setUrls] = useState<string[]>([""]);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
 
   const resetForm = () => {
@@ -324,13 +325,13 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
       <Field label="Details"><TextArea value={details} onChange={setDetails} placeholder="Text notes" rows={3} /></Field>
       <Field label="Studio"><StudioSelector value={studioId} onChange={setStudioId} /></Field>
       <Field label="URLs"><StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" /></Field>
-      <Field label="Custom Fields"><CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="text" /></Field>
+      <Field label="Custom Fields"><CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="text" /></Field>
       {visibleError ? (
         <div className="mb-4 rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">
           {visibleError.message}
         </div>
       ) : null}
-      <CreateModalActions loading={pending} onCancel={onClose} onSave={handleSave} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      <CreateModalActions loading={pending} disabled={!customFieldsValid} onCancel={onClose} onSave={handleSave} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
     {sourceDownload ? (
       <SourceDownloadDialog

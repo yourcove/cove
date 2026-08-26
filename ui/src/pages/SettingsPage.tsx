@@ -787,6 +787,7 @@ const customFieldTypeOptions: { value: CustomFieldType; label: string }[] = [
   { value: "date", label: "Date" },
   { value: "url", label: "URL" },
   { value: "enum", label: "Enum" },
+  { value: "json", label: "JSON" },
 ];
 
 function cloneConfig(config: CoveConfig): CoveConfig {
@@ -2494,23 +2495,33 @@ export function SettingsPage() {
                       <SelectField
                         label="Type"
                         value={definition.type}
-                        onChange={(value) => updateCustomFieldDefinition(index, (current) => ({ ...current, type: value as CustomFieldType }))}
+                        onChange={(value) => updateCustomFieldDefinition(index, (current) => ({
+                          ...current,
+                          type: value as CustomFieldType,
+                          ...(value === "json" ? { filterable: false, sortable: false, isMultiValue: false } : {}),
+                        }))}
                         onBlur={() => commitCustomFieldDraft()}
                         options={customFieldTypeOptions}
                       />
                       <div className="space-y-2">
                         <span className="block text-xs font-medium uppercase tracking-wide text-muted">Behavior</span>
                         <div className="flex flex-wrap gap-3 rounded-xl border border-border bg-background px-3 py-2">
-                          <CheckboxLabel
-                            label="Filterable"
-                            checked={definition.filterable}
-                            onChange={(checked) => updateCustomFieldDefinition(index, (current) => ({ ...current, filterable: checked }), { commit: true })}
-                          />
-                          <CheckboxLabel
-                            label="Sortable"
-                            checked={definition.sortable}
-                            onChange={(checked) => updateCustomFieldDefinition(index, (current) => ({ ...current, sortable: checked }), { commit: true })}
-                          />
+                          {definition.type === "json" ? (
+                            <span className="text-xs text-muted">JSON path filtering and sorting are not available yet.</span>
+                          ) : (
+                            <>
+                              <CheckboxLabel
+                                label="Filterable"
+                                checked={definition.filterable}
+                                onChange={(checked) => updateCustomFieldDefinition(index, (current) => ({ ...current, filterable: checked }), { commit: true })}
+                              />
+                              <CheckboxLabel
+                                label="Sortable"
+                                checked={definition.sortable}
+                                onChange={(checked) => updateCustomFieldDefinition(index, (current) => ({ ...current, sortable: checked }), { commit: true })}
+                              />
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

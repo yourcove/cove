@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CustomFieldDefinition, CustomFieldEntityType, CustomFieldType } from "../api/types";
 import {
   EntityReferenceMultiSelector,
@@ -33,16 +33,16 @@ export function CustomFieldsDisplay({
           const urlValue = definition?.type === "url" && typeof value === "string" ? value.trim() : "";
 
           return (
-            <div key={key} className="flex flex-col">
+            <div key={key} className={`flex flex-col ${definition?.type === "json" ? "col-span-2" : ""}`}>
               <span className="text-muted text-xs">{label}</span>
               {urlValue ? (
                 <a href={urlValue} target="_blank" rel="noreferrer" className="text-accent hover:underline break-all">
                   {formatCustomFieldValue(value, definition?.type)}
                 </a>
               ) : (
-                <span className="text-foreground break-words">
+                <div className="text-foreground break-words">
                   <CustomFieldDisplayValue definition={definition} value={value} />
-                </span>
+                </div>
               )}
             </div>
           );
@@ -55,14 +55,46 @@ export function CustomFieldsDisplay({
 export function CustomFieldsEditor({
   value,
   onChange,
+  onValidityChange,
   entityType,
 }: {
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
+  onValidityChange?: (isValid: boolean) => void;
   entityType?: CustomFieldEntityType;
 }) {
   const definitionsQuery = useCustomFieldDefinitions(entityType, Boolean(entityType));
   const definitions = definitionsQuery.data ?? [];
+  const [invalidJsonKeys, setInvalidJsonKeys] = useState<Set<string>>(() => new Set());
+  const jsonDefinitionKeys = useMemo(
+    () => new Set(definitions.filter((definition) => definition.type === "json").map((definition) => definition.key)),
+    [definitions],
+  );
+
+  const updateJsonValidity = useCallback((key: string, isValid: boolean) => {
+    setInvalidJsonKeys((current) => {
+      const next = new Set(current);
+      if (isValid) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next.size === current.size && [...next].every((candidate) => current.has(candidate)) ? current : next;
+    });
+  }, []);
+
+  useEffect(() => {
+    setInvalidJsonKeys((current) => {
+      const next = new Set([...current].filter((key) => jsonDefinitionKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [jsonDefinitionKeys]);
+
+  useEffect(() => {
+    onValidityChange?.(invalidJsonKeys.size === 0);
+  }, [invalidJsonKeys, onValidityChange]);
+
+  useEffect(() => () => onValidityChange?.(true), [onValidityChange]);
 
   const updateConfiguredField = (definition: CustomFieldDefinition, rawValue: unknown) => {
     const next = { ...value };
@@ -97,6 +129,7 @@ export function CustomFieldsEditor({
               definition={definition}
               value={currentValue}
               onChange={(nextValue) => updateConfiguredField(definition, nextValue)}
+              onJsonValidityChange={updateJsonValidity}
             />
           </div>
         );
@@ -109,11 +142,17 @@ function ConfiguredFieldInput({
   definition,
   value,
   onChange,
+  onJsonValidityChange,
 }: {
   definition: CustomFieldDefinition;
   value: unknown;
   onChange: (value: unknown) => void;
+  onJsonValidityChange: (key: string, isValid: boolean) => void;
 }) {
+  if (definition.type === "json") {
+    return <JsonFieldInput definition={definition} value={value} onChange={onChange} onValidityChange={onJsonValidityChange} />;
+  }
+
   if (isEntityReferenceType(definition.type)) {
     const ids = parseEntityReferenceIds(value);
     if (definition.isMultiValue) {
@@ -258,6 +297,108 @@ function ConfiguredFieldInput({
   );
 }
 
+function JsonFieldInput({
+  definition,
+  value,
+  onChange,
+  onValidityChange,
+}: {
+  definition: CustomFieldDefinition;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  onValidityChange: (key: string, isValid: boolean) => void;
+}) {
+  const initialValue = serializeJsonValue(value);
+  const [draft, setDraft] = useState(initialValue);
+  const [error, setError] = useState<string | null>(null);
+  const lastExternalValue = useRef(initialValue);
+  const label = definition.label || definition.key;
+  const errorId = `custom-field-${definition.key}-json-error`;
+
+  useEffect(() => {
+    const nextValue = serializeJsonValue(value);
+    if (nextValue === lastExternalValue.current) return;
+    lastExternalValue.current = nextValue;
+    setDraft(nextValue);
+    setError(null);
+    onValidityChange(definition.key, true);
+  }, [definition.key, onValidityChange, value]);
+
+  const updateDraft = (nextDraft: string) => {
+    setDraft(nextDraft);
+    if (nextDraft.trim() === "") {
+      setError(null);
+      lastExternalValue.current = "";
+      onValidityChange(definition.key, true);
+      onChange(undefined);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(nextDraft) as unknown;
+      const numberError = getJsonNumberError(parsed);
+      if (numberError) {
+        setError(numberError);
+        onValidityChange(definition.key, false);
+        return;
+      }
+      setError(null);
+      lastExternalValue.current = serializeJsonValue(parsed);
+      onValidityChange(definition.key, true);
+      onChange(parsed);
+    } catch {
+      setError("Enter valid JSON before saving this value.");
+      onValidityChange(definition.key, false);
+    }
+  };
+
+  const formatDraft = () => {
+    try {
+      const parsed = JSON.parse(draft) as unknown;
+      const numberError = getJsonNumberError(parsed);
+      if (numberError) {
+        setError(numberError);
+        onValidityChange(definition.key, false);
+        return;
+      }
+      setDraft(serializeJsonValue(parsed));
+      setError(null);
+      onValidityChange(definition.key, true);
+    } catch {
+      setError("Enter valid JSON before saving this value.");
+      onValidityChange(definition.key, false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        aria-label={`${label} JSON`}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? errorId : undefined}
+        value={draft}
+        onChange={(event) => updateDraft(event.target.value)}
+        rows={8}
+        spellCheck={false}
+        placeholder={'{\n  "key": "value"\n}'}
+        className={`w-full rounded border bg-surface px-3 py-2 font-mono text-sm text-foreground focus:outline-none ${error ? "border-red-400 focus:border-red-400" : "border-border focus:border-accent"}`}
+      />
+      <div className="flex items-center justify-between gap-3">
+        {error ? <span id={errorId} role="alert" className="text-xs text-red-300">{error}</span> : <span className="text-xs text-muted">Objects, arrays, strings, booleans, and finite numbers are supported. Numbers use JavaScript precision.</span>}
+        <button
+          type="button"
+          onClick={formatDraft}
+          disabled={draft.trim() === "" || Boolean(error)}
+          className="shrink-0 rounded border border-border px-2 py-1 text-xs text-secondary hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={`Format ${label} JSON`}
+        >
+          Format JSON
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function getDisplayEntries(
   customFields: Record<string, unknown> | undefined,
   definitions: CustomFieldDefinition[],
@@ -279,11 +420,61 @@ function getDisplayEntries(
 }
 
 function CustomFieldDisplayValue({ definition, value }: { definition: CustomFieldDefinition | undefined; value: unknown }) {
+  if (definition?.type === "json") {
+    return (
+      <pre
+        aria-label={`${definition.label || definition.key} JSON value`}
+        className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed text-foreground"
+      >
+        {serializeJsonValue(value)}
+      </pre>
+    );
+  }
+
   if (definition && isEntityReferenceType(definition.type)) {
     return <EntityReferenceValue entityType={definition.type} value={value} />;
   }
 
   return <>{formatCustomFieldValue(value, definition?.type)}</>;
+}
+
+function serializeJsonValue(value: unknown): string {
+  if (value === undefined) return "";
+
+  try {
+    return JSON.stringify(value, null, 2) ?? "";
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function getJsonNumberError(value: unknown): string | null {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return "JSON numbers must be finite.";
+    }
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      return "JSON integers must be between -9,007,199,254,740,991 and 9,007,199,254,740,991.";
+    }
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const error = getJsonNumberError(entry);
+      if (error) return error;
+    }
+    return null;
+  }
+
+  if (value && typeof value === "object") {
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      const error = getJsonNumberError(entry);
+      if (error) return error;
+    }
+  }
+
+  return null;
 }
 
 function formatCustomFieldValue(value: unknown, type: CustomFieldType | undefined): string {
@@ -393,6 +584,10 @@ function normalizeReferenceFieldValue(value: unknown, isMultiValue: boolean): un
 }
 
 function normalizeConfiguredFieldValue(rawValue: unknown, definition: CustomFieldDefinition): unknown {
+  if (definition.type === "json") {
+    return rawValue === null ? undefined : rawValue;
+  }
+
   if (isEntityReferenceType(definition.type)) {
     return normalizeReferenceFieldValue(rawValue, definition.isMultiValue ?? false);
   }

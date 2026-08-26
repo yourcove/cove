@@ -9,6 +9,7 @@ The About page in the app shows the most recent entries by parsing this file dir
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
 ## [Unreleased]
+- Custom fields can now store structured JSON values, with validation and formatting in the editor and an indented JSON presentation on entity detail pages. JSON values use a dedicated PostgreSQL `jsonb` column and remain non-filterable and non-sortable until path-aware JSON querying is introduced.
 - Enum values in responses from extension endpoints and other non-controller endpoints, and in the generated `/openapi/v1.json` schema document, are now camel-case strings, matching what controllers and real-time hub messages already send. A client generated from that document reads the permitted value set instead of an undifferentiated number, and can deserialize the host's own responses. Requests may still send either the numeric form or the string form, so existing callers keep working and the accepted input is wider rather than narrower. Extensions that depend on the string form should require the first Cove release that includes this change.
 
 ## [1.3.1] - 2026-08-24

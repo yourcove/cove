@@ -11,6 +11,91 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
 {
     [Fact]
     [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("GET", "/api/videos/{id:int}")]
+    public async Task GivenJsonDefinition_WhenValueIsSavedAndReloaded_ThenStructuredJsonRoundTripsWithoutTextLimits()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"structured_{suffix}";
+        var definition = await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Structured metadata",
+            Type = "JSON",
+            EntityTypes = ["video"],
+            Filterable = true,
+            Sortable = true,
+            IsMultiValue = true,
+        }, TestContext.Current.CancellationToken);
+        AssertDefinition(
+            definition,
+            definition.Id,
+            key,
+            "Structured metadata",
+            "json",
+            ["video"],
+            [],
+            filterable: false,
+            sortable: false,
+            isMultiValue: false,
+            displayOrder: 0);
+
+        var expected = JsonSerializer.SerializeToElement(new
+        {
+            profile = new { score = 0.95m, reviewed = true },
+            labels = new[] { "one", "two" },
+            notes = new string('x', 5_001),
+        });
+        var created = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON custom field {suffix}")
+            .WithCustomField(key, expected)
+            .Build(), TestContext.Current.CancellationToken);
+
+        AssertJsonCustomField(created, key, expected);
+        AssertJsonCustomField(
+            await owner.GetVideoByIdAsync(created.Id, TestContext.Current.CancellationToken),
+            key,
+            expected);
+    }
+
+    [Theory]
+    [InlineData("[{\"path\":\"first\"},{\"path\":\"second\"}]")]
+    [InlineData("\"scalar\"")]
+    [InlineData("42")]
+    [InlineData("true")]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("GET", "/api/videos/{id:int}")]
+    public async Task GivenJsonDefinition_WhenRootJsonValueIsSaved_ThenItsJsonTypeIsPreserved(string json)
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"json_root_{suffix}";
+        await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "JSON root value",
+            Type = "json",
+            EntityTypes = ["video"],
+        }, TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(json);
+        var expected = document.RootElement.Clone();
+
+        var created = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"JSON root custom field {suffix}")
+            .WithCustomField(key, expected)
+            .Build(), TestContext.Current.CancellationToken);
+
+        AssertJsonCustomField(created, key, expected);
+        AssertJsonCustomField(
+            await owner.GetVideoByIdAsync(created.Id, TestContext.Current.CancellationToken),
+            key,
+            expected);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
     [CoversEndpoint("PUT", "/api/custom-fields/{id:int}")]
     public async Task GivenMessyDefinitionInput_WhenOwnerCreatesAndUpdates_ThenNormalizationPermissionsAndPersistenceAreExact()
     {
@@ -168,6 +253,26 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
                 (controlKey, "control value"),
             ]);
 
+        Func<Task> populatedTypeUpdate = () => owner.UpdateCustomFieldDefinitionAsync(
+            retained.Id,
+            new CustomFieldDefinitionUpdateDto { Type = "json" });
+        await populatedTypeUpdate.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 400 (BadRequest)*Remove existing custom field values*");
+        Func<Task> populatedTypeReplace = () => owner.ReplaceCustomFieldDefinitionsAsync([
+            ToSync(retained, retainedKey, type: "json"),
+            ToSync(omitted, omittedKey),
+            ToSync(control, controlKey),
+        ]);
+        await populatedTypeReplace.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 400 (BadRequest)*Remove existing custom field values*");
+        AssertTextCustomFields(
+            await owner.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken),
+            [
+                (retainedKey, "retained value"),
+                (omittedKey, "omitted value"),
+                (controlKey, "control value"),
+            ]);
+
         var replacement = new List<CustomFieldDefinitionSyncDto>
         {
             new()
@@ -289,13 +394,13 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             DisplayOrder = displayOrder,
         });
 
-    private static CustomFieldDefinitionSyncDto ToSync(CustomFieldDefinitionDto definition, string key)
+    private static CustomFieldDefinitionSyncDto ToSync(CustomFieldDefinitionDto definition, string key, string? type = null)
         => new()
         {
             Id = definition.Id,
             Key = key,
             Label = definition.Label,
-            Type = definition.Type,
+            Type = type ?? definition.Type,
             EntityTypes = definition.EntityTypes,
             Options = definition.Options,
             Filterable = definition.Filterable,
@@ -341,5 +446,13 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
                 .WhoseValue.Should().BeOfType<JsonElement>()
                 .Which.GetString().Should().Be(value);
         }
+    }
+
+    private static void AssertJsonCustomField(VideoDto video, string key, JsonElement expected)
+    {
+        video.CustomFields.Should().NotBeNull();
+        var actual = video.CustomFields.Should().ContainKey(key)
+            .WhoseValue.Should().BeOfType<JsonElement>().Which;
+        JsonElement.DeepEquals(actual, expected).Should().BeTrue();
     }
 }

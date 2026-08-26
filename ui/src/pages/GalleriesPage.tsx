@@ -384,6 +384,7 @@ function GalleryCreateModal({ open, onClose, onCreated }: { open: boolean; onClo
     photographer: "",
   });
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
 
   const resetForm = () => {
@@ -433,9 +434,9 @@ function GalleryCreateModal({ open, onClose, onCreated }: { open: boolean; onClo
         <TextArea value={form.details} onChange={(v) => setForm({ ...form, details: v })} rows={3} />
       </Field>
       <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="gallery" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="gallery" />
       </Field>
-      <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      <CreateModalActions loading={mutation.isPending} disabled={!customFieldsValid} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
   );
 }

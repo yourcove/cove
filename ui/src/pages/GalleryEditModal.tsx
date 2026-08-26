@@ -30,6 +30,7 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
     videoIds: gallery.videoIds,
   });
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(gallery.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const tagProvenanceById = buildTagProvenanceById(gallery.tags, gallery.fieldProvenance);
   // Seed chip labels from the loaded gallery so selected chips don't each re-fetch their name by id.
   const tagSeedOptions = gallery.tags.map((tag) => ({ id: tag.id, label: tag.name }));
@@ -118,11 +119,11 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={gallery.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="gallery" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="gallery" />
       </Field>
 
       <div className="flex justify-end mt-4">
-        <SaveButton loading={mutation.isPending} onClick={save} />
+        <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={save} />
       </div>
     </EditModal>
   );

@@ -41,6 +41,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(tag.remoteIds?.length ? tag.remoteIds : []);
 
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(tag.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
 
   const { data: groups = [] } = useQuery({
     queryKey: ["tag-groups"],
@@ -207,7 +208,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={tag.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="tag" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="tag" />
       </Field>
 
       {mutation.error ? (
@@ -218,7 +219,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
 
       <div className="flex justify-end gap-3 mt-4">
         <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
-        <SaveButton loading={mutation.isPending} onClick={handleSave} />
+        <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>
   );

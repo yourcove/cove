@@ -26,6 +26,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(studio.tags.map((t) => t.id));
 
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(studio.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(studio.remoteIds.map((remoteId) => ({ ...remoteId })));
   const tagProvenanceById = buildTagProvenanceById(studio.tags, studio.fieldProvenance);
 
@@ -108,7 +109,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={studio.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="studio" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="studio" />
       </Field>
   </div>
       {mutation.error ? (
@@ -118,7 +119,7 @@ export function StudioEditModal({ studio, open, onClose }: Props) {
       ) : null}
       <div className="flex justify-end gap-3 mt-4">
         <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
-        <SaveButton loading={mutation.isPending} onClick={handleSave} />
+        <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>
   );

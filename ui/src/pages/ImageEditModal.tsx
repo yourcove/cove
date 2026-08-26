@@ -133,9 +133,11 @@ function cloneFormState(state: ImageFormState): ImageFormState {
 
 function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPending, error, image, resetSignal, createAnother, onCreateAnotherChange, sourceMode = "metadata", onSourceModeChange, filePath = "", onFilePathChange, url = "", onUrlChange, urlDownloadMode = "now", onUrlDownloadModeChange, scrapeMetadata = false, onScrapeMetadataChange, noDownloaderFound = false, onCreateWithoutDownload, onDismissNoDownloader, onCreateFromFile, onCreateFromUrl, renderMode = "modal" }: ImageMetadataModalProps) {
   const [form, setForm] = useState<ImageFormState>(() => cloneFormState(initialState));
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   useEffect(() => {
     if (!open) return;
     setForm(cloneFormState(initialState));
+    setCustomFieldsValid(true);
   }, [initialState, open, resetSignal]);
   const showRating = Boolean(image);
   const tagProvenanceById = buildTagProvenanceById(image?.tags ?? [], image?.fieldProvenance);
@@ -320,7 +322,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={image?.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={form.customFields} onChange={(v) => setForm({ ...form, customFields: v })} entityType="image" />
+        <CustomFieldsEditor value={form.customFields} onChange={(v) => setForm({ ...form, customFields: v })} onValidityChange={setCustomFieldsValid} entityType="image" />
       </Field>
 
       {error && (
@@ -332,6 +334,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       {onCreateAnotherChange ? (
         <CreateModalActions
           loading={isPending}
+          disabled={!customFieldsValid}
           onCancel={onClose}
           onSave={handleSave}
           createAnother={createAnother ?? false}
@@ -340,7 +343,7 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       ) : (
         <div className="flex justify-end gap-3">
           <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
-          <SaveButton loading={isPending} onClick={handleSave} />
+          <SaveButton loading={isPending} disabled={!customFieldsValid} onClick={handleSave} />
         </div>
       )}
       </>

@@ -44,16 +44,17 @@ public sealed class CustomFieldService(CoveContext db)
             throw new ArgumentException("A custom field with that key already exists.");
 
         var entityTypes = NormalizeEntityTypes(dto.EntityTypes);
+        var type = CustomFieldTypes.Normalize(dto.Type);
         var definition = new CustomFieldDefinition
         {
             Key = key,
             Label = NormalizeLabel(dto.Label, key),
-            Type = CustomFieldTypes.Normalize(dto.Type),
+            Type = type,
             EntityTypes = entityTypes,
             Options = NormalizeOptions(dto.Options),
-            Filterable = dto.Filterable,
-            Sortable = dto.Sortable,
-            IsMultiValue = dto.IsMultiValue,
+            Filterable = NormalizeFilterable(type, dto.Filterable),
+            Sortable = NormalizeSortable(type, dto.Sortable),
+            IsMultiValue = NormalizeMultiValue(type, dto.IsMultiValue),
             DisplayOrder = dto.DisplayOrder ?? await NextDisplayOrderAsync(ct),
         };
 
@@ -77,13 +78,24 @@ public sealed class CustomFieldService(CoveContext db)
         }
 
         if (dto.Label != null) definition.Label = NormalizeLabel(dto.Label, definition.Key);
-        if (dto.Type != null) definition.Type = CustomFieldTypes.Normalize(dto.Type);
+        if (dto.Type != null)
+        {
+            var nextType = CustomFieldTypes.Normalize(dto.Type);
+            if (!string.Equals(nextType, CustomFieldTypes.Normalize(definition.Type), StringComparison.Ordinal)
+                && await _db.CustomFieldValues.AnyAsync(value => value.DefinitionId == definition.Id, ct))
+            {
+                throw new ArgumentException("Remove existing custom field values before changing its type.");
+            }
+
+            definition.Type = nextType;
+        }
         if (dto.EntityTypes != null) definition.EntityTypes = NormalizeEntityTypes(dto.EntityTypes);
         if (dto.Options != null) definition.Options = NormalizeOptions(dto.Options);
         if (dto.Filterable.HasValue) definition.Filterable = dto.Filterable.Value;
         if (dto.Sortable.HasValue) definition.Sortable = dto.Sortable.Value;
         if (dto.IsMultiValue.HasValue) definition.IsMultiValue = dto.IsMultiValue.Value;
         if (dto.DisplayOrder.HasValue) definition.DisplayOrder = dto.DisplayOrder.Value;
+        NormalizeDefinitionCapabilities(definition);
         definition.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
@@ -120,16 +132,17 @@ public sealed class CustomFieldService(CoveContext db)
                     throw new ArgumentException("A custom field definition no longer exists.");
 
                 var key = NormalizeKey(definition.Key, definition.Label);
+                var type = CustomFieldTypes.Normalize(definition.Type);
                 return new NormalizedDefinitionInput(
                     definition.Id,
                     key,
                     NormalizeLabel(definition.Label, key),
-                    CustomFieldTypes.Normalize(definition.Type),
+                    type,
                     NormalizeEntityTypes(definition.EntityTypes),
                     NormalizeOptions(definition.Options),
-                    definition.Filterable,
-                    definition.Sortable,
-                    definition.IsMultiValue,
+                    NormalizeFilterable(type, definition.Filterable),
+                    NormalizeSortable(type, definition.Sortable),
+                    NormalizeMultiValue(type, definition.IsMultiValue),
                     definition.DisplayOrder ?? (index * 10));
             })
             .ToList();
@@ -139,6 +152,20 @@ public sealed class CustomFieldService(CoveContext db)
             .FirstOrDefault(group => group.Count() > 1);
         if (duplicateKey != null)
             throw new ArgumentException("A custom field with that key already exists.");
+
+        var typeChangedDefinitionIds = normalizedDefinitions
+            .Where(definition => definition.Id is int id
+                && !string.Equals(
+                    definition.Type,
+                    CustomFieldTypes.Normalize(existingDefinitionsById[id].Type),
+                    StringComparison.Ordinal))
+            .Select(definition => definition.Id!.Value)
+            .ToArray();
+        if (typeChangedDefinitionIds.Length > 0
+            && await _db.CustomFieldValues.AnyAsync(value => typeChangedDefinitionIds.Contains(value.DefinitionId), ct))
+        {
+            throw new ArgumentException("Remove existing custom field values before changing its type.");
+        }
 
         var retainedDefinitionIds = normalizedDefinitions
             .Where(definition => definition.Id.HasValue)
@@ -313,6 +340,14 @@ public sealed class CustomFieldService(CoveContext db)
 
     private static IEnumerable<CustomFieldValue> NormalizeInputValues(CustomFieldDefinition definition, object? rawValue)
     {
+        if (CustomFieldTypes.IsJson(definition.Type))
+        {
+            var converted = ConvertInputValue(definition, rawValue);
+            if (converted != null)
+                yield return converted;
+            yield break;
+        }
+
         if (rawValue is JsonElement { ValueKind: JsonValueKind.Array } array)
         {
             foreach (var item in array.EnumerateArray())
@@ -347,13 +382,16 @@ public sealed class CustomFieldService(CoveContext db)
         if (rawValue == null)
             return null;
 
+        var type = CustomFieldTypes.Normalize(definition.Type);
+        if (CustomFieldTypes.IsJson(type))
+            return ConvertInputJsonValue(rawValue);
+
         if (rawValue is JsonElement element)
             rawValue = ConvertJsonElement(element);
 
         if (rawValue == null)
             return null;
 
-        var type = CustomFieldTypes.Normalize(definition.Type);
         var value = new CustomFieldValue();
         if (CustomFieldTypes.IsNumberLike(type))
         {
@@ -405,12 +443,61 @@ public sealed class CustomFieldService(CoveContext db)
     private static object? ConvertValue(CustomFieldDefinition definition, CustomFieldValue value)
     {
         var type = CustomFieldTypes.Normalize(definition.Type);
+        if (CustomFieldTypes.IsJson(type)) return ParseJsonValue(value.JsonValue);
         if (CustomFieldTypes.IsNumberLike(type)) return value.NumberValue;
         if (CustomFieldTypes.IsBoolean(type)) return value.BoolValue;
         if (CustomFieldTypes.IsDateLike(type)) return value.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         if (CustomFieldTypes.IsTimestampLike(type)) return value.TimestampValue?.ToString("o", CultureInfo.InvariantCulture);
         if (CustomFieldTypes.IsReference(type)) return value.IntegerValue;
         return value.TextValue;
+    }
+
+    private static CustomFieldValue? ConvertInputJsonValue(object rawValue)
+    {
+        string json;
+        try
+        {
+            json = rawValue switch
+            {
+                JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } => string.Empty,
+                JsonElement element => element.GetRawText(),
+                JsonDocument inputDocument => inputDocument.RootElement.GetRawText(),
+                _ => JsonSerializer.Serialize(rawValue),
+            };
+
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+
+            using var parsedDocument = JsonDocument.Parse(json);
+            if (parsedDocument.RootElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                return null;
+
+            return new CustomFieldValue { JsonValue = parsedDocument.RootElement.GetRawText() };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static JsonElement? ParseJsonValue(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static object? ConvertJsonElement(JsonElement element)
@@ -423,6 +510,22 @@ public sealed class CustomFieldService(CoveContext db)
             JsonValueKind.Null or JsonValueKind.Undefined => null,
             _ => element.GetRawText(),
         };
+
+    private static bool NormalizeFilterable(string type, bool requested)
+        => !CustomFieldTypes.IsJson(type) && requested;
+
+    private static bool NormalizeSortable(string type, bool requested)
+        => !CustomFieldTypes.IsJson(type) && requested;
+
+    private static bool NormalizeMultiValue(string type, bool requested)
+        => !CustomFieldTypes.IsJson(type) && requested;
+
+    private static void NormalizeDefinitionCapabilities(CustomFieldDefinition definition)
+    {
+        definition.Filterable = NormalizeFilterable(definition.Type, definition.Filterable);
+        definition.Sortable = NormalizeSortable(definition.Type, definition.Sortable);
+        definition.IsMultiValue = NormalizeMultiValue(definition.Type, definition.IsMultiValue);
+    }
 
     private static bool TryConvertDecimal(object value, out decimal result)
     {

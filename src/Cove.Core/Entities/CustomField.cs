@@ -26,6 +26,7 @@ public static class CustomFieldTypes
     public const string Timestamp = "timestamp";
     public const string Url = "url";
     public const string Enum = "enum";
+    public const string Json = "json";
     public const string Duration = "duration";
     public const string Percent = "percent";
     public const string Tag = "tag";
@@ -46,6 +47,7 @@ public static class CustomFieldTypes
         Timestamp,
         Url,
         Enum,
+        Json,
         Duration,
         Percent,
         Tag,
@@ -66,6 +68,7 @@ public static class CustomFieldTypes
     public static bool IsDateLike(string? type) => Normalize(type) == Date;
     public static bool IsTimestampLike(string? type) => Normalize(type) == Timestamp;
     public static bool IsBoolean(string? type) => Normalize(type) == Boolean;
+    public static bool IsJson(string? type) => Normalize(type) == Json;
 
     public static bool IsReference(string? type)
     {
@@ -106,6 +109,7 @@ public class CustomFieldValue : BaseEntity
     public int Position { get; set; }
 
     public string? TextValue { get; set; }
+    public string? JsonValue { get; set; }
     public decimal? NumberValue { get; set; }
     public bool? BoolValue { get; set; }
     public DateOnly? DateValue { get; set; }

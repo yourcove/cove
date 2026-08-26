@@ -27,6 +27,7 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
   const [studioId, setStudioId] = useState<number | undefined>(audio.studioId ?? undefined);
   const [urls, setUrls] = useState<string[]>(audio.urls.length > 0 ? audio.urls : [""]);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(audio.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(getEditableTagIds(audio.tags));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(audio.performers.map((performer) => performer.id));
   const [contextTagIdsByPerformer, setContextTagIdsByPerformer] = useState<Record<number, number[]>>(() => buildPerformerContextTagIds(audio.contextTagApplications));
@@ -149,14 +150,14 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={audio.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="audio" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="audio" />
       </Field>
 
       {mutation.error ? <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{(mutation.error as Error).message}</div> : null}
 
       <div className="flex justify-end gap-3 pt-2">
         <button type="button" onClick={onSaved} className="px-4 py-2 text-sm text-secondary transition hover:text-foreground">Cancel</button>
-        <button type="button" onClick={handleSave} disabled={mutation.isPending} className="rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:bg-accent-hover disabled:opacity-60">
+        <button type="button" onClick={handleSave} disabled={mutation.isPending || !customFieldsValid} className="rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:bg-accent-hover disabled:opacity-60">
           {mutation.isPending ? "Saving..." : "Save"}
         </button>
       </div>

@@ -269,6 +269,7 @@ export function TagCreateModal({ open, onClose, onCreated }: { open: boolean; on
   const [form, setForm] = useState({ name: "", description: "", aliases: [] as string[], color: "", tagGroupId: undefined as number | undefined, minOccurrenceSec: undefined as number | undefined, minOccurrencePercent: undefined as number | undefined });
   const [selectedParentIds, setSelectedParentIds] = useState<number[]>([]);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
   const { data: groups = [] } = useQuery({ queryKey: ["tag-groups"], queryFn: tagGroups.list });
   const resetForm = () => {
@@ -339,14 +340,14 @@ export function TagCreateModal({ open, onClose, onCreated }: { open: boolean; on
         <EntityReferenceMultiSelector entityType="tag" values={selectedParentIds} onChange={setSelectedParentIds} placeholder="Search parent tags..." />
       </Field>
       <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="tag" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="tag" />
       </Field>
       {mutation.error ? (
         <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
           {getApiValidationFailureDetail(mutation.error)}
         </div>
       ) : null}
-      <CreateModalActions loading={mutation.isPending} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} onSave={() => mutation.mutate({
+      <CreateModalActions loading={mutation.isPending} disabled={!customFieldsValid} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} onSave={() => mutation.mutate({
           name: form.name,
           description: form.description || undefined,
           color: form.color.trim() || null,

@@ -2004,7 +2004,7 @@ export interface InterfaceConfig {
 }
 
 export type CustomFieldEntityType = "video" | "audio" | "text" | "performer" | "tag" | "studio" | "gallery" | "image" | "group" | "face";
-export type CustomFieldType = "text" | "longText" | "number" | "boolean" | "date" | "timestamp" | "duration" | "percent" | "url" | "enum" | "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group";
+export type CustomFieldType = "text" | "longText" | "number" | "boolean" | "date" | "timestamp" | "duration" | "percent" | "url" | "enum" | "json" | "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group";
 
 export interface CustomFieldDefinition {
   id?: number;
