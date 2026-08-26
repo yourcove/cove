@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
@@ -30,6 +33,12 @@ public class SystemController(
     ILogger<SystemController> logger) : ControllerBase
 {
     private const string RedactedPath = "[redacted]";
+
+    private static readonly JsonSerializerOptions UiConfigJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) },
+    };
 
     private static readonly Dictionary<string, string> UiAssetContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -112,8 +121,8 @@ public class SystemController(
     }
 
     [HttpGet("stats")]
-    [OutputCache(PolicyName = "ShortCache")]
     [RequiresPermission(Permissions.SystemRead)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<ActionResult<StatsDto>> GetStats(CancellationToken ct)
     {
         var videoCt = await db.Videos.CountAsync(ct);
@@ -484,6 +493,8 @@ public class SystemController(
     // bulk-imported before the import recompute step existed — which otherwise breaks filters and sorts.
     [HttpPost("maintenance/recompute-derived-counts")]
     [RequiresPermission(Permissions.SystemSettingsWrite)]
+    [RequiresUnscopedEntityAccess("read")]
+    [RequiresUnscopedEntityAccess("write")]
     public async Task<ActionResult<RecomputeDerivedCountsResult>> RecomputeDerivedCounts(CancellationToken ct)
     {
         var recomputed = await db.RecomputeAllDerivedCountsAsync(cancellationToken: ct);
@@ -611,7 +622,8 @@ public class SystemController(
         }
 
         var permissions = BuildDownloaderPermissions(dto.Url);
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principalAccessor.Current),
             "download",
             $"Downloading {dto.Url}",
             async (progress, ct) =>
@@ -678,7 +690,8 @@ public class SystemController(
         if (itemsToQueue.Count == 0)
             return Accepted(new { jobId = (string?)null, queuedCount = 0, issues });
 
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principalAccessor.Current),
             "download-batch",
             $"Downloading {itemsToQueue.Count} item{(itemsToQueue.Count == 1 ? string.Empty : "s")}",
             async (progress, ct) =>
@@ -702,9 +715,20 @@ public class SystemController(
     [RequiresPermission(Permissions.SystemSettingsWrite)]
     public async Task<ActionResult<object>> ConfigureUI([FromBody] Dictionary<string, object?> input)
     {
-        var currentConfig = configService.GetConfig();
-        // Merge the input into UI config section
-        await configService.SaveConfigAsync(currentConfig);
+        try
+        {
+            await configService.UpdateUiConfigAsync(currentUi =>
+            {
+                if (!TryUpdateUiConfig(currentUi, input, mergeObjectValues: true, out var updatedUi, out var error))
+                    throw new UiConfigValidationException(error!);
+                return updatedUi;
+            });
+        }
+        catch (UiConfigValidationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+
         return Ok(new { success = true });
     }
 
@@ -712,11 +736,234 @@ public class SystemController(
     [RequiresPermission(Permissions.SystemSettingsWrite)]
     public async Task<ActionResult<object>> ConfigureUISetting(string key, [FromBody] object? value)
     {
-        var currentConfig = configService.GetConfig();
-        // Set individual UI key - the key is dot-separated (e.g. "showAbLoopControls")
-        await configService.SaveConfigAsync(currentConfig);
+        try
+        {
+            await configService.UpdateUiConfigAsync(currentUi =>
+            {
+                var update = new Dictionary<string, object?> { [key] = value };
+                if (!TryUpdateUiConfig(currentUi, update, mergeObjectValues: false, out var updatedUi, out var error))
+                    throw new UiConfigValidationException(error!);
+                return updatedUi;
+            });
+        }
+        catch (UiConfigValidationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+
         return Ok(new { key, value, success = true });
     }
+
+    private static bool TryUpdateUiConfig(
+        UiConfigDto current,
+        IReadOnlyDictionary<string, object?> updates,
+        bool mergeObjectValues,
+        out UiConfigDto updated,
+        out string? error)
+    {
+        var root = JsonSerializer.SerializeToNode(current, UiConfigJsonOptions)?.AsObject()
+            ?? throw new InvalidOperationException("The UI configuration could not be serialized.");
+
+        var duplicateUpdate = updates
+            .GroupBy(update => update.Key, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateUpdate is not null)
+        {
+            updated = current;
+            error = $"Duplicate UI setting '{duplicateUpdate.Key}'.";
+            return false;
+        }
+
+        foreach (var (key, value) in updates)
+        {
+            var segments = key.Split('.', StringSplitOptions.TrimEntries);
+            if (segments.Length == 0 || segments.Any(string.IsNullOrEmpty))
+            {
+                updated = current;
+                error = "A UI setting key is required.";
+                return false;
+            }
+
+            var target = root;
+            var path = new List<string>();
+            for (var index = 0; index < segments.Length; index++)
+            {
+                if (IsOpenDictionaryPath(path))
+                {
+                    var dictionaryKey = string.Join('.', segments.Skip(index));
+                    var existingKey = target
+                        .Select(property => property.Key)
+                        .FirstOrDefault(name => string.Equals(
+                            name,
+                            dictionaryKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    target[existingKey ?? dictionaryKey] = ToJsonNode(value);
+                    break;
+                }
+
+                var propertyName = target
+                    .Select(property => property.Key)
+                    .FirstOrDefault(name => string.Equals(name, segments[index], StringComparison.OrdinalIgnoreCase));
+                if (propertyName is null)
+                {
+                    updated = current;
+                    error = $"Unknown UI setting '{string.Join('.', segments.Take(index + 1))}'.";
+                    return false;
+                }
+
+                if (index == segments.Length - 1)
+                {
+                    var incoming = ToJsonNode(value);
+                    if (mergeObjectValues
+                        && target[propertyName] is JsonObject existingObject
+                        && incoming is JsonObject incomingObject)
+                    {
+                        if (!TryMergeJsonObject(
+                                existingObject,
+                                incomingObject,
+                                [.. path, propertyName],
+                                out error))
+                        {
+                            updated = current;
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        target[propertyName] = incoming;
+                    }
+
+                    continue;
+                }
+
+                path.Add(propertyName);
+                if (target[propertyName] is not JsonObject child)
+                {
+                    updated = current;
+                    error = $"UI setting '{string.Join('.', segments.Take(index + 1))}' is not an object.";
+                    return false;
+                }
+
+                target = child;
+            }
+        }
+
+        try
+        {
+            updated = root.Deserialize<UiConfigDto>(UiConfigJsonOptions)
+                ?? throw new JsonException("The UI configuration was empty.");
+            if (!TryValidateUiConfig(updated, out error))
+            {
+                updated = current;
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+        catch (JsonException exception)
+        {
+            updated = current;
+            error = $"Invalid UI setting value: {exception.Message}";
+            return false;
+        }
+    }
+
+    private static bool TryMergeJsonObject(
+        JsonObject target,
+        JsonObject incoming,
+        IReadOnlyList<string> path,
+        out string? error)
+    {
+        var duplicate = incoming
+            .GroupBy(property => property.Key, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+        {
+            error = $"Duplicate UI setting '{string.Join('.', path.Append(duplicate.Key))}'.";
+            return false;
+        }
+
+        foreach (var (incomingName, incomingValue) in incoming)
+        {
+            var propertyName = target
+                .Select(property => property.Key)
+                .FirstOrDefault(name => string.Equals(name, incomingName, StringComparison.OrdinalIgnoreCase));
+            if (propertyName is null && !IsOpenDictionaryPath(path))
+            {
+                error = $"Unknown UI setting '{string.Join('.', path.Append(incomingName))}'.";
+                return false;
+            }
+
+            propertyName ??= incomingName;
+            if (target[propertyName] is JsonObject targetObject && incomingValue is JsonObject incomingObject)
+            {
+                if (!TryMergeJsonObject(targetObject, incomingObject, [.. path, propertyName], out error))
+                    return false;
+            }
+            else
+            {
+                target[propertyName] = incomingValue?.DeepClone();
+            }
+        }
+
+        error = null;
+        return true;
+    }
+
+    private static bool TryValidateUiConfig(UiConfigDto config, out string? error)
+    {
+        if (config.RatingSystemOptions is null)
+        {
+            error = "UI setting 'ratingSystemOptions' cannot be null.";
+            return false;
+        }
+
+        if (!Enum.IsDefined(config.RatingSystemOptions.Type)
+            || !Enum.IsDefined(config.RatingSystemOptions.StarPrecision))
+        {
+            error = "UI rating-system options contain an unsupported enum value.";
+            return false;
+        }
+
+        if (config.KeybindingOverrides is null)
+        {
+            error = "UI setting 'keybindingOverrides' cannot be null.";
+            return false;
+        }
+
+        var normalizedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in config.KeybindingOverrides)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                continue;
+            if (!normalizedKeys.Add(key.Trim()))
+            {
+                error = $"Duplicate UI keybinding override '{key.Trim()}'.";
+                return false;
+            }
+        }
+
+        error = null;
+        return true;
+    }
+
+    private static bool IsOpenDictionaryPath(IReadOnlyList<string> path)
+        => path.Count == 1
+            && string.Equals(path[0], "keybindingOverrides", StringComparison.OrdinalIgnoreCase);
+
+    private static JsonNode? ToJsonNode(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            JsonElement element => JsonNode.Parse(element.GetRawText()),
+            JsonNode node => node.DeepClone(),
+            _ => JsonSerializer.SerializeToNode(value, value.GetType(), UiConfigJsonOptions),
+        };
+    }
+
+    private sealed class UiConfigValidationException(string message) : Exception(message);
 
     private static DownloaderPermissions BuildDownloaderPermissions(string url)
     {

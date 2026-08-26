@@ -117,11 +117,6 @@ export function GalleriesPage({ onNavigate }: Props) {
     }
   };
 
-  const bulkDeleteMut = useMutation({
-    mutationFn: () => galleries.bulkDelete([...selectedIds]),
-    onSuccess: () => { selectNone(); queryClient.invalidateQueries({ queryKey: ["galleries"] }); },
-  });
-
   const bulkEditMut = useMutation({
     mutationFn: (values: Record<string, unknown>) =>
       galleries.bulkUpdate({ ids: [...selectedIds], ...values } as any),

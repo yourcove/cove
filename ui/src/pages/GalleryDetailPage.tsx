@@ -24,6 +24,7 @@ import { useExtensionTabs } from "../components/useExtensionTabs";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { useBackNavigation } from "../hooks/useBackNavigation";
+import { useKeySequence } from "../hooks/useKeySequence";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
@@ -135,7 +136,10 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
 
   const galleryKeyboardShortcuts = useMemo(() => ([
     {
+      id: "detail.edit",
       key: "e",
+      keys: "e",
+      surface: "detail" as const,
       description: "Edit gallery",
       handler: () => {
         if (canWriteGallery) {
@@ -144,7 +148,10 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       },
     },
     {
+      id: "detail.gallery.images",
       key: "a",
+      keys: "a",
+      surface: "detail" as const,
       description: "Open images tab",
       handler: () => {
         if (canReadGalleryImages) {
@@ -153,31 +160,28 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       },
     },
     {
+      id: "detail.gallery.videos",
       key: "s",
+      keys: "s",
+      surface: "detail" as const,
       description: "Open videos tab",
       handler: () => setActiveTab("videos"),
     },
     {
-      key: "f",
+      id: "detail.fileInfo",
+      key: "i",
+      keys: "i",
+      surface: "detail" as const,
       description: "Open file info tab",
       handler: () => setActiveTab("fileinfo"),
     },
   ]), [canReadGalleryImages, canWriteGallery]);
-
-  useEffect(() => {
-    if (galleryKeyboardShortcuts.length === 0) return;
-    const handler = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const tagName = target?.tagName;
-      if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT" || target?.isContentEditable) return;
-      const shortcut = galleryKeyboardShortcuts.find((entry) => entry.key === event.key);
-      if (!shortcut) return;
-      event.preventDefault();
-      shortcut.handler();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [galleryKeyboardShortcuts]);
+  useKeySequence(galleryKeyboardShortcuts.map((shortcut) => ({
+    id: shortcut.id,
+    keys: shortcut.keys,
+    surface: shortcut.surface,
+    action: shortcut.handler,
+  })));
 
   useEffect(() => {
     if (visibleGalleryTabs.length > 0 && !visibleGalleryTabs.some((tab) => tab.key === activeTab)) {

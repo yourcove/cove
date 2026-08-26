@@ -5,7 +5,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Data;
-using System.Diagnostics;
+using Cove.Api.Services;
 using System.Runtime.InteropServices;
 
 namespace Cove.Api.Controllers;
@@ -13,16 +13,27 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/files")]
 [RequiresPermission(Permissions.FilesRead)]
-public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileOpsController> logger) : ControllerBase
+public class FileOpsController(
+    CoveContext db,
+    IEventBus eventBus,
+    ILogger<FileOpsController> logger,
+    IFileManagerLauncher? fileManagerLauncher = null,
+    PhysicalFileAccessCoordinator? physicalFileCoordinator = null,
+    PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
+    private static readonly IFileManagerLauncher DefaultFileManagerLauncher = new FileManagerLauncher();
+    private readonly PhysicalFileAccessCoordinator _physicalFileCoordinator = physicalFileCoordinator ?? PhysicalFileAccessCoordinator.Shared;
+
     [HttpPost("move")]
     [RequiresPermission(Permissions.FilesWrite)]
+    [RequiresUnscopedEntityAccess("read")]
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesWrite, ActionArgumentName = "dto", PropertyName = "FileIds")]
     public async Task<IActionResult> MoveFiles([FromBody] MoveFilesDto dto, CancellationToken ct)
     {
         if (!Directory.Exists(dto.DestinationPath))
             return BadRequest("Destination directory does not exist");
 
+        using var moveLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
         var files = await db.Set<BaseFileEntity>()
             .Include(f => f.ParentFolder)
             .Where(f => dto.FileIds.Contains(f.Id))
@@ -98,31 +109,35 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
             .ToListAsync(ct);
 
         var deletedCount = 0;
-        var deletedFromDisk = 0;
+        var physicalPaths = new List<string>();
         foreach (var file in files)
         {
             if (dto.DeleteFromDisk)
             {
-                var path = Path.Combine(file.ParentFolder?.Path ?? "", file.Basename);
-                if (System.IO.File.Exists(path))
-                {
-                    System.IO.File.Delete(path);
-                    deletedFromDisk++;
-                    logger.LogDebug("Deleted file from disk: {Path}", path);
-                }
+                physicalPaths.Add(!string.IsNullOrWhiteSpace(file.Path)
+                    ? file.Path
+                    : Path.Combine(file.ParentFolder?.Path ?? "", file.Basename));
             }
 
             db.Set<BaseFileEntity>().Remove(file);
             deletedCount++;
         }
 
+        var deletionContext = new BulkDeletionExecutionContext();
+        deletionContext.StagePhysicalFiles(db, physicalPaths);
         await db.SaveChangesAsync(ct);
+        if (dto.DeleteFromDisk && physicalPaths.Count > 0)
+            physicalFileDeletionRecoverySignal?.Notify();
         PublishOwnerUpdates(files);
-        logger.LogInformation("Deleted {Count} file record(s) ({DiskCount} also removed from disk)", deletedCount, deletedFromDisk);
+        logger.LogInformation(
+            "Deleted {Count} file record(s); {DiskCount} physical deletion(s) were staged",
+            deletedCount,
+            physicalPaths.Count);
         return Ok(new { deleted = deletedCount });
     }
 
     [HttpGet("browse")]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<List<DirectoryEntryDto>> Browse([FromQuery] string? path)
     {
         var targetPath = path ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -147,6 +162,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
     [HttpPost("{id:int}/reveal")]
     [RequiresPermission(Permissions.FilesRead)]
+    [RequiresUnscopedEntityAccess("read")]
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesRead)]
     public async Task<IActionResult> RevealInFileManager(int id, CancellationToken ct)
     {
@@ -163,25 +179,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var startInfo = new ProcessStartInfo("explorer.exe");
-                startInfo.ArgumentList.Add("/select,");
-                startInfo.ArgumentList.Add(filePath);
-                Process.Start(startInfo);
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                var startInfo = new ProcessStartInfo("open");
-                startInfo.ArgumentList.Add("-R");
-                startInfo.ArgumentList.Add(filePath);
-                Process.Start(startInfo);
-            }
-            else
-            {
-                Process.Start("xdg-open", Path.GetDirectoryName(filePath) ?? filePath);
-            }
-
+            (fileManagerLauncher ?? DefaultFileManagerLauncher).RevealFile(filePath);
             return Ok();
         }
         catch (Exception ex)
@@ -193,6 +191,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
     [HttpPost("folders/{id:int}/reveal")]
     [RequiresPermission(Permissions.FilesRead)]
+    [RequiresUnscopedEntityAccess("read")]
     public async Task<IActionResult> RevealFolderInFileManager(int id, CancellationToken ct)
     {
         var folder = await db.Folders.FirstOrDefaultAsync(f => f.Id == id, ct);
@@ -204,23 +203,7 @@ public class FileOpsController(CoveContext db, IEventBus eventBus, ILogger<FileO
 
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var startInfo = new ProcessStartInfo("explorer.exe");
-                startInfo.ArgumentList.Add(folderPath);
-                Process.Start(startInfo);
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                var startInfo = new ProcessStartInfo("open");
-                startInfo.ArgumentList.Add(folderPath);
-                Process.Start(startInfo);
-            }
-            else
-            {
-                Process.Start("xdg-open", folderPath);
-            }
-
+            (fileManagerLauncher ?? DefaultFileManagerLauncher).RevealFolder(folderPath);
             return Ok();
         }
         catch (Exception ex)

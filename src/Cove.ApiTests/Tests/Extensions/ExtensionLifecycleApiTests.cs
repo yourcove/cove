@@ -2,11 +2,9 @@ using System.IO.Compression;
 using System.Text.Json;
 using Cove.ApiTests.Infrastructure;
 using Cove.Plugins;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Extensions;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class ExtensionLifecycleApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -21,7 +19,7 @@ public sealed class ExtensionLifecycleApiTests(
     {
         var member = AsUser(ApiTestUsers.Eva);
 
-        var extensions = await member.GetExtensionsAsync();
+        var extensions = await member.GetExtensionsAsync(TestContext.Current.CancellationToken);
         var themes = extensions.Should().ContainSingle(extension => extension.Id == "com.cove.themes").Which;
         themes.Name.Should().Be("Theme Collection");
         themes.Version.Should().Be("1.0.0");
@@ -52,7 +50,7 @@ public sealed class ExtensionLifecycleApiTests(
         directFile.Categories.Should().Equal("downloader");
         directFile.Source.Should().Be("builtin");
 
-        var manifest = await member.GetExtensionManifestAsync();
+        var manifest = await member.GetExtensionManifestAsync(TestContext.Current.CancellationToken);
         manifest.FrontendRuntimeVersion.Should().Be("v1");
         manifest.ExtensionBundles.Should().BeEmpty();
         manifest.JsBundleUrl.Should().BeNull();
@@ -63,17 +61,17 @@ public sealed class ExtensionLifecycleApiTests(
             "default", "detail-theater", "detail-tabs");
         manifest.Themes.Select(theme => theme.Id).Should().Contain(["default", "legacy", "light", "dark-midnight"]);
 
-        var javaScript = await member.GetCombinedExtensionJavaScriptAsync();
+        var javaScript = await member.GetCombinedExtensionJavaScriptAsync(TestContext.Current.CancellationToken);
         javaScript.MediaType.Should().Be("application/javascript");
         javaScript.Content.Should().Be("export default { components: {}, actionHandlers: {}, handlers: {} };");
 
-        var css = await member.GetCombinedExtensionCssAsync();
+        var css = await member.GetCombinedExtensionCssAsync(TestContext.Current.CancellationToken);
         css.MediaType.Should().Be("text/css");
         css.Content.Should().BeEmpty();
 
-        (await member.GetExtensionCategoriesAsync()).Should().Equal(
+        (await member.GetExtensionCategoriesAsync(TestContext.Current.CancellationToken)).Should().Equal(
             "color-palette", "downloader", "layout", "style", "theme");
-        (await member.GetMissingExtensionDependenciesAsync(directFile.Id)).Should().BeEmpty();
+        (await member.GetMissingExtensionDependenciesAsync(directFile.Id, TestContext.Current.CancellationToken)).Should().BeEmpty();
     }
 
     [Fact]
@@ -102,9 +100,9 @@ public sealed class ExtensionLifecycleApiTests(
             var forbiddenUrlInstall = () => member.InstallExtensionFromUrlAsync(source.Uri);
             await forbiddenUrlInstall.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
             source.RequestCount.Should().Be(0);
-            (await owner.GetExtensionsAsync()).Should().NotContain(extension => extension.Id == urlExtensionId);
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Should().NotContain(extension => extension.Id == urlExtensionId);
 
-            var installedFromUrl = await owner.InstallExtensionFromUrlAsync(source.Uri);
+            var installedFromUrl = await owner.InstallExtensionFromUrlAsync(source.Uri, cancellationToken: TestContext.Current.CancellationToken);
             source.RequestCount.Should().Be(1);
             installedFromUrl.Message.Should().Be($"Extension '{urlExtensionId}' v1.2.3 installed from URL.");
             installedFromUrl.ExtensionId.Should().Be(urlExtensionId);
@@ -115,38 +113,38 @@ public sealed class ExtensionLifecycleApiTests(
 
             var forbiddenDisable = () => member.DisableExtensionAsync(urlExtensionId);
             await forbiddenDisable.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            (await owner.GetExtensionsAsync()).Single(extension => extension.Id == urlExtensionId).Enabled.Should().BeTrue();
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Single(extension => extension.Id == urlExtensionId).Enabled.Should().BeTrue();
 
-            var disabled = await owner.DisableExtensionAsync(urlExtensionId);
+            var disabled = await owner.DisableExtensionAsync(urlExtensionId, TestContext.Current.CancellationToken);
             disabled.DisabledExtensions.Should().Equal(urlExtensionId);
-            (await owner.GetExtensionsAsync()).Single(extension => extension.Id == urlExtensionId).Enabled.Should().BeFalse();
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Single(extension => extension.Id == urlExtensionId).Enabled.Should().BeFalse();
             await AssertManifestTopicAsync(owner, urlTopicId, urlExtensionId, expected: false);
 
             var forbiddenEnable = () => member.EnableExtensionAsync(urlExtensionId);
             await forbiddenEnable.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            (await owner.GetExtensionsAsync()).Single(extension => extension.Id == urlExtensionId).Enabled.Should().BeFalse();
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Single(extension => extension.Id == urlExtensionId).Enabled.Should().BeFalse();
 
-            var enabled = await owner.EnableExtensionAsync(urlExtensionId);
+            var enabled = await owner.EnableExtensionAsync(urlExtensionId, TestContext.Current.CancellationToken);
             enabled.EnabledExtensions.Should().Equal(urlExtensionId);
             await AssertManifestOnlyExtensionAsync(owner, urlExtensionId, "1.2.3", "url", urlCategory, enabled: true);
             await AssertManifestTopicAsync(owner, urlTopicId, urlExtensionId, expected: true);
 
             var forbiddenUninstall = () => member.UninstallExtensionAsync(urlExtensionId);
             await forbiddenUninstall.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            (await owner.GetExtensionsAsync()).Should().Contain(extension => extension.Id == urlExtensionId);
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Should().Contain(extension => extension.Id == urlExtensionId);
 
-            var uninstalledUrl = await owner.UninstallExtensionAsync(urlExtensionId);
+            var uninstalledUrl = await owner.UninstallExtensionAsync(urlExtensionId, TestContext.Current.CancellationToken);
             uninstalledUrl.Message.Should().Be($"Extension '{urlExtensionId}' uninstalled.");
             uninstalledUrl.RequiresDependents.Should().BeFalse();
             uninstalledUrl.UninstalledExtensions.Should().Equal(urlExtensionId);
-            (await owner.GetExtensionsAsync()).Should().NotContain(extension => extension.Id == urlExtensionId);
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Should().NotContain(extension => extension.Id == urlExtensionId);
             await AssertManifestTopicAsync(owner, urlTopicId, urlExtensionId, expected: false);
 
             var forbiddenZipInstall = () => member.InstallExtensionFromZipAsync(zipPackage);
             await forbiddenZipInstall.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-            (await owner.GetExtensionsAsync()).Should().NotContain(extension => extension.Id == zipExtensionId);
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Should().NotContain(extension => extension.Id == zipExtensionId);
 
-            var installedFromZip = await owner.InstallExtensionFromZipAsync(zipPackage);
+            var installedFromZip = await owner.InstallExtensionFromZipAsync(zipPackage, cancellationToken: TestContext.Current.CancellationToken);
             installedFromZip.Message.Should().Be($"Extension '{zipExtensionId}' v4.5.6 installed from uploaded ZIP.");
             installedFromZip.ExtensionId.Should().Be(zipExtensionId);
             installedFromZip.Version.Should().Be("4.5.6");
@@ -154,11 +152,11 @@ public sealed class ExtensionLifecycleApiTests(
             await AssertManifestOnlyExtensionAsync(owner, zipExtensionId, "4.5.6", "upload", zipCategory, enabled: true);
             await AssertManifestTopicAsync(owner, zipTopicId, zipExtensionId, expected: true);
 
-            var uninstalledZip = await owner.UninstallExtensionAsync(zipExtensionId);
+            var uninstalledZip = await owner.UninstallExtensionAsync(zipExtensionId, TestContext.Current.CancellationToken);
             uninstalledZip.Message.Should().Be($"Extension '{zipExtensionId}' uninstalled.");
             uninstalledZip.RequiresDependents.Should().BeFalse();
             uninstalledZip.UninstalledExtensions.Should().Equal(zipExtensionId);
-            (await owner.GetExtensionsAsync()).Should().NotContain(extension => extension.Id == zipExtensionId);
+            (await owner.GetExtensionsAsync(TestContext.Current.CancellationToken)).Should().NotContain(extension => extension.Id == zipExtensionId);
             await AssertManifestTopicAsync(owner, zipTopicId, zipExtensionId, expected: false);
         }
         finally

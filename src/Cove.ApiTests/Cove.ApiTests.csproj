@@ -9,10 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" Version="9.5.0" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 
@@ -31,6 +31,7 @@
     <ItemGroup>
       <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\Cove.ApiTestFaceProvider.*" />
       <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\extension.json" />
+      <ApiTestFaceSuggestionProviderFiles Include="$(MSBuildProjectDirectory)\..\Cove.ApiTestFaceProvider\bin\$(Configuration)\$(TargetFramework)\api-test-asset.*" />
     </ItemGroup>
 
     <MakeDir Directories="$(OutputPath)face-suggestion-provider" />

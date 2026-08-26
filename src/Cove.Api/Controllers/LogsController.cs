@@ -10,6 +10,7 @@ namespace Cove.Api.Controllers;
 public class LogsController : ControllerBase
 {
     [HttpGet]
+    [RequiresUnscopedEntityAccess("read")]
     public ActionResult<IReadOnlyList<LogEntry>> GetRecentLogs([FromQuery] string? level = null, [FromQuery] int limit = 200)
     {
         var logs = SignalRLogSink.GetRecentLogs();
@@ -17,6 +18,10 @@ public class LogsController : ControllerBase
         if (!string.IsNullOrEmpty(level))
             logs = logs.Where(l => l.Level.Equals(level, StringComparison.OrdinalIgnoreCase)).ToList();
 
-        return Ok(logs.TakeLast(limit).ToList());
+        return Ok(logs.TakeLast(limit).Select(log => log with
+        {
+            Message = ObservabilityRedactor.RedactText(log.Message) ?? string.Empty,
+            Exception = ObservabilityRedactor.RedactText(log.Exception),
+        }).ToList());
     }
 }

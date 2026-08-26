@@ -207,11 +207,22 @@ export function emitLocationChange(options?: { replace?: boolean }) {
   window.dispatchEvent(new CustomEvent(LOCATION_CHANGE_EVENT, { detail: options }));
 }
 
-export function navigateToUrl(url: string, options?: { replace?: boolean; state?: unknown }) {
+type NavigationBlocker = () => boolean;
+const navigationBlockers = new Set<NavigationBlocker>();
+
+/** Register a synchronous guard for in-app history mutations. Return false to keep the current URL. */
+export function registerNavigationBlocker(blocker: NavigationBlocker): () => void {
+  navigationBlockers.add(blocker);
+  return () => navigationBlockers.delete(blocker);
+}
+
+export function navigateToUrl(url: string, options?: { replace?: boolean; state?: unknown; bypassBlockers?: boolean }): boolean {
   const currentUrl = `${window.location.pathname}${window.location.search}`;
   if (currentUrl === url) {
-    return;
+    return true;
   }
+
+  if (!options?.bypassBlockers && [...navigationBlockers].some((blocker) => !blocker())) return false;
 
   if (options?.replace) {
     window.history.replaceState(options?.state ?? null, "", url);
@@ -220,6 +231,7 @@ export function navigateToUrl(url: string, options?: { replace?: boolean; state?
   }
 
   emitLocationChange({ replace: options?.replace });
+  return true;
 }
 
 function readRouteHistory(): RouteHistoryEntry[] {

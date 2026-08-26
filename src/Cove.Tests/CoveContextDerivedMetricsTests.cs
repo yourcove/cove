@@ -35,7 +35,7 @@ public class CoveContextDerivedMetricsTests
         };
 
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, video.FileCount);
         Assert.Equal(1234, video.MaxFileSize);
@@ -67,7 +67,7 @@ public class CoveContextDerivedMetricsTests
         };
 
         context.Images.Add(image);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, image.FileCount);
         Assert.Equal(5678, image.MaxFileSize);

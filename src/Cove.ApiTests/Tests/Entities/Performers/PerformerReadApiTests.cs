@@ -1,11 +1,9 @@
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Performers;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class PerformerReadApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -14,13 +12,12 @@ public sealed class PerformerReadApiTests(
     public async Task GivenPerformer_WhenMemberReadsPerformers_ThenPerformerIsReturned()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var performers = await AsUser(ApiTestUsers.Eva).GetPerformersAsync();
+        var performers = await AsUser(ApiTestUsers.Eva).GetPerformersAsync(TestContext.Current.CancellationToken);
 
         // Assert
         performers.Should().ContainSingle(candidate => candidate.Id == performer.Id);

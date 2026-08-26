@@ -20,12 +20,10 @@ public class RepositorySortBehaviorTests
             CreateVideoWithTag("first", busy),
             CreateVideoWithTag("second", busy),
             CreateVideoWithTag("third", quiet));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
-        var (items, totalCount) = await repository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "video_count", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (items, totalCount) = await repository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "video_count", Direction = Cove.Core.Enums.SortDirection.Desc }, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["Busy", "Quiet"], items.Select(tag => tag.Name).ToArray());
@@ -72,16 +70,16 @@ public class RepositorySortBehaviorTests
         lighter.StudioTags.Add(new StudioTag { Tag = lighter, Studio = new Studio { Name = "studio-3" } });
 
         context.Tags.AddRange(countsLeader, lighter, quiet);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new TagRepository(context);
 
-        var (galleryItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "gallery_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (groupItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "group_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (imageItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "image_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (performerItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "performer_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (studioItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "studio_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (updatedItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "updated_at", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (galleryItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "gallery_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (groupItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "group_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (imageItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "image_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (performerItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "performer_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (studioItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "studio_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (updatedItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "updated_at", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
 
         Assert.Equal(["Counts Leader", "Lighter", "Quiet"], galleryItems.Select(tag => tag.Name).ToArray());
         Assert.Equal(["Counts Leader", "Lighter", "Quiet"], groupItems.Select(tag => tag.Name).ToArray());
@@ -103,12 +101,10 @@ public class RepositorySortBehaviorTests
         quieter.Videos.Add(new Video { Title = "three" });
 
         context.Studios.AddRange(busiest, quieter);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new StudioRepository(context);
-        var (items, totalCount) = await repository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "video_count", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (items, totalCount) = await repository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "video_count", Direction = Cove.Core.Enums.SortDirection.Desc }, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, totalCount);
         Assert.Equal(["Busiest", "Quieter"], items.Select(studio => studio.Name).ToArray());
@@ -154,11 +150,11 @@ public class RepositorySortBehaviorTests
         unrated.Images.Add(new Image { Title = "i4" });
 
         context.Studios.AddRange(highestRated, countsLeader, unrated);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         AddRating(context, RatingHostType.Studio, highestRated.Id, 95);
         AddRating(context, RatingHostType.Studio, countsLeader.Id, 40);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new StudioRepository(context);
         var rootStudioFilter = new StudioFilter
@@ -166,14 +162,14 @@ public class RepositorySortBehaviorTests
             ParentCountCriterion = new IntCriterion { Value = 0, Modifier = CriterionModifier.Equals },
         };
 
-        var (allItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "name", Direction = Cove.Core.Enums.SortDirection.Asc });
-        var (parentItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "parent_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (galleryItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "gallery_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (imageItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "image_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (ratingItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (childItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "child_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (tagItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "tag_count", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (updatedItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "updated_at", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (allItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "name", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
+        var (parentItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "parent_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (galleryItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "gallery_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (imageItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "image_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (ratingItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (childItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "child_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (tagItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "tag_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (updatedItems, _) = await repository.FindAsync(rootStudioFilter, new FindFilter { Page = 1, PerPage = 20, Sort = "updated_at", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
 
         Assert.Contains(allItems, studio => studio.Name == "Child Studio");
     Assert.Equal("Child Studio", parentItems.First().Name);
@@ -209,27 +205,23 @@ public class RepositorySortBehaviorTests
         });
 
         context.Galleries.AddRange(ratedFolderGallery, unratedFileGallery);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         AddRating(context, RatingHostType.Gallery, ratedFolderGallery.Id, 80);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new GalleryRepository(context);
 
-        var (ratingItems, ratingCount) = await repository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (ratingItems, ratingCount) = await repository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Desc }, ct: TestContext.Current.CancellationToken);
 
-        var (pathItems, pathCount) = await repository.FindAsync(
-            new GalleryFilter
+        var (pathItems, pathCount) = await repository.FindAsync(new GalleryFilter
             {
                 PathCriterion = new StringCriterion
                 {
                     Value = @"C:\library\matched-folder",
                     Modifier = CriterionModifier.Equals,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "title", Direction = Cove.Core.Enums.SortDirection.Asc });
+            }, new FindFilter { Page = 1, PerPage = 20, Sort = "title", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, ratingCount);
         Assert.Equal(["folder-gallery", "file-gallery"], ratingItems.Select(gallery => gallery.Title ?? string.Empty).ToArray());
@@ -257,30 +249,24 @@ public class RepositorySortBehaviorTests
         };
 
         context.Groups.AddRange(newest, older, undated);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         AddRating(context, RatingHostType.Group, newest.Id, 90);
         AddRating(context, RatingHostType.Group, older.Id, 50);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         newest.CreatedAt = new DateTime(2024, 1, 12, 0, 0, 0, DateTimeKind.Utc);
         older.CreatedAt = new DateTime(2024, 1, 10, 0, 0, 0, DateTimeKind.Utc);
         undated.CreatedAt = new DateTime(2024, 1, 8, 0, 0, 0, DateTimeKind.Utc);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new GroupRepository(context);
 
-        var (dateItems, dateCount) = await repository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "date", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (dateItems, dateCount) = await repository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "date", Direction = Cove.Core.Enums.SortDirection.Desc }, ct: TestContext.Current.CancellationToken);
 
-        var (ratingItems, ratingCount) = await repository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (ratingItems, ratingCount) = await repository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Desc }, ct: TestContext.Current.CancellationToken);
 
-        var (createdItems, createdCount) = await repository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "created_at", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (createdItems, createdCount) = await repository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "created_at", Direction = Cove.Core.Enums.SortDirection.Desc }, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(3, dateCount);
         Assert.Equal(["Newest", "Older", "Undated"], dateItems.Select(group => group.Name).ToArray());
@@ -348,7 +334,7 @@ public class RepositorySortBehaviorTests
 
         context.Performers.AddRange(leader, middle, compact, quiet);
         context.Videos.AddRange(leaderVideo, middleVideo, compactVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         AddVideoAffinity(context, leaderVideo.Id, viewCount: 12, likeCount: 8, lastConsumedAt: new DateTime(2024, 1, 15, 12, 0, 0, DateTimeKind.Utc));
         AddVideoAffinity(context, middleVideo.Id, viewCount: 4, likeCount: 2, lastConsumedAt: new DateTime(2024, 1, 10, 12, 0, 0, DateTimeKind.Utc));
@@ -356,18 +342,18 @@ public class RepositorySortBehaviorTests
         AddLikeInteraction(context, leaderVideo.Id, new DateTime(2024, 1, 16, 12, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, middleVideo.Id, new DateTime(2024, 1, 11, 12, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, compactVideo.Id, new DateTime(2024, 1, 6, 12, 0, 0, DateTimeKind.Utc));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new PerformerRepository(context);
 
-        var (careerItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "career_length", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (favoriteItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_like_at", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (playedItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_played_at", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (heightDescItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "height", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (heightAscItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "height", Direction = Cove.Core.Enums.SortDirection.Asc });
-        var (measurementItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "measurements", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (favoritesItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "like_counter", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (playCountItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "play_count", Direction = Cove.Core.Enums.SortDirection.Desc });
+        var (careerItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "career_length", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (favoriteItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_like_at", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (playedItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_played_at", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (heightDescItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "height", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (heightAscItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "height", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
+        var (measurementItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "measurements", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (favoritesItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "like_counter", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (playCountItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "play_count", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
 
         Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], careerItems.Select(performer => performer.Name).ToArray());
         Assert.Equal(["Leader", "Middle", "Compact", "Quiet"], favoriteItems.Select(performer => performer.Name).ToArray());
@@ -393,7 +379,7 @@ public class RepositorySortBehaviorTests
 
         context.Performers.AddRange(mostLiked, olderTie, youngerTie);
         context.Videos.AddRange(mostLikedVideo, olderTieVideo, youngerTieVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         AddVideoAffinity(context, mostLikedVideo.Id, viewCount: 10, likeCount: 10, lastConsumedAt: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
         AddVideoAffinity(context, olderTieVideo.Id, viewCount: 5, likeCount: 5, lastConsumedAt: new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
@@ -401,7 +387,7 @@ public class RepositorySortBehaviorTests
         AddLikeInteraction(context, mostLikedVideo.Id, new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, olderTieVideo.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
         AddLikeInteraction(context, youngerTieVideo.Id, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new PerformerRepository(context);
         async Task<IReadOnlyList<string>> SortNames(string sortKey)
@@ -467,7 +453,7 @@ public class RepositorySortBehaviorTests
             new Video { Title = "Video Zero" },
             new Video { Title = "Video Unrated" });
 
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         AddRating(context, RatingHostType.Performer, context.Performers.Single(entity => entity.Name == "Performer Low").Id, 20);
         AddRating(context, RatingHostType.Performer, context.Performers.Single(entity => entity.Name == "Performer High").Id, 80);
@@ -487,7 +473,7 @@ public class RepositorySortBehaviorTests
         AddRating(context, RatingHostType.Video, context.Videos.Single(entity => entity.Title == "Video Low").Id, 20);
         AddRating(context, RatingHostType.Video, context.Videos.Single(entity => entity.Title == "Video High").Id, 80);
         AddRating(context, RatingHostType.Video, context.Videos.Single(entity => entity.Title == "Video Zero").Id, 0);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var performerRepository = new PerformerRepository(context);
         var imageRepository = new ImageRepository(context);
@@ -496,29 +482,17 @@ public class RepositorySortBehaviorTests
         var galleryRepository = new GalleryRepository(context);
         var videoRepository = new VideoRepository(context);
 
-        var (performerItems, _) = await performerRepository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (performerItems, _) = await performerRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
 
-        var (imageItems, _) = await imageRepository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (imageItems, _) = await imageRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
 
-        var (groupItems, _) = await groupRepository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (groupItems, _) = await groupRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
 
-        var (studioItems, _) = await studioRepository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (studioItems, _) = await studioRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
 
-        var (galleryItems, _) = await galleryRepository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (galleryItems, _) = await galleryRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
 
-        var (videoItems, _) = await videoRepository.FindAsync(
-            filter: null,
-            new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (videoItems, _) = await videoRepository.FindAsync(filter: null, new FindFilter { Page = 1, PerPage = 20, Sort = "rating", Direction = Cove.Core.Enums.SortDirection.Asc }, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(["Performer Unrated", "Performer Zero", "Performer Low", "Performer High"], performerItems.Select(performer => performer.Name).ToArray());
         Assert.Equal(["Image Unrated", "Image Zero", "Image Low", "Image High"], imageItems.Select(image => image.Title ?? string.Empty).ToArray());
@@ -562,23 +536,23 @@ public class RepositorySortBehaviorTests
         betaVideo.Date = new DateOnly(2024, 1, 20);
 
         context.Videos.AddRange(alphaVideo, betaVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         // last_like_at follows the latest LikeCount interaction shown in like history, not favorite state.
         context.Interactions.AddRange(
             new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = alphaVideo.Id, Kind = InteractionKind.LikeCount, At = new DateTime(2024, 1, 10, 12, 0, 0, DateTimeKind.Utc) },
             new Interaction { UserId = TestUserId, HostType = InteractionHostType.Video, HostId = betaVideo.Id, Kind = InteractionKind.LikeCount, At = new DateTime(2024, 1, 5, 12, 0, 0, DateTimeKind.Utc) });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
-        var (fileModItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "file_mod_time", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (favoriteItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_like_at", Direction = Cove.Core.Enums.SortDirection.Desc });
-        var (pathItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "path", Direction = Cove.Core.Enums.SortDirection.Asc });
-        var (phashItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "phash", Direction = Cove.Core.Enums.SortDirection.Asc });
-        var (ageItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "performer_age", Direction = Cove.Core.Enums.SortDirection.Asc });
-        var (studioItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "studio", Direction = Cove.Core.Enums.SortDirection.Asc });
-        var (codeItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "code", Direction = Cove.Core.Enums.SortDirection.Asc });
+        var (fileModItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "file_mod_time", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (favoriteItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "last_like_at", Direction = Cove.Core.Enums.SortDirection.Desc }, TestContext.Current.CancellationToken);
+        var (pathItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "path", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
+        var (phashItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "phash", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
+        var (ageItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "performer_age", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
+        var (studioItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "studio", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
+        var (codeItems, _) = await repository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "code", Direction = Cove.Core.Enums.SortDirection.Asc }, TestContext.Current.CancellationToken);
 
         Assert.Equal(["beta-video", "alpha-video"], fileModItems.Select(video => video.Title ?? string.Empty).ToArray());
         Assert.Equal(["alpha-video", "beta-video"], favoriteItems.Select(video => video.Title ?? string.Empty).ToArray());
@@ -643,7 +617,7 @@ public class RepositorySortBehaviorTests
             new Video { Title = "Video Four" },
             new Video { Title = "Video Five" },
             new Video { Title = "Video Six" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         const int seed = 17;
         var performerRepository = new PerformerRepository(context);
@@ -654,20 +628,20 @@ public class RepositorySortBehaviorTests
         var groupRepository = new GroupRepository(context);
         var videoRepository = new VideoRepository(context);
 
-        var (performerAsc, _) = await performerRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
-        var (performerDesc, _) = await performerRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
-        var (tagAsc, _) = await tagRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
-        var (tagDesc, _) = await tagRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
-        var (studioAsc, _) = await studioRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
-        var (studioDesc, _) = await studioRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
-        var (galleryAsc, _) = await galleryRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
-        var (galleryDesc, _) = await galleryRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
-        var (imageAsc, _) = await imageRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
-        var (imageDesc, _) = await imageRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
-        var (groupAsc, _) = await groupRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
-        var (groupDesc, _) = await groupRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
-        var (videoAsc, _) = await videoRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed });
-        var (videoDesc, _) = await videoRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed });
+        var (performerAsc, _) = await performerRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (performerDesc, _) = await performerRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (tagAsc, _) = await tagRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (tagDesc, _) = await tagRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (studioAsc, _) = await studioRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (studioDesc, _) = await studioRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (galleryAsc, _) = await galleryRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (galleryDesc, _) = await galleryRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (imageAsc, _) = await imageRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (imageDesc, _) = await imageRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (groupAsc, _) = await groupRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (groupDesc, _) = await groupRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (videoAsc, _) = await videoRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Asc, Seed = seed }, TestContext.Current.CancellationToken);
+        var (videoDesc, _) = await videoRepository.FindAsync(null, new FindFilter { Page = 1, PerPage = 20, Sort = "random", Direction = Cove.Core.Enums.SortDirection.Desc, Seed = seed }, TestContext.Current.CancellationToken);
 
         Assert.NotEqual(["Performer One", "Performer Two", "Performer Three", "Performer Four", "Performer Five", "Performer Six"], performerAsc.Select(item => item.Name).ToArray());
         Assert.NotEqual(["Tag One", "Tag Two", "Tag Three", "Tag Four", "Tag Five", "Tag Six"], tagAsc.Select(item => item.Name).ToArray());
@@ -753,20 +727,16 @@ public class RepositorySortBehaviorTests
         var rated = new Video { Title = "rated" };
         var unrated = new Video { Title = "unrated" };
         context.Videos.AddRange(rated, unrated);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Ratings.Add(new Rating { UserId = TestUserId, HostType = RatingHostType.Video, HostId = rated.Id, Value = 80 });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new VideoRepository(context);
 
         // NotNull => only entities the current user has rated; IsNull => only unrated.
-        var (notNull, _) = await repository.FindAsync(
-            new VideoFilter { RatingCriterion = new IntCriterion { Modifier = CriterionModifier.NotNull } },
-            new FindFilter { Page = 1, PerPage = 20 });
-        var (isNull, _) = await repository.FindAsync(
-            new VideoFilter { RatingCriterion = new IntCriterion { Modifier = CriterionModifier.IsNull } },
-            new FindFilter { Page = 1, PerPage = 20 });
+        var (notNull, _) = await repository.FindAsync(new VideoFilter { RatingCriterion = new IntCriterion { Modifier = CriterionModifier.NotNull } }, new FindFilter { Page = 1, PerPage = 20 }, TestContext.Current.CancellationToken);
+        var (isNull, _) = await repository.FindAsync(new VideoFilter { RatingCriterion = new IntCriterion { Modifier = CriterionModifier.IsNull } }, new FindFilter { Page = 1, PerPage = 20 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(["rated"], notNull.Select(video => video.Title ?? string.Empty).ToArray());
         Assert.Equal(["unrated"], isNull.Select(video => video.Title ?? string.Empty).ToArray());

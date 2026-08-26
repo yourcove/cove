@@ -122,6 +122,7 @@ public class TranscodeService : ITranscodeService
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        FfmpegProcessEnvironment.Apply(psi, ffmpeg);
 
         var process = Process.Start(psi);
         if (process == null)
@@ -213,6 +214,7 @@ public class TranscodeService : ITranscodeService
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            FfmpegProcessEnvironment.Apply(psi, ffmpeg);
 
             using var process = Process.Start(psi);
             if (process == null) return null;

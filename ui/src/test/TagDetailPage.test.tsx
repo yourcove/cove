@@ -76,6 +76,10 @@ vi.mock("../state/AppConfigContext", () => ({
   useAppConfig: () => ({ config: {} }),
 }));
 
+vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({
+  useResolvedKeybindingOverrides: () => ({}),
+}));
+
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ user: { kind: "user" }, hasPermission: () => true }),
 }));

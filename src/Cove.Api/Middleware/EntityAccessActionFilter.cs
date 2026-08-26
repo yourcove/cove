@@ -4,9 +4,13 @@ using System.Reflection;
 using System.Text.Json;
 using Cove.Core.Auth;
 using Cove.Core.Interfaces;
+using Cove.Core.Entities;
+using Cove.Api.Services;
+using Cove.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.EntityFrameworkCore;
 using IAuthorizationService = Cove.Core.Auth.IAuthorizationService;
 
 namespace Cove.Api.Middleware;
@@ -16,15 +20,18 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
     private readonly ICurrentPrincipalAccessor _principalAccessor;
     private readonly IAuthorizationService _authz;
     private readonly IAuditService _audit;
+    private readonly CoveContext _db;
 
     public EntityAccessActionFilter(
         ICurrentPrincipalAccessor principalAccessor,
         IAuthorizationService authz,
-        IAuditService audit)
+        IAuditService audit,
+        CoveContext db)
     {
         _principalAccessor = principalAccessor;
         _authz = authz;
         _audit = audit;
+        _db = db;
     }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
@@ -39,7 +46,11 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
         if (requirements.Count == 0)
             requirements = cad.ControllerTypeInfo.GetCustomAttributes(true).OfType<RequiresEntityAccessAttribute>().ToList();
 
-        if (requirements.Count == 0)
+        var unscopedRequirements = cad.MethodInfo.GetCustomAttributes(true).OfType<RequiresUnscopedEntityAccessAttribute>().ToList();
+        if (unscopedRequirements.Count == 0)
+            unscopedRequirements = cad.ControllerTypeInfo.GetCustomAttributes(true).OfType<RequiresUnscopedEntityAccessAttribute>().ToList();
+
+        if (requirements.Count == 0 && unscopedRequirements.Count == 0)
         {
             await next();
             return;
@@ -57,29 +68,91 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
             return;
         }
 
-        foreach (var requirement in requirements)
+        if (!principal.Has(Permissions.All))
         {
-            var ids = ResolveIds(requirement, context);
-            foreach (var id in ids)
+            foreach (var requirement in unscopedRequirements)
             {
-                var result = await _authz.AuthorizeAsync(
-                    principal,
-                    requirement.Permission,
-                    new EntityRef(requirement.EntityKind, id),
-                    context.HttpContext.RequestAborted);
+                if (!string.IsNullOrWhiteSpace(requirement.ActionArgumentName)
+                    && context.ActionArguments.TryGetValue(requirement.ActionArgumentName, out var argument))
+                {
+                    if (!string.IsNullOrWhiteSpace(requirement.SkipWhenPropertyTrue))
+                    {
+                        var skip = ExtractValues(argument, requirement.SkipWhenPropertyTrue)
+                            .Any(value => value is true || bool.TryParse(value?.ToString(), out var parsed) && parsed);
+                        if (skip)
+                            continue;
+                    }
+                    else if (ExtractValues(argument, requirement.PropertyName).Any())
+                    {
+                        continue;
+                    }
+                }
 
-                if (result.Allowed)
+                var roleNames = principal.Roles.ToArray();
+                var hasDenies = string.Equals(requirement.AppliesTo, "read", StringComparison.OrdinalIgnoreCase)
+                    && principal.ReadRestrictedEntityKinds.Count > 0
+                    || await _db.RoleContentRules.AsNoTracking().AnyAsync(rule =>
+                        rule.Role != null && roleNames.Contains(rule.Role.Name)
+                        && rule.Effect == "deny"
+                        && (rule.AppliesTo == requirement.AppliesTo || rule.AppliesTo == "all"),
+                        context.HttpContext.RequestAborted)
+                    || await _db.RoleEntityOverrides.AsNoTracking().AnyAsync(overrideItem =>
+                        overrideItem.Role != null && roleNames.Contains(overrideItem.Role.Name)
+                        && overrideItem.Effect == "deny"
+                        && (overrideItem.AppliesTo == requirement.AppliesTo || overrideItem.AppliesTo == "all"),
+                        context.HttpContext.RequestAborted);
+                if (!hasDenies)
                     continue;
 
                 context.Result = new ObjectResult(new
                 {
                     code = "FORBIDDEN",
-                    entityKind = requirement.EntityKind,
-                    entityId = id,
-                    permission = requirement.Permission,
-                    message = result.Reason ?? "Forbidden.",
+                    message = $"This operation requires unrestricted {requirement.AppliesTo} access.",
                 })
                 { StatusCode = StatusCodes.Status403Forbidden };
+                await _audit.LogAsync(AuditActions.PermissionDeny, AuditOutcomes.Deny, principal,
+                    "endpoint", cad.DisplayName,
+                    new { reason = "scoped_global_library_mutation", appliesTo = requirement.AppliesTo,
+                        path = context.HttpContext.Request.Path.ToString() });
+                return;
+            }
+        }
+
+        foreach (var requirement in requirements)
+        {
+            var ids = await ResolveAuthorizationIdsAsync(
+                requirement,
+                context,
+                context.HttpContext.RequestAborted);
+            var decisions = ids.Length > 1 && !string.Equals(requirement.EntityKind, EntityKinds.File, StringComparison.OrdinalIgnoreCase)
+                ? await _authz.AuthorizeManyAsync(
+                    principal,
+                    requirement.Permission,
+                    ids.Select(id => new EntityRef(requirement.EntityKind, id)).ToArray(),
+                    context.HttpContext.RequestAborted)
+                : null;
+            for (var index = 0; index < ids.Length; index++)
+            {
+                var id = ids[index];
+                var result = decisions?[index] ?? await AuthorizeEntityAsync(principal, requirement, id, context.HttpContext.RequestAborted);
+
+                if (result.Allowed)
+                    continue;
+
+                var concealDenied = requirement.DeniedBehavior == EntityAccessDeniedBehavior.NotFound
+                    || (requirement.DeniedBehavior == EntityAccessDeniedBehavior.Default
+                        && requirement.Permission.EndsWith(".read", StringComparison.OrdinalIgnoreCase));
+                context.Result = concealDenied
+                    ? new NotFoundResult()
+                    : new ObjectResult(new
+                    {
+                        code = "FORBIDDEN",
+                        entityKind = requirement.EntityKind,
+                        entityId = id,
+                        permission = requirement.Permission,
+                        message = result.Reason ?? "Forbidden.",
+                    })
+                    { StatusCode = StatusCodes.Status403Forbidden };
 
                 await _audit.LogAsync(
                     AuditActions.PermissionDeny,
@@ -100,6 +173,82 @@ public sealed class EntityAccessActionFilter : IAsyncActionFilter
         }
 
         await next();
+    }
+
+    private async Task<string[]> ResolveAuthorizationIdsAsync(
+        RequiresEntityAccessAttribute requirement,
+        ActionExecutingContext context,
+        CancellationToken cancellationToken)
+    {
+        var ids = ResolveIds(requirement, context).ToList();
+        if (!requirement.IncludeDescendants
+            || !string.Equals(requirement.EntityKind, EntityKinds.Video, StringComparison.OrdinalIgnoreCase))
+            return [.. ids];
+
+        var rootIds = ids
+            .Select(id => int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0)
+            .Where(id => id > 0)
+            .ToArray();
+        var deletionScope = await VideoHierarchyQueries.ExpandDeletionScopeAsync(_db, rootIds, cancellationToken);
+        var seen = ids.ToHashSet(StringComparer.Ordinal);
+        foreach (var videoId in deletionScope)
+        {
+            var id = videoId.ToString(CultureInfo.InvariantCulture);
+            if (seen.Add(id))
+                ids.Add(id);
+        }
+
+        return [.. ids];
+    }
+
+    private async Task<AuthorizationResult> AuthorizeEntityAsync(
+        CovePrincipal principal,
+        RequiresEntityAccessAttribute requirement,
+        string id,
+        CancellationToken cancellationToken)
+    {
+        var direct = await _authz.AuthorizeAsync(
+            principal,
+            requirement.Permission,
+            new EntityRef(requirement.EntityKind, id),
+            cancellationToken);
+        if (!direct.Allowed || !string.Equals(requirement.EntityKind, EntityKinds.File, StringComparison.OrdinalIgnoreCase))
+            return direct;
+
+        if (!int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fileId))
+            return direct;
+
+        var file = await _db.Set<BaseFileEntity>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == fileId, cancellationToken);
+        if (file is null)
+            return direct;
+
+        var owner = file switch
+        {
+            VideoFile { VideoId: int ownerId } => (new EntityRef(EntityKinds.Video, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.VideosRead),
+            ImageFile { ImageId: int ownerId } => (new EntityRef(EntityKinds.Image, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.ImagesRead),
+            GalleryFile { GalleryId: int ownerId } => (new EntityRef(EntityKinds.Gallery, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.GalleriesRead),
+            AudioFile { AudioId: int ownerId } => (new EntityRef(EntityKinds.Audio, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.AudiosRead),
+            TextFile { TextDocumentId: int ownerId } => (new EntityRef(EntityKinds.Text, ownerId.ToString(CultureInfo.InvariantCulture)), Permissions.TextsRead),
+            _ => ((EntityRef Entity, string ReadPermission)?)null,
+        };
+        if (owner is null)
+            return AuthorizationResult.Deny($"File {id} has no authorizable media owner.", requirement.Permission);
+
+        var ownerRead = await _authz.AuthorizeAsync(
+            principal,
+            owner.Value.ReadPermission,
+            owner.Value.Entity,
+            cancellationToken);
+        if (!ownerRead.Allowed || requirement.Permission.EndsWith(".read", StringComparison.OrdinalIgnoreCase))
+            return ownerRead;
+
+        return await _authz.AuthorizeAsync(
+            principal,
+            requirement.Permission,
+            owner.Value.Entity,
+            cancellationToken);
     }
 
     private static IReadOnlyList<string> ResolveIds(RequiresEntityAccessAttribute requirement, ActionExecutingContext context)

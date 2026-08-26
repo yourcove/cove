@@ -6,11 +6,9 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Performers;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class PerformerQueryBulkAndRelationshipApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -20,19 +18,19 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var performer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Scoped direct performer {suffix}").Build());
-        var group = await owner.CreateGroupAsync($"Visible scoped performer group {suffix}");
-        await owner.AddPerformerToGroupAsync(performer, group);
-        var memberRole = (await owner.GetRolesAsync()).Single(role => role.Name == BuiltinRoles.Member);
+        var performer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Scoped direct performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var group = await owner.CreateGroupAsync($"Visible scoped performer group {suffix}", TestContext.Current.CancellationToken);
+        await owner.AddPerformerToGroupAsync(performer, group, TestContext.Current.CancellationToken);
+        var memberRole = (await owner.GetRolesAsync(TestContext.Current.CancellationToken)).Single(role => role.Name == BuiltinRoles.Member);
         await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
             memberRole.Id,
             EntityKinds.Performer,
             Effect: "deny",
             ScopeKind: "all",
             ScopeValue: "{}",
-            AppliesTo: "read"));
+            AppliesTo: "read"), TestContext.Current.CancellationToken);
 
-        var items = await AsUser(ApiTestUsers.Eva).GetGroupItemsAsync(group);
+        var items = await AsUser(ApiTestUsers.Eva).GetGroupItemsAsync(group, TestContext.Current.CancellationToken);
 
         items.Should().BeEmpty();
     }
@@ -42,19 +40,19 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var performer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Visible scoped performer {suffix}").Build());
-        var group = await owner.CreateGroupAsync($"Hidden scoped performer group {suffix}");
-        await owner.AddPerformerToGroupAsync(performer, group);
-        var memberRole = (await owner.GetRolesAsync()).Single(role => role.Name == BuiltinRoles.Member);
+        var performer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Visible scoped performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var group = await owner.CreateGroupAsync($"Hidden scoped performer group {suffix}", TestContext.Current.CancellationToken);
+        await owner.AddPerformerToGroupAsync(performer, group, TestContext.Current.CancellationToken);
+        var memberRole = (await owner.GetRolesAsync(TestContext.Current.CancellationToken)).Single(role => role.Name == BuiltinRoles.Member);
         await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
             memberRole.Id,
             EntityKinds.Group,
             Effect: "deny",
             ScopeKind: "all",
             ScopeValue: "{}",
-            AppliesTo: "read"));
+            AppliesTo: "read"), TestContext.Current.CancellationToken);
 
-        var groups = await AsUser(ApiTestUsers.Eva).GetPerformerGroupsAsync(performer.Id, page: 1, perPage: 10);
+        var groups = await AsUser(ApiTestUsers.Eva).GetPerformerGroupsAsync(performer.Id, page: 1, perPage: 10, cancellationToken: TestContext.Current.CancellationToken);
 
         groups.TotalCount.Should().Be(0);
         groups.Items.Should().BeEmpty();
@@ -66,17 +64,17 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var second = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"B favorite performer {suffix}").AsFavorite().Build());
-        var first = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"A favorite performer {suffix}").AsFavorite().Build());
-        await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Excluded performer {suffix}").Build());
-        await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Unrelated favorite performer {Guid.NewGuid():N}").AsFavorite().Build());
+        var second = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"B favorite performer {suffix}").AsFavorite().Build(), TestContext.Current.CancellationToken);
+        var first = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"A favorite performer {suffix}").AsFavorite().Build(), TestContext.Current.CancellationToken);
+        await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Excluded performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Unrelated favorite performer {Guid.NewGuid():N}").AsFavorite().Build(), TestContext.Current.CancellationToken);
         var request = new FilteredQueryRequest<PerformerFilter>
         {
             ObjectFilter = new PerformerFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
             FindFilter = new FindFilter { Q = suffix, Page = 2, PerPage = 1, Sort = "name" },
         };
 
-        var result = await AsUser(ApiTestUsers.Eva).FindPerformersAsync(request);
+        var result = await AsUser(ApiTestUsers.Eva).FindPerformersAsync(request, TestContext.Current.CancellationToken);
 
         result.TotalCount.Should().Be(2);
         result.Page.Should().Be(2);
@@ -93,8 +91,8 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     public async Task GivenTaggedPerformers_WhenMemberBulkSetsValues_ThenOnlySelectedPerformersChange()
     {
         var owner = AsUser();
-        var originalTag = await owner.CreateTagAsync($"Original bulk performer tag {Guid.NewGuid():N}");
-        var replacementTag = await owner.CreateTagAsync($"Replacement bulk performer tag {Guid.NewGuid():N}");
+        var originalTag = await owner.CreateTagAsync($"Original bulk performer tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var replacementTag = await owner.CreateTagAsync($"Replacement bulk performer tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var selected = await Task.WhenAll(Enumerable.Range(1, 2).Select(index => owner.CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Selected bulk performer {index} {Guid.NewGuid():N}")
             .WithGender("Female")
@@ -106,8 +104,8 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
             .WithGender("Male")
             .WithDetails("Control details")
             .WithTag(originalTag)
-            .Build());
-        await AsUser(ApiTestUsers.Eva).SetPerformerRatingAsync(control, 17);
+            .Build(), TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Eva).SetPerformerRatingAsync(control, 17, cancellationToken: TestContext.Current.CancellationToken);
         var request = new BulkPerformerUpdateDto
         {
             Ids = selected.Select(performer => performer.Id).ToList(),
@@ -119,11 +117,11 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
             TagMode = BulkUpdateMode.Set,
         };
 
-        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(request);
+        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(request, TestContext.Current.CancellationToken);
         var updated = await Task.WhenAll(selected.Select(performer => owner.GetPerformerByIdAsync(performer.Id)));
-        var retained = await owner.GetPerformerByIdAsync(control.Id);
+        var retained = await owner.GetPerformerByIdAsync(control.Id, TestContext.Current.CancellationToken);
         var engagements = await Task.WhenAll(selected.Select(performer => AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Performer, performer.Id)));
-        var retainedEngagement = await AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Performer, control.Id);
+        var retainedEngagement = await AsUser(ApiTestUsers.Eva).GetEntityEngagementAsync(AffinityHostType.Performer, control.Id, TestContext.Current.CancellationToken);
         var ownerEngagements = await Task.WhenAll(selected.Append(control).Select(performer => owner.GetEntityEngagementAsync(AffinityHostType.Performer, performer.Id)));
         var originalsById = selected.ToDictionary(performer => performer.Id);
 
@@ -149,21 +147,21 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
             Ids = selected.Select(performer => performer.Id).ToList(),
             TagIds = [originalTag.Id],
             TagMode = BulkUpdateMode.Add,
-        });
+        }, TestContext.Current.CancellationToken);
         var afterAdd = await Task.WhenAll(selected.Select(performer => owner.GetPerformerByIdAsync(performer.Id)));
         var removedCount = await AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(new BulkPerformerUpdateDto
         {
             Ids = selected.Select(performer => performer.Id).ToList(),
             TagIds = [replacementTag.Id],
             TagMode = BulkUpdateMode.Remove,
-        });
+        }, TestContext.Current.CancellationToken);
         var afterRemove = await Task.WhenAll(selected.Select(performer => owner.GetPerformerByIdAsync(performer.Id)));
 
         addedCount.Should().Be(2);
         afterAdd.Should().AllSatisfy(performer => performer.Tags.Select(tag => tag.Id).Should().BeEquivalentTo([originalTag.Id, replacementTag.Id]));
         removedCount.Should().Be(2);
         afterRemove.Should().AllSatisfy(performer => performer.Tags.Select(tag => tag.Id).Should().Equal(originalTag.Id));
-        (await owner.GetPerformerByIdAsync(control.Id)).Tags.Select(tag => tag.Id).Should().Equal(originalTag.Id);
+        (await owner.GetPerformerByIdAsync(control.Id, TestContext.Current.CancellationToken)).Tags.Select(tag => tag.Id).Should().Equal(originalTag.Id);
     }
 
     [Fact]
@@ -171,21 +169,21 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     public async Task GivenPerformerWriteOverride_WhenMemberBulkUpdatesMixedScope_ThenEntireRequestIsForbidden()
     {
         var owner = AsUser();
-        var memberRole = (await owner.GetRolesAsync()).Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
+        var memberRole = (await owner.GetRolesAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(role => role.Name == BuiltinRoles.Member).Which;
         var allowed = await owner.CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Allowed bulk performer {Guid.NewGuid():N}")
             .WithDetails("Allowed original details")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var denied = await owner.CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Denied bulk performer {Guid.NewGuid():N}")
             .WithDetails("Denied original details")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var entityOverride = await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
             memberRole.Id,
             EntityKinds.Performer,
             denied.Id.ToString(CultureInfo.InvariantCulture),
             "deny",
-            "write"));
+            "write"), TestContext.Current.CancellationToken);
         var mixedRequest = new BulkPerformerUpdateDto
         {
             Ids = [allowed.Id, denied.Id],
@@ -199,18 +197,18 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
         entityOverride.Effect.Should().Be("deny");
         entityOverride.AppliesTo.Should().Be("write");
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetPerformerByIdAsync(allowed.Id)).Details.Should().Be("Allowed original details");
-        (await owner.GetPerformerByIdAsync(denied.Id)).Details.Should().Be("Denied original details");
+        (await owner.GetPerformerByIdAsync(allowed.Id, TestContext.Current.CancellationToken)).Details.Should().Be("Allowed original details");
+        (await owner.GetPerformerByIdAsync(denied.Id, TestContext.Current.CancellationToken)).Details.Should().Be("Denied original details");
 
         var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdatePerformersAsync(new BulkPerformerUpdateDto
         {
             Ids = [allowed.Id],
             Details = "Allowed updated details",
-        });
+        }, TestContext.Current.CancellationToken);
 
         updatedCount.Should().Be(1);
-        (await owner.GetPerformerByIdAsync(allowed.Id)).Details.Should().Be("Allowed updated details");
-        (await owner.GetPerformerByIdAsync(denied.Id)).Details.Should().Be("Denied original details");
+        (await owner.GetPerformerByIdAsync(allowed.Id, TestContext.Current.CancellationToken)).Details.Should().Be("Allowed updated details");
+        (await owner.GetPerformerByIdAsync(denied.Id, TestContext.Current.CancellationToken)).Details.Should().Be("Denied original details");
     }
 
     [Fact]
@@ -220,25 +218,25 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
-        var focal = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Focal performer {suffix}").Build());
-        var frequentCoPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Frequent co performer {suffix}").Build());
-        var rareCoPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Rare co performer {suffix}").Build());
-        var unrelated = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Unrelated performer {suffix}").Build());
-        var directOnlyGroup = await owner.CreateGroupAsync($"Direct performer relationship group {suffix}");
-        var videoOnlyGroup = await owner.CreateGroupAsync($"Video performer relationship group {suffix}");
-        var dualPathGroup = await owner.CreateGroupAsync($"Dual performer relationship group {suffix}");
-        await owner.AddPerformerToGroupAsync(focal, directOnlyGroup);
-        await owner.AddPerformerToGroupAsync(focal, dualPathGroup);
+        var focal = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Focal performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var frequentCoPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Frequent co performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var rareCoPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Rare co performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var unrelated = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Unrelated performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var directOnlyGroup = await owner.CreateGroupAsync($"Direct performer relationship group {suffix}", TestContext.Current.CancellationToken);
+        var videoOnlyGroup = await owner.CreateGroupAsync($"Video performer relationship group {suffix}", TestContext.Current.CancellationToken);
+        var dualPathGroup = await owner.CreateGroupAsync($"Dual performer relationship group {suffix}", TestContext.Current.CancellationToken);
+        await owner.AddPerformerToGroupAsync(focal, directOnlyGroup, TestContext.Current.CancellationToken);
+        await owner.AddPerformerToGroupAsync(focal, dualPathGroup, TestContext.Current.CancellationToken);
         await owner.CreateVideoAsync(new VideoBuilder()
             .WithTitle($"First relationship video {suffix}")
             .WithPerformers([focal, frequentCoPerformer, rareCoPerformer])
             .WithGroup(videoOnlyGroup)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         await owner.CreateVideoAsync(new VideoBuilder()
             .WithTitle($"Second relationship video {suffix}")
             .WithPerformers([focal, frequentCoPerformer])
             .WithGroup(dualPathGroup)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
 
         var groups = await Task.WhenAll(Enumerable.Range(1, 3).Select(page => AsUser(ApiTestUsers.Eva).GetPerformerGroupsAsync(focal.Id, page, perPage: 1)));
         var appearsWith = await Task.WhenAll(Enumerable.Range(1, 2).Select(page => AsUser(ApiTestUsers.Eva).GetPerformerAppearsWithAsync(focal.Id, page, perPage: 1)));
@@ -280,23 +278,27 @@ public sealed class PerformerQueryBulkAndRelationshipApiTests(
     public async Task GivenPerformers_WhenOwnerBulkDeletesSelection_ThenMemberCannotDeleteAndControlRemains()
     {
         var owner = AsUser();
-        var first = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Bulk delete performer first {Guid.NewGuid():N}").Build());
-        var second = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Bulk delete performer second {Guid.NewGuid():N}").Build());
-        var retained = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Retained bulk delete performer {Guid.NewGuid():N}").Build());
+        var first = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Bulk delete performer first {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var second = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Bulk delete performer second {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var retained = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Retained bulk delete performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
         var request = new BatchDeleteDto([first.Id, int.MaxValue, second.Id]);
         var forbidden = () => AsUser(ApiTestUsers.Eva).BulkDeletePerformersAsync(request);
 
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetPerformerByIdAsync(first.Id)).Id.Should().Be(first.Id);
-        (await owner.GetPerformerByIdAsync(second.Id)).Id.Should().Be(second.Id);
-        var deleted = await owner.BulkDeletePerformersAsync(request);
+        (await owner.GetPerformerByIdAsync(first.Id, TestContext.Current.CancellationToken)).Id.Should().Be(first.Id);
+        (await owner.GetPerformerByIdAsync(second.Id, TestContext.Current.CancellationToken)).Id.Should().Be(second.Id);
+        var queued = await owner.BulkDeletePerformersAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
-        deleted.Should().Be(2);
         foreach (var performer in new[] { first, second })
         {
             var missing = () => owner.GetPerformerByIdAsync(performer.Id);
             await missing.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
         }
-        (await owner.GetPerformerByIdAsync(retained.Id)).Id.Should().Be(retained.Id);
+        (await owner.GetPerformerByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
     }
 }

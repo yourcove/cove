@@ -15,6 +15,7 @@ import type {
   BulkStudioUpdate,
   BulkTagUpdate,
   BulkTextUpdate,
+  BulkDeletionJobStart,
   DeleteEntityOptions,
   Video,
 } from "../api/types";
@@ -273,13 +274,18 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
     && selectedSourceId != null
     && canWriteEntity(coverFromSelectionAction.parentType, hasPermission);
   const supportsDeleteOptions = entityType === "videos" || entityType === "images" || entityType === "audios" || entityType === "texts";
+  const canDeleteFiles = entityType === "images"
+    ? hasPermission("images.delete.file")
+    : entityType === "videos"
+      ? hasPermission("videos.delete.file")
+      : entityType === "audios" || entityType === "texts"
+        ? hasPermission("files.delete")
+        : false;
 
-  const bulkDeleteMut = useMutation<void, Error, DeleteEntityOptions | undefined>({
+  const bulkDeleteMut = useMutation<BulkDeletionJobStart, Error, DeleteEntityOptions | undefined>({
     meta: { suppressGlobalError: true },
-    mutationFn: async (options) => {
-      await api.bulkDelete([...selectedIds], options);
-    },
-    onSuccess: () => { queryClient.invalidateQueries(); setShowDeleteConfirm(false); onDone(); },
+    mutationFn: async (options) => api.bulkDelete([...selectedIds], options),
+    onSuccess: () => { setShowDeleteConfirm(false); onDone(); },
   });
 
   const bulkEditMut = useMutation<void, Error, Record<string, unknown>>({
@@ -544,12 +550,12 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
         open={showDeleteConfirm}
         title={`Delete ${selectedIds.size} ${resource}${selectedIds.size === 1 ? "" : "s"}`}
         message={`Delete ${selectedIds.size} selected ${resource}${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`}
-        confirmLabel={bulkDeleteMut.isPending ? "Deleting..." : "Delete"}
+        confirmLabel={bulkDeleteMut.isPending ? "Queueing..." : "Queue deletion"}
         onConfirm={(options) => bulkDeleteMut.mutate(supportsDeleteOptions ? options : undefined)}
         onCancel={() => { bulkDeleteMut.reset(); setShowDeleteConfirm(false); }}
         isPending={bulkDeleteMut.isPending}
         errorMessage={getMutationErrorMessage(bulkDeleteMut.error)}
-        showDeleteFile={supportsDeleteOptions}
+        showDeleteFile={supportsDeleteOptions && canDeleteFiles}
         showDeleteGenerated={supportsDeleteOptions}
       />
     </>

@@ -7,13 +7,19 @@ interface Options {
   enabled?: boolean;
   fallbackFavorite?: boolean;
   fallbackRating?: number;
+  /** Keeps account-specific engagement out of another principal's cache namespace. */
+  queryScope?: string;
 }
 
 export function useEntityEngagement(hostType: AffinityHostType, hostId: number, options?: Options) {
   const queryClient = useQueryClient();
-  const queryKey = ["engagement", hostType, hostId] as const;
+  const queryKey = options?.queryScope
+    ? ["engagement", options.queryScope, hostType, hostId] as const
+    : ["engagement", hostType, hostId] as const;
   const batchQueryKey = ["engagement", hostType, "batch"] as const;
-  const ratingsQueryKey = ["engagement", hostType, hostId, "ratings"] as const;
+  const ratingsQueryKey = options?.queryScope
+    ? ["engagement", options.queryScope, hostType, hostId, "ratings"] as const
+    : ["engagement", hostType, hostId, "ratings"] as const;
 
   const { data } = useQuery({
     queryKey,
@@ -25,7 +31,9 @@ export function useEntityEngagement(hostType: AffinityHostType, hostId: number, 
     mutationFn: (isFavorite: boolean) => entityEngagement.setFavorite(hostType, hostId, { isFavorite }),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKey, (prev?: EntityEngagement) => mergePreservingResume(prev, updated));
-      queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
+      if (!options?.queryScope) {
+        queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
+      }
     },
   });
 
@@ -33,7 +41,9 @@ export function useEntityEngagement(hostType: AffinityHostType, hostId: number, 
     mutationFn: (payload: { value: number | null; aspect?: string }) => entityEngagement.setRating(hostType, hostId, payload),
     onSuccess: (updated, variables) => {
       queryClient.setQueryData(queryKey, (prev?: EntityEngagement) => mergePreservingResume(prev, updated));
-      queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
+      if (!options?.queryScope) {
+        queryClient.setQueriesData({ queryKey: batchQueryKey }, (current) => syncBatchEngagement(current, updated));
+      }
       queryClient.setQueryData(ratingsQueryKey, (current: EntityRatings | undefined) => syncRatings(current, hostId, variables.aspect ?? "overall", variables.value));
     },
   });

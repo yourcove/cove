@@ -26,7 +26,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Audio Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.AiRuns.Add(new AiRun
         {
@@ -46,10 +46,10 @@ public sealed class AiDataPurgeServiceTests
             SourceKey = "ext:ai.audio",
             SourceRunId = "run-summary",
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var summary = await service.GetSummaryAsync(new AiDataSelectorDto(null, null, null, null, null, null, null));
+        var summary = await service.GetSummaryAsync(new AiDataSelectorDto(null, null, null, null, null, null, null), TestContext.Current.CancellationToken);
 
         var item = Assert.Single(summary.Items);
         Assert.Equal("segment", item.Kind);
@@ -69,7 +69,7 @@ public sealed class AiDataPurgeServiceTests
         var aiOnlyTag = new Tag { Name = "AI Only" };
         var manualTag = new Tag { Name = "Manual" };
         db.AddRange(video, image, aiOnlyTag, manualTag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Set<VideoTag>().AddRange(
             new VideoTag { VideoId = video.Id, TagId = aiOnlyTag.Id },
@@ -156,21 +156,21 @@ public sealed class AiDataPurgeServiceTests
                 SourceKey = "ext:ai.visual",
                 SourceRunId = "run-2",
             });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(new AiDataSelectorDto(null, "run-1", null, null, null, null, ["embedding", "detection", "segment", "tagApplication"]));
+        var result = await service.PurgeAsync(new AiDataSelectorDto(null, "run-1", null, null, null, null, ["embedding", "detection", "segment", "tagApplication"]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["embedding"]);
         Assert.Equal(1, result.RemovedCounts["detection"]);
         Assert.Equal(1, result.RemovedCounts["segment"]);
         Assert.Equal(1, result.RemovedCounts["tagApplication"]);
-        Assert.Single(await db.Embeddings.ToListAsync());
-        Assert.Single(await db.Set<Detection>().ToListAsync());
-        Assert.Single(await db.Segments.ToListAsync());
-        Assert.Single(await db.TagApplications.ToListAsync());
-        Assert.Single(await db.Set<VideoTag>().ToListAsync());
-        Assert.Equal(manualTag.Id, (await db.Set<VideoTag>().SingleAsync()).TagId);
+        Assert.Single(await db.Embeddings.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Set<Detection>().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.TagApplications.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Set<VideoTag>().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(manualTag.Id, (await db.Set<VideoTag>().SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).TagId);
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Face Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.AiRuns.Add(new AiRun
         {
@@ -219,17 +219,17 @@ public sealed class AiDataPurgeServiceTests
             SourceRunId = "run-face-purge",
             Meta = JsonDocument.Parse("""{ "modelKey": "face_embedding_torchexport" }"""),
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["embedding", "detection"]));
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["embedding", "detection"]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["embedding"]);
         Assert.Equal(1, result.RemovedCounts["detection"]);
         Assert.Equal(1, result.RemovedCounts["aiRun"]);
-        Assert.Empty(await db.Embeddings.ToListAsync());
-        Assert.Empty(await db.Set<Detection>().ToListAsync());
-        Assert.Empty(await db.AiRuns.ToListAsync());
+        Assert.Empty(await db.Embeddings.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.Set<Detection>().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.AiRuns.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -240,7 +240,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Mixed Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.AiRuns.Add(new AiRun
         {
@@ -277,16 +277,16 @@ public sealed class AiDataPurgeServiceTests
             SourceRunId = "run-mixed-purge",
             Payload = JsonDocument.Parse("""{ "modelKey": "metaclip2_base" }"""),
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["detection"]));
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["detection"]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["detection"]);
         Assert.False(result.RemovedCounts.ContainsKey("aiRun"));
-        Assert.Empty(await db.Set<Detection>().ToListAsync());
-        Assert.Single(await db.Segments.ToListAsync());
-        Assert.Single(await db.AiRuns.ToListAsync());
+        Assert.Empty(await db.Set<Detection>().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.AiRuns.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -297,7 +297,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Empty AI Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.AiRuns.Add(new AiRun
         {
@@ -313,13 +313,13 @@ public sealed class AiDataPurgeServiceTests
                 ]
                 """),
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["embedding", "detection", "segment", "face"]));
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["embedding", "detection", "segment", "face"]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["aiRun"]);
-        Assert.Empty(await db.AiRuns.ToListAsync());
+        Assert.Empty(await db.AiRuns.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -330,7 +330,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Empty AI Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.AiRuns.Add(new AiRun
         {
@@ -340,13 +340,13 @@ public sealed class AiDataPurgeServiceTests
             TargetId = video.Id,
             Status = AiRunStatus.Completed,
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["embedding", "detection", "segment", "face"]), dryRun: true);
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["embedding", "detection", "segment", "face"]), dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["aiRun"]);
-        Assert.Single(await db.AiRuns.ToListAsync());
+        Assert.Single(await db.AiRuns.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -359,7 +359,7 @@ public sealed class AiDataPurgeServiceTests
         var sharedTag = new Tag { Name = "Shared" };
         var aiOnlyTag = new Tag { Name = "AI Only" };
         db.AddRange(video, sharedTag, aiOnlyTag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Set<VideoTag>().AddRange(
             new VideoTag { VideoId = video.Id, TagId = sharedTag.Id },
@@ -402,22 +402,22 @@ public sealed class AiDataPurgeServiceTests
             SourceKey = "ext:ai.tagging",
             SourceRunId = "run-tagging",
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.tagging", null, null, null, null, null, ["tagApplication", "segment"]));
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.tagging", null, null, null, null, null, ["tagApplication", "segment"]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.RemovedCounts["tagApplication"]);
         Assert.Equal(1, result.RemovedCounts["segment"]);
 
-        var videoTags = await db.Set<VideoTag>().OrderBy(videoTag => videoTag.TagId).ToListAsync();
-        var remainingApplications = await db.TagApplications.OrderBy(application => application.TagId).ToListAsync();
+        var videoTags = await db.Set<VideoTag>().OrderBy(videoTag => videoTag.TagId).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var remainingApplications = await db.TagApplications.OrderBy(application => application.TagId).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(videoTags);
         Assert.Equal(sharedTag.Id, videoTags[0].TagId);
         Assert.Single(remainingApplications);
         Assert.Equal("user", remainingApplications[0].SourceKey);
-        Assert.Empty(await db.Segments.ToListAsync());
+        Assert.Empty(await db.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -430,7 +430,7 @@ public sealed class AiDataPurgeServiceTests
         var image = new Image { Title = "Dry Run Image" };
         var tag = new Tag { Name = "Dry Tag" };
         db.AddRange(video, image, tag);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Set<VideoTag>().Add(new VideoTag { VideoId = video.Id, TagId = tag.Id });
         db.TagApplications.Add(new TagApplication
@@ -472,22 +472,20 @@ public sealed class AiDataPurgeServiceTests
             SourceKey = "ext:ai.tagging",
             SourceRunId = "dry-run-1",
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(
-            new AiDataSelectorDto("ext:ai.tagging", "dry-run-1", null, null, null, null, ["embedding", "detection", "segment", "tagApplication"]),
-            dryRun: true);
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.tagging", "dry-run-1", null, null, null, null, ["embedding", "detection", "segment", "tagApplication"]), dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["embedding"]);
         Assert.Equal(1, result.RemovedCounts["detection"]);
         Assert.Equal(1, result.RemovedCounts["segment"]);
         Assert.Equal(1, result.RemovedCounts["tagApplication"]);
-        Assert.Single(await db.Embeddings.ToListAsync());
-        Assert.Single(await db.Set<Detection>().ToListAsync());
-        Assert.Single(await db.Segments.ToListAsync());
-        Assert.Single(await db.TagApplications.ToListAsync());
-        Assert.Single(await db.Set<VideoTag>().ToListAsync());
+        Assert.Single(await db.Embeddings.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Set<Detection>().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.TagApplications.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Set<VideoTag>().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -498,7 +496,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Face Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var face = new Face
         {
@@ -506,7 +504,7 @@ public sealed class AiDataPurgeServiceTests
             PrimarySourceKey = "ext:ai.faces",
         };
         db.Faces.Add(face);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Set<Detection>().Add(new Detection
         {
@@ -541,21 +539,19 @@ public sealed class AiDataPurgeServiceTests
             SourceKey = "ext:ai.faces",
             SourceRunId = "face-run-1",
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(
-            new AiDataSelectorDto("ext:ai.faces", null, null, null, null, null, ["embedding", "detection", "segment", "face"]),
-            dryRun: true);
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, null, null, ["embedding", "detection", "segment", "face"]), dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["face"]);
         Assert.Equal(1, result.RemovedCounts["embedding"]);
         Assert.Equal(1, result.RemovedCounts["detection"]);
         Assert.Equal(1, result.RemovedCounts["segment"]);
-        Assert.Single(await db.Faces.ToListAsync());
-        Assert.Single(await db.Embeddings.ToListAsync());
-        Assert.Single(await db.Set<Detection>().ToListAsync());
-        Assert.Single(await db.Segments.ToListAsync());
+        Assert.Single(await db.Faces.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Embeddings.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Set<Detection>().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Single(await db.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -566,7 +562,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Face Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var face = new Face
         {
@@ -574,7 +570,7 @@ public sealed class AiDataPurgeServiceTests
             PrimarySourceKey = "face-0001",
         };
         db.Faces.Add(face);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.AiRuns.Add(new AiRun
         {
@@ -593,16 +589,16 @@ public sealed class AiDataPurgeServiceTests
             SourceRunId = "run-face-appearance-purge",
             SampleCount = 2,
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var service = CreateService(db);
-        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["face"]));
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["face"]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["face"]);
         Assert.Equal(1, result.RemovedCounts["aiRun"]);
-        Assert.Empty(await db.Faces.ToListAsync());
-        Assert.Empty(await db.FaceAppearances.ToListAsync());
-        Assert.Empty(await db.AiRuns.ToListAsync());
+        Assert.Empty(await db.Faces.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.FaceAppearances.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await db.AiRuns.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -613,7 +609,7 @@ public sealed class AiDataPurgeServiceTests
 
         var video = new Video { Title = "Cached Video" };
         db.Videos.Add(video);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         db.Segments.Add(new Segment
         {
@@ -625,7 +621,7 @@ public sealed class AiDataPurgeServiceTests
             SourceKey = "ext:ai.faces",
             SourceRunId = "run-cache-evict",
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = new SegmentSpanResolver(db, new CurrentPrincipalAccessor(), new MemoryCache(new MemoryCacheOptions()));
         var request = new SegmentSpanQueryRequestDto(
@@ -647,10 +643,10 @@ public sealed class AiDataPurgeServiceTests
         Assert.Single(cachedBeforePurge);
 
         var service = CreateService(db, resolver);
-        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["segment"]));
+        var result = await service.PurgeAsync(new AiDataSelectorDto("ext:ai.faces", null, null, null, "video", video.Id, ["segment"]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RemovedCounts["segment"]);
-        Assert.Empty(await db.Segments.ToListAsync());
+        Assert.Empty(await db.Segments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
 
         var cachedAfterPurge = await resolver.QueryVideoAsync(video.Id, request, CancellationToken.None);
         Assert.Empty(cachedAfterPurge);
@@ -665,7 +661,7 @@ public sealed class AiDataPurgeServiceTests
 
         var image = new Image { Title = "Batch Image" };
         db.Images.Add(image);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var embeddings = Enumerable.Range(0, 12_000)
             .Select(_ => new Embedding
@@ -682,15 +678,15 @@ public sealed class AiDataPurgeServiceTests
             .ToList();
 
         db.Embeddings.AddRange(embeddings);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         saveChangesCounter.Reset();
 
         var service = CreateService(db);
-        var removed = await service.DeleteEmbeddingsAsync(new AiDataSelectorDto("ext:ai.visual", "batch-run", null, null, null, null, null));
+        var removed = await service.DeleteEmbeddingsAsync(new AiDataSelectorDto("ext:ai.visual", "batch-run", null, null, null, null, null), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(12_000, removed);
-        Assert.Equal(0, await db.Embeddings.CountAsync());
+        Assert.Equal(0, await db.Embeddings.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(3, saveChangesCounter.SaveChangesCalls);
     }
 

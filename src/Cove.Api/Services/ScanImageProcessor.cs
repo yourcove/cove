@@ -26,7 +26,9 @@ internal sealed class ScanImageProcessor(
         int? parentFolderId = null,
         bool contentChanged = false,
         ScanOperationOptions? scanOptions = null,
-        MoveDetectionIndex? moveIndex = null)
+        MoveDetectionIndex? moveIndex = null,
+        int? validatedWidth = null,
+        int? validatedHeight = null)
     {
         var stat = fileStat ?? ScanPath.GetFileStat(path);
         var dirPath = ScanPath.NormalizeStoredFolderPath(Path.GetDirectoryName(path) ?? path);
@@ -48,6 +50,7 @@ internal sealed class ScanImageProcessor(
         {
             existing.Size = stat.Size;
             existing.ModTime = stat.ModTime;
+            ApplyValidatedDimensions(existing, validatedWidth, validatedHeight);
 
             if (contentChanged)
             {
@@ -88,6 +91,7 @@ internal sealed class ScanImageProcessor(
                         Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
                         ImageId = matchedImageId,
                     };
+                    ApplyValidatedDimensions(duplicateFile, validatedWidth, validatedHeight);
                     db.ImageFiles.Add(duplicateFile);
                     await EnrichImageFileAsync(duplicateFile, path, ct);
                     logger.LogTrace("Attached duplicate image file {NewPath} to existing image {ImageId}", path, matchedImageId);
@@ -104,6 +108,7 @@ internal sealed class ScanImageProcessor(
             ModTime = stat.ModTime,
             Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant()
         };
+        ApplyValidatedDimensions(imageFile, validatedWidth, validatedHeight);
 
         Image image;
         if (imageId.HasValue)
@@ -151,5 +156,13 @@ internal sealed class ScanImageProcessor(
             if (!string.IsNullOrWhiteSpace(md5))
                 ScanFileIdentityService.UpsertFingerprint(imageFile, "md5", md5);
         }
+    }
+
+    private static void ApplyValidatedDimensions(ImageFile imageFile, int? width, int? height)
+    {
+        if (width is > 0)
+            imageFile.Width = width.Value;
+        if (height is > 0)
+            imageFile.Height = height.Value;
     }
 }

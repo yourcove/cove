@@ -83,6 +83,31 @@ public sealed partial class CoveClient
             request,
             cancellationToken);
 
+    public Task<VideoHistoryDto> GetTextHistoryAsync(TextDocumentDto text, CancellationToken cancellationToken = default)
+        => SendAsync<VideoHistoryDto>(HttpMethod.Get, WithCacheNonce($"/api/texts/{text.Id}/history"), payload: null, cancellationToken);
+
+    public Task<int> IncrementTextLikeAsync(TextDocumentDto text, CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Post, $"/api/texts/{text.Id}/like", payload: null, cancellationToken);
+
+    public Task<int> AddHistoricalTextLikeAsync(TextDocumentDto text, DateTime at, CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Post, $"/api/texts/{text.Id}/like/historical", new HistoricalLikeDto(at), cancellationToken);
+
+    public Task DeleteHistoricalTextLikeAsync(TextDocumentDto text, DateTime at, CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(HttpMethod.Delete, $"/api/texts/{text.Id}/like/history?at={Uri.EscapeDataString(at.ToUniversalTime().ToString("O"))}", new { }, cancellationToken);
+
+    public Task<int> DecrementTextLikeAsync(TextDocumentDto text, CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Delete, $"/api/texts/{text.Id}/like", payload: null, cancellationToken);
+
+    public Task<int> ResetTextLikeAsync(TextDocumentDto text, CancellationToken cancellationToken = default)
+        => SendAsync<int>(HttpMethod.Post, $"/api/texts/{text.Id}/like/reset", payload: null, cancellationToken);
+
+    public async Task<string> RescanTextAsync(int textId, CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync<JsonElement>(HttpMethod.Post, $"/api/texts/{textId}/rescan", payload: null, cancellationToken);
+        return response.GetProperty("jobId").GetString()
+            ?? throw new InvalidOperationException($"POST /api/texts/{textId}/rescan did not return a job id.");
+    }
+
     public async Task<int> BulkUpdateTextsAsync(
         BulkTextDocumentUpdateDto request,
         CancellationToken cancellationToken = default)
@@ -111,12 +136,13 @@ public sealed partial class CoveClient
             $"DELETE {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
     }
 
-    public Task BulkDeleteTextsAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteTextsAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-        => SendForNoContentAsync(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Delete,
             "/api/texts/bulk",
             request,
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
 }

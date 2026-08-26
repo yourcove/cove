@@ -2,11 +2,9 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Texts;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class TextLifecycleQueryAndFileApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -17,12 +15,12 @@ public sealed class TextLifecycleQueryAndFileApiTests(
     public async Task GivenTextMetadata_WhenMemberCreatesAndReadsIt_ThenRelationshipsRoundTrip()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync($"Text studio {Guid.NewGuid():N}");
-        var tag = await AsUser().CreateTagAsync($"Text tag {Guid.NewGuid():N}");
+        var studio = await AsUser().CreateStudioAsync($"Text studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync($"Text tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Text performer {Guid.NewGuid():N}")
-            .Build());
-        var group = await AsUser().CreateGroupAsync($"Text group {Guid.NewGuid():N}");
+            .Build(), TestContext.Current.CancellationToken);
+        var group = await AsUser().CreateGroupAsync($"Text group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var request = new TextDocumentBuilder()
             .WithTitle("  Text lifecycle title  ")
             .WithCode("  TEXT-CODE  ")
@@ -37,8 +35,8 @@ public sealed class TextLifecycleQueryAndFileApiTests(
             .Build();
 
         // Act
-        var created = await AsUser(ApiTestUsers.Eva).CreateTextAsync(request);
-        var retrieved = await AsUser(ApiTestUsers.Eva).GetTextByIdAsync(created.Id);
+        var created = await AsUser(ApiTestUsers.Eva).CreateTextAsync(request, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser(ApiTestUsers.Eva).GetTextByIdAsync(created.Id, TestContext.Current.CancellationToken);
 
         // Assert
         retrieved.Title.Should().Be("Text lifecycle title");
@@ -58,12 +56,12 @@ public sealed class TextLifecycleQueryAndFileApiTests(
     public async Task GivenTextMetadata_WhenMemberPartiallyUpdatesIt_ThenResponseAndReadPreserveRelationships()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync($"Original text studio {Guid.NewGuid():N}");
-        var tag = await AsUser().CreateTagAsync($"Original text tag {Guid.NewGuid():N}");
+        var studio = await AsUser().CreateStudioAsync($"Original text studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync($"Original text tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Original text performer {Guid.NewGuid():N}")
-            .Build());
-        var group = await AsUser().CreateGroupAsync($"Original text group {Guid.NewGuid():N}");
+            .Build(), TestContext.Current.CancellationToken);
+        var group = await AsUser().CreateGroupAsync($"Original text group {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var text = await AsUser().CreateTextAsync(new TextDocumentBuilder()
             .WithTitle($"Original text {Guid.NewGuid():N}")
             .WithCode("ORIGINAL-CODE")
@@ -74,7 +72,7 @@ public sealed class TextLifecycleQueryAndFileApiTests(
             .WithTag(tag)
             .WithPerformer(performer)
             .WithGroup(group)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var updated = await AsUser(ApiTestUsers.Eva).UpdateTextAsync(text.Id, new
@@ -83,8 +81,8 @@ public sealed class TextLifecycleQueryAndFileApiTests(
             details = "Updated details",
             urls = new[] { "https://text.example/updated" },
             clearFields = new[] { "studioId" },
-        });
-        var retrieved = await AsUser().GetTextByIdAsync(text.Id);
+        }, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser().GetTextByIdAsync(text.Id, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Title.Should().Be("Updated text title");
@@ -119,9 +117,9 @@ public sealed class TextLifecycleQueryAndFileApiTests(
     {
         // Arrange
         var suffix = Guid.NewGuid().ToString("N");
-        var first = await AsUser().CreateTextAsync(new TextDocumentBuilder().WithTitle($"A filtered text {suffix}").AsOrganized().Build());
-        var second = await AsUser().CreateTextAsync(new TextDocumentBuilder().WithTitle($"B filtered text {suffix}").AsOrganized().Build());
-        await AsUser().CreateTextAsync(new TextDocumentBuilder().WithTitle($"Excluded text {suffix}").Build());
+        var first = await AsUser().CreateTextAsync(new TextDocumentBuilder().WithTitle($"A filtered text {suffix}").AsOrganized().Build(), TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateTextAsync(new TextDocumentBuilder().WithTitle($"B filtered text {suffix}").AsOrganized().Build(), TestContext.Current.CancellationToken);
+        await AsUser().CreateTextAsync(new TextDocumentBuilder().WithTitle($"Excluded text {suffix}").Build(), TestContext.Current.CancellationToken);
         var request = new FilteredQueryRequest<TextDocumentFilter>
         {
             ObjectFilter = new TextDocumentFilter { OrganizedCriterion = new BoolCriterion { Value = true } },
@@ -129,7 +127,7 @@ public sealed class TextLifecycleQueryAndFileApiTests(
         };
 
         // Act
-        var result = await AsUser(ApiTestUsers.Eva).FindTextsAsync(request);
+        var result = await AsUser(ApiTestUsers.Eva).FindTextsAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         result.TotalCount.Should().Be(2);
@@ -152,9 +150,9 @@ public sealed class TextLifecycleQueryAndFileApiTests(
         // Act
         await invalidImport.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 400 (BadRequest)*");
-        var created = await AsUser(ApiTestUsers.Eva).CreateTextFromFileAsync(path);
-        var content = await AsUser(ApiTestUsers.Eva).GetTextContentAsync(created.Id);
-        var metadataOnly = await AsUser().CreateTextAsync($"Text without file {Guid.NewGuid():N}");
+        var created = await AsUser(ApiTestUsers.Eva).CreateTextFromFileAsync(path, TestContext.Current.CancellationToken);
+        var content = await AsUser(ApiTestUsers.Eva).GetTextContentAsync(created.Id, TestContext.Current.CancellationToken);
+        var metadataOnly = await AsUser().CreateTextAsync($"Text without file {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var missingContent = () => AsUser().GetTextContentAsync(metadataOnly.Id);
 
         // Assert
@@ -182,7 +180,7 @@ public sealed class TextLifecycleQueryAndFileApiTests(
         var request = new FilteredQueryRequest<TextDocumentFilter> { Ids = [first.Id, second.Id] };
 
         // Act
-        var aggregate = await AsUser(ApiTestUsers.Eva).AggregateTextsAsync(request);
+        var aggregate = await AsUser(ApiTestUsers.Eva).AggregateTextsAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         expectedSize.Should().BeGreaterThan(0);
@@ -195,15 +193,15 @@ public sealed class TextLifecycleQueryAndFileApiTests(
     public async Task GivenTextsWithRelationships_WhenMemberBulkSetsValues_ThenOnlySelectedTextsChange()
     {
         // Arrange
-        var originalStudio = await AsUser().CreateStudioAsync($"Original bulk text studio {Guid.NewGuid():N}");
-        var originalTag = await AsUser().CreateTagAsync($"Original bulk text tag {Guid.NewGuid():N}");
+        var originalStudio = await AsUser().CreateStudioAsync($"Original bulk text studio {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var originalTag = await AsUser().CreateTagAsync($"Original bulk text tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var originalPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Original bulk text performer {Guid.NewGuid():N}")
-            .Build());
-        var replacementTag = await AsUser().CreateTagAsync($"Replacement bulk text tag {Guid.NewGuid():N}");
+            .Build(), TestContext.Current.CancellationToken);
+        var replacementTag = await AsUser().CreateTagAsync($"Replacement bulk text tag {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         var replacementPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Replacement bulk text performer {Guid.NewGuid():N}")
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var selected = await Task.WhenAll(Enumerable.Range(1, 2).Select(index => AsUser().CreateTextAsync(new TextDocumentBuilder()
             .WithTitle($"Selected bulk text {index} {Guid.NewGuid():N}")
             .WithCode($"ORIGINAL-{index}")
@@ -221,7 +219,7 @@ public sealed class TextLifecycleQueryAndFileApiTests(
             .WithStudio(originalStudio)
             .WithTag(originalTag)
             .WithPerformer(originalPerformer)
-            .Build());
+            .Build(), TestContext.Current.CancellationToken);
         var request = new BulkTextDocumentUpdateDto
         {
             Ids = selected.Select(text => text.Id).ToList(),
@@ -236,9 +234,9 @@ public sealed class TextLifecycleQueryAndFileApiTests(
         };
 
         // Act
-        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdateTextsAsync(request);
+        var updatedCount = await AsUser(ApiTestUsers.Eva).BulkUpdateTextsAsync(request, TestContext.Current.CancellationToken);
         var updated = await Task.WhenAll(selected.Select(text => AsUser().GetTextByIdAsync(text.Id)));
-        var control = await AsUser().GetTextByIdAsync(unselected.Id);
+        var control = await AsUser().GetTextByIdAsync(unselected.Id, TestContext.Current.CancellationToken);
 
         // Assert
         updatedCount.Should().Be(2);
@@ -268,14 +266,15 @@ public sealed class TextLifecycleQueryAndFileApiTests(
         // Arrange
         var retainedPath = AsTestFileSystem().CreateTextFile("Retained text file contents.");
         var deletedPath = AsTestFileSystem().CreateTextFile("Deleted text file contents.");
-        var retainedFileText = await AsUser().CreateTextFromFileAsync(retainedPath);
-        var deletedFileText = await AsUser().CreateTextFromFileAsync(deletedPath);
+        var retainedFileText = await AsUser().CreateTextFromFileAsync(retainedPath, TestContext.Current.CancellationToken);
+        var deletedFileText = await AsUser().CreateTextFromFileAsync(deletedPath, TestContext.Current.CancellationToken);
 
         // Act
-        await AsUser().DeleteTextAsync(retainedFileText.Id);
-        await AsUser().DeleteTextAsync(deletedFileText.Id, deleteFile: true);
+        await AsUser().DeleteTextAsync(retainedFileText.Id, cancellationToken: TestContext.Current.CancellationToken);
+        await AsUser().DeleteTextAsync(deletedFileText.Id, deleteFile: true, cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
+        await WaitForFileDeletionAsync(deletedPath, TestContext.Current.CancellationToken);
         File.Exists(retainedPath).Should().BeTrue();
         File.Exists(deletedPath).Should().BeFalse();
         foreach (var deleted in new[] { retainedFileText, deletedFileText })
@@ -289,13 +288,13 @@ public sealed class TextLifecycleQueryAndFileApiTests(
     [Fact]
     public async Task GivenText_WhenMemberDeletesIt_ThenForbiddenIsReturnedWithoutRemovingIt()
     {
-        var text = await AsUser().CreateTextAsync($"Protected delete text {Guid.NewGuid():N}");
+        var text = await AsUser().CreateTextAsync($"Protected delete text {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
 
         var deletion = () => AsUser(ApiTestUsers.Eva).DeleteTextAsync(text.Id);
 
         await deletion.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await AsUser().GetTextByIdAsync(text.Id)).Id.Should().Be(text.Id);
+        (await AsUser().GetTextByIdAsync(text.Id, TestContext.Current.CancellationToken)).Id.Should().Be(text.Id);
     }
 
     [Fact]
@@ -306,9 +305,9 @@ public sealed class TextLifecycleQueryAndFileApiTests(
         var firstPath = AsTestFileSystem().CreateTextFile("First bulk delete text.");
         var secondPath = AsTestFileSystem().CreateTextFile("Second bulk delete text.");
         var retainedPath = AsTestFileSystem().CreateTextFile("Retained bulk delete text.");
-        var first = await AsUser().CreateTextFromFileAsync(firstPath);
-        var second = await AsUser().CreateTextFromFileAsync(secondPath);
-        var retained = await AsUser().CreateTextFromFileAsync(retainedPath);
+        var first = await AsUser().CreateTextFromFileAsync(firstPath, TestContext.Current.CancellationToken);
+        var second = await AsUser().CreateTextFromFileAsync(secondPath, TestContext.Current.CancellationToken);
+        var retained = await AsUser().CreateTextFromFileAsync(retainedPath, TestContext.Current.CancellationToken);
         var request = new BatchDeleteDto([first.Id, int.MaxValue, second.Id], DeleteFiles: true);
 
         // Act
@@ -317,24 +316,47 @@ public sealed class TextLifecycleQueryAndFileApiTests(
             .WithMessage("*returned 403 (Forbidden)*");
         File.Exists(firstPath).Should().BeTrue();
         File.Exists(secondPath).Should().BeTrue();
-        await AsUser().BulkDeleteTextsAsync(request);
+        var owner = AsUser();
+        var queued = await owner.BulkDeleteTextsAsync(request, TestContext.Current.CancellationToken);
+        queued.ItemCount.Should().Be(3);
+        AssertCompletedBulkDeletion(
+            await owner.WaitForTerminalJobAsync(queued.JobId, TestContext.Current.CancellationToken),
+            succeeded: 2,
+            skipped: 1);
 
         // Assert
         foreach (var deleted in new[] { first, second })
         {
-            var read = () => AsUser().GetTextByIdAsync(deleted.Id);
+            var read = () => owner.GetTextByIdAsync(deleted.Id);
             await read.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*returned 404 (NotFound)*");
         }
         File.Exists(firstPath).Should().BeFalse();
         File.Exists(secondPath).Should().BeFalse();
         File.Exists(retainedPath).Should().BeTrue();
-        (await AsUser().GetTextByIdAsync(retained.Id)).Id.Should().Be(retained.Id);
+        (await owner.GetTextByIdAsync(retained.Id, TestContext.Current.CancellationToken)).Id.Should().Be(retained.Id);
     }
 
     private async Task<TextDocumentDto> ImportTextAsync(string contents)
     {
         var path = AsTestFileSystem().CreateTextFile(contents);
         return await AsUser().CreateTextFromFileAsync(path);
+    }
+
+    private static async Task WaitForFileDeletionAsync(string path, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (File.Exists(path))
+        {
+            try
+            {
+                await Task.Delay(50, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"File deletion did not complete within 10 seconds: {path}");
+            }
+        }
     }
 }

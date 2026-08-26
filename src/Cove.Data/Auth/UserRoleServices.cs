@@ -687,15 +687,16 @@ public sealed class UserService : IUserService
         var videos = NormalizeVideosPreferences(preferences.Videos);
         var playback = NormalizePlaybackPreferences(preferences.Playback);
         var keybindingOverrides = NormalizeKeybindingOverrides(preferences.KeybindingOverrides);
+        var keyboardShortcuts = NormalizeKeyboardShortcutPreferences(preferences.KeyboardShortcuts);
         var homePageContent = string.IsNullOrWhiteSpace(preferences.HomePageContent) ? null : preferences.HomePageContent;
         var defaultFilters = NormalizeDefaultFilters(preferences.DefaultFilters);
         if (theme is null && ratingSystemOptions is null && tracking is null && videos is null && playback is null
-            && keybindingOverrides is null && homePageContent is null && defaultFilters is null)
+            && keybindingOverrides is null && keyboardShortcuts is null && homePageContent is null && defaultFilters is null)
         {
             return null;
         }
 
-        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback, homePageContent, defaultFilters);
+        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback, homePageContent, defaultFilters, keyboardShortcuts);
     }
 
     private static UserVideosPreferencesDto? NormalizeVideosPreferences(UserVideosPreferencesDto? videos)
@@ -730,6 +731,44 @@ public sealed class UserService : IUserService
             .ToDictionary(entry => entry.Key.Trim(), entry => entry.Value.Trim(), StringComparer.OrdinalIgnoreCase);
 
         return normalized.Count > 0 ? normalized : null;
+    }
+
+    private static UserKeyboardShortcutPreferencesDto? NormalizeKeyboardShortcutPreferences(UserKeyboardShortcutPreferencesDto? preferences)
+    {
+        if (preferences is null)
+        {
+            return null;
+        }
+
+        var activePresetId = string.IsNullOrWhiteSpace(preferences.ActivePresetId) ? null : preferences.ActivePresetId.Trim();
+        var personalPresets = (preferences.PersonalPresets ?? [])
+            .Where(preset => preset.SchemaVersion == 1
+                && !string.IsNullOrWhiteSpace(preset.Id)
+                && !string.IsNullOrWhiteSpace(preset.Name)
+                && (preset.UnmappedActions == "action-defaults" || preset.UnmappedActions == "unbound"))
+            .Take(64)
+            .Select(preset => preset with
+            {
+                Id = preset.Id.Trim(),
+                Name = preset.Name.Trim(),
+                Bindings = (preset.Bindings ?? [])
+                    .Where(binding => !string.IsNullOrWhiteSpace(binding.Key))
+                    .Take(2000)
+                    .ToDictionary(
+                        binding => binding.Key.Trim(),
+                        binding => (binding.Value ?? [])
+                            .Where(value => !string.IsNullOrWhiteSpace(value))
+                            .Select(value => value.Trim())
+                            .Where(value => value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 3)
+                            .Take(8)
+                            .ToArray(),
+                        StringComparer.OrdinalIgnoreCase),
+            })
+            .ToArray();
+
+        return activePresetId is null && personalPresets.Length == 0 && preferences.ShowChordHints is null
+            ? null
+            : new UserKeyboardShortcutPreferencesDto(activePresetId, personalPresets, preferences.ShowChordHints);
     }
 
     private static Dictionary<string, string>? NormalizeDefaultFilters(Dictionary<string, string>? defaultFilters)

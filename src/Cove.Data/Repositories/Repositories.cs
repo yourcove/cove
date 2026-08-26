@@ -412,7 +412,7 @@ public class PerformerRepository : IPerformerRepository
             query = FilterHelpers.ApplyString(query, filter.GenderCriterion, p => p.Gender != null ? p.Gender.ToString() : null);
             query = FilterHelpers.ApplyString(query, filter.EthnicityCriterion, p => p.Ethnicity);
             query = FilterHelpers.ApplyString(query, filter.CountryCriterion, p => p.Country);
-            query = FilterHelpers.ApplyString(query, filter.UrlCriterion, p => p.Urls.Select(u => u.Url).FirstOrDefault());
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, p => p.Urls.Select(u => u.Url));
 
             if (filter.FavoriteCriterion != null)
                 query = query.Where(p => p.Favorite == filter.FavoriteCriterion.Value);
@@ -514,18 +514,7 @@ public class PerformerRepository : IPerformerRepository
             query = ApplyCareerLengthCriterion(query, filter.CareerLengthCriterion);
 
             // Aliases criterion
-            if (filter.AliasesCriterion != null)
-            {
-                var aliasVal = filter.AliasesCriterion.Value;
-                query = filter.AliasesCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(p => p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.Excludes => query.Where(p => !p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.IsNull => query.Where(p => p.Aliases.Count == 0),
-                    CriterionModifier.NotNull => query.Where(p => p.Aliases.Count > 0),
-                    _ => query.Where(p => p.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.AliasesCriterion, p => p.Aliases.Select(a => a.Alias));
 
             // PenisLength as int (rounded)
             query = FilterHelpers.ApplyInt(query, filter.PenisLengthCriterion, p => (int)(p.PenisLength ?? 0));
@@ -836,18 +825,7 @@ public class TagRepository : ITagRepository
             query = FilterHelpers.ApplyInt(query, filter.RemoteIdCountCriterion, t => t.RemoteIds.Count);
 
             // Aliases criterion
-            if (filter.AliasesCriterion != null)
-            {
-                var aliasVal = filter.AliasesCriterion.Value;
-                query = filter.AliasesCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(t => t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.Excludes => query.Where(t => !t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.IsNull => query.Where(t => t.Aliases.Count == 0),
-                    CriterionModifier.NotNull => query.Where(t => t.Aliases.Count > 0),
-                    _ => query.Where(t => t.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.AliasesCriterion, t => t.Aliases.Select(a => a.Alias));
 
             query = query.ApplyCustomFieldCriteria(_db, CustomFieldEntityTypes.Tag, filter.CustomFieldCriterion, filter.CustomFieldCriteria);
         }
@@ -1397,18 +1375,7 @@ public class StudioRepository : IStudioRepository
             query = FilterHelpers.ApplyMultiId(query, filter.TagsCriterion, s => s.StudioTags.Select(st => st.TagId), expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups);
 
             // String criteria
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(s => s.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.Urls.Count > 0),
-                    _ => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, s => s.Urls.Select(u => u.Url));
 
             query = FilterHelpers.ApplyRemoteId(query, filter.RemoteIdCriterion, filter.RemoteIdValueCriterion, studio => studio.RemoteIds, remoteId => remoteId.Endpoint, remoteId => remoteId.RemoteId);
 
@@ -1423,18 +1390,7 @@ public class StudioRepository : IStudioRepository
             query = FilterHelpers.ApplyString(query, filter.DetailsCriterion, s => s.Details);
 
             // Aliases criterion
-            if (filter.AliasesCriterion != null)
-            {
-                var aliasVal = filter.AliasesCriterion.Value;
-                query = filter.AliasesCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                    CriterionModifier.IsNull => query.Where(s => s.Aliases.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.Aliases.Count > 0),
-                    _ => query.Where(s => s.Aliases.Any(a => EF.Functions.ILike(a.Alias, $"%{aliasVal}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.AliasesCriterion, s => s.Aliases.Select(a => a.Alias));
 
             // Parents (multi-ID on the single parent studio FK)
             query = FilterHelpers.ApplyStudioCriterion(query, filter.ParentsCriterion, s => s.ParentId);
@@ -1670,18 +1626,7 @@ public class GalleryRepository : IGalleryRepository
             query = ApplyTypicalResolutionCriterion(query, filter.TypicalResolutionCriterion);
 
             // URL criterion
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(g => !g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(g => g.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(g => g.Urls.Count > 0),
-                    _ => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, g => g.Urls.Select(u => u.Url));
 
             // Date criterion
             query = FilterHelpers.ApplyDate(query, filter.DateCriterion, g => g.Date);
@@ -2453,18 +2398,7 @@ public class ImageRepository : IImageRepository
         query = FilterHelpers.ApplyString(query, filter.PhotographerCriterion, i => i.Photographer);
 
         // URL criterion
-        if (filter.UrlCriterion != null)
-        {
-            var urlVal = filter.UrlCriterion.Value;
-            query = filter.UrlCriterion.Modifier switch
-            {
-                CriterionModifier.Includes => query.Where(i => i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
-                CriterionModifier.Excludes => query.Where(i => !i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
-                CriterionModifier.IsNull => query.Where(i => i.Urls.Count == 0),
-                CriterionModifier.NotNull => query.Where(i => i.Urls.Count > 0),
-                _ => query.Where(i => i.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{urlVal}%"))),
-            };
-        }
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, i => i.Urls.Select(u => u.Url));
 
         // Date criterion
         query = FilterHelpers.ApplyDate(query, filter.DateCriterion, i => i.Date);
@@ -2922,18 +2856,7 @@ public class GroupRepository : IGroupRepository
             query = FilterHelpers.ApplyStudioCriterion(query, filter.StudiosCriterion, g => g.StudioId, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
 
             // URL criterion
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(g => !g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(g => g.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(g => g.Urls.Count > 0),
-                    _ => query.Where(g => g.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, g => g.Urls.Select(u => u.Url));
 
             // Date criterion
             query = FilterHelpers.ApplyDate(query, filter.DateCriterion, g => g.Date);
@@ -3094,18 +3017,29 @@ public class GroupRepository : IGroupRepository
 
     private static IQueryable<Group> ApplyAllowedHostTypesCriterion(IQueryable<Group> query, StringCriterion? criterion)
     {
-        if (criterion == null)
-            return query;
+        if (criterion?.Modifier is not (CriterionModifier.MatchesRegex or CriterionModifier.NotMatchesRegex))
+            return FilterHelpers.ApplyStringCollection(query, criterion, group => group.AllowedHostTypes);
 
-        var value = criterion.Value.Trim().ToLowerInvariant();
-        return criterion.Modifier switch
+        var matchingHostTypes = new Group().AllowedHostTypes
+            .Where(hostType => Regex.IsMatch(hostType, criterion.Value, RegexOptions.IgnoreCase))
+            .ToArray();
+        if (matchingHostTypes.Length == 0)
+            return criterion.Modifier == CriterionModifier.MatchesRegex ? query.Where(_ => false) : query;
+
+        var groupParam = Expression.Parameter(typeof(Group), "group");
+        var allowedHostTypes = Expression.Property(groupParam, nameof(Group.AllowedHostTypes));
+        var containsMethod = typeof(Enumerable).GetMethods()
+            .Single(method => method.Name == nameof(Enumerable.Contains) && method.GetParameters().Length == 2)
+            .MakeGenericMethod(typeof(string));
+        Expression? anyMatch = null;
+        foreach (var hostType in matchingHostTypes)
         {
-            CriterionModifier.Equals or CriterionModifier.Includes => query.Where(group => group.AllowedHostTypes.Any(hostType => hostType.ToLower() == value)),
-            CriterionModifier.NotEquals or CriterionModifier.Excludes => query.Where(group => !group.AllowedHostTypes.Any(hostType => hostType.ToLower() == value)),
-            CriterionModifier.IsNull => query.Where(group => group.AllowedHostTypes.Count == 0),
-            CriterionModifier.NotNull => query.Where(group => group.AllowedHostTypes.Count > 0),
-            _ => query,
-        };
+            var contains = Expression.Call(containsMethod, allowedHostTypes, Expression.Constant(hostType));
+            anyMatch = anyMatch == null ? contains : Expression.OrElse(anyMatch, contains);
+        }
+
+        var predicate = criterion.Modifier == CriterionModifier.MatchesRegex ? anyMatch! : Expression.Not(anyMatch!);
+        return query.Where(Expression.Lambda<Func<Group, bool>>(predicate, groupParam));
     }
 }
 

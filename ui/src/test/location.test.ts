@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildRouteUrl, getPreviousInternalRoute, parseCurrentRoute, syncRouteHistory } from "../router/location";
+import { buildRouteUrl, getPreviousInternalRoute, navigateToUrl, parseCurrentRoute, registerNavigationBlocker, syncRouteHistory } from "../router/location";
 
 const sessionEntries = new Map<string, string>();
 
@@ -22,6 +22,17 @@ beforeEach(() => {
 });
 
 describe("route history", () => {
+  it("lets an active editor block in-app navigation", () => {
+    const unregister = registerNavigationBlocker(() => false);
+
+    expect(navigateToUrl("/videos")).toBe(false);
+    expect(window.location.pathname).toBe("/");
+
+    unregister();
+    expect(navigateToUrl("/videos")).toBe(true);
+    expect(window.location.pathname).toBe("/videos");
+  });
+
   it("parses and rebuilds video seek timestamps", () => {
     window.history.replaceState(null, "", "/video/42?t=91.5");
 

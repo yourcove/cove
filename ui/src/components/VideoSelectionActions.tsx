@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Edit, Loader2, Merge, Play, Search, Trash2 } from "lucide-react";
-import type { Video } from "../api/types";
+import type { BulkDeletionJobStart, Video } from "../api/types";
 import { videos } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
@@ -66,6 +66,7 @@ export function VideoSelectionActions({
 
   const canWrite = canWriteEntity("video", hasPermission);
   const canDelete = canDeleteEntity("video", hasPermission);
+  const canDeleteFiles = hasPermission("videos.delete.file");
   const canIdentify = hasPermission("library.identify") && canWrite;
   const canDownload = hasPermission("jobs.run") && canWrite;
   const continuePlaylistDefault = config?.ui.continuePlaylistDefault ?? false;
@@ -92,12 +93,11 @@ export function VideoSelectionActions({
     queryClient.invalidateQueries({ queryKey: [queryKey] });
   }, [queryClient, queryKey]);
 
-  const bulkDeleteMut = useMutation({
+  const bulkDeleteMut = useMutation<BulkDeletionJobStart, Error, { deleteFile?: boolean; deleteGenerated?: boolean } | undefined>({
     mutationFn: (options?: { deleteFile?: boolean; deleteGenerated?: boolean }) => videos.bulkDelete([...selectedIds], options),
     onSuccess: () => {
       setShowDeleteConfirm(false);
       onSelectNone();
-      invalidate();
     },
   });
 
@@ -194,10 +194,12 @@ export function VideoSelectionActions({
         open={showDeleteConfirm}
         title={`Delete ${selectedIds.size} video${selectedIds.size === 1 ? "" : "s"}`}
         message={`Delete ${selectedIds.size} selected video${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`}
-        confirmLabel={bulkDeleteMut.isPending ? "Deleting..." : "Delete"}
+        confirmLabel={bulkDeleteMut.isPending ? "Queueing..." : "Queue deletion"}
         onConfirm={(options) => bulkDeleteMut.mutate(options)}
         onCancel={() => setShowDeleteConfirm(false)}
-        showDeleteFile
+        isPending={bulkDeleteMut.isPending}
+        errorMessage={bulkDeleteMut.error?.message ?? null}
+        showDeleteFile={canDeleteFiles}
         showDeleteGenerated
       />
       <BulkEditDialog

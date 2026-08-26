@@ -32,6 +32,7 @@ import {
   type MediaPlayerSurface,
 } from "./MediaPlayerExtension";
 import { useMediaRecoveryController } from "./useMediaRecoveryController";
+import { useKeySequence } from "../hooks/useKeySequence";
 
 type FaceOverlayInfo = Pick<Face, "id" | "label" | "performerName" | "performerId">;
 type DetectionOverlay = Detection & { overlayKey?: string };
@@ -1279,63 +1280,71 @@ export function VideoPlayer({
     });
   }, [onPlaybackControlRegister, pauseForExtension, playForExtension, seekByForRegisteredControl, toggleForRegisteredControl]);
 
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
+  const toggleFullscreen = useCallback(() => {
+    const nextFullscreen = !document.fullscreenElement;
+    trackPlayerInteraction("fullscreen", { active: nextFullscreen, positionSec: currentTime });
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+
+    const container = containerRef.current;
+    if (typeof container?.requestFullscreen === "function") {
+      void container.requestFullscreen();
+      return;
+    }
+
+    const video = videoRef.current as (HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    }) | null;
+    video?.webkitEnterFullscreen?.();
+  }, [currentTime, trackPlayerInteraction]);
+
+  const playerKeyboardBindings = useMemo(() => {
+    const withPlayer = (action: (video: HTMLVideoElement) => void) => () => {
       const v = videoRef.current;
       if (!v) return;
       if (interactionSnapshotRef.current.active) return;
-      const tag = (event.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-
-      switch (event.key) {
-        case " ":
-        case "k":
-          event.preventDefault();
-          if (v.paused) playVideo();
-          else {
-            recordMediaUserPause();
-            v.pause();
-          }
-          break;
-        case "ArrowLeft":
-          event.preventDefault();
-          seekToAbsoluteTime(currentTime - (event.shiftKey ? 10 : 5));
-          break;
-        case "ArrowRight":
-          event.preventDefault();
-          seekToAbsoluteTime(currentTime + (event.shiftKey ? 10 : 5));
-          break;
-        case "ArrowUp":
-          event.preventDefault();
+      action(v);
+      resetHideTimer();
+    };
+    return [
+      { id: "player.playPause", keys: "Space", surface: "player" as const, action: withPlayer((v) => {
+        if (v.paused) playVideo();
+        else {
+          recordMediaUserPause();
+          v.pause();
+        }
+      }) },
+      { id: "player.seekBackward", keys: "ArrowLeft", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime - 5)) },
+      { id: "player.seekForward", keys: "ArrowRight", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime + 5)) },
+      { id: "player.seekBackwardLarge", keys: "Shift+ArrowLeft", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime - 10)) },
+      { id: "player.seekForwardLarge", keys: "Shift+ArrowRight", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime + 10)) },
+      { id: "player.volumeUp", keys: "ArrowUp", surface: "player" as const, action: withPlayer((v) => {
           v.volume = Math.min(1, v.volume + 0.1);
           setVol(v.volume);
           localStorage.setItem(VOLUME_KEY, String(v.volume));
-          break;
-        case "ArrowDown":
-          event.preventDefault();
+      }) },
+      { id: "player.volumeDown", keys: "ArrowDown", surface: "player" as const, action: withPlayer((v) => {
           v.volume = Math.max(0, v.volume - 0.1);
           setVol(v.volume);
           localStorage.setItem(VOLUME_KEY, String(v.volume));
-          break;
-        case "m":
+      }) },
+      { id: "player.mute", keys: "m", surface: "player" as const, action: withPlayer((v) => {
           v.muted = !v.muted;
           setMuted(v.muted);
           localStorage.setItem(MUTED_KEY, String(v.muted));
-          break;
-        case "f":
-          toggleFullscreen();
-          break;
-        case "0": case "1": case "2": case "3": case "4":
-        case "5": case "6": case "7": case "8": case "9":
-          event.preventDefault();
-          seekToAbsoluteTime(timelineStart + timelineDuration * (Number(event.key) / 10));
-          break;
-      }
-      resetHideTimer();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [currentTime, playVideo, recordMediaUserPause, resetHideTimer, seekToAbsoluteTime, timelineDuration, timelineStart]);
+      }) },
+      { id: "player.fullscreen", keys: "f", surface: "player" as const, action: withPlayer(() => toggleFullscreen()) },
+      ...Array.from({ length: 10 }, (_, value) => ({
+        id: `player.seekPercent.${value}`,
+        keys: String(value),
+        surface: "player" as const,
+        action: withPlayer(() => seekToAbsoluteTime(timelineStart + timelineDuration * (value / 10))),
+      })),
+    ];
+  }, [currentTime, playVideo, recordMediaUserPause, resetHideTimer, seekToAbsoluteTime, timelineDuration, timelineStart, toggleFullscreen]);
+  useKeySequence(playerKeyboardBindings);
 
   const togglePlay = () => {
     const v = videoRef.current;
@@ -1387,26 +1396,6 @@ export function VideoPlayer({
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp, { once: true });
     window.addEventListener("pointercancel", handlePointerUp, { once: true });
-  };
-
-  const toggleFullscreen = () => {
-    const nextFullscreen = !document.fullscreenElement;
-    trackPlayerInteraction("fullscreen", { active: nextFullscreen, positionSec: currentTime });
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-      return;
-    }
-
-    const container = containerRef.current;
-    if (typeof container?.requestFullscreen === "function") {
-      void container.requestFullscreen();
-      return;
-    }
-
-    const video = videoRef.current as (HTMLVideoElement & {
-      webkitEnterFullscreen?: () => void;
-    }) | null;
-    video?.webkitEnterFullscreen?.();
   };
 
   const changeRate = useCallback((nextRate: number) => {

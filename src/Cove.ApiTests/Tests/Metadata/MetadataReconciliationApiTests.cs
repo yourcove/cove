@@ -2,11 +2,9 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Metadata;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class MetadataReconciliationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -25,17 +23,13 @@ public sealed class MetadataReconciliationApiTests(
                 .WithTag($"Identified tag {token}")
                 .WithFingerprint("MD5", matchingMd5)
                 .Build());
-        var video = await member.CreateVideoAsync($"Unidentified title {token}");
-        var control = await member.CreateVideoAsync($"Excluded title {token}");
+        var video = await member.CreateVideoAsync($"Unidentified title {token}", TestContext.Current.CancellationToken);
+        var control = await member.CreateVideoAsync($"Excluded title {token}", TestContext.Current.CancellationToken);
         foreach (var candidate in new[] { video, control })
         {
             for (var index = 0; index < 4; index++)
             {
-                await AsDbUser().AttachVideoFileAsync(
-                    candidate.Id,
-                    duration: 1,
-                    size: 1,
-                    fingerprints: new Dictionary<string, string> { ["md5"] = matchingMd5 });
+                await AsDbUser().AttachVideoFileAsync(candidate.Id, duration: 1, size: 1, fingerprints: new Dictionary<string, string> { ["md5"] = matchingMd5 }, cancellationToken: TestContext.Current.CancellationToken);
             }
         }
 
@@ -46,10 +40,10 @@ public sealed class MetadataReconciliationApiTests(
             SetCoverImage = false,
             SetTags = true,
             CreateTags = true,
-        });
-        var job = await member.WaitForTerminalJobAsync(jobId);
-        var identified = await member.GetVideoByIdAsync(video.Id);
-        var controlAfter = await member.GetVideoByIdAsync(control.Id);
+        }, TestContext.Current.CancellationToken);
+        var job = await member.WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+        var identified = await member.GetVideoByIdAsync(video.Id, TestContext.Current.CancellationToken);
+        var controlAfter = await member.GetVideoByIdAsync(control.Id, TestContext.Current.CancellationToken);
 
         job.Type.Should().Be("identify");
         job.Status.Should().Be(JobStatus.Completed);
@@ -75,23 +69,23 @@ public sealed class MetadataReconciliationApiTests(
         const string firstPhash = "00000000000000aa";
         const string secondPhash = "00000000000000bb";
         const string controlPhash = "00000000000000cc";
-        var first = await member.CreateVideoAsync($"Fingerprint sync first {Guid.NewGuid():N}");
-        var second = await member.CreateVideoAsync($"Fingerprint sync second {Guid.NewGuid():N}");
-        var control = await member.CreateVideoAsync($"Fingerprint sync control {Guid.NewGuid():N}");
+        var first = await member.CreateVideoAsync($"Fingerprint sync first {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var second = await member.CreateVideoAsync($"Fingerprint sync second {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var control = await member.CreateVideoAsync($"Fingerprint sync control {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
         await AsDbUser().AttachVideoFileAsync(first.Id, duration: 1, size: 1, fingerprints: new Dictionary<string, string>
         {
             ["oshash"] = firstOshash,
             ["phash"] = "stale-phash",
-        });
+        }, cancellationToken: TestContext.Current.CancellationToken);
         await AsDbUser().AttachVideoFileAsync(second.Id, duration: 1, size: 1, fingerprints: new Dictionary<string, string>
         {
             ["oshash"] = secondOshash,
-        });
+        }, cancellationToken: TestContext.Current.CancellationToken);
         await AsDbUser().AttachVideoFileAsync(control.Id, duration: 1, size: 1, fingerprints: new Dictionary<string, string>
         {
             ["oshash"] = controlOshash,
             ["phash"] = controlPhash,
-        });
+        }, cancellationToken: TestContext.Current.CancellationToken);
         AsMetadataService().SetFingerprintSyncSource(
         [
             new MetadataServiceFingerprintSourceVideo(
@@ -110,11 +104,11 @@ public sealed class MetadataReconciliationApiTests(
         {
             SourceUrl = AsMetadataService().Endpoint.AbsoluteUri,
             ApiKey = MetadataServiceSimulator.ApiKey,
-        });
-        var job = await member.WaitForTerminalJobAsync(jobId);
-        var firstFingerprints = (await member.GetVideoByIdAsync(first.Id)).Files.Should().ContainSingle().Which.Fingerprints;
-        var secondFingerprints = (await member.GetVideoByIdAsync(second.Id)).Files.Should().ContainSingle().Which.Fingerprints;
-        var controlFingerprints = (await member.GetVideoByIdAsync(control.Id)).Files.Should().ContainSingle().Which.Fingerprints;
+        }, TestContext.Current.CancellationToken);
+        var job = await member.WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+        var firstFingerprints = (await member.GetVideoByIdAsync(first.Id, TestContext.Current.CancellationToken)).Files.Should().ContainSingle().Which.Fingerprints;
+        var secondFingerprints = (await member.GetVideoByIdAsync(second.Id, TestContext.Current.CancellationToken)).Files.Should().ContainSingle().Which.Fingerprints;
+        var controlFingerprints = (await member.GetVideoByIdAsync(control.Id, TestContext.Current.CancellationToken)).Files.Should().ContainSingle().Which.Fingerprints;
 
         job.Type.Should().Be("sync-fingerprints");
         job.Status.Should().Be(JobStatus.Completed);

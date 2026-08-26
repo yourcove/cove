@@ -25,8 +25,8 @@ public sealed class ExtensionAuthenticationSmokeTests
             .Register(new AssertionMiddlewareExtension("integration-user"), "integration-test");
         using var client = factory.CreateClient();
 
-        using var response = await client.GetAsync("/api/auth/me");
-        var body = await response.Content.ReadAsStringAsync();
+        using var response = await client.GetAsync("/api/auth/me", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("integration-user", body, StringComparison.Ordinal);
@@ -45,8 +45,8 @@ public sealed class ExtensionAuthenticationSmokeTests
                 "integration-subject-two"), "integration-test");
         using var client = factory.CreateAuthenticatedClient();
 
-        using var response = await client.GetAsync("/api/auth/me");
-        var body = await response.Content.ReadAsStringAsync();
+        using var response = await client.GetAsync("/api/auth/me", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(body);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -72,8 +72,8 @@ public sealed class ExtensionAuthenticationSmokeTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("Cookie", "cove_access_token=integration-test-token");
 
-        using var response = await client.GetAsync("/api/auth/me");
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var response = await client.GetAsync("/api/auth/me", TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(
@@ -95,7 +95,7 @@ public sealed class ExtensionAuthenticationSmokeTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("Cookie", "cove_access_token=integration-test-token");
 
-        using var response = await client.GetAsync("/api/auth/me");
+        using var response = await client.GetAsync("/api/auth/me", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -115,8 +115,8 @@ public sealed class ExtensionAuthenticationSmokeTests
             "Bearer",
             "integration-scoped-token");
 
-        using var response = await client.GetAsync("/api/auth/me");
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var response = await client.GetAsync("/api/auth/me", TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(
@@ -162,8 +162,8 @@ public sealed class ExtensionAuthenticationSmokeTests
             "X-Share-Token",
             $"cove_share_{shareId:N}_{shareSecret}");
 
-        using var response = await client.GetAsync("/api/auth/me");
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var response = await client.GetAsync("/api/auth/me", TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(
@@ -183,8 +183,8 @@ public sealed class ExtensionAuthenticationSmokeTests
             .Register(new InteractiveLoginExtension(), "integration-test");
         using var client = factory.CreateClient();
 
-        using var response = await client.GetAsync("/api/auth/external/providers");
-        var body = await response.Content.ReadAsStringAsync();
+        using var response = await client.GetAsync("/api/auth/external/providers", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(response.Headers.CacheControl?.NoStore);
@@ -208,25 +208,18 @@ public sealed class ExtensionAuthenticationSmokeTests
             callback.Connection.RemoteIpAddress = IPAddress.Loopback;
             binding = sessions.BeginBrowserSession(callback);
             callback.Request.Headers.Cookie = $"cove_external_login_binding={binding}";
-            completion = await sessions.CompleteAsync(
-                callback,
-                binding,
-                Identity());
+            completion = await sessions.CompleteAsync(callback, binding, Identity(), TestContext.Current.CancellationToken);
         }
         Assert.Equal(ExtensionLoginCompletionFailure.None, completion.Failure);
 
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("Cookie", $"cove_external_login_binding={binding}");
-        using var first = await client.PostAsJsonAsync(
-            "/api/auth/external/redeem",
-            new { code = completion.Code });
-        using var second = await client.PostAsJsonAsync(
-            "/api/auth/external/redeem",
-            new { code = completion.Code });
+        using var first = await client.PostAsJsonAsync("/api/auth/external/redeem", new { code = completion.Code }, cancellationToken: TestContext.Current.CancellationToken);
+        using var second = await client.PostAsJsonAsync("/api/auth/external/redeem", new { code = completion.Code }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.True(first.Headers.CacheControl?.NoStore);
-        Assert.Contains("integration-test-access", await first.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("integration-test-access", await first.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
         Assert.True(second.Headers.CacheControl?.NoStore);
     }

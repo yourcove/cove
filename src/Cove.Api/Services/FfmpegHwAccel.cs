@@ -218,18 +218,17 @@ internal static class FfmpegHwAccel
     /// is never orphaned (matching <see cref="ProbeEncoder"/>'s cleanup).</summary>
     private static string RunFfmpegInfoQuery(string ffmpegPath, string arguments, int timeoutMs = 5000)
     {
-        using var process = new System.Diagnostics.Process
+        var startInfo = new System.Diagnostics.ProcessStartInfo
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = arguments,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
+            FileName = ffmpegPath,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
         };
+        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
+        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
         process.Start();
         var output = process.StandardOutput.ReadToEnd();
         if (!process.WaitForExit(timeoutMs))
@@ -264,20 +263,19 @@ internal static class FfmpegHwAccel
     public static bool ProbeEncoder(string ffmpegPath, string encoder, out string error)
     {
         error = string.Empty;
-        var process = new System.Diagnostics.Process
+        var startInfo = new System.Diagnostics.ProcessStartInfo
         {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                // 256x256, not 64x64: some NVENC generations reject very small frames, which would make a
-                // perfectly working encoder fail the probe. This size is comfortably above all encoders' minimums.
-                Arguments = $"-hide_banner -v error -f lavfi -i color=size=256x256:rate=1:duration=0.1 -c:v {encoder} -frames:v 1 -f null -",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
+            FileName = ffmpegPath,
+            // 256x256, not 64x64: some NVENC generations reject very small frames, which would make a
+            // perfectly working encoder fail the probe. This size is comfortably above all encoders' minimums.
+            Arguments = $"-hide_banner -v error -f lavfi -i color=size=256x256:rate=1:duration=0.1 -c:v {encoder} -frames:v 1 -f null -",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
         };
+        FfmpegProcessEnvironment.Apply(startInfo, ffmpegPath);
+        var process = new System.Diagnostics.Process { StartInfo = startInfo };
         try
         {
             process.Start();

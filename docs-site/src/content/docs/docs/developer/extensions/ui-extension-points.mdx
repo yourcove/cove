@@ -129,6 +129,30 @@ The context contains `entityType`, `entityId`, `coverKey` (`primary`, `front`, o
 
 Use only a slot key Cove publishes. An arbitrary name remains in the manifest but never renders.
 
+## Dashboard widgets
+
+`UIDashboardWidgetContribution` adds a widget to the personal dashboard catalog. Register widgets with `UIManifestBuilder.AddDashboardWidget`, optionally supplying its default and supported presentations, or pass a contribution record to the same method. Cove stamps the owning extension id, resolves component names within that owner, and preserves saved widget instances when the extension is disabled or unavailable.
+
+| Field | Behavior |
+| --- | --- |
+| `Id` | Stable widget key within the owning extension. Changing it disconnects existing instances. |
+| `Label`, `Description`, `Icon` | Catalog metadata and the fallback label shown when the contribution is unavailable. |
+| `ComponentName` | Render component receiving `dashboardId`, `instanceId`, `configuration`, `presentation`, and `onNavigate`. |
+| `EditorComponentName` | Optional configuration component receiving `configuration`, `presentation`, `onChange`, and `onValidityChange`. Cove owns the surrounding Save/Cancel dialog. |
+| `DefaultConfiguration` | JSON copied into a newly added widget instance. Cove treats it as opaque extension-owned data. |
+| `AllowMultiple` | When `false`, the catalog allows only one instance of this contribution on a dashboard. |
+| `SupportedPresentations` | Declares `Flow`, `Canvas`, or both. Omit it for a Flow-only widget; other defaults must declare their supported presentations explicitly. |
+| `DefaultPresentation` | Selects the presentation copied into a new widget instance and must be one of the supported values. It defaults to `Flow`. |
+| `RequiredPermission`, `RequiredPermissions`, `RequiredPermissionMode` | Uses the same catalog and render gating as pages and tabs. Protect extension API endpoints independently. |
+
+Flow widgets form an ordered vertical stack. The host wrapper establishes `container-type: inline-size`; use CSS `@container` rules for internal columns and narrow layouts instead of assuming a viewport width. Flow height is content-driven, and the host does not expose full/half/third sizing or grid coordinates.
+
+Canvas is an exclusive, document-scrolling presentation for a widget that owns the dashboard content area while Cove retains the application shell and compact dashboard controls. A dashboard containing a Canvas widget cannot contain another widget. Contributions that support both presentations receive the saved `presentation` in their render and editor props so they can adapt deliberately; Cove never stretches an unprepared Flow-only widget into Canvas.
+
+Use `GroupItemFeed` from `@cove/runtime/components` when an extension needs a native mixed-media feed backed by an existing static or dynamic group. It owns group-item paging, readable-entity hydration, permission-aware engagement, native feed cards, loading/error/empty states, and document-based infinite loading. Pass a positive `groupId` and the widget's `onNavigate` callback; group editing remains on the group page.
+
+Render and editor components run inside extension error boundaries. A missing, disabled, unauthorized, or failed contribution remains as an unavailable placeholder so the user can remove it without Cove discarding its configuration automatically.
+
 ## Detail tabs
 
 `UITabContribution` adds a tab to supported detail pages. Cove currently consumes page types `video`, `performer`, `studio`, `tag`, `gallery`, and `group`.

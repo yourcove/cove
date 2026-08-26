@@ -67,17 +67,16 @@ public sealed class FfprobeMediaProbeService : IMediaProbeService
         if (ffprobePath == null)
             return MediaProbeResult.ToolUnavailable("FFprobe is unavailable");
 
-        using var process = new Process
+        var startInfo = new ProcessStartInfo
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = ffprobePath,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            },
+            FileName = ffprobePath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
         };
+        FfmpegProcessEnvironment.Apply(startInfo, ffprobePath);
+        using var process = new Process { StartInfo = startInfo };
 
         process.StartInfo.ArgumentList.Add("-v");
         process.StartInfo.ArgumentList.Add("error");

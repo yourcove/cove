@@ -27,6 +27,7 @@ import { resolveQueryLoadState, type QueryLoadState } from "../utils/queryLoadSt
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
 import { MultiSortControl } from "./MultiSortControl";
+import { getWallColumnCountFromSizeLevel, getWallSizeLevelFromColumnCount, WallSizeControl } from "./WallSizeControl";
 
 export type DisplayMode = "grid" | "list" | "wall" | "tagger" | "graph" | "byGroup" | "feed" | "vertical";
 
@@ -820,36 +821,36 @@ export function ListPage({
   // List-page keyboard shortcuts
   const listBindings = useMemo(() => [
     // "/" focuses search
-    { keys: resolveKeybinding(keybindingOverrides, "list.search", "/"), action: () => { document.querySelector<HTMLInputElement>("input[data-list-search='true']")?.focus(); } },
+    { id: "list.search", keys: resolveKeybinding(keybindingOverrides, "list.search", "/"), surface: "list" as const, action: () => { document.querySelector<HTMLInputElement>("input[data-list-search='true']")?.focus(); } },
     // View switching
     ...(onDisplayModeChange && availableDisplayModes ? [
-      ...(availableDisplayModes.includes("grid") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.grid", "v g"), action: () => onDisplayModeChange("grid") }] : []),
-      ...(availableDisplayModes.includes("list") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.list", "v l"), action: () => onDisplayModeChange("list") }] : []),
-      ...(availableDisplayModes.includes("wall") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.wall", "v w"), action: () => onDisplayModeChange("wall") }] : []),
-      ...(availableDisplayModes.includes("tagger") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.tagger", "v t"), action: () => onDisplayModeChange("tagger") }] : []),
-      ...(availableDisplayModes.includes("graph") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.graph", "v h"), action: () => onDisplayModeChange("graph") }] : []),
-      ...(availableDisplayModes.includes("byGroup") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.group", "v b"), action: () => onDisplayModeChange("byGroup") }] : []),
-      ...(availableDisplayModes.includes("feed") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.feed", "v f"), action: () => onDisplayModeChange("feed") }] : []),
-      ...(availableDisplayModes.includes("vertical") ? [{ keys: resolveKeybinding(keybindingOverrides, "list.view.vertical", "v k"), action: () => onDisplayModeChange("vertical") }] : []),
+      ...(availableDisplayModes.includes("grid") ? [{ id: "list.view.grid", keys: "v g", surface: "list" as const, action: () => onDisplayModeChange("grid") }] : []),
+      ...(availableDisplayModes.includes("list") ? [{ id: "list.view.list", keys: "v l", surface: "list" as const, action: () => onDisplayModeChange("list") }] : []),
+      ...(availableDisplayModes.includes("wall") ? [{ id: "list.view.wall", keys: "v w", surface: "list" as const, action: () => onDisplayModeChange("wall") }] : []),
+      ...(availableDisplayModes.includes("tagger") ? [{ id: "list.view.tagger", keys: "v t", surface: "list" as const, action: () => onDisplayModeChange("tagger") }] : []),
+      ...(availableDisplayModes.includes("graph") ? [{ id: "list.view.graph", keys: "v h", surface: "list" as const, action: () => onDisplayModeChange("graph") }] : []),
+      ...(availableDisplayModes.includes("byGroup") ? [{ id: "list.view.group", keys: "v b", surface: "list" as const, action: () => onDisplayModeChange("byGroup") }] : []),
+      ...(availableDisplayModes.includes("feed") ? [{ id: "list.view.feed", keys: "v f", surface: "list" as const, action: () => onDisplayModeChange("feed") }] : []),
+      ...(availableDisplayModes.includes("vertical") ? [{ id: "list.view.vertical", keys: "v k", surface: "list" as const, action: () => onDisplayModeChange("vertical") }] : []),
     ] : []),
     // Selection
-    ...(onSelectAll ? [{ keys: resolveKeybinding(keybindingOverrides, "list.select.all", "s a"), action: onSelectAll }] : []),
-    ...(onSelectNone ? [{ keys: resolveKeybinding(keybindingOverrides, "list.select.none", "s n"), action: onSelectNone }] : []),
-    ...(onInvertSelection ? [{ keys: resolveKeybinding(keybindingOverrides, "list.select.invert", "s i"), action: onInvertSelection }] : []),
+    ...(onSelectAll ? [{ id: "list.select.all", keys: "s a", surface: "list" as const, action: onSelectAll }] : []),
+    ...(onSelectNone ? [{ id: "list.select.none", keys: "s n", surface: "list" as const, action: onSelectNone }] : []),
+    ...(onInvertSelection ? [{ id: "list.select.invert", keys: "s i", surface: "list" as const, action: onInvertSelection }] : []),
     // Pagination
     ...(showPagingControls ? [
-      { keys: resolveKeybinding(keybindingOverrides, "list.page.previous", "ArrowLeft"), action: () => goTo(page - 1) },
-      { keys: resolveKeybinding(keybindingOverrides, "list.page.next", "ArrowRight"), action: () => goTo(page + 1) },
-      { keys: resolveKeybinding(keybindingOverrides, "list.page.back10", "Shift+ArrowLeft"), action: () => goTo(page - 10) },
-      { keys: resolveKeybinding(keybindingOverrides, "list.page.forward10", "Shift+ArrowRight"), action: () => goTo(page + 10) },
-      { keys: resolveKeybinding(keybindingOverrides, "list.page.first", "Ctrl+Home"), action: () => goTo(1) },
-      { keys: resolveKeybinding(keybindingOverrides, "list.page.last", "Ctrl+End"), action: () => goTo(totalPages) },
+      { id: "list.page.previous", keys: "ArrowLeft", surface: "list" as const, action: () => goTo(page - 1) },
+      { id: "list.page.next", keys: "ArrowRight", surface: "list" as const, action: () => goTo(page + 1) },
+      { id: "list.page.back10", keys: "Shift+ArrowLeft", surface: "list" as const, action: () => goTo(page - 10) },
+      { id: "list.page.forward10", keys: "Shift+ArrowRight", surface: "list" as const, action: () => goTo(page + 10) },
+      { id: "list.page.first", keys: "Ctrl+Home", surface: "list" as const, action: () => goTo(1) },
+      { id: "list.page.last", keys: "Ctrl+End", surface: "list" as const, action: () => goTo(totalPages) },
     ] : []),
     // Filter dialog
-    ...(mergedCriteriaDefinitions && onObjectFilterChange ? [{ keys: resolveKeybinding(keybindingOverrides, "list.filters", "f"), action: () => setFilterDialogOpen(true) }] : []),
+    ...(mergedCriteriaDefinitions && onObjectFilterChange ? [{ id: "list.filters", keys: "", surface: "list" as const, action: () => setFilterDialogOpen(true) }] : []),
     // Zoom
-    { keys: resolveKeybinding(keybindingOverrides, "list.zoom.in", "+"), action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v + 0.25)) },
-    { keys: resolveKeybinding(keybindingOverrides, "list.zoom.out", "-"), action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v - 0.25)) },
+    { id: "list.zoom.in", keys: "+", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v + 0.25)) },
+    { id: "list.zoom.out", keys: "-", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v - 0.25)) },
   ], [availableDisplayModes, cardSizeEntityType, goTo, keybindingOverrides, mergedCriteriaDefinitions, onDisplayModeChange, onInvertSelection, onObjectFilterChange, onSelectAll, onSelectNone, page, setZoomLevel, showPagingControls, totalPages]);
 
   useKeySequence(listBindings);
@@ -1047,22 +1048,10 @@ export function ListPage({
           )}
 
           {displayMode === "wall" && wallColumnCount != null && onWallColumnCountChange && (
-            <div className="hidden items-center gap-1 pl-1 md:flex">
-              <ZoomOut className="w-3 h-3 text-muted" />
-              <input
-                type="range"
-                min={2}
-                max={8}
-                step={1}
-                value={10 - wallColumnCount}
-                onChange={(e) => onWallColumnCountChange(10 - Number(e.target.value))}
-                style={{ "--range-fill": `${(((10 - wallColumnCount) - 2) / 6) * 100}%` } as CSSProperties}
-                className="themed-range-input h-1 w-16 cursor-pointer sm:w-20"
-                title={`Wall card size: ${10 - wallColumnCount}`}
-              />
-              <ZoomIn className="w-3 h-3 text-muted" />
-              <span className="min-w-[2.25rem] text-[10px] text-muted">{wallColumnCount} cols</span>
-            </div>
+            <WallSizeControl
+              sizeLevel={getWallSizeLevelFromColumnCount(wallColumnCount)}
+              onChange={(sizeLevel) => onWallColumnCountChange(getWallColumnCountFromSizeLevel(sizeLevel))}
+            />
           )}
         </div>
 

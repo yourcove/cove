@@ -25,7 +25,7 @@ public sealed class Phase10TagProvenanceTests
         video.VideoTags.Add(new VideoTag { Video = video, Tag = tag });
 
         context.AddRange(tag, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.Add(new TagApplication
         {
@@ -37,7 +37,7 @@ public sealed class Phase10TagProvenanceTests
             ModelKey = "model-video",
             Confidence = 0.82f,
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new VideosController(
             new VideoRepository(context),
@@ -75,7 +75,7 @@ public sealed class Phase10TagProvenanceTests
         gallery.GalleryTags.Add(new GalleryTag { Gallery = gallery, Tag = tag });
 
         context.AddRange(tag, gallery);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.TagApplications.Add(new TagApplication
         {
@@ -87,7 +87,7 @@ public sealed class Phase10TagProvenanceTests
             ModelKey = "model-gallery",
             Confidence = 0.67f,
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new GalleriesController(
             new GalleryRepository(context),

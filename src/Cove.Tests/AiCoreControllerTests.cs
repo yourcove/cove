@@ -24,7 +24,7 @@ public class AiCoreControllerTests
         var context = scope.Context;
         var performer = new Performer { Name = "Alex" };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var embeddingService = new EmbeddingService(context, []);
         var controller = new FacesController(
@@ -88,7 +88,7 @@ public class AiCoreControllerTests
             });
         var hostImage = new Image { Title = "Still" };
         context.Images.Add(hostImage);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var representativeDetection = new Detection
         {
@@ -107,7 +107,7 @@ public class AiCoreControllerTests
             SourceKey = "ext:ai.faces",
         };
         context.Detections.Add(representativeDetection);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var similarResult = await controller.GetSimilar(firstFace.Id, "face.arcface", null, null, null, null, 1, 5, 5, CancellationToken.None);
         var similarOk = Assert.IsType<OkObjectResult>(similarResult.Result);
@@ -134,13 +134,13 @@ public class AiCoreControllerTests
         var context = scope.Context;
         var sourceFace = new Face { Label = "Source", PrimarySourceKey = "ext:ai.faces" };
         context.Faces.Add(sourceFace);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var candidateFaces = Enumerable.Range(1, 8)
             .Select(index => new Face { Label = $"Candidate {index}", PrimarySourceKey = $"candidate:{index}" })
             .ToArray();
         context.Faces.AddRange(candidateFaces);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Embeddings.Add(new Embedding
         {
@@ -166,7 +166,7 @@ public class AiCoreControllerTests
             Vector = new Vector(new[] { 1f, (index + 1) * 0.1f, 0f }),
             SourceKey = "ext:ai.faces",
         }));
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new FacesController(
             context,
@@ -210,7 +210,7 @@ public class AiCoreControllerTests
         context.Faces.Add(face);
         context.Images.Add(image);
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Detections.AddRange(
             new Detection
@@ -246,7 +246,7 @@ public class AiCoreControllerTests
                 RefId = face.Id,
                 SourceKey = "ext:ai.faces",
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var embeddingService = new EmbeddingService(context, []);
         var controller = new FacesController(
@@ -275,7 +275,7 @@ public class AiCoreControllerTests
         var video = new Video { Title = "Clip" };
         var face = new Face { Label = "Alex Face", PrimarySourceKey = "ext:ai.faces" };
         context.AddRange(performer, video, face);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.FaceAppearances.Add(new FaceAppearance
         {
@@ -286,17 +286,17 @@ public class AiCoreControllerTests
             SourceRunId = "run-1",
             TopConfidence = 0.92f,
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var fieldProvenance = new FieldProvenanceService(context);
         var propagation = new FacePerformerPropagationService(context, fieldProvenance);
 
         await propagation.ApplyLinkChangeAsync(face.Id, null, performer.Id, CancellationToken.None);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.True(await context.Set<VideoPerformer>().AnyAsync(item => item.VideoId == video.Id && item.PerformerId == performer.Id));
+        Assert.True(await context.Set<VideoPerformer>().AnyAsync(item => item.VideoId == video.Id && item.PerformerId == performer.Id, cancellationToken: TestContext.Current.CancellationToken));
 
-        var rows = await fieldProvenance.GetForHostAsync(AffinityHostType.Video, video.Id);
+        var rows = await fieldProvenance.GetForHostAsync(AffinityHostType.Video, video.Id, TestContext.Current.CancellationToken);
         var performers = Assert.Single(rows, row => row.FieldKey == "performers");
         Assert.Equal("ext:ai.faces", performers.SourceKey);
         Assert.Equal("run-1", performers.SourceRunId);
@@ -318,7 +318,7 @@ public class AiCoreControllerTests
             PrimarySourceKey = "ext:ai.faces",
         };
         context.Faces.Add(face);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var embeddingService = new EmbeddingService(context, []);
         var controller = new FacesController(
@@ -351,7 +351,7 @@ public class AiCoreControllerTests
             PrimarySourceKey = "ext:ai.faces",
         };
         context.Faces.Add(face);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var embeddingService = new EmbeddingService(context, []);
         var httpContext = new DefaultHttpContext();
@@ -392,7 +392,7 @@ public class AiCoreControllerTests
             PrimarySourceKey = "ext:ai.faces",
         };
         context.Faces.Add(face);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new EntityImageController(
             context,
@@ -415,7 +415,7 @@ public class AiCoreControllerTests
         Assert.Equal("image/jpeg", file.ContentType);
         Assert.Equal("public, max-age=3600", controller.Response.Headers.CacheControl.ToString());
         await using var output = new MemoryStream();
-        await file.FileStream.CopyToAsync(output);
+        await file.FileStream.CopyToAsync(output, TestContext.Current.CancellationToken);
         Assert.Equal(bytes, output.ToArray());
     }
 
@@ -431,7 +431,7 @@ public class AiCoreControllerTests
             ImageBlobId = "metadata-cover",
         };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var previousUpdatedAt = performer.UpdatedAt;
         var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>());
         var thumbnailService = new StubThumbnailService();
@@ -446,7 +446,7 @@ public class AiCoreControllerTests
 
         Assert.IsType<NoContentResult>(result);
         context.ChangeTracker.Clear();
-        var persistedPerformer = await context.Performers.SingleAsync(candidate => candidate.Id == performer.Id);
+        var persistedPerformer = await context.Performers.SingleAsync(candidate => candidate.Id == performer.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Null(persistedPerformer.ImageOverrideBlobId);
         Assert.Null(persistedPerformer.ImageBlobId);
         Assert.Equal(["metadata-cover", "override-cover"], blobService.DeletedBlobIds.Order());
@@ -466,7 +466,7 @@ public class AiCoreControllerTests
             ImageBlobId = "shared-cover",
         };
         context.Performers.Add(performer);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>());
         var thumbnailService = new StubThumbnailService();
         var controller = new EntityImageController(context, blobService, thumbnailService, new StubStreamService());
@@ -489,7 +489,7 @@ public class AiCoreControllerTests
             ImageBlobId = "video-cover",
         };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var detachedBeforeCleanup = false;
         var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>())
@@ -525,7 +525,7 @@ public class AiCoreControllerTests
             ImageBlobId = "video-cover",
         };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var blobService = new StubBlobService(new Dictionary<string, (byte[] Bytes, string ContentType)>())
         {
@@ -541,7 +541,7 @@ public class AiCoreControllerTests
 
         Assert.IsType<NoContentResult>(result);
         context.ChangeTracker.Clear();
-        Assert.Null((await context.Videos.SingleAsync(candidate => candidate.Id == video.Id)).ImageBlobId);
+        Assert.Null((await context.Videos.SingleAsync(candidate => candidate.Id == video.Id, cancellationToken: TestContext.Current.CancellationToken)).ImageBlobId);
         Assert.Empty(blobService.DeletedBlobIds);
     }
 
@@ -555,7 +555,7 @@ public class AiCoreControllerTests
 
         var video = new Video { Title = "Video without custom cover" };
         context.Videos.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new EntityImageController(
             context,
@@ -588,7 +588,7 @@ public class AiCoreControllerTests
             PrimarySourceKey = "ext:ai.faces",
         };
         context.Faces.Add(face);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var embeddingService = new EmbeddingService(context, []);
         var controller = new FacesController(
@@ -639,7 +639,7 @@ public class AiCoreControllerTests
                 SourceKey = "ext:ai.clip",
                 SectionIndex = 1,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var embeddingService = new EmbeddingService(context, []);
         var controller = new EmbeddingsController(context, embeddingService, embeddingService);
@@ -700,7 +700,7 @@ public class AiCoreControllerTests
                 Status = AiRunStatus.Running,
                 StartedAt = DateTime.UtcNow,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var controller = new AiRunsController(context);
 

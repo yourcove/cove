@@ -17,7 +17,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.TextsRead)]
-public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null) : ControllerBase
+public class TextsController(CoveContext db, CustomFieldService customFields, TextExtractionService textExtractionService, IScanService scanService, IThumbnailService thumbnailService, IBlobService blobService, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IUserEngagementService? engagementService = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
     private static readonly HashSet<string> AffinityMultiSortKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -222,6 +222,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<TextDocumentDto>> GetById(int id, CancellationToken ct)
     {
         var text = await db.TextDocuments.AsNoTracking()
@@ -240,6 +241,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}/content")]
+    [AllowShareLinkAccess]
     public async Task<ActionResult<TextContentDto>> GetContent(int id, CancellationToken ct)
     {
         var text = await db.TextDocuments.AsNoTracking()
@@ -259,6 +261,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     [HttpGet("{id:int}/file")]
+    [AllowShareLinkAccess]
     [RequiresPermission(Permissions.StreamRead)]
     public async Task<IActionResult> GetFile(int id, CancellationToken ct)
     {
@@ -285,6 +288,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
     [HttpPost]
     [RequiresPermission(Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<TextDocumentDto>> Create([FromBody] TextDocumentCreateDto dto, CancellationToken ct)
     {
         var tagIds = dto.TagIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
@@ -370,6 +375,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.TextsWrite)]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsWrite)]
+    [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto",
+        PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<TextDocumentDto>> Update(int id, [FromBody] TextDocumentUpdateDto dto, CancellationToken ct)
     {
         var text = await db.TextDocuments
@@ -510,33 +517,52 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.TextsDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "dto", PropertyName = "DeleteFiles")]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return new EntityMutationNoContentResult([]);
+        if (dto.DeleteFiles && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
 
-        var idsToDelete = ids.ToHashSet();
-        var deletedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var items = await db.TextDocuments.Include(item => item.Files).Where(item => ids.Contains(item.Id)).ToListAsync(ct);
-        var groupItems = await db.GroupItems.Where(item => item.HostType == "text" && ids.Contains(item.HostId)).ToListAsync(ct);
-        db.GroupItems.RemoveRange(groupItems);
-        foreach (var item in items)
-            await DeleteTextArtifactsAsync(item, idsToDelete, deletedPaths, dto.DeleteFiles, dto.DeleteGenerated, ct);
-        foreach (var id in ids)
-        {
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Text, id, ct);
-        }
-        db.TextDocuments.RemoveRange(items);
-        await db.SaveChangesAsync(ct);
-        return new EntityMutationNoContentResult(items.Select(item => item.Id).ToList());
+        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one text document to delete.");
+
+        var queued = bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Text,
+            ids,
+            dto.DeleteFiles,
+            dto.DeleteGenerated);
+        return Accepted(queued);
     }
 
     [HttpDelete("{id:int}")]
     [RequiresPermission(Permissions.TextsDelete)]
+    [RequiresPermissionWhenTrue(Permissions.FilesDelete, ActionArgumentName = "deleteFile")]
     [RequiresEntityAccess(EntityKinds.Text, Permissions.TextsDelete)]
     public async Task<IActionResult> Delete(int id, [FromQuery] bool deleteFile = false, [FromQuery] bool deleteGenerated = false, CancellationToken ct = default)
     {
+        if (deleteFile && principalAccessor?.Current?.Has(Permissions.FilesDelete) != true)
+            return Forbid();
+
+        if (bulkEntityDeletionService is not null)
+        {
+            var executionContext = new BulkDeletionExecutionContext();
+            if (!await bulkEntityDeletionService.DeleteAsync(
+                    BulkDeletionEntityKind.Text,
+                    id,
+                    executionContext,
+                    deleteFile,
+                    deleteGenerated,
+                    ct,
+                    publishEvent: false))
+                return NotFound();
+            if (deleteFile)
+                physicalFileDeletionRecoverySignal?.Notify();
+            return NoContent();
+        }
+
         var text = await db.TextDocuments.Include(item => item.Files).FirstOrDefaultAsync(item => item.Id == id, ct);
         if (text == null) return NotFound();
 
@@ -700,7 +726,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FilterHelpers.ApplyString(query, filter.ContentCriterion, text => text.SearchText);
         query = FilterHelpers.ApplyFilePath(query, filter.PathCriterion, text => text.Files);
         query = ApplyTextFileStringCriterion(query, filter.FormatCriterion);
-        query = FilterHelpers.ApplyString(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url).FirstOrDefault());
+        query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, text => text.Urls.Select(url => url.Url));
         query = FilterHelpers.ApplyBool(query, filter.OrganizedCriterion, text => text.Organized);
         query = FilterHelpers.ApplyBool(query, filter.HasCoverCriterion, text => text.ImageBlobId != null && text.ImageBlobId != string.Empty);
         query = FilterHelpers.ApplyDate(query, filter.DateCriterion, text => text.Date);
@@ -726,23 +752,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     }
 
     private static IQueryable<TextDocument> ApplyTextFileStringCriterion(IQueryable<TextDocument> query, StringCriterion? criterion)
-    {
-        if (criterion == null)
-            return query;
-
-        var value = criterion.Value.Trim();
-        var lowered = value.ToLowerInvariant();
-        return criterion.Modifier switch
-        {
-            CriterionModifier.Equals => query.Where(text => text.Files.Any(file => file.Format == value)),
-            CriterionModifier.NotEquals => query.Where(text => !text.Files.Any(file => file.Format == value)),
-            CriterionModifier.Includes => query.Where(text => text.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-            CriterionModifier.Excludes => query.Where(text => !text.Files.Any(file => file.Format != null && file.Format.ToLower().Contains(lowered))),
-            CriterionModifier.IsNull => query.Where(text => !text.Files.Any(file => file.Format != string.Empty)),
-            CriterionModifier.NotNull => query.Where(text => text.Files.Any(file => file.Format != string.Empty)),
-            _ => query,
-        };
-    }
+        => FilterHelpers.ApplyStringCollection(query, criterion, text => text.Files.Select(file => file.Format));
 
     private static int[] GetIncludedPerformerIds(TextDocumentFilter filter)
     {

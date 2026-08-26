@@ -264,6 +264,7 @@ try
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToList();
     builder.Services.AddSingleton(coveCfgInstance);
+    builder.Services.AddSingleton<IFileManagerLauncher, FileManagerLauncher>();
 
     // Database - EF Core + PostgreSQL
     var pgSection = coveConfig.GetSection("Postgres");
@@ -327,6 +328,15 @@ try
     builder.Services.AddSingleton<ITranscodeService, TranscodeService>();
     builder.Services.AddScoped<StashMigrationService>();
     builder.Services.AddScoped<ITagProvenanceService, TagProvenanceService>();
+    builder.Services.AddScoped<ImageDeletionService>();
+    builder.Services.AddScoped<EntityHostDependencyService>();
+    builder.Services.AddSingleton(PhysicalFileAccessCoordinator.Shared);
+    builder.Services.AddSingleton<PhysicalFileDeletionRecoverySignal>();
+    builder.Services.AddScoped<PhysicalFileDeletionService>();
+    builder.Services.AddScoped<BulkEntityDeletionService>();
+    builder.Services.AddScoped<BulkDeletionJobService>();
+    builder.Services.AddScoped<DuplicateSearchJobService>();
+    builder.Services.AddScoped<DuplicateSearchExecutionService>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();
     builder.Services.AddScoped<CustomFieldService>();
@@ -395,7 +405,10 @@ try
         var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
         var http = httpFactory.CreateClient("ExtensionRegistry");
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Cove/1.0");
-        return new GitHubExtensionRegistry(http, coveVersion: extensionContext.CoveVersion);
+        return new GitHubExtensionRegistry(
+            http,
+            coveVersion: extensionContext.CoveVersion,
+            registryBaseUrl: coveConfig.GetValue<string>("ExtensionRegistryBaseUrl"));
     });
     builder.Services.AddHttpClient("ExtensionRegistry");
     builder.Services.AddHostedService<ExtensionEventBridge>();
@@ -405,6 +418,11 @@ try
     var pgManaged = pgSection.GetValue<bool?>("Managed") ?? true;
     if (pgManaged)
         builder.Services.AddHostedService<PostgresManagerService>();
+
+    // Recovery touches the database during startup, so it must run after the managed PostgreSQL
+    // service has made that database reachable.
+    builder.Services.AddHostedService<DuplicateSearchRecoveryService>();
+    builder.Services.AddHostedService<PhysicalFileDeletionRecoveryService>();
 
     // Auth bootstrap (must run AFTER PostgresManagerService so the DB is reachable).
     builder.Services.AddSingleton<Cove.Data.Auth.BootstrapAuthService>();
@@ -460,6 +478,7 @@ try
         options.Filters.Add<Cove.Api.Middleware.EntityEventFilter>();
         options.Filters.Add<Cove.Api.Middleware.AuthExceptionFilter>();
         options.Filters.Add<Cove.Api.Middleware.PermissionAuthorizationFilter>();
+        options.Filters.Add<Cove.Api.Middleware.ConditionalPermissionActionFilter>();
         options.Filters.Add<Cove.Api.Middleware.EntityAccessActionFilter>();
     })
         .AddJsonOptions(options =>
@@ -700,7 +719,11 @@ try
                 return Results.NotFound();
             }
 
-            lifetime.StopApplication();
+            httpContext.Response.OnCompleted(() =>
+            {
+                lifetime.StopApplication();
+                return Task.CompletedTask;
+            });
             return Results.Accepted();
         }).AllowAnonymous();
     }

@@ -4,11 +4,9 @@ using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Studios;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class StudioCreationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -22,11 +20,11 @@ public sealed class StudioCreationApiTests(
     public async Task GivenStudio_WhenStudioWithEquivalentNameIsCreated_ThenCreationIsRejected(string duplicateName)
     {
         // Arrange
-        await AsUser().CreateStudioAsync(TestCatalog.Studio.Name);
+        await AsUser().CreateStudioAsync(TestCatalog.Studio.Name, TestContext.Current.CancellationToken);
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => AsUser().CreateStudioAsync(duplicateName));
+            () => AsUser().CreateStudioAsync(duplicateName, TestContext.Current.CancellationToken));
 
         exception.Message.Should().Contain("409 (Conflict)");
         exception.Message.Should().Contain("\"code\":\"STUDIO_NAME_CONFLICT\"");
@@ -36,7 +34,7 @@ public sealed class StudioCreationApiTests(
     public async Task GivenBlankName_WhenStudioIsCreated_ThenEmptySentinelClaimsNamespace()
     {
         // Arrange
-        var studio = await AsUser().CreateStudioAsync(" \t ");
+        var studio = await AsUser().CreateStudioAsync(" \t ", TestContext.Current.CancellationToken);
 
         // Act & Assert
         studio.Name.Should().Be(EntityNameRules.EmptyCanonicalName);
@@ -56,7 +54,7 @@ public sealed class StudioCreationApiTests(
             .Build();
 
         // Act
-        var studio = await AsUser().CreateStudioAsync(request);
+        var studio = await AsUser().CreateStudioAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
         studio.Name.Should().Be("The Lantern Room");
@@ -66,18 +64,16 @@ public sealed class StudioCreationApiTests(
     public async Task GivenStudioAlias_WhenAnotherStudioUsesAlias_ThenBothStudiosExist()
     {
         // Arrange
-        var first = await AsUser().CreateStudioAsync(
-            new StudioBuilder()
+        var first = await AsUser().CreateStudioAsync(new StudioBuilder()
                 .WithName(TestCatalog.Studio.Name)
                 .WithAlias("Shared production label")
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var second = await AsUser().CreateStudioAsync(
-            new StudioBuilder()
+        var second = await AsUser().CreateStudioAsync(new StudioBuilder()
                 .WithName("The Lantern Room")
                 .WithAlias("Shared production label")
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Assert
         second.Id.Should().NotBe(first.Id);
@@ -92,15 +88,15 @@ public sealed class StudioCreationApiTests(
     {
         // Arrange
         const string customFieldKey = "production_style";
-        var parent = await AsUser().CreateStudioAsync("Barely Dressed Holdings");
-        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.PlotOptional.Name);
+        var parent = await AsUser().CreateStudioAsync("Barely Dressed Holdings", TestContext.Current.CancellationToken);
+        var tag = await AsUser().CreateTagAsync(TestCatalog.Tags.PlotOptional.Name, TestContext.Current.CancellationToken);
         await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = customFieldKey,
             Label = "Production style",
             Type = "text",
             EntityTypes = ["studio"]
-        });
+        }, TestContext.Current.CancellationToken);
         var request = new StudioBuilder()
             .WithName(TestCatalog.Studio.Name)
             .WithParent(parent)
@@ -116,9 +112,9 @@ public sealed class StudioCreationApiTests(
             .Build();
 
         // Act
-        var studio = await AsUser().CreateStudioAsync(request);
-        var studioAfter = await AsUser().GetStudioByIdAsync(studio.Id);
-        var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Studio, studio.Id);
+        var studio = await AsUser().CreateStudioAsync(request, TestContext.Current.CancellationToken);
+        var studioAfter = await AsUser().GetStudioByIdAsync(studio.Id, TestContext.Current.CancellationToken);
+        var engagement = await AsUser().GetEntityEngagementAsync(AffinityHostType.Studio, studio.Id, TestContext.Current.CancellationToken);
 
         // Assert
         studioAfter.Should().BeEquivalentTo(request, options => options

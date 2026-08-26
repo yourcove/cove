@@ -16,7 +16,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.GroupsRead)]
-public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, DynamicGroupResolver? dynamicGroups = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null) : ControllerBase
+public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService? customFields = null, DynamicGroupResolver? dynamicGroups = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, IEventBus? eventBus = null, BulkDeletionJobService? bulkDeletionJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private static readonly string[] DefaultAllowedHostTypes = ["video", "image", "audio", "text", "group", "performer", "studio", "tag", "gallery", "face", "segment"];
     private readonly CustomFieldService _customFields = customFields ?? new CustomFieldService(db);
@@ -67,6 +67,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<GroupDto>> GetById(int id, CancellationToken ct)
     {
@@ -77,6 +78,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
 
     [HttpPost]
     [RequiresPermission(Permissions.GroupsWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GroupDto>> Create([FromBody] GroupCreateDto dto, CancellationToken ct)
     {
         var group = new Group
@@ -106,6 +109,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.GroupsWrite)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite)]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GroupDto>> Update(int id, [FromBody] GroupUpdateDto dto, CancellationToken ct)
     {
         var group = await groupRepo.GetByIdWithRelationsAsync(id, ct);
@@ -171,6 +176,18 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         if (g == null) return NotFound();
         if (DynamicGroupResolver.IsProtectedBuiltInGroup(g.QuerySourceKey))
             return Conflict(new { error = "This is a built-in group and cannot be deleted." });
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Group,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
         await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Group, id, ct);
         await groupRepo.DeleteAsync(id, ct);
         return NoContent();
@@ -181,6 +198,8 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpPost("bulk")]
     [RequiresPermission(Permissions.GroupsWrite)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsWrite, ActionArgumentName = "dto", PropertyName = "Ids")]
+    [RequiresEntityAccess(EntityKinds.Studio, Permissions.StudiosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "StudioId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<IActionResult> BulkUpdate([FromBody] BulkGroupUpdateDto dto, CancellationToken ct)
     {
         var groups = await db.Groups
@@ -229,19 +248,16 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.GroupsDelete)]
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
         var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0) return Ok(new BulkDeleteWithSkippedResult([], 0));
+        if (ids.Length == 0)
+            return BadRequest("Select at least one group to delete.");
 
-        var groups = await db.Groups.Where(group => ids.Contains(group.Id)).ToListAsync(ct);
-        var deletable = groups.Where(group => !DynamicGroupResolver.IsProtectedBuiltInGroup(group.QuerySourceKey)).ToList();
-        var skipped = groups.Count - deletable.Count;
-        foreach (var group in deletable)
-            await _customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Group, group.Id, ct);
-        db.Groups.RemoveRange(deletable);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteWithSkippedResult(deletable.Select(group => group.Id).ToList(), skipped));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Group,
+            ids));
     }
 
     [HttpPut("reorder")]

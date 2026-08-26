@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   X,
@@ -19,6 +19,7 @@ import { pushOverlay } from "../utils/overlayState";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { InteractiveRating } from "./Rating";
 import type { EntityEngagement } from "../api/types";
+import { useKeySequence } from "../hooks/useKeySequence";
 
 // Movement (px) past which a pointer gesture counts as a pan rather than a click. Below it, releasing
 // the pointer toggles zoom; above it the gesture is a drag and must not also toggle zoom on release.
@@ -365,36 +366,25 @@ export function Lightbox({
   }, [playing, open, goNext, currentSlideshowDelay]);
 
   // Keyboard
+  useKeySequence(useMemo(() => open ? [
+    { id: "viewer.previous", keys: "ArrowLeft", surface: "viewer" as const, action: goPrev },
+    { id: "viewer.next", keys: "ArrowRight", surface: "viewer" as const, action: goNext },
+    { id: "viewer.slideshow", keys: "Space", surface: "viewer" as const, action: toggleSlideshow },
+    { id: "viewer.fullscreen", keys: "f", surface: "viewer" as const, action: () => { void toggleFullscreen(); } },
+  ] : [], [goNext, goPrev, open, toggleFullscreen, toggleSlideshow]));
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       switch (e.key) {
-        case "ArrowLeft":
-          e.preventDefault();
-          goPrev();
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          goNext();
-          break;
         case "Escape":
           e.preventDefault();
           handleClose();
-          break;
-        case " ":
-          e.preventDefault();
-          toggleSlideshow();
-          break;
-        case "f":
-        case "F":
-          e.preventDefault();
-          void toggleFullscreen();
           break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [goNext, goPrev, handleClose, open, toggleFullscreen, toggleSlideshow]);
+  }, [handleClose, open]);
 
   // Scroll wheel zoom
   const handleWheel = useCallback(

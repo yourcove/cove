@@ -4,11 +4,9 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.ExampleData;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Performers;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class PerformerUpdateApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -19,17 +17,16 @@ public sealed class PerformerUpdateApiTests(
     {
         // Arrange
         const string customFieldKey = "character_archetype";
-        var originalTag = await AsUser().CreateTagAsync(TestCatalog.Tags.Brooding.Name);
-        var updatedTag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name);
+        var originalTag = await AsUser().CreateTagAsync(TestCatalog.Tags.Brooding.Name, TestContext.Current.CancellationToken);
+        var updatedTag = await AsUser().CreateTagAsync(TestCatalog.Tags.TheatricalEntrance.Name, TestContext.Current.CancellationToken);
         await AsUser().CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
         {
             Key = customFieldKey,
             Label = "Character archetype",
             Type = "text",
             EntityTypes = ["performer"]
-        });
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        }, TestContext.Current.CancellationToken);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.VelvetThunder.Name)
                 .WithDisambiguation("Original role")
                 .WithBirthdate("1986-02-14")
@@ -41,7 +38,7 @@ public sealed class PerformerUpdateApiTests(
                 .WithRemoteId("https://original-metadata.example/graphql", "original-id")
                 .WithCustomField(customFieldKey, "Original archetype")
                 .WithRating(40)
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var updated = await AsUser().UpdatePerformerAsync(performer.Id, new
@@ -56,9 +53,9 @@ public sealed class PerformerUpdateApiTests(
             remoteIds = new[] { new PerformerRemoteIdDto("https://updated-metadata.example/graphql", "updated-id") },
             customFields = new Dictionary<string, object> { [customFieldKey] = "Updated archetype" },
             rating = 85,
-        });
-        var retrieved = await AsUser().GetPerformerByIdAsync(performer.Id);
-        var engagement = await AsUser().GetPerformerEngagementAsync(retrieved);
+        }, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser().GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken);
+        var engagement = await AsUser().GetPerformerEngagementAsync(retrieved, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Name.Should().Be(TestCatalog.Performers.RandyDandy.Name);
@@ -81,20 +78,19 @@ public sealed class PerformerUpdateApiTests(
     public async Task GivenOptionalMetadata_WhenFieldsAreCleared_ThenValuesBecomeNull()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .WithDisambiguation("Original role")
                 .WithCountry("Canada")
                 .WithHeightCm(170)
                 .WithDetails("Original details")
-                .Build());
+                .Build(), TestContext.Current.CancellationToken);
 
         // Act
         var updated = await AsUser().UpdatePerformerAsync(performer.Id, new
         {
             clearFields = new[] { "disambiguation", "country", "heightCm", "details" },
-        });
+        }, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Disambiguation.Should().BeNull();
@@ -107,13 +103,11 @@ public sealed class PerformerUpdateApiTests(
     public async Task GivenExistingPerformer_WhenAnotherPerformerIsUpdatedToSameIdentity_ThenConflictIsReturnedWithoutChangingPerformer()
     {
         // Arrange
-        var existing = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder()
+        var existing = await AsUser().CreatePerformerAsync(new PerformerBuilder()
                 .WithName(TestCatalog.Performers.CherryPoppins.Name)
                 .WithDisambiguation("Silent Era")
-                .Build());
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build());
+                .Build(), TestContext.Current.CancellationToken);
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build(), TestContext.Current.CancellationToken);
 
         // Act
         var action = () => AsUser().UpdatePerformerAsync(performer.Id, new
@@ -125,7 +119,7 @@ public sealed class PerformerUpdateApiTests(
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 409 (Conflict)*");
-        var retrieved = await AsUser().GetPerformerByIdAsync(performer.Id);
+        var retrieved = await AsUser().GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken);
         retrieved.Name.Should().Be(performer.Name);
         retrieved.Disambiguation.Should().BeNull();
     }
@@ -134,13 +128,10 @@ public sealed class PerformerUpdateApiTests(
     public async Task GivenMember_WhenPerformerIsUpdated_ThenWriteAccessIsAllowed()
     {
         // Arrange
-        var performer = await AsUser().CreatePerformerAsync(
-            new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build());
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName(TestCatalog.Performers.BeaHaven.Name).Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var updated = await AsUser(ApiTestUsers.Eva).UpdatePerformerAsync(
-            performer.Id,
-            new { details = "Updated by member" });
+        var updated = await AsUser(ApiTestUsers.Eva).UpdatePerformerAsync(performer.Id, new { details = "Updated by member" }, TestContext.Current.CancellationToken);
 
         // Assert
         updated.Details.Should().Be("Updated by member");

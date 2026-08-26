@@ -361,6 +361,7 @@ public class AuthController : ControllerBase
 
     [HttpGet("me")]
     [AllowWithoutPermission]
+    [AllowShareLinkAccess]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
         var p = _principalAccessor.Current;

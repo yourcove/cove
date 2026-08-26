@@ -130,6 +130,7 @@ public class GroupItemConfiguration : IEntityTypeConfiguration<GroupItem>
 
         builder.HasIndex(item => new { item.GroupId, item.OrderIndex });
         builder.HasIndex(item => new { item.HostType, item.HostId });
+        builder.HasIndex(item => new { item.Kind, item.HostId });
         builder.HasIndex(item => item.VideoId);
         builder.HasIndex(item => item.ImageId);
         builder.HasIndex(item => item.ChildGroupId);
@@ -676,6 +677,7 @@ public class TagApplicationConfiguration : IEntityTypeConfiguration<TagApplicati
         builder.HasOne(application => application.Tag).WithMany().HasForeignKey(application => application.TagId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(application => new { application.HostType, application.HostId });
+        builder.HasIndex(application => new { application.ContextType, application.ContextId });
         builder.HasIndex(application => new { application.HostType, application.HostId, application.ContextType, application.ContextId });
         builder.HasIndex(application => application.TagId);
         builder.HasIndex(application => application.SourceKey);
@@ -736,6 +738,7 @@ public class SegmentConfiguration : IEntityTypeConfiguration<Segment>
         builder.HasIndex(segment => segment.SourceKey);
         builder.HasIndex(segment => segment.SourceRunId);
         builder.HasIndex(segment => segment.Kind);
+        builder.HasIndex(segment => new { segment.Kind, segment.RefId });
     }
 }
 
@@ -1063,6 +1066,29 @@ public class BaseFileEntityConfiguration : IEntityTypeConfiguration<BaseFileEnti
         builder.Property(f => f.Path).IsRequired();
         builder.HasIndex(f => new { f.ParentFolderId, f.Basename }).IsUnique();
         builder.HasIndex(f => f.Path);
+    }
+}
+
+public class PendingPhysicalFileDeletionConfiguration : IEntityTypeConfiguration<PendingPhysicalFileDeletion>
+{
+    public void Configure(EntityTypeBuilder<PendingPhysicalFileDeletion> builder)
+    {
+        builder.ToTable("pending_physical_file_deletions");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Path).IsRequired();
+        builder.Property(item => item.LastError).HasMaxLength(2_000);
+        builder.HasIndex(item => new { item.BatchId, item.Id });
+        builder.HasIndex(item => item.CreatedAt);
+    }
+}
+
+public class VideoDeletionCommitMarkerConfiguration : IEntityTypeConfiguration<VideoDeletionCommitMarker>
+{
+    public void Configure(EntityTypeBuilder<VideoDeletionCommitMarker> builder)
+    {
+        builder.ToTable("video_deletion_commit_markers");
+        builder.HasKey(item => new { item.BatchId, item.VideoId });
+        builder.HasIndex(item => item.CreatedAt);
     }
 }
 

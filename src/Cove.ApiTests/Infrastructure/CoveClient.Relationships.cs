@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.Core.DTOs;
@@ -5,8 +6,6 @@ using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Infrastructure;
-
-public sealed record GroupBulkDeleteResponse(int Deleted, int Skipped);
 
 public sealed partial class CoveClient
 {
@@ -209,19 +208,15 @@ public sealed partial class CoveClient
             request,
             cancellationToken);
 
-    public async Task<GroupBulkDeleteResponse> BulkDeleteGroupsAsync(
+    public Task<BulkDeletionJobStartResponse> BulkDeleteGroupsAsync(
         BatchDeleteDto request,
         CancellationToken cancellationToken = default)
-    {
-        var response = await SendAsync<JsonElement>(
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(
             HttpMethod.Delete,
             "/api/groups/bulk",
             request,
+            System.Net.HttpStatusCode.Accepted,
             cancellationToken);
-        return new GroupBulkDeleteResponse(
-            response.GetProperty("deleted").GetInt32(),
-            response.GetProperty("skipped").GetInt32());
-    }
 
     public Task<GroupItemDto> AddVideoToGroupAsync(
         VideoDto video,
@@ -397,6 +392,37 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<DetectionDto> GetImageDetectionAsync(
+        ImageDto image,
+        int detectionId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/images/{image.Id}/detections/{detectionId}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<DetectionDto> UpdateImageDetectionAsync(
+        ImageDto image,
+        int detectionId,
+        DetectionUpdateDto detection,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Put,
+            $"/api/images/{image.Id}/detections/{detectionId}",
+            detection,
+            cancellationToken);
+
+    public Task DeleteImageDetectionAsync(
+        ImageDto image,
+        int detectionId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/images/{image.Id}/detections/{detectionId}",
+            new { },
+            cancellationToken);
+
     public Task<DetectionDto> CreateVideoDetectionAsync(
         VideoDto video,
         string classification,
@@ -423,6 +449,93 @@ public sealed partial class CoveClient
             HttpMethod.Get,
             WithCacheNonce($"/api/videos/{video.Id}/detections"),
             payload: null,
+            cancellationToken);
+
+    public Task<DetectionDto> GetVideoDetectionAsync(
+        VideoDto video,
+        int detectionId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/videos/{video.Id}/detections/{detectionId}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<DetectionDto> UpdateVideoDetectionAsync(
+        VideoDto video,
+        int detectionId,
+        DetectionUpdateDto detection,
+        CancellationToken cancellationToken = default)
+        => SendAsync<DetectionDto>(
+            HttpMethod.Put,
+            $"/api/videos/{video.Id}/detections/{detectionId}",
+            detection,
+            cancellationToken);
+
+    public Task DeleteVideoDetectionAsync(
+        VideoDto video,
+        int detectionId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/videos/{video.Id}/detections/{detectionId}",
+            new { },
+            cancellationToken);
+
+    public Task<IReadOnlyList<TagApplicationDto>> GetTagApplicationsAsync(
+        string? hostType = null,
+        int? hostId = null,
+        string? contextType = null,
+        int? contextId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(hostType)) query.Add($"hostType={Uri.EscapeDataString(hostType)}");
+        if (hostId.HasValue) query.Add($"hostId={hostId.Value}");
+        if (!string.IsNullOrWhiteSpace(contextType)) query.Add($"contextType={Uri.EscapeDataString(contextType)}");
+        if (contextId.HasValue) query.Add($"contextId={contextId.Value}");
+        var requestUri = "/api/tagapplications" + (query.Count == 0 ? string.Empty : "?" + string.Join("&", query));
+        return SendAsync<IReadOnlyList<TagApplicationDto>>(
+            HttpMethod.Get,
+            WithCacheNonce(requestUri),
+            payload: null,
+            cancellationToken);
+    }
+
+    public async Task<TagApplicationDto> CreateTagApplicationAsync(
+        TagApplicationCreateDto application,
+        CancellationToken cancellationToken = default)
+    {
+        const string requestUri = "/api/tagapplications";
+        using var response = await _client.PostAsJsonAsync(requestUri, application, ApiJson.Options, cancellationToken);
+        if (response.StatusCode is not HttpStatusCode.Created)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"POST {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+        }
+
+        return await ApiResponse.ReadAsync<TagApplicationDto>(response, $"POST {requestUri}", cancellationToken);
+    }
+
+    public Task DeleteTagApplicationAsync(
+        int applicationId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/tagapplications/{applicationId}",
+            new { },
+            cancellationToken);
+
+    public Task DeleteHostTagApplicationsAsync(
+        string hostType,
+        int hostId,
+        int tagId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(
+            HttpMethod.Delete,
+            $"/api/tagapplications/host/{Uri.EscapeDataString(hostType)}/{hostId}/tag/{tagId}",
+            new { },
             cancellationToken);
 
     public Task<SegmentDto> CreateVideoSegmentAsync(
@@ -470,6 +583,16 @@ public sealed partial class CoveClient
         => SendAsync<SegmentRecordDto>(
             HttpMethod.Get,
             WithCacheNonce($"/api/segments/{segmentId}"),
+            payload: null,
+            cancellationToken);
+
+    public Task<PaginatedResponse<SegmentRecordDto>> FindSegmentsByTitleAsync(
+        string? title,
+        string titleModifier,
+        CancellationToken cancellationToken = default)
+        => SendAsync<PaginatedResponse<SegmentRecordDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/segments?perPage=250&title={Uri.EscapeDataString(title ?? string.Empty)}&titleModifier={Uri.EscapeDataString(titleModifier)}"),
             payload: null,
             cancellationToken);
 

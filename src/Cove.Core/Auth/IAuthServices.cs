@@ -116,6 +116,36 @@ public sealed record UserVideosPreferencesDto(
 public sealed record UserPlaybackPreferencesDto(
     int? SkipSeconds);
 
+public sealed record KeyboardShortcutPresetProvenanceDto(
+    string Source,
+    string? ProviderId = null,
+    string? OriginalPresetId = null);
+
+public sealed record KeyboardShortcutExtensionRequirementDto(
+    string Id,
+    string? MinimumVersion = null);
+
+public sealed record KeyboardShortcutPresetRequirementsDto(
+    IReadOnlyList<KeyboardShortcutExtensionRequirementDto>? Extensions = null);
+
+public sealed record KeyboardShortcutPresetDto(
+    int SchemaVersion,
+    string Id,
+    string Name,
+    string UnmappedActions,
+    Dictionary<string, string[]> Bindings,
+    string? Description = null,
+    string? Author = null,
+    string? Version = null,
+    string? BasePresetId = null,
+    KeyboardShortcutPresetRequirementsDto? Requirements = null,
+    KeyboardShortcutPresetProvenanceDto? Provenance = null);
+
+public sealed record UserKeyboardShortcutPreferencesDto(
+    string? ActivePresetId,
+    IReadOnlyList<KeyboardShortcutPresetDto>? PersonalPresets,
+    bool? ShowChordHints = null);
+
 public sealed record UserUiPreferencesDto(
     UserThemePreferencesDto? Theme,
     UserRatingSystemOptionsDto? RatingSystemOptions,
@@ -126,7 +156,8 @@ public sealed record UserUiPreferencesDto(
     // JSON blob of the user's customized home page rows (opaque to the server).
     string? HomePageContent = null,
     // Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON.
-    Dictionary<string, string>? DefaultFilters = null);
+    Dictionary<string, string>? DefaultFilters = null,
+    UserKeyboardShortcutPreferencesDto? KeyboardShortcuts = null);
 
 public sealed record CreateUserRequest(
     string Username,

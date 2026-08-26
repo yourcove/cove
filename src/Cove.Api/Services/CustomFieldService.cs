@@ -267,15 +267,25 @@ public sealed class CustomFieldService(CoveContext db)
 
     public async Task DeleteValuesForEntityAsync(string entityType, int entityId, CancellationToken ct = default)
     {
+        if (await StageDeleteValuesForEntityAsync(entityType, entityId, ct))
+            await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Stages custom-field value removal without saving so a larger entity mutation can commit all of
+    /// its relational changes atomically in one SaveChanges call.
+    /// </summary>
+    public async Task<bool> StageDeleteValuesForEntityAsync(string entityType, int entityId, CancellationToken ct = default)
+    {
         var normalizedEntityType = RequireEntityType(entityType);
         var values = await _db.CustomFieldValues
             .Where(value => value.EntityType == normalizedEntityType && value.EntityId == entityId)
             .ToListAsync(ct);
         if (values.Count == 0)
-            return;
+            return false;
 
         _db.CustomFieldValues.RemoveRange(values);
-        await _db.SaveChangesAsync(ct);
+        return true;
     }
 
     private async Task<bool> KeyExistsAsync(string key, int? exceptId, CancellationToken ct)

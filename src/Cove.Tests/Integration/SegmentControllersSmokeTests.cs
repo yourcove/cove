@@ -63,10 +63,10 @@ public sealed class GroupItemsControllerSmokeTests
         ]);
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.PostAsJsonAsync($"/api/groups/{groupId}/items/from-spans", request);
+        var response = await client.PostAsJsonAsync($"/api/groups/{groupId}/items/from-spans", request, cancellationToken: TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var payload = await response.Content.ReadApiJsonAsync<List<GroupItemDto>>();
+        var payload = await response.Content.ReadApiJsonAsync<List<GroupItemDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         var item = Assert.Single(payload);
         Assert.Equal(GroupItemKind.VideoRange, item.Kind);
@@ -111,10 +111,10 @@ public sealed class VideoSegmentsControllerSmokeTests
         });
 
         using var client = factory.CreateAuthenticatedClient();
-        var response = await client.GetAsync($"/api/videos/{videoId}/segments");
+        var response = await client.GetAsync($"/api/videos/{videoId}/segments", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var payload = await response.Content.ReadApiJsonAsync<List<SegmentDto>>();
+        var payload = await response.Content.ReadApiJsonAsync<List<SegmentDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         Assert.Single(payload);
     }
@@ -151,17 +151,17 @@ public sealed class SegmentDisplayProfilesControllerSmokeTests
 
         using var client = factory.CreateAuthenticatedClient();
 
-        var listResponse = await client.GetAsync("/api/segment-display-profiles");
+        var listResponse = await client.GetAsync("/api/segment-display-profiles", TestContext.Current.CancellationToken);
         listResponse.EnsureSuccessStatusCode();
-        var profiles = await listResponse.Content.ReadApiJsonAsync<List<SegmentDisplayProfileDto>>();
+        var profiles = await listResponse.Content.ReadApiJsonAsync<List<SegmentDisplayProfileDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(profiles);
         Assert.Equal(2, profiles.Count);
         var globalDefaultProfile = Assert.Single(profiles, profile => profile.Name == "Default" && profile.UserId == null && profile.IsDefault);
         Assert.Single(profiles, profile => profile.Name == "Raw" && profile.UserId == null);
 
-        var globalRulesResponse = await client.GetAsync($"/api/segment-display-profiles/{globalDefaultProfile.Id}/rules");
+        var globalRulesResponse = await client.GetAsync($"/api/segment-display-profiles/{globalDefaultProfile.Id}/rules", TestContext.Current.CancellationToken);
         globalRulesResponse.EnsureSuccessStatusCode();
-        var globalRules = await globalRulesResponse.Content.ReadApiJsonAsync<List<SegmentDisplayRuleDto>>();
+        var globalRules = await globalRulesResponse.Content.ReadApiJsonAsync<List<SegmentDisplayRuleDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(globalRules);
         var globalDefaultRule = Assert.Single(globalRules);
         Assert.Equal(SegmentHostType.Video, globalDefaultRule.HostType);
@@ -186,10 +186,10 @@ public sealed class SegmentDisplayProfilesControllerSmokeTests
                     "#33ccaa",
                     2,
                     null),
-            ]));
+            ]), cancellationToken: TestContext.Current.CancellationToken);
         previewResponse.EnsureSuccessStatusCode();
 
-        var preview = await previewResponse.Content.ReadApiJsonAsync<ResolvedSpanListDto>();
+        var preview = await previewResponse.Content.ReadApiJsonAsync<ResolvedSpanListDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(preview);
         Assert.Single(preview.Spans);
     }
@@ -259,15 +259,15 @@ public sealed class SegmentsControllerSmokeTests
 
         using var client = factory.CreateAuthenticatedClient();
 
-        var listResponse = await client.GetAsync($"/api/segments?videoId={videoId}&page=1&perPage=20");
+        var listResponse = await client.GetAsync($"/api/segments?videoId={videoId}&page=1&perPage=20", TestContext.Current.CancellationToken);
         listResponse.EnsureSuccessStatusCode();
-        var listPayload = await listResponse.Content.ReadApiJsonAsync<PaginatedResponse<SegmentRecordDto>>();
+        var listPayload = await listResponse.Content.ReadApiJsonAsync<PaginatedResponse<SegmentRecordDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(listPayload);
         Assert.Equal(2, listPayload.TotalCount);
 
-        var distinctsResponse = await client.GetAsync("/api/segments/source-keys/distinct");
+        var distinctsResponse = await client.GetAsync("/api/segments/source-keys/distinct", TestContext.Current.CancellationToken);
         distinctsResponse.EnsureSuccessStatusCode();
-        var distincts = await distinctsResponse.Content.ReadApiJsonAsync<List<SegmentDistinctValueDto>>();
+        var distincts = await distinctsResponse.Content.ReadApiJsonAsync<List<SegmentDistinctValueDto>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(distincts);
         Assert.Contains(distincts, item => item.Value == "user");
 
@@ -281,9 +281,9 @@ public sealed class SegmentsControllerSmokeTests
             null,
             null,
             [videoId],
-            null));
+            null), cancellationToken: TestContext.Current.CancellationToken);
         spansResponse.EnsureSuccessStatusCode();
-        var spansPayload = await spansResponse.Content.ReadApiJsonAsync<SegmentSpanSearchResponseDto>();
+        var spansPayload = await spansResponse.Content.ReadApiJsonAsync<SegmentSpanSearchResponseDto>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(spansPayload);
         Assert.Equal(2, spansPayload.Items.Count);
         Assert.Contains(spansPayload.Items, item => item.Span.SourceKey == "user");

@@ -1,11 +1,9 @@
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Users;
 
-[Collection(ApiTestLane1Collection.Name)]
 public sealed class UsersAdministrationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -24,7 +22,7 @@ public sealed class UsersAdministrationApiTests(
             "Original password 123!",
             DisplayName: "Initial display name",
             Email: "initial@example.test",
-            MustChangePassword: true));
+            MustChangePassword: true), TestContext.Current.CancellationToken);
 
         created.Username.Should().Be(username);
         created.DisplayName.Should().Be("Initial display name");
@@ -33,14 +31,14 @@ public sealed class UsersAdministrationApiTests(
         created.HasPassword.Should().BeTrue();
         created.MustChangePassword.Should().BeTrue();
         created.Roles.Should().BeEmpty();
-        (await owner.GetUserExternalLinksAsync(created.Id)).Should().BeEmpty();
+        (await owner.GetUserExternalLinksAsync(created.Id, TestContext.Current.CancellationToken)).Should().BeEmpty();
 
         var updated = await owner.UpdateUserAsync(created.Id, new UpdateUserRequest(
             DisplayName: "Updated display name",
             Email: "updated@example.test",
             IsActive: false,
-            MustChangePassword: false));
-        var fresh = await owner.GetUserAsync(created.Id);
+            MustChangePassword: false), TestContext.Current.CancellationToken);
+        var fresh = await owner.GetUserAsync(created.Id, TestContext.Current.CancellationToken);
 
         foreach (var user in new[] { updated, fresh })
         {
@@ -63,15 +61,15 @@ public sealed class UsersAdministrationApiTests(
         var username = $"password-user-{Guid.NewGuid():N}";
         const string originalPassword = "Original password 123!";
         const string replacementPassword = "Replacement password 456!";
-        var user = await owner.CreateUserAsync(new CreateUserRequest(username, originalPassword));
+        var user = await owner.CreateUserAsync(new CreateUserRequest(username, originalPassword), TestContext.Current.CancellationToken);
 
-        var withMemberRole = await owner.SetUserRolesAsync(user.Id, [BuiltinRoles.Member]);
-        await owner.ChangeUserPasswordAsync(user.Id, replacementPassword);
+        var withMemberRole = await owner.SetUserRolesAsync(user.Id, [BuiltinRoles.Member], TestContext.Current.CancellationToken);
+        await owner.ChangeUserPasswordAsync(user.Id, replacementPassword, TestContext.Current.CancellationToken);
 
         withMemberRole.Roles.Should().Equal(BuiltinRoles.Member);
-        (await owner.GetUserAsync(user.Id)).Roles.Should().Equal(BuiltinRoles.Member);
-        (await owner.TryLoginAsync(username, originalPassword)).Should().BeFalse();
-        (await owner.TryLoginAsync(username, replacementPassword)).Should().BeTrue();
+        (await owner.GetUserAsync(user.Id, TestContext.Current.CancellationToken)).Roles.Should().Equal(BuiltinRoles.Member);
+        (await owner.TryLoginAsync(username, originalPassword, TestContext.Current.CancellationToken)).Should().BeFalse();
+        (await owner.TryLoginAsync(username, replacementPassword, TestContext.Current.CancellationToken)).Should().BeTrue();
     }
 
     [Fact]
@@ -83,15 +81,15 @@ public sealed class UsersAdministrationApiTests(
         var pendingUsername = $"invited-{Guid.NewGuid():N}";
         var existing = await owner.CreateUserAsync(new CreateUserRequest(
             $"existing-{Guid.NewGuid():N}",
-            "Existing password 123!"));
+            "Existing password 123!"), TestContext.Current.CancellationToken);
         var before = DateTime.UtcNow;
 
         var pending = await owner.CreatePendingUserInviteAsync(new CreateInviteRequest(
             Username: pendingUsername,
             DisplayName: "Pending invitee",
             Email: "pending@example.test",
-            Roles: [BuiltinRoles.Member]));
-        var existingInvite = await owner.CreateUserInviteAsync(existing.Id);
+            Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
+        var existingInvite = await owner.CreateUserInviteAsync(existing.Id, TestContext.Current.CancellationToken);
 
         AssertInvite(pending, before, ApiUri);
         AssertInvite(existingInvite, before, ApiUri);
@@ -105,24 +103,24 @@ public sealed class UsersAdministrationApiTests(
     {
         var owner = AsUser();
         const string lockPassword = "Lockable password 123!";
-        var lockable = await owner.CreateUserAsync(new CreateUserRequest($"locked-{Guid.NewGuid():N}", lockPassword));
+        var lockable = await owner.CreateUserAsync(new CreateUserRequest($"locked-{Guid.NewGuid():N}", lockPassword), TestContext.Current.CancellationToken);
         for (var attempt = 0; attempt < 8; attempt++)
-            (await owner.TryLoginAsync(lockable.Username, "wrong password")).Should().BeFalse();
+            (await owner.TryLoginAsync(lockable.Username, "wrong password", TestContext.Current.CancellationToken)).Should().BeFalse();
 
-        (await owner.GetUserAsync(lockable.Id)).IsLocked.Should().BeTrue();
-        await owner.UnlockUserAsync(lockable.Id);
-        (await owner.GetUserAsync(lockable.Id)).IsLocked.Should().BeFalse();
-        (await owner.TryLoginAsync(lockable.Username, lockPassword)).Should().BeTrue();
+        (await owner.GetUserAsync(lockable.Id, TestContext.Current.CancellationToken)).IsLocked.Should().BeTrue();
+        await owner.UnlockUserAsync(lockable.Id, TestContext.Current.CancellationToken);
+        (await owner.GetUserAsync(lockable.Id, TestContext.Current.CancellationToken)).IsLocked.Should().BeFalse();
+        (await owner.TryLoginAsync(lockable.Username, lockPassword, TestContext.Current.CancellationToken)).Should().BeTrue();
 
         var disposable = await owner.CreateUserAsync(new CreateUserRequest(
             $"disposable-{Guid.NewGuid():N}",
-            "Disposable password 123!"));
+            "Disposable password 123!"), TestContext.Current.CancellationToken);
         var memberDeletion = () => AsUser(ApiTestUsers.Eva).DeleteUserAsync(disposable.Id);
         await memberDeletion.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 403 (Forbidden)*");
-        (await owner.GetUserAsync(disposable.Id)).Id.Should().Be(disposable.Id);
+        (await owner.GetUserAsync(disposable.Id, TestContext.Current.CancellationToken)).Id.Should().Be(disposable.Id);
 
-        await owner.DeleteUserAsync(disposable.Id);
+        await owner.DeleteUserAsync(disposable.Id, TestContext.Current.CancellationToken);
         var deletedRead = () => owner.GetUserAsync(disposable.Id);
         await deletedRead.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*returned 404 (NotFound)*");

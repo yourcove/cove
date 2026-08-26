@@ -17,20 +17,14 @@ public sealed class ExternalIdentityServiceTests
         var alice = await fixture.AddUserAsync(1, "alice", hasPassword: true);
         var service = fixture.Service();
 
-        var authentik = await service.CreateLinkAsync(
-            alice.Id,
-            Identity("authentik", "subject-a", "Authentik"),
-            Principal(alice));
-        var replacement = await service.CreateLinkAsync(
-            alice.Id,
-            Identity("replacement", "subject-b", "Replacement"),
-            Principal(alice));
+        var authentik = await service.CreateLinkAsync(alice.Id, Identity("authentik", "subject-a", "Authentik"), Principal(alice), TestContext.Current.CancellationToken);
+        var replacement = await service.CreateLinkAsync(alice.Id, Identity("replacement", "subject-b", "Replacement"), Principal(alice), TestContext.Current.CancellationToken);
 
         Assert.NotEqual(authentik.Id, replacement.Id);
-        Assert.Equal(alice.Id, await service.ResolveUserIdAsync(Identity("authentik", "subject-a", "Authentik")));
-        Assert.Equal(alice.Id, await service.ResolveUserIdAsync(Identity("replacement", "subject-b", "Replacement")));
-        Assert.Null(await service.ResolveUserIdAsync(Identity("authentik", "SUBJECT-A", "Authentik")));
-        Assert.Equal(2, (await service.ListForUserAsync(alice.Id)).Count);
+        Assert.Equal(alice.Id, await service.ResolveUserIdAsync(Identity("authentik", "subject-a", "Authentik"), TestContext.Current.CancellationToken));
+        Assert.Equal(alice.Id, await service.ResolveUserIdAsync(Identity("replacement", "subject-b", "Replacement"), TestContext.Current.CancellationToken));
+        Assert.Null(await service.ResolveUserIdAsync(Identity("authentik", "SUBJECT-A", "Authentik"), TestContext.Current.CancellationToken));
+        Assert.Equal(2, (await service.ListForUserAsync(alice.Id, TestContext.Current.CancellationToken)).Count);
     }
 
     [Fact]
@@ -42,11 +36,11 @@ public sealed class ExternalIdentityServiceTests
         var service = fixture.Service();
         var identity = Identity("authentik", "shared-subject", "Authentik");
 
-        await service.CreateLinkAsync(alice.Id, identity, Principal(alice));
+        await service.CreateLinkAsync(alice.Id, identity, Principal(alice), TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<ExternalIdentityConflictException>(
-            () => service.CreateLinkAsync(bob.Id, identity, Principal(bob)));
-        Assert.Equal(alice.Id, await service.ResolveUserIdAsync(identity));
+            () => service.CreateLinkAsync(bob.Id, identity, Principal(bob), TestContext.Current.CancellationToken));
+        Assert.Equal(alice.Id, await service.ResolveUserIdAsync(identity, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -56,13 +50,9 @@ public sealed class ExternalIdentityServiceTests
         var alice = await fixture.AddUserAsync(1, "alice", hasPassword: true);
         var service = fixture.Service();
 
-        await service.CreateLinkAsync(
-            alice.Id,
-            Identity("authentik", "subject-a", "Authentik"),
-            Principal(alice));
+        await service.CreateLinkAsync(alice.Id, Identity("authentik", "subject-a", "Authentik"), Principal(alice), TestContext.Current.CancellationToken);
 
-        Assert.Null(await service.ResolveUserIdAsync(
-            Identity("authentik", " subject-a ", "Authentik")));
+        Assert.Null(await service.ResolveUserIdAsync(Identity("authentik", " subject-a ", "Authentik"), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -71,14 +61,11 @@ public sealed class ExternalIdentityServiceTests
         await using var fixture = await Fixture.CreateAsync();
         var user = await fixture.AddUserAsync(1, "external-only", hasPassword: false);
         var service = fixture.Service();
-        var link = await service.CreateLinkAsync(
-            user.Id,
-            Identity("authentik", "only-subject", "Authentik"),
-            Principal(user));
+        var link = await service.CreateLinkAsync(user.Id, Identity("authentik", "only-subject", "Authentik"), Principal(user), TestContext.Current.CancellationToken);
 
-        await service.RemoveLinkAsync(user.Id, link.Id, Principal(user));
+        await service.RemoveLinkAsync(user.Id, link.Id, Principal(user), TestContext.Current.CancellationToken);
 
-        Assert.Empty(await service.ListForUserAsync(user.Id));
+        Assert.Empty(await service.ListForUserAsync(user.Id, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -88,14 +75,14 @@ public sealed class ExternalIdentityServiceTests
         var user = await fixture.AddUserAsync(1, "alice", hasPassword: true);
         var service = fixture.Service();
         var identity = Identity("authentik", "subject-a", "Authentik");
-        await service.CreateLinkAsync(user.Id, identity, Principal(user));
+        await service.CreateLinkAsync(user.Id, identity, Principal(user), TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, await service.CountProviderLinksAsync(identity.ExtensionId, identity.ProviderId));
-        Assert.Equal(0, await service.CountProviderLinksAsync(identity.ExtensionId, "other"));
+        Assert.Equal(1, await service.CountProviderLinksAsync(identity.ExtensionId, identity.ProviderId, TestContext.Current.CancellationToken));
+        Assert.Equal(0, await service.CountProviderLinksAsync(identity.ExtensionId, "other", TestContext.Current.CancellationToken));
 
-        await service.MarkUsedAsync(identity);
+        await service.MarkUsedAsync(identity, TestContext.Current.CancellationToken);
 
-        Assert.NotNull(Assert.Single(await service.ListForUserAsync(user.Id)).LastUsedAt);
+        Assert.NotNull(Assert.Single(await service.ListForUserAsync(user.Id, TestContext.Current.CancellationToken)).LastUsedAt);
     }
 
     private static ExtensionIdentityAssertion Identity(

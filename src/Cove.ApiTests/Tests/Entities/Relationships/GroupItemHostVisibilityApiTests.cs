@@ -2,11 +2,9 @@ using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
-using Xunit.Abstractions;
 
 namespace Cove.ApiTests.Tests.Entities.Relationships;
 
-[Collection(ApiTestLane2Collection.Name)]
 public sealed class GroupItemHostVisibilityApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
@@ -16,23 +14,23 @@ public sealed class GroupItemHostVisibilityApiTests(
     {
         var eva = AsUser(ApiTestUsers.Eva);
         var suffix = Guid.NewGuid().ToString("N");
-        var parent = await eva.CreateGroupAsync($"Host visibility parent {suffix}");
-        var childGroup = await eva.CreateGroupAsync($"Host visibility child {suffix}");
-        var controlGroup = await eva.CreateGroupAsync($"Host visibility control {suffix}");
-        var video = await eva.CreateVideoAsync($"Host visibility video {suffix}");
-        var audio = await eva.CreateAudioAsync($"Host visibility audio {suffix}");
-        var text = await eva.CreateTextAsync($"Host visibility text {suffix}");
-        var image = await eva.CreateImageAsync($"Host visibility image {suffix}");
+        var parent = await eva.CreateGroupAsync($"Host visibility parent {suffix}", TestContext.Current.CancellationToken);
+        var childGroup = await eva.CreateGroupAsync($"Host visibility child {suffix}", TestContext.Current.CancellationToken);
+        var controlGroup = await eva.CreateGroupAsync($"Host visibility control {suffix}", TestContext.Current.CancellationToken);
+        var video = await eva.CreateVideoAsync($"Host visibility video {suffix}", TestContext.Current.CancellationToken);
+        var audio = await eva.CreateAudioAsync($"Host visibility audio {suffix}", TestContext.Current.CancellationToken);
+        var text = await eva.CreateTextAsync($"Host visibility text {suffix}", TestContext.Current.CancellationToken);
+        var image = await eva.CreateImageAsync($"Host visibility image {suffix}", TestContext.Current.CancellationToken);
         var performer = await eva.CreatePerformerAsync(new PerformerBuilder()
             .WithName($"Host visibility performer {suffix}")
-            .Build());
-        var studio = await eva.CreateStudioAsync($"Host visibility studio {suffix}");
-        var tag = await eva.CreateTagAsync($"Host visibility tag {suffix}");
+            .Build(), TestContext.Current.CancellationToken);
+        var studio = await eva.CreateStudioAsync($"Host visibility studio {suffix}", TestContext.Current.CancellationToken);
+        var tag = await eva.CreateTagAsync($"Host visibility tag {suffix}", TestContext.Current.CancellationToken);
         var gallery = await eva.CreateGalleryAsync(new GalleryBuilder()
             .WithTitle($"Host visibility gallery {suffix}")
-            .Build());
-        var face = await eva.CreateFaceAsync(new FaceCreateDto($"Host visibility face {suffix}", null, false, "api-test"));
-        var segment = await eva.CreateVideoSegmentAsync(video, $"Host visibility segment {suffix}");
+            .Build(), TestContext.Current.CancellationToken);
+        var face = await eva.CreateFaceAsync(new FaceCreateDto($"Host visibility face {suffix}", null, false, "api-test"), TestContext.Current.CancellationToken);
+        var segment = await eva.CreateVideoSegmentAsync(video, $"Host visibility segment {suffix}", TestContext.Current.CancellationToken);
 
         parent.Kind.Should().Be(GroupKind.Static);
         var expected = new (GroupItemKind Kind, string HostType, int HostId)[]
@@ -54,18 +52,14 @@ public sealed class GroupItemHostVisibilityApiTests(
         for (var orderIndex = 0; orderIndex < expected.Length; orderIndex++)
         {
             var host = expected[orderIndex];
-            created.Add(await eva.CreateGroupItemAsync(
-                parent.Id,
-                CreateItem(orderIndex, host.Kind, host.HostType, host.HostId)));
+            created.Add(await eva.CreateGroupItemAsync(parent.Id, CreateItem(orderIndex, host.Kind, host.HostType, host.HostId), TestContext.Current.CancellationToken));
         }
 
-        var controlItem = await eva.CreateGroupItemAsync(
-            controlGroup.Id,
-            CreateItem(0, GroupItemKind.Video, "video", video.Id));
+        var controlItem = await eva.CreateGroupItemAsync(controlGroup.Id, CreateItem(0, GroupItemKind.Video, "video", video.Id), TestContext.Current.CancellationToken);
 
-        var page = await eva.GetGroupItemsPageAsync(parent.Id, page: 1, perPage: 25);
-        var freshParent = await eva.GetGroupByIdAsync(parent.Id);
-        var freshControl = await eva.GetGroupByIdAsync(controlGroup.Id);
+        var page = await eva.GetGroupItemsPageAsync(parent.Id, page: 1, perPage: 25, cancellationToken: TestContext.Current.CancellationToken);
+        var freshParent = await eva.GetGroupByIdAsync(parent.Id, TestContext.Current.CancellationToken);
+        var freshControl = await eva.GetGroupByIdAsync(controlGroup.Id, TestContext.Current.CancellationToken);
 
         page.TotalCount.Should().Be(expected.Length);
         page.Page.Should().Be(1);

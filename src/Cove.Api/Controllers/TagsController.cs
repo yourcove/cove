@@ -27,7 +27,9 @@ public class TagsController(
     ExtensionEntityFilterService? extensionFilters = null,
     ICurrentPrincipalAccessor? principalAccessor = null,
     IEventBus? eventBus = null,
-    TagMergeService? tagMergeService = null) : ControllerBase
+    TagMergeService? tagMergeService = null,
+    BulkDeletionJobService? bulkDeletionJobService = null,
+    BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
 {
     private const int ExtensionFilterCandidateLimit = 5_000;
 
@@ -299,6 +301,7 @@ public class TagsController(
     }
 
     [HttpGet("{id:int}")]
+    [AllowShareLinkAccess]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<TagDetailDto>> GetById(int id, CancellationToken ct, [FromQuery] int? depth = null)
     {
@@ -580,7 +583,8 @@ public class TagsController(
                 return Forbid();
         }
 
-        var jobId = jobService.Enqueue(
+        var jobId = jobService.EnqueueFor(
+            JobOwner.FromPrincipal(principal),
             "metadata-server:tags",
             $"Tagging {ids.Count} tags from {dto.Endpoint}",
             async (progress, jobCt) =>
@@ -598,6 +602,19 @@ public class TagsController(
     [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsDelete)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        if (bulkEntityDeletionService is not null)
+        {
+            var deleted = await bulkEntityDeletionService.DeleteAsync(
+                BulkDeletionEntityKind.Tag,
+                id,
+                new BulkDeletionExecutionContext(),
+                deleteFiles: false,
+                deleteGenerated: true,
+                ct,
+                publishEvent: false);
+            return deleted ? NoContent() : NotFound();
+        }
+
         var tag = await tagRepo.GetByIdAsync(id, ct);
         if (tag == null) return NotFound();
         await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Tag, id, ct);
@@ -752,6 +769,8 @@ public class TagsController(
                 usageCounts.GroupCount,
                 usageCounts.PerformerCount,
                 usageCounts.StudioCount,
+                usageCounts.AudioCount,
+                usageCounts.TextCount,
                 EntityImageUrls.TagOrNull(ControllerContext.HttpContext, t),
                 t.ShowAsSegment,
                 t.SegmentColorOverride,
@@ -1011,17 +1030,17 @@ public class TagsController(
 
     [HttpDelete("bulk")]
     [RequiresPermission(Permissions.TagsDelete)]
-    public async Task<IActionResult> BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
+    [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsDelete, ActionArgumentName = "dto", PropertyName = "Ids")]
+    public IActionResult BulkDelete([FromBody] BatchDeleteDto dto, CancellationToken ct)
     {
-        var tags = await db.Tags.Where(t => dto.Ids.Contains(t.Id)).ToListAsync(ct);
-        if (tags.Count == 0)
-            return Ok(new BulkDeleteResult([]));
+        var ids = dto.Ids.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return BadRequest("Select at least one tag to delete.");
 
-        db.Tags.RemoveRange(tags);
-        foreach (var tag in tags)
-            await customFields.DeleteValuesForEntityAsync(CustomFieldEntityTypes.Tag, tag.Id, ct);
-        await db.SaveChangesAsync(ct);
-        return Ok(new BulkDeleteResult(tags.Select(tag => tag.Id).ToList()));
+        return Accepted(bulkDeletionJobService!.Start(
+            principalAccessor?.Current,
+            BulkDeletionEntityKind.Tag,
+            ids));
     }
 
     // ===== Merge =====

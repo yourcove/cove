@@ -426,6 +426,58 @@ namespace Cove.Data.Migrations
                     b.ToTable("audit_events", (string)null);
                 });
 
+            modelBuilder.Entity("Cove.Core.Entities.Auth.Dashboard", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<JsonDocument>("WidgetsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\" = TRUE");
+
+                    b.HasIndex("UserId", "NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("dashboards", (string)null);
+                });
+
             modelBuilder.Entity("Cove.Core.Entities.Auth.ExternalIdentityLink", b =>
                 {
                     b.Property<int>("Id")
@@ -728,6 +780,10 @@ namespace Cove.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ContainedEntityIds")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1203,6 +1259,132 @@ namespace Cove.Data.Migrations
                     b.HasIndex("HostType", "HostId", "ObservedAtSec");
 
                     b.ToTable("detections", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateDeletionKeeperReservation", b =>
+                {
+                    b.Property<Guid>("SearchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("VideoId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("SearchId", "VideoId");
+
+                    b.HasIndex("VideoId");
+
+                    b.ToTable("duplicate_deletion_keeper_reservations", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateSearch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CandidateCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletionJobId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("Distance")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("DurationDifference")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("GroupCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("MatchType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("OwnerKey")
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<int>("VideoCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("OwnerKey", "CreatedAt");
+
+                    b.ToTable("duplicate_searches", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateSearchGroup", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<Guid?>("LastDecisionOperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SearchId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SearchId", "Position")
+                        .IsUnique();
+
+                    b.ToTable("duplicate_search_groups", (string)null);
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateSearchItem", b =>
+                {
+                    b.Property<int>("GroupId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("VideoId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Keep")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("GroupId", "VideoId");
+
+                    b.HasIndex("VideoId");
+
+                    b.ToTable("duplicate_search_items", (string)null);
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Embedding", b =>
@@ -2067,6 +2249,8 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("HostType", "HostId");
 
+                    b.HasIndex("Kind", "HostId");
+
                     b.ToTable("group_items", (string)null);
                 });
 
@@ -2400,6 +2584,58 @@ namespace Cove.Data.Migrations
                     b.ToTable("interactions", (string)null);
                 });
 
+            modelBuilder.Entity("Cove.Core.Entities.PendingPhysicalFileDeletion", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("ExpectedCreationTimeUtcTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("ExpectedExists")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("ExpectedLastWriteTimeUtcTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ExpectedLength")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IdentityCaptured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("BatchId", "Id");
+
+                    b.ToTable("pending_physical_file_deletions", (string)null);
+                });
+
             modelBuilder.Entity("Cove.Core.Entities.Performer", b =>
                 {
                     b.Property<int>("Id")
@@ -2461,6 +2697,10 @@ namespace Cove.Data.Migrations
                     b.Property<int?>("HeightCm")
                         .HasColumnType("integer");
 
+                    b.Property<string>("IdentityKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("ImageBlobId")
                         .HasColumnType("text");
 
@@ -2470,10 +2710,6 @@ namespace Cove.Data.Migrations
                         .HasDefaultValue(0);
 
                     b.Property<string>("ImageOverrideBlobId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("IdentityKey")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Measurements")
@@ -3054,6 +3290,8 @@ namespace Cove.Data.Migrations
 
                     b.HasIndex("TagId");
 
+                    b.HasIndex("Kind", "RefId");
+
                     b.HasIndex("HostType", "HostId", "StartSec");
 
                     b.ToTable("segments", (string)null);
@@ -3603,6 +3841,8 @@ namespace Cove.Data.Migrations
                     b.HasIndex("SourceKey");
 
                     b.HasIndex("TagId");
+
+                    b.HasIndex("ContextType", "ContextId");
 
                     b.HasIndex("HostType", "HostId");
 
@@ -4291,6 +4531,24 @@ namespace Cove.Data.Migrations
                     b.ToTable("video_captions", (string)null);
                 });
 
+            modelBuilder.Entity("Cove.Core.Entities.VideoDeletionCommitMarker", b =>
+                {
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("VideoId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("BatchId", "VideoId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.ToTable("video_deletion_commit_markers", (string)null);
+                });
+
             modelBuilder.Entity("Cove.Core.Entities.VideoGallery", b =>
                 {
                     b.Property<int>("VideoId")
@@ -4662,6 +4920,17 @@ namespace Cove.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Cove.Core.Entities.Auth.Dashboard", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.Auth.User", "User")
+                        .WithMany("Dashboards")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Cove.Core.Entities.Auth.ExternalIdentityLink", b =>
                 {
                     b.HasOne("Cove.Core.Entities.Auth.User", "User")
@@ -4805,6 +5074,55 @@ namespace Cove.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateDeletionKeeperReservation", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.DuplicateSearch", "Search")
+                        .WithMany("KeeperReservations")
+                        .HasForeignKey("SearchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Cove.Core.Entities.Video", "Video")
+                        .WithMany()
+                        .HasForeignKey("VideoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Search");
+
+                    b.Navigation("Video");
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateSearchGroup", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.DuplicateSearch", "Search")
+                        .WithMany("Groups")
+                        .HasForeignKey("SearchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Search");
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateSearchItem", b =>
+                {
+                    b.HasOne("Cove.Core.Entities.DuplicateSearchGroup", "Group")
+                        .WithMany("Items")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Cove.Core.Entities.Video", "Video")
+                        .WithMany()
+                        .HasForeignKey("VideoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+
+                    b.Navigation("Video");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Face", b =>
@@ -5601,6 +5919,8 @@ namespace Cove.Data.Migrations
                 {
                     b.Navigation("ApiTokens");
 
+                    b.Navigation("Dashboards");
+
                     b.Navigation("ExternalIdentities");
 
                     b.Navigation("RefreshTokens");
@@ -5616,6 +5936,18 @@ namespace Cove.Data.Migrations
             modelBuilder.Entity("Cove.Core.Entities.CustomFieldDefinition", b =>
                 {
                     b.Navigation("Values");
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateSearch", b =>
+                {
+                    b.Navigation("Groups");
+
+                    b.Navigation("KeeperReservations");
+                });
+
+            modelBuilder.Entity("Cove.Core.Entities.DuplicateSearchGroup", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Cove.Core.Entities.Face", b =>

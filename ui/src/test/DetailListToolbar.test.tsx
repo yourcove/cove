@@ -1,8 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
+import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
+
+vi.mock("../hooks/useRegisterKeyboardActionHandler", () => ({
+  useRegisterKeyboardActionHandler: vi.fn(),
+}));
 
 vi.mock("../api/client", () => ({
   savedFilters: {
@@ -112,6 +117,26 @@ describe("DetailListToolbar", () => {
       perPage: 24,
       q: "summer",
     }));
+  });
+
+  it("registers the filter action when filtering is available", () => {
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={[{ id: "title", label: "Title", type: "string", filterKey: "titleCriterion" }]}
+        objectFilter={{}}
+        onObjectFilterChange={vi.fn()}
+      />,
+    );
+
+    expect(useRegisterKeyboardActionHandler).toHaveBeenCalledWith(
+      "list.filters",
+      expect.any(Function),
+      { enabled: true, surface: "list" },
+    );
   });
 
   it("renders matching pagination above and below a finite detail list", async () => {
@@ -373,6 +398,53 @@ describe("DetailListToolbar", () => {
     );
 
     expect(screen.getByRole("slider")).toHaveAttribute("max", "8");
+  });
+
+  it("uses wall size levels for an embedded wall list", async () => {
+    const user = userEvent.setup();
+    const onZoomChange = vi.fn();
+    localStorage.setItem("cove.cardSize.video", "5");
+
+    render(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        zoomLevel={5}
+        onZoomChange={onZoomChange}
+        cardSizeEntityType="videos"
+        displayMode="wall"
+      />,
+    );
+
+    const slider = screen.getByRole("slider", { name: "Wall card size" });
+    expect(slider).toHaveAttribute("min", "2");
+    expect(slider).toHaveAttribute("max", "8");
+    expect(slider).toHaveAttribute("step", "1");
+    expect(screen.getByText("5 cols")).toBeInTheDocument();
+
+    await user.click(slider);
+    fireEvent.change(slider, { target: { value: "8" } });
+
+    expect(onZoomChange).toHaveBeenCalledWith(8);
+    expect(localStorage.getItem("cove.cardSize.video")).toBe("8");
+  });
+
+  it("hides the size slider for embedded modes without card sizing", () => {
+    render(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        zoomLevel={5}
+        onZoomChange={vi.fn()}
+        displayMode="tagger"
+      />,
+    );
+
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
   });
 
   it("applies the complete saved default for an embedded list", async () => {

@@ -19,7 +19,7 @@ public class PerformerFilterBehaviorTests
         var betaStudio = new Studio { Name = "Beta" };
 
         context.Studios.AddRange(alphaStudio, betaStudio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await SeedPerformerAsync(context, "both-studios", alphaStudio, betaStudio);
         await SeedPerformerAsync(context, "alpha-only", alphaStudio);
@@ -35,7 +35,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["both-studios"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -51,7 +51,7 @@ public class PerformerFilterBehaviorTests
         var betaStudio = new Studio { Name = "Beta" };
 
         context.Studios.AddRange(alphaStudio, betaStudio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await SeedPerformerAsync(context, "alpha-only", alphaStudio);
         await SeedPerformerAsync(context, "alpha-and-beta", alphaStudio, betaStudio);
@@ -68,7 +68,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["alpha-only"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -85,7 +85,7 @@ public class PerformerFilterBehaviorTests
         var otherStudio = new Studio { Name = "Other" };
 
         context.Studios.AddRange(parentStudio, childStudio, otherStudio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await SeedPerformerAsync(context, "child-performer", childStudio);
         await SeedPerformerAsync(context, "other-performer", otherStudio);
@@ -101,7 +101,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["child-performer"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -119,7 +119,7 @@ public class PerformerFilterBehaviorTests
         var childB = new Studio { Name = "Child B", Parent = parentB };
 
         context.Studios.AddRange(parentA, childA, parentB, childB);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await SeedPerformerAsync(context, "both-groups", childA, childB);
         await SeedPerformerAsync(context, "only-first-group", childA);
@@ -136,7 +136,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["both-groups"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -151,7 +151,7 @@ public class PerformerFilterBehaviorTests
         context.Performers.AddRange(
             new Performer { Name = "Alice Example" },
             new Performer { Name = "Beth Example" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new PerformerRepository(context);
         var filter = new PerformerFilter
@@ -163,7 +163,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["Alice Example"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -177,20 +177,16 @@ public class PerformerFilterBehaviorTests
 
         var alphaStudio = new Studio { Name = "Alpha" };
         context.Studios.Add(alphaStudio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Performers.Add(new Performer { Name = "No Videos" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         await SeedPerformerAsync(context, "Has Video", alphaStudio);
 
         var repository = new PerformerRepository(context);
 
-        var (nullItems, nullCount) = await repository.FindAsync(
-            new PerformerFilter { VideoCountCriterion = new IntCriterion { Modifier = CriterionModifier.IsNull } },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
-        var (notNullItems, notNullCount) = await repository.FindAsync(
-            new PerformerFilter { VideoCountCriterion = new IntCriterion { Modifier = CriterionModifier.NotNull } },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (nullItems, nullCount) = await repository.FindAsync(new PerformerFilter { VideoCountCriterion = new IntCriterion { Modifier = CriterionModifier.IsNull } }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
+        var (notNullItems, notNullCount) = await repository.FindAsync(new PerformerFilter { VideoCountCriterion = new IntCriterion { Modifier = CriterionModifier.NotNull } }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, nullCount);
         Assert.Equal(["No Videos"], nullItems.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -207,7 +203,7 @@ public class PerformerFilterBehaviorTests
         var alphaStudio = new Studio { Name = "Alpha" };
         var betaStudio = new Studio { Name = "Beta" };
         context.Studios.AddRange(alphaStudio, betaStudio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await SeedPerformerAsync(context, "one-studio", alphaStudio);
         await SeedPerformerAsync(context, "two-studios", alphaStudio, betaStudio, alphaStudio);
@@ -223,7 +219,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["two-studios"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -247,31 +243,27 @@ public class PerformerFilterBehaviorTests
                 RemoteIds = [new PerformerRemoteId { Endpoint = "StashDB", RemoteId = "stash-1" }],
             },
             new Performer { Name = "No Remote" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new PerformerRepository(context);
 
-        var (withProviderItems, withProviderCount) = await repository.FindAsync(
-            new PerformerFilter
+        var (withProviderItems, withProviderCount) = await repository.FindAsync(new PerformerFilter
             {
                 RemoteIdCriterion = new StringCriterion
                 {
                     Value = "PMVStash",
                     Modifier = CriterionModifier.NotNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+            }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
-        var (withoutProviderItems, withoutProviderCount) = await repository.FindAsync(
-            new PerformerFilter
+        var (withoutProviderItems, withoutProviderCount) = await repository.FindAsync(new PerformerFilter
             {
                 RemoteIdCriterion = new StringCriterion
                 {
                     Value = "PMVStash",
                     Modifier = CriterionModifier.IsNull,
                 },
-            },
-            new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+            }, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, withProviderCount);
         Assert.Equal(["Has PMVStash"], withProviderItems.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -297,7 +289,7 @@ public class PerformerFilterBehaviorTests
                 RemoteIds = [new PerformerRemoteId { Endpoint = "PMVStash", RemoteId = "other-456" }],
             },
             new Performer { Name = "No Remote" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new PerformerRepository(context);
         var filter = new PerformerFilter
@@ -309,7 +301,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["Has PMV Value"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
@@ -335,7 +327,7 @@ public class PerformerFilterBehaviorTests
                 CareerEnd = new DateOnly(2024, 1, 1),
             },
             new Performer { Name = "Unknown Career" });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new PerformerRepository(context);
         var filter = new PerformerFilter
@@ -347,7 +339,7 @@ public class PerformerFilterBehaviorTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal(["Long Career"], items.Select(performer => performer.Name ?? string.Empty).ToArray());

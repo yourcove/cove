@@ -26,8 +26,8 @@ public class DynamicGroupsAndBookmarksTests
         var context = scope.Context;
         var principalAccessor = scope.PrincipalAccessor;
         context.Videos.Add(new Video { Title = "Saved Video" });
-        await context.SaveChangesAsync();
-        var videoId = await context.Videos.Select(video => video.Id).SingleAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var videoId = await context.Videos.Select(video => video.Id).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         var controller = new BookmarksController(context, principalAccessor, new NoOpUserEngagementService());
 
         principalAccessor.Set(CreatePrincipal(7));
@@ -48,7 +48,7 @@ public class DynamicGroupsAndBookmarksTests
         var otherStates = Assert.IsAssignableFrom<IReadOnlyList<BookmarkStateDto>>(otherBatchOk.Value);
         Assert.False(otherStates.Single().Saved);
 
-        Assert.Equal(1, await context.UserBookmarks.IgnoreQueryFilters().CountAsync());
+        Assert.Equal(1, await context.UserBookmarks.IgnoreQueryFilters().CountAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -63,18 +63,18 @@ public class DynamicGroupsAndBookmarksTests
         var secondVideo = new Video { Title = "Second" };
         var group = new Group { Name = "Save for Later", Kind = GroupKind.Dynamic, QuerySourceKey = DynamicGroupResolver.SaveForLaterSourceKey };
         context.AddRange(firstVideo, secondVideo, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserBookmarks.AddRange(
             new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = firstVideo.Id, CreatedAt = DateTime.UtcNow.AddMinutes(-10) },
             new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = secondVideo.Id, CreatedAt = DateTime.UtcNow });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor);
         var items = await resolver.ResolveDtosAsync(group.Id, forceRefresh: true, CancellationToken.None);
 
         Assert.Equal(["Second", "First"], items.Select(item => item.Title ?? string.Empty).ToArray());
         Assert.All(items, item => Assert.Equal("video", item.HostType));
-        Assert.Equal(2, await context.Groups.Where(item => item.Id == group.Id).Select(item => item.CachedItemCount).SingleAsync());
+        Assert.Equal(2, await context.Groups.Where(item => item.Id == group.Id).Select(item => item.CachedItemCount).SingleAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -88,11 +88,11 @@ public class DynamicGroupsAndBookmarksTests
         var video = new Video { Title = "Still exists" };
         var group = new Group { Name = "Save for Later", Kind = GroupKind.Dynamic, QuerySourceKey = DynamicGroupResolver.SaveForLaterSourceKey };
         context.AddRange(video, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserBookmarks.AddRange(
             new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = video.Id, CreatedAt = DateTime.UtcNow },
             new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = 999_999, CreatedAt = DateTime.UtcNow.AddMinutes(-1) });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -100,7 +100,7 @@ public class DynamicGroupsAndBookmarksTests
         var item = Assert.Single(page.Items);
         Assert.Equal(video.Id, item.VideoId);
         Assert.Equal(1, page.TotalCount);
-        Assert.Equal(1, await context.Groups.Where(item => item.Id == group.Id).Select(item => item.CachedItemCount).SingleAsync());
+        Assert.Equal(1, await context.Groups.Where(item => item.Id == group.Id).Select(item => item.CachedItemCount).SingleAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -115,12 +115,12 @@ public class DynamicGroupsAndBookmarksTests
         var complete = new Video { Title = "Complete", MaxDuration = 100 };
         var group = new Group { Name = "Continue Watching", Kind = GroupKind.Dynamic, QuerySourceKey = DynamicGroupResolver.ContinueWatchingSourceKey };
         context.AddRange(unfinished, complete, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserEntityAffinities.AddRange(
             new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Video, HostId = unfinished.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 42, TotalConsumedSec = 42 },
             new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Video, HostId = complete.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 98, TotalConsumedSec = 96 },
             new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Video, HostId = 999_999, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 20, TotalConsumedSec = 20 });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -135,7 +135,7 @@ public class DynamicGroupsAndBookmarksTests
     public async Task ContinueWatchingDynamicGroup_AppliesRequestedPageInDatabase()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var principalAccessor = new CurrentPrincipalAccessor();
         principalAccessor.Set(CreatePrincipal(7));
         var commands = new CommandRecorderInterceptor();
@@ -144,7 +144,7 @@ public class DynamicGroupsAndBookmarksTests
             .AddInterceptors(commands)
             .Options;
         await using var context = new DynamicGroupTestContext(options, principalAccessor);
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
 
         var now = DateTime.UtcNow;
         var videos = Enumerable.Range(1, 20)
@@ -155,7 +155,7 @@ public class DynamicGroupsAndBookmarksTests
         context.AddRange(videos);
         context.Add(audio);
         context.Add(group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserEntityAffinities.AddRange(videos.Select((video, index) => new UserEntityAffinity
         {
             UserId = 7,
@@ -185,7 +185,7 @@ public class DynamicGroupsAndBookmarksTests
                 LastPositionSec = 25,
                 TotalConsumedSec = 25,
             });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         commands.Clear();
 
         var source = new ContinueWatchingDynamicGroupSource(context);
@@ -217,7 +217,7 @@ public class DynamicGroupsAndBookmarksTests
         var video = new Video { Title = "Segment video" };
         var group = new Group { Name = "Continue Watching", Kind = GroupKind.Dynamic, QuerySourceKey = DynamicGroupResolver.ContinueWatchingSourceKey };
         context.AddRange(audio, video, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var segment = new Segment
         {
             HostType = SegmentHostType.Video,
@@ -228,11 +228,11 @@ public class DynamicGroupsAndBookmarksTests
             Title = "Unfinished segment",
         };
         context.Segments.Add(segment);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserEntityAffinities.AddRange(
             new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Audio, HostId = audio.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 33, TotalConsumedSec = 33 },
             new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Segment, HostId = segment.Id, LastConsumedAt = DateTime.UtcNow.AddMinutes(-1), LastPositionSec = 6, TotalConsumedSec = 6 });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor);
         var items = await resolver.ResolveDtosAsync(group.Id, forceRefresh: true, CancellationToken.None);
@@ -248,13 +248,42 @@ public class DynamicGroupsAndBookmarksTests
         var context = scope.Context;
         var audio = new Audio { Title = "Delete me" };
         context.Audios.Add(audio);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = 7, HostType = AffinityHostType.Audio, HostId = audio.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 12 });
         context.UserBookmarks.Add(new UserBookmark { UserId = 7, HostType = AffinityHostType.Audio, HostId = audio.Id, CreatedAt = DateTime.UtcNow });
         context.Interactions.Add(new Interaction { UserId = 7, HostType = InteractionHostType.Audio, HostId = audio.Id, Kind = InteractionKind.PageVisit });
         context.PlaybackSessions.Add(new PlaybackSession { UserId = 7, HostType = InteractionHostType.Audio, HostId = audio.Id, SessionId = Guid.NewGuid() });
         context.Ratings.Add(new Rating { UserId = 7, HostType = RatingHostType.Audio, HostId = audio.Id, Aspect = "overall", Value = 80 });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.Audios.Remove(audio);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.UserBookmarks.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.Interactions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.Ratings.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DeletingEntity_RemovesEngagementRowsOwnedByOtherUsers()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var audio = new Audio { Title = "Delete across principals" };
+        context.Audios.Add(audio);
         await context.SaveChangesAsync();
+        foreach (var userId in new[] { 7, 8 })
+        {
+            context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = userId, HostType = AffinityHostType.Audio, HostId = audio.Id });
+            context.UserBookmarks.Add(new UserBookmark { UserId = userId, HostType = AffinityHostType.Audio, HostId = audio.Id, CreatedAt = DateTime.UtcNow });
+            context.Interactions.Add(new Interaction { UserId = userId, HostType = InteractionHostType.Audio, HostId = audio.Id, Kind = InteractionKind.PageVisit });
+            context.PlaybackSessions.Add(new PlaybackSession { UserId = userId, HostType = InteractionHostType.Audio, HostId = audio.Id, SessionId = Guid.NewGuid() });
+            context.Ratings.Add(new Rating { UserId = userId, HostType = RatingHostType.Audio, HostId = audio.Id, Aspect = "overall", Value = 80 });
+        }
+        await context.SaveChangesAsync();
+        scope.PrincipalAccessor.Set(CreatePrincipal(7));
 
         context.Audios.Remove(audio);
         await context.SaveChangesAsync();
@@ -274,22 +303,22 @@ public class DynamicGroupsAndBookmarksTests
         var audio = new Audio { Title = "User cleanup audio" };
         var user = new User { Id = 17, Username = "cleanup-user", PasswordHash = "test" };
         context.AddRange(audio, user);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserEntityAffinities.Add(new UserEntityAffinity { UserId = user.Id, HostType = AffinityHostType.Audio, HostId = audio.Id, LastConsumedAt = DateTime.UtcNow, LastPositionSec = 12 });
         context.UserBookmarks.Add(new UserBookmark { UserId = user.Id, HostType = AffinityHostType.Audio, HostId = audio.Id, CreatedAt = DateTime.UtcNow });
         context.Interactions.Add(new Interaction { UserId = user.Id, HostType = InteractionHostType.Audio, HostId = audio.Id, Kind = InteractionKind.PageVisit });
         context.PlaybackSessions.Add(new PlaybackSession { UserId = user.Id, HostType = InteractionHostType.Audio, HostId = audio.Id, SessionId = Guid.NewGuid() });
         context.Ratings.Add(new Rating { UserId = user.Id, HostType = RatingHostType.Audio, HostId = audio.Id, Aspect = "overall", Value = 80 });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         context.Users.Remove(user);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.Empty(await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.UserBookmarks.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.Interactions.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await context.Ratings.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await context.UserEntityAffinities.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.UserBookmarks.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.Interactions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.PlaybackSessions.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Empty(await context.Ratings.IgnoreQueryFilters().ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -305,12 +334,12 @@ public class DynamicGroupsAndBookmarksTests
         var thirdVideo = new Video { Title = "Third" };
         var group = new Group { Name = "Save for Later", Kind = GroupKind.Dynamic, QuerySourceKey = DynamicGroupResolver.SaveForLaterSourceKey };
         context.AddRange(firstVideo, secondVideo, thirdVideo, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserBookmarks.AddRange(
             new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = firstVideo.Id, CreatedAt = DateTime.UtcNow.AddMinutes(-30) },
             new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = secondVideo.Id, CreatedAt = DateTime.UtcNow.AddMinutes(-20) },
             new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = thirdVideo.Id, CreatedAt = DateTime.UtcNow.AddMinutes(-10) });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 2, PerPage = 2 }, forceRefresh: true, CancellationToken.None);
@@ -333,7 +362,7 @@ public class DynamicGroupsAndBookmarksTests
         var groups = await context.Groups
             .OrderBy(group => group.Name)
             .Select(group => new { group.Name, group.QuerySourceKey, group.Kind })
-            .ToListAsync();
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             [
@@ -362,7 +391,7 @@ public class DynamicGroupsAndBookmarksTests
             QueryJson = "{\"entityType\":\"video\",\"findFilter\":{\"sort\":\"title\",\"direction\":\"asc\"},\"objectFilter\":{\"organized\":true}}",
         };
         context.AddRange(included, excluded, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -386,7 +415,7 @@ public class DynamicGroupsAndBookmarksTests
         included.VideoPerformers.Add(new VideoPerformer { Performer = performer });
         var excluded = new Video { Title = "Excluded" };
         context.AddRange(included, excluded);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var group = new Group
         {
@@ -396,7 +425,7 @@ public class DynamicGroupsAndBookmarksTests
             QueryJson = "{\"entityTypes\":[\"video\"],\"findFilters\":{\"video\":{\"sort\":\"title\",\"direction\":\"asc\"}},\"objectFilters\":{\"video\":{\"performersCriterion\":{\"value\":[" + performer.Id + "],\"modifier\":\"INCLUDES_ALL\"}}}}",
         };
         context.Add(group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -417,7 +446,7 @@ public class DynamicGroupsAndBookmarksTests
 
         var video = new Video { Title = "Host Video" };
         context.Add(video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var shortIncluded = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 3, EndSec = 5, ImageBlobId = "short-cover", Title = "Short Included" };
         var longIncluded = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, StartSec = 4, EndSec = 14, ImageBlobId = "long-cover", Title = "Long Included" };
@@ -431,7 +460,7 @@ public class DynamicGroupsAndBookmarksTests
             QueryJson = "{\"entityType\":\"segment\",\"findFilter\":{\"sort\":\"duration\",\"direction\":\"desc\"},\"objectFilter\":{\"hasImageCriterion\":{\"value\":true},\"startSecCriterion\":{\"value\":2,\"modifier\":\"GREATER_THAN\"}}}",
         };
         context.AddRange(shortIncluded, longIncluded, missingCover, early, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -454,12 +483,12 @@ public class DynamicGroupsAndBookmarksTests
         var video = new Video { Title = "Host Video" };
         var otherVideo = new Video { Title = "Other Video" };
         context.AddRange(performer, tag, video, otherVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var alphaFace = new Face { Label = "Alpha Face", PerformerId = performer.Id };
         var betaFace = new Face { Label = "Beta Face", PerformerId = performer.Id };
         context.Faces.AddRange(alphaFace, betaFace);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var betaSegment = new Segment
         {
@@ -536,7 +565,7 @@ public class DynamicGroupsAndBookmarksTests
             }),
         };
         context.AddRange(betaSegment, alphaSegment, excludedWrongSource, excludedWrongVideo, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -559,7 +588,7 @@ public class DynamicGroupsAndBookmarksTests
         var requiredVideo = new Video { Title = "Required Video" };
         var otherVideo = new Video { Title = "Other Video" };
         context.AddRange(requiredTag, otherTag, requiredVideo, otherVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var included = new Segment { HostType = SegmentHostType.Video, HostId = requiredVideo.Id, TagId = requiredTag.Id, StartSec = 1 };
         var wrongVideo = new Segment { HostType = SegmentHostType.Video, HostId = otherVideo.Id, TagId = requiredTag.Id, StartSec = 2 };
@@ -580,7 +609,7 @@ public class DynamicGroupsAndBookmarksTests
             }),
         };
         context.AddRange(included, wrongVideo, wrongTag, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -600,13 +629,13 @@ public class DynamicGroupsAndBookmarksTests
         var performerA = new Performer { Name = "Performer A" };
         var performerB = new Performer { Name = "Performer B" };
         context.AddRange(performerA, performerB);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var faceA = new Face { Label = "Face A", PerformerId = performerA.Id };
         var faceB = new Face { Label = "Face B", PerformerId = performerB.Id };
         var video = new Video { Title = "Host Video" };
         context.AddRange(faceA, faceB, video);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var faceSegmentA = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, Kind = "face", RefId = faceA.Id, StartSec = 1 };
         var faceSegmentB = new Segment { HostType = SegmentHostType.Video, HostId = video.Id, Kind = "face", RefId = faceB.Id, StartSec = 2 };
@@ -619,7 +648,7 @@ public class DynamicGroupsAndBookmarksTests
             QuerySourceKey = DynamicGroupResolver.FilterSourceKey,
         };
         context.AddRange(faceSegmentA, faceSegmentB, performerSegmentA, unrelatedSegment, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
 
@@ -700,7 +729,7 @@ public class DynamicGroupsAndBookmarksTests
             }),
         };
         context.AddRange(requiredTag, otherTag, included, excluded, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         group.QueryJson = JsonSerializer.Serialize(new
         {
             entityType = "audio",
@@ -709,7 +738,7 @@ public class DynamicGroupsAndBookmarksTests
                 tagsCriterion = new MultiIdCriterion { RequiredIds = [requiredTag.Id] },
             },
         });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -744,7 +773,7 @@ public class DynamicGroupsAndBookmarksTests
             ],
         };
         context.AddRange(tag, targetTagged, otherTagged);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.TagApplications.AddRange(
             new TagApplication { HostType = AffinityHostType.Audio, HostId = targetTagged.Id, ContextType = "performer", ContextId = target.Id, TagId = tag.Id, SourceKey = "test" },
             new TagApplication { HostType = AffinityHostType.Audio, HostId = otherTagged.Id, ContextType = "performer", ContextId = other.Id, TagId = tag.Id, SourceKey = "test" });
@@ -764,7 +793,7 @@ public class DynamicGroupsAndBookmarksTests
             }),
         };
         context.Add(group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -785,7 +814,7 @@ public class DynamicGroupsAndBookmarksTests
         var included = new Audio { Title = "Included" };
         included.AudioTags.Add(new AudioTag { Audio = included, Tag = child });
         context.AddRange(parent, child, included);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.Set<TagParent>().Add(new TagParent { ParentId = parent.Id, ChildId = child.Id });
         var group = new Group
         {
@@ -807,7 +836,7 @@ public class DynamicGroupsAndBookmarksTests
             }),
         };
         context.Add(group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
@@ -837,7 +866,7 @@ public class DynamicGroupsAndBookmarksTests
             QueryJson = "{\"entityTypes\":[\"video\",\"image\"],\"findFilters\":{\"video\":{\"sort\":\"title\",\"direction\":\"asc\"},\"image\":{\"sort\":\"title\",\"direction\":\"asc\"}}}",
         };
         context.Groups.Add(group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
         var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 40 }, forceRefresh: true, CancellationToken.None);
@@ -858,14 +887,14 @@ public class DynamicGroupsAndBookmarksTests
         var video = new Video { Title = "Snapshot Video" };
         var group = new Group { Name = "Saved Snapshot", Kind = GroupKind.Dynamic, QuerySourceKey = DynamicGroupResolver.SaveForLaterSourceKey };
         context.AddRange(video, group);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.UserBookmarks.Add(new UserBookmark { UserId = 7, HostType = AffinityHostType.Video, HostId = video.Id, CreatedAt = DateTime.UtcNow });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var resolver = CreateResolver(context, principalAccessor);
         await resolver.SnapshotAsync(group.Id, CancellationToken.None);
 
-        var updatedGroup = await context.Groups.Include(item => item.GroupItems).SingleAsync(item => item.Id == group.Id);
+        var updatedGroup = await context.Groups.Include(item => item.GroupItems).SingleAsync(item => item.Id == group.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(GroupKind.Static, updatedGroup.Kind);
         Assert.Null(updatedGroup.QuerySourceKey);
         var item = Assert.Single(updatedGroup.GroupItems);
@@ -884,7 +913,7 @@ public class DynamicGroupsAndBookmarksTests
             new Group { Name = "Second", SortOrder = 20 },
             new Group { Name = "First", SortOrder = 10 },
             new Group { Name = "Third", SortOrder = 30 });
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new GroupRepository(context);
         var (items, totalCount) = await repository.FindAsync(null, new FindFilter { Sort = "sort_order", Direction = SortDirection.Asc, Page = 1, PerPage = 10 }, CancellationToken.None);
@@ -903,7 +932,7 @@ public class DynamicGroupsAndBookmarksTests
         var targetVideo = new Video { Title = "Target Video", VideoPerformers = [new VideoPerformer { Performer = target }] };
         var savedVideo = new Video { Title = "Saved Video", VideoPerformers = [new VideoPerformer { Performer = saved }] };
         context.AddRange(targetVideo, savedVideo);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var targetOnly = new Group
         {
@@ -925,7 +954,7 @@ public class DynamicGroupsAndBookmarksTests
             ],
         };
         context.AddRange(targetOnly, savedOnly, both);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var repository = new GroupRepository(context);
         var filter = new GroupFilter
@@ -938,7 +967,7 @@ public class DynamicGroupsAndBookmarksTests
             },
         };
 
-        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 10 });
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 10 }, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, totalCount);
         Assert.Equal("Both", Assert.Single(items).Name);

@@ -4,6 +4,7 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 
 namespace Cove.PerformanceTests.Infrastructure;
@@ -27,7 +28,7 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
     public string DatabaseConnectionString => _databaseConnectionString
         ?? throw new InvalidOperationException("The performance database has not been initialized.");
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         CoveContext.SetDataExtensions([]);
 
@@ -51,7 +52,7 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
         await context.Database.ExecuteSqlRawAsync("ANALYZE");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_settings is null)
         {
@@ -68,7 +69,7 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
         await dropCommand.ExecuteNonQueryAsync();
     }
 
-    public CoveContext CreateContext()
+    public CoveContext CreateContext(params IInterceptor[] interceptors)
     {
         if (_benchmarkUserId is int benchmarkUserId)
         {
@@ -86,12 +87,13 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
             _principalAccessor.Set(null);
         }
 
-        var options = new DbContextOptionsBuilder<CoveContext>()
+        var optionsBuilder = new DbContextOptionsBuilder<CoveContext>()
             .UseNpgsql(DatabaseConnectionString, npgsqlOptions => npgsqlOptions.UseVector())
-            .EnableDetailedErrors()
-            .Options;
+            .EnableDetailedErrors();
+        if (interceptors.Length > 0)
+            optionsBuilder.AddInterceptors(interceptors);
 
-        return new CoveContext(options, _principalAccessor);
+        return new CoveContext(optionsBuilder.Options, _principalAccessor);
     }
 
     private static async Task CreateDatabaseAsync(PostgresSettings settings, string databaseName)
@@ -592,14 +594,30 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
     {
         public static PostgresSettings LoadFromEnvironment()
         {
-            var host = Environment.GetEnvironmentVariable("COVE_PERF_PG_HOST") ?? "127.0.0.1";
-            var portRaw = Environment.GetEnvironmentVariable("COVE_PERF_PG_PORT");
-            var port = int.TryParse(portRaw, out var parsedPort) ? parsedPort : 5443;
+            var host = FirstValue("COVE_PERF_PG_HOST", "PGHOST") ?? "127.0.0.1";
+            var port = ParsePort(FirstValue("COVE_PERF_PG_PORT", "PGPORT"));
             var user = Environment.GetEnvironmentVariable("COVE_PERF_PG_USER") ?? "postgres";
-            var password = Environment.GetEnvironmentVariable("COVE_PERF_PG_PASSWORD") ?? string.Empty;
+            var password = FirstValue("COVE_PERF_PG_PASSWORD", "PGPASSWORD") ?? string.Empty;
             var adminDatabase = Environment.GetEnvironmentVariable("COVE_PERF_PG_ADMIN_DB") ?? "postgres";
 
             return new PostgresSettings(host, port, user, password, adminDatabase);
+        }
+
+        private static string? FirstValue(string preferredName, string fallbackName)
+        {
+            var preferred = Environment.GetEnvironmentVariable(preferredName);
+            return string.IsNullOrWhiteSpace(preferred)
+                ? Environment.GetEnvironmentVariable(fallbackName)
+                : preferred;
+        }
+
+        private static int ParsePort(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return 5443;
+            if (int.TryParse(value, out var port) && port is > 0 and <= 65_535)
+                return port;
+            throw new InvalidOperationException($"Invalid PostgreSQL port '{value}'.");
         }
 
         public string BuildAdminConnectionString()

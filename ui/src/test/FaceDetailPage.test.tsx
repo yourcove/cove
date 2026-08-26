@@ -33,6 +33,10 @@ vi.mock("../hooks/useDocumentTitle", () => ({
   useDocumentTitle: () => {},
 }));
 
+vi.mock("../hooks/useResolvedKeybindingOverrides", () => ({
+  useResolvedKeybindingOverrides: () => ({}),
+}));
+
 vi.mock("../api/client", () => ({
   faces: mockFaces,
   performers: mockPerformers,

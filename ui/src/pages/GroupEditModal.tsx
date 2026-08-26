@@ -35,7 +35,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
 
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(group.customFields ?? {}) });
   const tagProvenanceById = buildTagProvenanceById(group.tags, group.fieldProvenance);
-  const { data: dynamicSources = [] } = useQuery({
+  const { data: dynamicSources } = useQuery({
     queryKey: ["group-dynamic-sources"],
     queryFn: () => groups.dynamicSources(),
     enabled: open,
@@ -47,6 +47,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
   });
 
   useEffect(() => {
+    if (!open) return;
     setName(group.name);
     setAliases(splitAliases(group.aliases));
     setDirector(group.director ?? "");
@@ -57,10 +58,16 @@ export function GroupEditModal({ group, open, onClose }: Props) {
     setSelectedTagIds(group.tags.map((t) => t.id));
     setCustomFields({ ...(group.customFields ?? {}) });
     setKind(group.kind ?? "static");
-    setQuerySourceKey(group.querySourceKey ?? dynamicSources.find((source) => source.key === FILTER_DYNAMIC_SOURCE_KEY)?.key ?? dynamicSources[0]?.key ?? FILTER_DYNAMIC_SOURCE_KEY);
+    setQuerySourceKey(group.querySourceKey ?? FILTER_DYNAMIC_SOURCE_KEY);
     setQueryJson(group.queryJson ?? defaultDynamicGroupFilterQueryJson());
     setShowInVideoLists(group.showInVideoLists ?? false);
-  }, [dynamicSources, group]);
+  }, [group.id, open]);
+
+  useEffect(() => {
+    if (!open || group.querySourceKey || !dynamicSources?.length) return;
+    const fallbackKey = dynamicSources.find((source) => source.key === FILTER_DYNAMIC_SOURCE_KEY)?.key ?? dynamicSources[0].key;
+    setQuerySourceKey((current) => current === FILTER_DYNAMIC_SOURCE_KEY ? fallbackKey : current);
+  }, [dynamicSources, group.id, group.querySourceKey, open]);
 
   useEffect(() => {
     if (!open || !containingGroups) return;
@@ -174,7 +181,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
               }}
               className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
             >
-              {dynamicSources.map((source) => (
+              {(dynamicSources ?? []).map((source) => (
                 <option key={source.key} value={source.key}>{source.displayName}</option>
               ))}
             </select>

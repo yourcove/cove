@@ -31,6 +31,7 @@ const navItems: { page: NavPage; label: string; icon: typeof Film }[] = [
 ];
 
 const DETAIL_PARENT_PAGE: Record<string, string> = {
+  dashboard: "home",
   video: "videos",
   audio: "audios",
   text: "texts",
@@ -225,4 +226,3 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
     </nav>
   );
 }
-

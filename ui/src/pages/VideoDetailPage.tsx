@@ -216,6 +216,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const canWriteVideo = canWriteEntity("video", hasPermission);
   const canReadVideo = canReadEntity("video", hasPermission);
   const canDeleteVideo = canDeleteEntity("video", hasPermission);
+  const canDeleteVideoFiles = hasPermission("videos.delete.file");
   const canReadGroups = canReadEntity("group", hasPermission);
   const canReadGalleries = canReadEntity("gallery", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
@@ -550,14 +551,14 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   }, [activeTab, goNext, onNavigate]);
 
   const videoKeyboardShortcuts = useMemo(() => [
-    { key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
-    { key: "e", description: "Open edit tab", handler: () => canWriteVideo && setActiveTab("edit") },
-    { key: "s", description: "Open segments tab", handler: () => canReadSegments && setActiveTab("segments") },
-    { key: "i", description: "Open file info tab", handler: () => canReadFiles && setActiveTab("file-info") },
-    { key: "h", description: "Open history tab", handler: () => setActiveTab("history") },
-    { key: "o", description: "Toggle favorite", handler: () => video && canEngageVideo && setVideoFavorite(!videoFavorite) },
-    { key: "[", description: "Open previous video", handler: () => { if (queueSyncedToVideo && hasPrev) void navigatePreviousVideo(); } },
-    { key: "]", description: "Open next video", handler: () => { if (queueSyncedToVideo && hasNext) void navigateNextVideo(); } },
+    { id: "detail.video.details", key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
+    { id: "detail.edit", key: "e", description: "Open edit tab", handler: () => canWriteVideo && setActiveTab("edit") },
+    { id: "detail.video.segments", key: "s", description: "Open segments tab", handler: () => canReadSegments && setActiveTab("segments") },
+    { id: "detail.fileInfo", key: "i", description: "Open file info tab", handler: () => canReadFiles && setActiveTab("file-info") },
+    { id: "detail.video.history", key: "h", description: "Open history tab", handler: () => setActiveTab("history") },
+    { id: "detail.favorite", key: "o", description: "Toggle favorite", handler: () => video && canEngageVideo && setVideoFavorite(!videoFavorite) },
+    { id: "detail.previous", key: "[", description: "Open previous video", handler: () => { if (queueSyncedToVideo && hasPrev) void navigatePreviousVideo(); } },
+    { id: "detail.next", key: "]", description: "Open next video", handler: () => { if (queueSyncedToVideo && hasNext) void navigateNextVideo(); } },
   ], [canEngageVideo, canReadFiles, canReadSegments, canWriteVideo, hasNext, hasPrev, navigateNextVideo, navigatePreviousVideo, queueSyncedToVideo, video, videoFavorite, setVideoFavorite]);
 
   if (isLoading) {
@@ -661,7 +662,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         </span>
       ) : null}
 
-      {file ? (
+      {file && video.parentVideoId == null ? (
         <a
           href={streamUrl}
           target="_blank"
@@ -803,6 +804,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             audioCodec={file.audioCodec}
             resumeTime={effectiveVideoResumeTime}
             seekTo={initialSeekTo}
+            clip={video.parentVideoId != null ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false } : undefined}
             videoId={video.id}
             extensionSurface="detail"
             detections={detections}
@@ -823,7 +825,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           <div className="flex h-48 items-center justify-center text-muted">No video file available</div>
         )}
       </div>
-      {file ? (
+      {file && video.parentVideoId == null ? (
         <VideoScrubber
           videoId={video.id}
           duration={file.duration}
@@ -940,7 +942,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         message={`Are you sure you want to delete "${video.title || "Untitled"}"? This cannot be undone.`}
         onConfirm={(opts) => deleteMut.mutate(opts?.deleteFile)}
         onCancel={() => setConfirmDelete(false)}
-        showDeleteFile
+        showDeleteFile={canDeleteVideoFiles}
       />
       <ConfirmDialog
         open={reportTag != null}

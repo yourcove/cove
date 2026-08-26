@@ -135,7 +135,7 @@ public class ScanServiceTests
         try
         {
             // Declares a 32-byte ftyp box but provides only its 8-byte header plus four payload bytes.
-            await File.WriteAllBytesAsync(path, [0, 0, 0, 32, (byte)'f', (byte)'t', (byte)'y', (byte)'p', 1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(path, [0, 0, 0, 32, (byte)'f', (byte)'t', (byte)'y', (byte)'p', 1, 2, 3, 4], TestContext.Current.CancellationToken);
 
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
@@ -162,7 +162,7 @@ public class ScanServiceTests
                 bytes[offset + 6] = (byte)'e';
                 bytes[offset + 7] = (byte)'e';
             }
-            await File.WriteAllBytesAsync(path, bytes);
+            await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken);
 
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
@@ -180,12 +180,11 @@ public class ScanServiceTests
         var path = Path.Combine(Path.GetTempPath(), $"cove-truncated-{Guid.NewGuid():N}.mkv");
         try
         {
-            await File.WriteAllBytesAsync(path,
-            [
+            await File.WriteAllBytesAsync(path, [
                 0x1a, 0x45, 0xdf, 0xa3, 0x84, 0x42, 0x86, 0x81, 0x01,
                 0x18, 0x53, 0x80, 0x67, 0x90,
                 0, 0, 0, 0, 0, 0, 0, 0,
-            ]);
+            ], TestContext.Current.CancellationToken);
 
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
@@ -205,12 +204,11 @@ public class ScanServiceTests
         var path = Path.Combine(Path.GetTempPath(), $"cove-matroska-{Guid.NewGuid():N}.mkv");
         try
         {
-            await File.WriteAllBytesAsync(path,
-            [
+            await File.WriteAllBytesAsync(path, [
                 0x1a, 0x45, 0xdf, 0xa3, 0x84, 0x42, 0x86, 0x81, 0x01,
                 0x18, 0x53, 0x80, 0x67, encodedSegmentSize,
                 0, 0, 0, 0, 0, 0, 0, 0,
-            ]);
+            ], TestContext.Current.CancellationToken);
 
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
@@ -228,7 +226,7 @@ public class ScanServiceTests
         var path = Path.Combine(Path.GetTempPath(), $"cove-truncated-{Guid.NewGuid():N}.wmv");
         try
         {
-            await File.WriteAllBytesAsync(path, CreateAsfHeaderWithFileProperties(declaredFileSize: 200));
+            await File.WriteAllBytesAsync(path, CreateAsfHeaderWithFileProperties(declaredFileSize: 200), TestContext.Current.CancellationToken);
 
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
@@ -248,7 +246,7 @@ public class ScanServiceTests
         var path = Path.Combine(Path.GetTempPath(), $"cove-asf-{Guid.NewGuid():N}.wmv");
         try
         {
-            await File.WriteAllBytesAsync(path, CreateAsfHeaderWithFileProperties((ulong)declaredFileSize));
+            await File.WriteAllBytesAsync(path, CreateAsfHeaderWithFileProperties((ulong)declaredFileSize), TestContext.Current.CancellationToken);
 
             var failure = await ScanFileValidator.ValidateDeclaredContainerLengthAsync(path, CancellationToken.None);
 
@@ -266,12 +264,12 @@ public class ScanServiceTests
         var path = Path.Combine(Path.GetTempPath(), $"cove-large-{Guid.NewGuid():N}.svg");
         try
         {
-            await File.WriteAllTextAsync(path, $"<svg xmlns=\"http://www.w3.org/2000/svg\"><text>{new string('x', 256 * 1024)}</text></svg>");
+            await File.WriteAllTextAsync(path, $"<svg xmlns=\"http://www.w3.org/2000/svg\"><text>{new string('x', 256 * 1024)}</text></svg>", TestContext.Current.CancellationToken);
             var probe = new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
             var validator = new ScanFileValidator(probe, new ZipGalleryReader(new ZipFileReader()), ReadyTimeProvider);
             var info = new FileInfo(path);
 
-            var result = await validator.ValidateAsync(path, info.Length, info.LastWriteTimeUtc, ScanMediaKind.Image);
+            var result = await validator.ValidateAsync(path, info.Length, info.LastWriteTimeUtc, ScanMediaKind.Image, TestContext.Current.CancellationToken);
 
             Assert.Equal(ScanFileValidationStatus.Ready, result.Status);
         }
@@ -404,15 +402,15 @@ public class ScanServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "copying.mp4"), []);
+            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "copying.mp4"), [], TestContext.Current.CancellationToken);
             await using var environment = await CreateBareEnvironmentAsync(tempRoot);
 
             environment.Service.StartScan();
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Empty(await db.Videos.ToListAsync());
-            Assert.Empty(await db.VideoFiles.ToListAsync());
+            Assert.Empty(await db.Videos.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Empty(await db.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("1 unsettled file deferred", environment.JobService.LatestSubTask);
         }
         finally
@@ -438,8 +436,8 @@ public class ScanServiceTests
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Empty(await db.Videos.ToListAsync());
-            Assert.Empty(await db.VideoFiles.ToListAsync());
+            Assert.Empty(await db.Videos.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Empty(await db.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("1 invalid media file skipped", environment.JobService.LatestSubTask);
         }
         finally
@@ -466,7 +464,7 @@ public class ScanServiceTests
             await using (var scope = environment.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.Empty(await db.VideoFiles.ToListAsync());
+                Assert.Empty(await db.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             }
             Assert.Equal(0, probe.CallCount);
             Assert.Contains("1 unsettled file deferred", environment.JobService.LatestSubTask);
@@ -476,7 +474,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Single(await verificationDb.VideoFiles.ToListAsync());
+            Assert.Single(await verificationDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Equal(1, probe.CallCount);
         }
         finally
@@ -501,7 +499,7 @@ public class ScanServiceTests
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Empty(await db.VideoFiles.ToListAsync());
+            Assert.Empty(await db.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("0 invalid media files skipped", environment.JobService.LatestSubTask);
             Assert.Contains("1 file failure", environment.JobService.LatestSubTask);
         }
@@ -542,7 +540,7 @@ public class ScanServiceTests
             await using (var scope = environment.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.Empty(await db.VideoFiles.ToListAsync());
+                Assert.Empty(await db.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             }
             Assert.Contains("1 unsettled file deferred", environment.JobService.LatestSubTask);
 
@@ -550,7 +548,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Single(await verificationDb.VideoFiles.ToListAsync());
+            Assert.Single(await verificationDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -578,7 +576,7 @@ public class ScanServiceTests
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            var file = await db.VideoFiles.SingleAsync();
+            var file = await db.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(0, file.Duration);
             Assert.Contains("1 imported", environment.JobService.LatestSubTask);
         }
@@ -596,15 +594,15 @@ public class ScanServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "corrupt.jpg"), [1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "corrupt.jpg"), [1, 2, 3, 4], TestContext.Current.CancellationToken);
             await using var environment = await CreateBareEnvironmentAsync(tempRoot);
 
             environment.Service.StartScan();
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Empty(await db.Images.ToListAsync());
-            Assert.Empty(await db.ImageFiles.ToListAsync());
+            Assert.Empty(await db.Images.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Empty(await db.ImageFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("1 invalid media file skipped", environment.JobService.LatestSubTask);
         }
         finally
@@ -621,15 +619,15 @@ public class ScanServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "corrupt.zip"), [1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "corrupt.zip"), [1, 2, 3, 4], TestContext.Current.CancellationToken);
             await using var environment = await CreateBareEnvironmentAsync(tempRoot);
 
             environment.Service.StartScan();
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Empty(await db.Galleries.ToListAsync());
-            Assert.Empty(await db.GalleryFiles.ToListAsync());
+            Assert.Empty(await db.Galleries.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Empty(await db.GalleryFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("1 invalid media file skipped", environment.JobService.LatestSubTask);
         }
         finally
@@ -646,15 +644,15 @@ public class ScanServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "truncated.epub"), [0x50, 0x4B, 0x03, 0x04]);
+            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "truncated.epub"), [0x50, 0x4B, 0x03, 0x04], TestContext.Current.CancellationToken);
             await using var environment = await CreateBareEnvironmentAsync(tempRoot);
 
             environment.Service.StartScan();
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Empty(await db.TextDocuments.ToListAsync());
-            Assert.Empty(await db.TextFiles.ToListAsync());
+            Assert.Empty(await db.TextDocuments.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Empty(await db.TextFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("1 invalid media file skipped", environment.JobService.LatestSubTask);
         }
         finally
@@ -671,7 +669,7 @@ public class ScanServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "track.mp3"), [1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(Path.Combine(tempRoot, "track.mp3"), [1, 2, 3, 4], TestContext.Current.CancellationToken);
             var probe = new StubMediaProbeService(MediaProbeResult.Succeeded(ValidAudioProbeJson));
             await using var environment = await CreateBareEnvironmentAsync(tempRoot, probe);
 
@@ -679,8 +677,8 @@ public class ScanServiceTests
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            var audio = await db.Audios.SingleAsync();
-            var file = await db.AudioFiles.SingleAsync();
+            var audio = await db.Audios.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            var file = await db.AudioFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal("Track", audio.Title);
             Assert.Equal("mp3", file.AudioCodec);
             Assert.Equal(12.5, file.Duration);
@@ -702,7 +700,7 @@ public class ScanServiceTests
         try
         {
             var videoPath = Path.Combine(tempRoot, "copying.mp4");
-            await File.WriteAllBytesAsync(videoPath, []);
+            await File.WriteAllBytesAsync(videoPath, [], TestContext.Current.CancellationToken);
             await using var environment = await CreateBareEnvironmentAsync(tempRoot);
 
             environment.Service.StartScan();
@@ -711,7 +709,7 @@ public class ScanServiceTests
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            var file = await db.VideoFiles.SingleAsync();
+            var file = await db.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(file.Width > 0);
             Assert.True(file.Height > 0);
             Assert.True(file.Duration > 0);
@@ -741,7 +739,7 @@ public class ScanServiceTests
             await using (var firstScope = environment.Services.CreateAsyncScope())
             {
                 var firstDb = firstScope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.Null((await firstDb.Folders.SingleAsync()).ScanVerifiedAt);
+                Assert.Null((await firstDb.Folders.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ScanVerifiedAt);
             }
 
             environment.Service.StartScan();
@@ -749,7 +747,7 @@ public class ScanServiceTests
             await using (var secondScope = environment.Services.CreateAsyncScope())
             {
                 var secondDb = secondScope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.NotNull((await secondDb.Folders.SingleAsync()).ScanVerifiedAt);
+                Assert.NotNull((await secondDb.Folders.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ScanVerifiedAt);
             }
 
             environment.Service.StartScan();
@@ -778,7 +776,7 @@ public class ScanServiceTests
             environment.Service.StartScan();
 
             var copyingPath = Path.Combine(tempRoot, "copying.mp4");
-            await File.WriteAllBytesAsync(copyingPath, []);
+            await File.WriteAllBytesAsync(copyingPath, [], TestContext.Current.CancellationToken);
             var copyStartedDirectoryModTime = DateTime.UtcNow.AddMinutes(-10);
             Directory.SetLastWriteTimeUtc(tempRoot, copyStartedDirectoryModTime);
 
@@ -787,7 +785,7 @@ public class ScanServiceTests
             await using (var partialScope = environment.Services.CreateAsyncScope())
             {
                 var partialDb = partialScope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.Null((await partialDb.Folders.SingleAsync()).ScanVerifiedAt);
+                Assert.Null((await partialDb.Folders.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ScanVerifiedAt);
             }
 
             await WriteValidVideoAsync(copyingPath);
@@ -797,7 +795,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync());
+            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("1 imported", environment.JobService.LatestSubTask);
         }
         finally
@@ -917,7 +915,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync());
+            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -948,8 +946,8 @@ public class ScanServiceTests
             await using (var selectiveScope = environment.Services.CreateAsyncScope())
             {
                 var selectiveDb = selectiveScope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.Single(await selectiveDb.VideoFiles.ToListAsync());
-                Assert.Empty(await selectiveDb.ImageFiles.ToListAsync());
+                Assert.Single(await selectiveDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+                Assert.Empty(await selectiveDb.ImageFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
                 Assert.Contains(environment.JobService.SubTasks, message => message.Contains("1 unchanged folder skipped", StringComparison.Ordinal));
             }
 
@@ -957,7 +955,7 @@ public class ScanServiceTests
 
             await using var fullScope = environment.Services.CreateAsyncScope();
             var fullDb = fullScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Single(await fullDb.ImageFiles.ToListAsync());
+            Assert.Single(await fullDb.ImageFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -991,7 +989,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal(3, await verificationDb.VideoFiles.CountAsync());
+            Assert.Equal(3, await verificationDb.VideoFiles.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains(environment.JobService.SubTasks, message => message.Contains("1 unchanged folder skipped", StringComparison.Ordinal));
         }
         finally
@@ -1011,7 +1009,7 @@ public class ScanServiceTests
             await WriteValidVideoAsync(Path.Combine(tempRoot, "known.mp4"));
             await WriteValidVideoAsync(Path.Combine(tempRoot, "later.mp4"));
             var ignorePath = Path.Combine(tempRoot, ".coveignore");
-            await File.WriteAllTextAsync(ignorePath, "later.mp4\n");
+            await File.WriteAllTextAsync(ignorePath, "later.mp4\n", TestContext.Current.CancellationToken);
             Directory.SetLastWriteTimeUtc(tempRoot, DateTime.UtcNow.AddMinutes(-10));
             await using var environment = await CreateBareEnvironmentAsync(tempRoot);
             environment.Service.StartScan();
@@ -1020,8 +1018,8 @@ public class ScanServiceTests
             await using (var ignoredScope = environment.Services.CreateAsyncScope())
             {
                 var ignoredDb = ignoredScope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.Null((await ignoredDb.Folders.SingleAsync()).ScanVerifiedAt);
-                Assert.Single(await ignoredDb.VideoFiles.ToListAsync());
+                Assert.Null((await ignoredDb.Folders.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ScanVerifiedAt);
+                Assert.Single(await ignoredDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             }
 
             File.Delete(ignorePath);
@@ -1029,7 +1027,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync());
+            Assert.Equal(2, await verificationDb.VideoFiles.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -1059,8 +1057,8 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Null((await verificationDb.Folders.SingleAsync()).ScanVerifiedAt);
-            Assert.Single(await verificationDb.VideoFiles.ToListAsync());
+            Assert.Null((await verificationDb.Folders.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ScanVerifiedAt);
+            Assert.Single(await verificationDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -1093,8 +1091,8 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Null((await verificationDb.Folders.SingleAsync()).ScanVerifiedAt);
-            Assert.Single(await verificationDb.VideoFiles.ToListAsync());
+            Assert.Null((await verificationDb.Folders.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ScanVerifiedAt);
+            Assert.Single(await verificationDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -1111,19 +1109,19 @@ public class ScanServiceTests
         try
         {
             var videoPath = Path.Combine(tempRoot, "copying.mp4");
-            await File.WriteAllBytesAsync(videoPath, []);
+            await File.WriteAllBytesAsync(videoPath, [], TestContext.Current.CancellationToken);
             await using var environment = await CreateEnvironmentAsync(tempRoot, videoPath);
 
             int existingFileId;
             await using (var scope = environment.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                var file = await db.VideoFiles.SingleAsync();
+                var file = await db.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
                 existingFileId = file.Id;
                 file.Width = 0;
                 file.Height = 0;
                 file.Duration = 0;
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             environment.Service.StartScan();
@@ -1132,7 +1130,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            var repaired = await verificationDb.VideoFiles.SingleAsync();
+            var repaired = await verificationDb.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(existingFileId, repaired.Id);
             Assert.True(repaired.Width > 0);
             Assert.True(repaired.Height > 0);
@@ -1270,11 +1268,11 @@ public class ScanServiceTests
             await using (var scope = environment.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                var file = await db.VideoFiles.SingleAsync();
+                var file = await db.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
                 file.Width = 0;
                 file.Height = 0;
                 file.Duration = 0;
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             environment.Service.StartScan(new ScanOperationOptions
@@ -1377,8 +1375,8 @@ public class ScanServiceTests
         try
         {
             var videoPath = Path.Combine(tempRoot, "known.mp4");
-            await File.WriteAllBytesAsync(videoPath, [1, 2, 3, 4]);
-            await File.WriteAllTextAsync(Path.Combine(tempRoot, "known.en.vtt"), "WEBVTT");
+            await File.WriteAllBytesAsync(videoPath, [1, 2, 3, 4], TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(tempRoot, "known.en.vtt"), "WEBVTT", TestContext.Current.CancellationToken);
 
             await using var environment = await CreateEnvironmentAsync(tempRoot, videoPath);
 
@@ -1386,7 +1384,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var db = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            var video = await db.VideoFiles.Include(item => item.Captions).SingleAsync();
+            var video = await db.VideoFiles.Include(item => item.Captions).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Empty(video.Captions);
         }
@@ -1405,10 +1403,10 @@ public class ScanServiceTests
         try
         {
             var videoPath = Path.Combine(tempRoot, "known.mp4");
-            await File.WriteAllBytesAsync(videoPath, [1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(videoPath, [1, 2, 3, 4], TestContext.Current.CancellationToken);
             var wholeSecond = new DateTime(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(videoPath, wholeSecond.AddMilliseconds(500));
-            await File.WriteAllTextAsync(Path.Combine(tempRoot, "known.en.vtt"), "WEBVTT");
+            await File.WriteAllTextAsync(Path.Combine(tempRoot, "known.en.vtt"), "WEBVTT", TestContext.Current.CancellationToken);
 
             await using var environment = await CreateEnvironmentAsync(tempRoot, videoPath, storedModTime: wholeSecond);
 
@@ -1416,7 +1414,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var db = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            var video = await db.VideoFiles.Include(item => item.Captions).SingleAsync();
+            var video = await db.VideoFiles.Include(item => item.Captions).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Empty(video.Captions);
         }
@@ -1435,7 +1433,7 @@ public class ScanServiceTests
         try
         {
             var path = Path.Combine(tempRoot, "known.mp3");
-            await File.WriteAllBytesAsync(path, [1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(path, [1, 2, 3, 4], TestContext.Current.CancellationToken);
             var oldStoredModTime = DateTime.UtcNow.AddDays(-1);
 
             await using var environment = await CreateEnvironmentAsync(tempRoot, path, storedModTime: oldStoredModTime);
@@ -1445,9 +1443,9 @@ public class ScanServiceTests
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var db = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
 
-            Assert.Equal(1, await db.Set<BaseFileEntity>().CountAsync());
-            Assert.Equal(0, await db.AudioFiles.CountAsync());
-            Assert.Equal(1, await db.VideoFiles.CountAsync());
+            Assert.Equal(1, await db.Set<BaseFileEntity>().CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(0, await db.AudioFiles.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(1, await db.VideoFiles.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -1465,7 +1463,7 @@ public class ScanServiceTests
         {
             var videoPath = Path.Combine(tempRoot, "known.mp4");
             await WriteValidVideoAsync(videoPath);
-            await File.WriteAllTextAsync(Path.Combine(tempRoot, "known.en.vtt"), "WEBVTT");
+            await File.WriteAllTextAsync(Path.Combine(tempRoot, "known.en.vtt"), "WEBVTT", TestContext.Current.CancellationToken);
 
             await using var environment = await CreateEnvironmentAsync(tempRoot, videoPath);
 
@@ -1473,7 +1471,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var db = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            var video = await db.VideoFiles.Include(item => item.Captions).SingleAsync();
+            var video = await db.VideoFiles.Include(item => item.Captions).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             var caption = Assert.Single(video.Captions);
 
             Assert.Equal("known.en.vtt", caption.Filename);
@@ -1513,7 +1511,7 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var db = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal("imported-cover", (await db.Videos.SingleAsync()).ImageBlobId);
+            Assert.Equal("imported-cover", (await db.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).ImageBlobId);
         }
         finally
         {
@@ -1653,14 +1651,14 @@ public class ScanServiceTests
             await using (var scope = environment.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                var seededFile = await db.VideoFiles.Include(f => f.Fingerprints).SingleAsync();
+                var seededFile = await db.VideoFiles.Include(f => f.Fingerprints).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
                 videoFileId = seededFile.Id;
                 Assert.Contains(seededFile.Fingerprints, fp => fp.Type == "oshash" && !string.IsNullOrEmpty(fp.Value));
 
                 // Stamp the entity so we can prove the move preserves it rather than recreating it.
-                var seededVideo = await db.Videos.SingleAsync();
+                var seededVideo = await db.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
                 seededVideo.Title = "Preserve me";
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             }
 
             // Move the file to a subfolder (identical bytes -> identical oshash) and remove the original.
@@ -1675,12 +1673,12 @@ public class ScanServiceTests
             await using (var scope = environment.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                Assert.Equal(1, await db.Videos.CountAsync());
-                var movedFile = await db.VideoFiles.SingleAsync();
+                Assert.Equal(1, await db.Videos.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+                var movedFile = await db.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
                 Assert.Equal(videoFileId, movedFile.Id);
                 Assert.Equal("renamed.mp4", movedFile.Basename);
                 Assert.EndsWith("sub/renamed.mp4", movedFile.Path);
-                Assert.Equal("Preserve me", (await db.Videos.SingleAsync()).Title);
+                Assert.Equal("Preserve me", (await db.Videos.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Title);
             }
             Assert.Contains("0 imported, 1 updated", environment.JobService.LatestSubTask);
         }
@@ -1713,9 +1711,9 @@ public class ScanServiceTests
 
             await using var scope = environment.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal(1, await db.Videos.CountAsync());
-            Assert.Equal(2, await db.VideoFiles.CountAsync());
-            var video = await db.Videos.Include(v => v.Files).SingleAsync();
+            Assert.Equal(1, await db.Videos.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal(2, await db.VideoFiles.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+            var video = await db.Videos.Include(v => v.Files).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(2, video.Files.Count);
             Assert.Contains(video.Files, f => f.Basename == "original.mp4");
             Assert.Contains(video.Files, f => f.Basename == "copy.mp4");
@@ -1745,7 +1743,7 @@ public class ScanServiceTests
             await using (var scope = environment.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                originalFileId = (await db.VideoFiles.SingleAsync()).Id;
+                originalFileId = (await db.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Id;
             }
 
             var movedPath = Path.Combine(tempRoot, "moved.mp4");
@@ -1757,8 +1755,8 @@ public class ScanServiceTests
 
             await using var verificationScope = environment.Services.CreateAsyncScope();
             var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
-            Assert.Equal(1, await verificationDb.Videos.CountAsync());
-            var files = await verificationDb.VideoFiles.OrderBy(file => file.Basename).ToListAsync();
+            Assert.Equal(1, await verificationDb.Videos.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+            var files = await verificationDb.VideoFiles.OrderBy(file => file.Basename).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(2, files.Count);
             Assert.Contains(files, file => file.Id == originalFileId);
             Assert.Single(files.Select(file => file.VideoId).Distinct());

@@ -13,10 +13,10 @@ public sealed class CompoundSortValidationSmokeTests
         await factory.ResetDatabaseAsync();
         using var client = factory.CreateAuthenticatedClient();
 
-        var response = await client.GetAsync("/api/videos?sorts=unsupported%3Adesc%2Cdate%3Adesc");
+        var response = await client.GetAsync("/api/videos?sorts=unsupported%3Adesc%2Cdate%3Adesc", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Unsupported compound sort.", problem?.Title);
         Assert.Contains("unsupported", problem?.Detail);
     }

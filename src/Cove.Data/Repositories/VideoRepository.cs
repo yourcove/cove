@@ -29,6 +29,9 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
             .Include(s => s.Files).ThenInclude(f => f.Captions)
             .Include(s => s.Files).ThenInclude(f => f.ParentFolder)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.Fingerprints)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.Captions)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files).ThenInclude(f => f.ParentFolder)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.Id == id, ct);
@@ -155,6 +158,7 @@ public class VideoRepository : IVideoRepository
             .Include(s => s.VideoGalleries).ThenInclude(sg => sg.Gallery)
             .Include(s => s.GroupItems).ThenInclude(item => item.Group)
             .Include(s => s.Files)
+            .Include(s => s.ParentVideo).ThenInclude(parent => parent!.Files)
             .Include(s => s.RemoteIds)
             .AsSplitQuery()
             .Where(s => pagedIds.Contains(s.Id))
@@ -354,18 +358,7 @@ public class VideoRepository : IVideoRepository
                 query = ApplyMultiIdCriterion(query, filter.GalleriesCriterion, s => s.VideoGalleries.Select(sg => sg.GalleryId));
 
             // URL criterion
-            if (filter.UrlCriterion != null)
-            {
-                var val = filter.UrlCriterion.Value;
-                query = filter.UrlCriterion.Modifier switch
-                {
-                    CriterionModifier.Includes => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.Excludes => query.Where(s => !s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                    CriterionModifier.IsNull => query.Where(s => s.Urls.Count == 0),
-                    CriterionModifier.NotNull => query.Where(s => s.Urls.Count > 0),
-                    _ => query.Where(s => s.Urls.Any(u => EF.Functions.ILike(u.Url, $"%{val}%"))),
-                };
-            }
+            query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, s => s.Urls.Select(u => u.Url));
 
             // Timestamp criteria
             query = FilterHelpers.ApplyTimestamp(query, filter.CreatedAtCriterion, s => s.CreatedAt);

@@ -18,7 +18,7 @@ public class FileOpsEventTests
         {
             var sourceDirectory = Directory.CreateDirectory(Path.Combine(root.FullName, "source"));
             var destinationDirectory = Directory.CreateDirectory(Path.Combine(root.FullName, "destination"));
-            await File.WriteAllTextAsync(Path.Combine(sourceDirectory.FullName, "moved.mp4"), "test");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory.FullName, "moved.mp4"), "test", TestContext.Current.CancellationToken);
 
             var options = new DbContextOptionsBuilder<CoveContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -30,7 +30,7 @@ public class FileOpsEventTests
             var movedFile = new VideoFile { Basename = "moved.mp4", ParentFolder = folder, Video = movedOwner };
             var missingFile = new VideoFile { Basename = "missing.mp4", ParentFolder = folder, Video = skippedOwner };
             db.AddRange(movedOwner, skippedOwner, folder, movedFile, missingFile);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             var eventBus = new EventBus();
             var published = new List<EntityEvent>();

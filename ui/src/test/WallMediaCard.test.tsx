@@ -196,4 +196,87 @@ describe("WallMediaCard", () => {
     fireEvent.pause(video);
     expect(screen.getByText("Preview paused")).toBeInTheDocument();
   });
+
+  it("restarts bounded playback at the configured start when it reaches the end", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        private readonly callback: IntersectionObserverCallback;
+
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+        }
+
+        observe(target: Element) {
+          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+        }
+
+        disconnect() {}
+      },
+    );
+
+    const { container } = render(
+      <WallMediaCard
+        title="Bounded video"
+        imageSrc="/image.jpg"
+        videoSrc="/video.mp4"
+        useVideo
+        videoStartTimeSec={12}
+        videoEndTimeSec={20}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
+    const video = container.querySelector("video")!;
+    Object.defineProperty(video, "duration", { configurable: true, value: 60 });
+    video.currentTime = 20.25;
+
+    fireEvent.timeUpdate(video);
+
+    expect(video.currentTime).toBe(12);
+  });
+
+  it("holds a zero-length range on its configured frame", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        private readonly callback: IntersectionObserverCallback;
+
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+        }
+
+        observe(target: Element) {
+          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+        }
+
+        disconnect() {}
+      },
+    );
+
+    const { container } = render(
+      <WallMediaCard
+        title="Still range"
+        imageSrc="/image.jpg"
+        videoSrc="/video.mp4"
+        useVideo
+        videoStartTimeSec={12}
+        videoEndTimeSec={12}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
+    const video = container.querySelector("video")!;
+    Object.defineProperty(video, "duration", { configurable: true, value: 60 });
+    video.currentTime = 12;
+    pause.mockClear();
+
+    fireEvent.timeUpdate(video);
+
+    expect(video.currentTime).toBe(12);
+    expect(pause).toHaveBeenCalledOnce();
+  });
 });
