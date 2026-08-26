@@ -132,7 +132,7 @@ public sealed class EmbeddingService(
 
         // ef_search must be set transaction-locally; the configured retrying execution strategy forbids
         // user-initiated transactions, so wrap the whole unit in the strategy (its retriable boundary).
-        var efSearch = Math.Clamp(k * 3, 100, 1000);
+        var efSearch = Math.Clamp((long)k * 3, 100L, 1000L);
         var strategy = db.Database.CreateExecutionStrategy();
         var rows = await strategy.ExecuteAsync(async () =>
         {

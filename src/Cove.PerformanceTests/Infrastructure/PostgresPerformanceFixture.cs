@@ -4,6 +4,7 @@ using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 
 namespace Cove.PerformanceTests.Infrastructure;
@@ -68,7 +69,7 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
         await dropCommand.ExecuteNonQueryAsync();
     }
 
-    public CoveContext CreateContext()
+    public CoveContext CreateContext(params IInterceptor[] interceptors)
     {
         if (_benchmarkUserId is int benchmarkUserId)
         {
@@ -86,12 +87,13 @@ public sealed class PostgresPerformanceFixture : IAsyncLifetime
             _principalAccessor.Set(null);
         }
 
-        var options = new DbContextOptionsBuilder<CoveContext>()
+        var optionsBuilder = new DbContextOptionsBuilder<CoveContext>()
             .UseNpgsql(DatabaseConnectionString, npgsqlOptions => npgsqlOptions.UseVector())
-            .EnableDetailedErrors()
-            .Options;
+            .EnableDetailedErrors();
+        if (interceptors.Length > 0)
+            optionsBuilder.AddInterceptors(interceptors);
 
-        return new CoveContext(options, _principalAccessor);
+        return new CoveContext(optionsBuilder.Options, _principalAccessor);
     }
 
     private static async Task CreateDatabaseAsync(PostgresSettings settings, string databaseName)
