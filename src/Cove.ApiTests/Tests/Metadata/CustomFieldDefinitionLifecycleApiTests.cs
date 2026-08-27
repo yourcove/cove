@@ -204,6 +204,39 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             expected);
     }
 
+    [Fact]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("POST", "/api/videos")]
+    [CoversEndpoint("GET", "/api/videos/{id:int}")]
+    public async Task GivenMultiValueTextDefinition_WhenValuesAreReloaded_ThenAllValuesRetainTheirOrder()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var key = $"ordered_values_{suffix}";
+        await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Ordered values",
+            Type = CustomFieldTypes.Text,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            IsMultiValue = true,
+        }, TestContext.Current.CancellationToken);
+
+        var expected = new[] { "first", "second", "third" };
+        var created = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Ordered custom values {suffix}")
+            .WithCustomField(key, expected)
+            .Build(), TestContext.Current.CancellationToken);
+
+        created.CustomFields.Should().ContainKey(key)
+            .WhoseValue.Should().BeOfType<JsonElement>()
+            .Which.EnumerateArray().Select(value => value.GetString()).Should().Equal(expected);
+        var reloaded = await owner.GetVideoByIdAsync(created.Id, TestContext.Current.CancellationToken);
+        reloaded.CustomFields.Should().ContainKey(key)
+            .WhoseValue.Should().BeOfType<JsonElement>()
+            .Which.EnumerateArray().Select(value => value.GetString()).Should().Equal(expected);
+    }
+
     [Theory]
     [InlineData("[{\"path\":\"first\"},{\"path\":\"second\"}]")]
     [InlineData("\"scalar\"")]

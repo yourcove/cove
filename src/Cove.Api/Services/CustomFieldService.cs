@@ -261,9 +261,9 @@ public sealed class CustomFieldService(
             if (!result.TryGetValue(entityGroup.Key, out var values))
                 continue;
 
-            foreach (var fieldGroup in entityGroup.GroupBy(value => value.Definition!))
+            foreach (var fieldGroup in entityGroup.GroupBy(value => value.DefinitionId))
             {
-                var definition = fieldGroup.Key;
+                var definition = fieldGroup.First().Definition!;
                 var fieldValues = fieldGroup.OrderBy(value => value.Position).Select(value => ConvertValue(definition, value)).Where(value => value != null).ToList();
                 if (fieldValues.Count == 0)
                     continue;
