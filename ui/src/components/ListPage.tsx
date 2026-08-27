@@ -144,7 +144,12 @@ const REFERENCE_ENTITY_TYPE_BY_EXTENSION_VALUE: Record<string, EntityType> = {
   faces: "faces",
 };
 
-type CustomFieldQueryDefinition = CustomFieldDefinition & { jsonPath?: string; unavailable?: boolean };
+type CustomFieldQueryDefinition = CustomFieldDefinition & {
+  jsonPath?: string;
+  unavailable?: boolean;
+  fieldLabel?: string;
+  targetLabel?: string;
+};
 
 const CUSTOM_FIELD_MODIFIER_LABELS: Record<CriterionModifier, string> = {
   EQUALS: "Equals",
@@ -334,7 +339,8 @@ function createCustomFieldQueryDefinitions(
     if (definition.type === "longText") {
       return capability === "filterable" ? [{
         ...definition,
-        label: `${definition.label || definition.key} (presence)`,
+        fieldLabel: definition.label || definition.key,
+        targetLabel: "Presence",
         filterable: true,
       }] : [];
     }
@@ -348,19 +354,22 @@ function createCustomFieldQueryDefinitions(
       .map((jsonPath) => ({
         ...definition,
         label: `${definition.label || definition.key} › ${jsonPath.label || jsonPath.path}`,
+        fieldLabel: definition.label || definition.key,
+        targetLabel: jsonPath.label || jsonPath.path,
         type: jsonPath.type,
         options: [],
         filterable: jsonPath.filterable,
         sortable: jsonPath.sortable,
         jsonPath: jsonPath.path,
-      }));
+    }));
 
     if (capability === "sortable") return pathDefinitions;
-    return [...pathDefinitions, {
+    return [{
       ...definition,
-      label: `${definition.label || definition.key} (presence)`,
+      fieldLabel: definition.label || definition.key,
+      targetLabel: "Presence",
       filterable: true,
-    }];
+    }, ...pathDefinitions];
   });
 }
 
@@ -378,6 +387,8 @@ function createUnavailableCustomFieldQueryDefinition(criterion: CustomFieldCrite
     jsonPaths: [],
     jsonPath: criterion.jsonPath,
     unavailable: true,
+    fieldLabel: criterion.key,
+    targetLabel: criterion.jsonPath ? `${criterion.jsonPath} (Unavailable)` : "Unavailable",
   };
 }
 
@@ -451,6 +462,9 @@ function CustomFieldCriteriaEditor({
   onChange: (value: CustomFieldCriterion[]) => void;
 }) {
   const firstDefinition = definitions.find((definition) => !definition.unavailable);
+  const fieldDefinitions = definitions.filter((definition, index) =>
+    definitions.findIndex((candidate) => candidate.key === definition.key) === index
+  );
   const rows = value.length > 0 ? value : [];
   const setRow = (index: number, nextCriterion: CustomFieldCriterion) => {
     onChange(rows.map((criterion, candidateIndex) => candidateIndex === index ? nextCriterion : criterion));
@@ -470,25 +484,45 @@ function CustomFieldCriteriaEditor({
         const defaultModifier = getDefaultCustomFieldModifier(definition.type);
         const modifier = availableModifiers.includes(criterion.modifier ?? defaultModifier) ? (criterion.modifier ?? defaultModifier) : defaultModifier;
         const valueDisabled = modifier === "IS_NULL" || modifier === "NOT_NULL";
+        const targetDefinitions = definitions.filter((candidate) => candidate.key === definition.key);
 
         return (
           <div key={`${criterion.key}-${index}`} className="min-w-0 rounded border border-border bg-background p-3">
             <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.75fr)] xl:grid-cols-[minmax(12rem,1.1fr)_minmax(9rem,0.6fr)_minmax(18rem,2fr)_auto] xl:items-start">
-              <label className="block min-w-0 text-xs text-muted">
-                Field
-                <select
-                  value={customFieldQueryDefinitionId(definition)}
-                  onChange={(event) => {
-                    const nextDefinition = definitions.find((candidate) => customFieldQueryDefinitionId(candidate) === event.target.value) ?? definition;
-                    setRow(index, { key: nextDefinition.key, jsonPath: nextDefinition.jsonPath, type: nextDefinition.type, value: getDefaultCustomFieldValue(nextDefinition.type), modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
-                  }}
-                  className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-                >
-                  {definitions.map((option) => (
-                    <option key={customFieldQueryDefinitionId(option)} value={customFieldQueryDefinitionId(option)} disabled={option.unavailable}>{option.label || option.key}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="min-w-0 space-y-2">
+                <label className="block min-w-0 text-xs text-muted">
+                  Field
+                  <select
+                    value={definition.key}
+                    onChange={(event) => {
+                      const nextDefinition = definitions.find((candidate) => candidate.key === event.target.value && !candidate.unavailable) ?? definition;
+                      setRow(index, { key: nextDefinition.key, jsonPath: nextDefinition.jsonPath, type: nextDefinition.type, value: getDefaultCustomFieldValue(nextDefinition.type), modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
+                    }}
+                    className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+                  >
+                    {fieldDefinitions.map((option) => (
+                      <option key={option.key} value={option.key} disabled={option.unavailable}>{option.fieldLabel || option.label || option.key}</option>
+                    ))}
+                  </select>
+                </label>
+                {targetDefinitions.length > 1 || definition.jsonPath ? (
+                  <label className="block min-w-0 text-xs text-muted">
+                    Target
+                    <select
+                      value={customFieldQueryDefinitionId(definition)}
+                      onChange={(event) => {
+                        const nextDefinition = targetDefinitions.find((candidate) => customFieldQueryDefinitionId(candidate) === event.target.value) ?? definition;
+                        setRow(index, { key: nextDefinition.key, jsonPath: nextDefinition.jsonPath, type: nextDefinition.type, value: getDefaultCustomFieldValue(nextDefinition.type), modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
+                      }}
+                      className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+                    >
+                      {targetDefinitions.map((option) => (
+                        <option key={customFieldQueryDefinitionId(option)} value={customFieldQueryDefinitionId(option)} disabled={option.unavailable}>{option.targetLabel || option.label || option.key}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
               <label className="block min-w-0 text-xs text-muted">
                 Match
                 <select

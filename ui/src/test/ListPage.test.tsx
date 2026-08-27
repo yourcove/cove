@@ -1366,22 +1366,44 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByRole("button", { name: "Filters" }));
     await user.click(screen.getByText("Custom Fields"));
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
-    expect(screen.getByRole("option", { name: "Structured Metadata › Score" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Structured Metadata (presence)" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Unindexed Metadata (presence)" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Structured Metadata › Filter only" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Structured Metadata › Sort only" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Structured Metadata › Disabled" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Structured Metadata" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Unindexed Metadata" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Score" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Presence" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Filter only" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Sort only" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Disabled" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("combobox", { name: "Target" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("combobox", { name: "Match" })).toHaveValue("NOT_NULL");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Target" }),
+      "structured_metadata:%2Fprofile%2Fscore",
+    );
     await user.type(screen.getByRole("spinbutton", { name: "Value" }), "15");
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    await user.selectOptions(
+      screen.getAllByRole("combobox", { name: "Target" })[1],
+      "structured_metadata:%2Fprofile%2Ffilter-only",
+    );
+    await user.type(screen.getByRole("textbox", { name: "Value" }), "ready");
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      customFieldCriteria: [expect.objectContaining({
-        key: "structured_metadata",
-        jsonPath: "/profile/score",
-        type: "number",
-        value: "15",
-      })],
+      customFieldCriteria: [
+        expect.objectContaining({
+          key: "structured_metadata",
+          jsonPath: "/profile/score",
+          type: "number",
+          value: "15",
+        }),
+        expect.objectContaining({
+          key: "structured_metadata",
+          jsonPath: "/profile/filter-only",
+          type: "text",
+          value: "ready",
+        }),
+      ],
     }));
   });
 
@@ -1499,32 +1521,35 @@ describe("ListPage active filter chips", () => {
     }));
   });
 
-  it("keeps revoked JSON filter and sort targets visible as unavailable", async () => {
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [
-      {
+  it.each([
+    {
+      state: "revoked paths",
+      definitions: [{
         id: 2,
         key: "structured_metadata",
         label: "Structured Metadata",
-        type: "json",
-        entityTypes: ["video"],
+        type: "json" as const,
+        entityTypes: ["video" as const],
         options: [],
         filterable: false,
         sortable: false,
         isMultiValue: false,
-        jsonPaths: [
-          {
-            path: "/profile/score",
-            label: "Score",
-            type: "number",
-            filterable: false,
-            sortable: false,
-          },
-        ],
+        jsonPaths: [{ path: "/profile/score", label: "Score", type: "number" as const, filterable: false, sortable: false }],
         displayOrder: 0,
-      },
-    ]);
+      }],
+      fieldDisabled: false,
+      addDisabled: false,
+    },
+    {
+      state: "deleted fields",
+      definitions: [],
+      fieldDisabled: true,
+      addDisabled: true,
+    },
+  ])("keeps JSON filter and sort targets visible as unavailable for $state", async ({ definitions, fieldDisabled, addDisabled }) => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), definitions);
     const staleSort = "custom-json:number:structured_metadata:%2Fprofile%2Fscore";
 
     render(
@@ -1562,9 +1587,11 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByRole("button", { name: /Filters/ }));
     await user.click(screen.getAllByText("Custom Fields").at(-1)!);
 
-    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata:%2Fprofile%2Fscore");
-    expect(screen.getByRole("option", { name: "structured_metadata › /profile/score (Unavailable)" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /add custom field filter/i })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("option", { name: fieldDisabled ? "structured_metadata" : "Structured Metadata" })).toHaveProperty("disabled", fieldDisabled);
+    expect(screen.getByRole("combobox", { name: "Target" })).toHaveValue("structured_metadata:%2Fprofile%2Fscore");
+    expect(screen.getByRole("option", { name: "/profile/score (Unavailable)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /add custom field filter/i })).toHaveProperty("disabled", addDisabled);
   });
 
   it("applies the visible default when a boolean JSON filter is added", async () => {
@@ -1608,6 +1635,10 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByRole("button", { name: "Filters" }));
     await user.click(screen.getByText("Custom Fields"));
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Target" }),
+      "structured_metadata:%2Freviewed",
+    );
     expect(screen.getByRole("combobox", { name: "Value" })).toHaveValue("true");
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
@@ -1665,6 +1696,10 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByRole("button", { name: "Filters" }));
     await user.click(screen.getByText("Custom Fields"));
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Target" }),
+      "structured_metadata:%2Flabel",
+    );
     if (value) await user.type(screen.getByRole("textbox", { name: "Value" }), value);
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
