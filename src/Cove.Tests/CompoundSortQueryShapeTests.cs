@@ -117,6 +117,33 @@ public class CompoundSortQueryShapeTests
         Assert.Contains("\"JsonValue\" IS NOT NULL", sortSql, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(CriterionModifier.NotNull, "EXISTS")]
+    [InlineData(CriterionModifier.IsNull, "NOT EXISTS")]
+    public void JsonCustomFieldPresenceFilterUsesRowExistenceWithoutJsonExtraction(
+        CriterionModifier modifier,
+        string expectedOperator)
+    {
+        using var context = CreatePostgresContext();
+        var sql = context.Videos
+            .IgnoreQueryFilters()
+            .ApplyCustomFieldCriterion(context, CustomFieldEntityTypes.Video, new CustomFieldCriterion
+            {
+                Key = "structured_metadata",
+                Type = CustomFieldTypes.Json,
+                Modifier = modifier,
+            })
+            .Select(video => video.Id)
+            .ToQueryString();
+
+        Assert.Contains(expectedOperator, sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("custom_field_values", sql, StringComparison.Ordinal);
+        Assert.Contains("custom_field_definitions", sql, StringComparison.Ordinal);
+        Assert.Contains("\"EntityId\"", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("custom_field_json_paths", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("cove_json_pointer", sql, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void JsonTextCustomFieldFilterUsesBoundedIndexKeyWhileSortUsesFullText()
     {

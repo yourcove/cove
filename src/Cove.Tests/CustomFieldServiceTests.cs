@@ -2,7 +2,9 @@ using System.Text.Json;
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Data.Repositories;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -315,6 +317,50 @@ public class CustomFieldServiceTests
             var replaced = await context.CustomFieldValues.SingleAsync(value => value.EntityId == 41, TestContext.Current.CancellationToken);
             Assert.Equal("{\"score\":0.02}", replaced.JsonValue?.GetRawText());
         }
+    }
+
+    [Theory]
+    [InlineData(CriterionModifier.NotNull, 41)]
+    [InlineData(CriterionModifier.IsNull, 42)]
+    public async Task JsonCustomFieldPresenceFilter_DoesNotRequireAConfiguredPath(CriterionModifier modifier, int expectedEntityId)
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
+        await using var context = new CoveContext(options);
+        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        var definition = new CustomFieldDefinition
+        {
+            Key = "structured_metadata",
+            Label = "Structured Metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+        };
+        using var document = JsonDocument.Parse("{\"present\":true}");
+        context.Videos.AddRange(
+            new Video { Id = 41, Title = "Has structured metadata" },
+            new Video { Id = 42, Title = "No structured metadata" });
+        context.CustomFieldValues.Add(new CustomFieldValue
+        {
+            Definition = definition,
+            EntityType = CustomFieldEntityTypes.Video,
+            EntityId = 41,
+            JsonValue = document.RootElement.Clone(),
+        });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var ids = await context.Videos
+            .ApplyCustomFieldCriterion(context, CustomFieldEntityTypes.Video, new CustomFieldCriterion
+            {
+                Key = definition.Key,
+                Type = CustomFieldTypes.Json,
+                Modifier = modifier,
+            })
+            .Select(video => video.Id)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal([expectedEntityId], ids);
+        Assert.Empty(definition.JsonPaths);
     }
 
     [Fact]

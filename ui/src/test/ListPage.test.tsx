@@ -1354,6 +1354,7 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByText("Custom Fields"));
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
     expect(screen.getByRole("option", { name: "Structured Metadata › Score" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Structured Metadata (presence)" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Structured Metadata › Filter only" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Structured Metadata › Sort only" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Structured Metadata › Disabled" })).not.toBeInTheDocument();
@@ -1366,6 +1367,63 @@ describe("ListPage active filter chips", () => {
         jsonPath: "/profile/score",
         type: "number",
         value: "15",
+      })],
+    }));
+  });
+
+  it("filters for JSON custom field presence without configured paths", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [{
+      id: 2,
+      key: "structured_metadata",
+      label: "Structured Metadata",
+      type: "json",
+      entityTypes: ["video"],
+      options: [],
+      filterable: false,
+      sortable: false,
+      isMultiValue: false,
+      jsonPaths: [],
+      displayOrder: 0,
+    }]);
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{}}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("combobox", { name: "Match" })).toHaveValue("NOT_NULL");
+    expect(screen.getByRole("option", { name: "Not Null" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Is Null" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Equals" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      customFieldCriteria: [expect.objectContaining({
+        key: "structured_metadata",
+        type: "json",
+        modifier: "NOT_NULL",
+        jsonPath: undefined,
       })],
     }));
   });
@@ -1435,7 +1493,7 @@ describe("ListPage active filter chips", () => {
 
     expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata:%2Fprofile%2Fscore");
     expect(screen.getByRole("option", { name: "structured_metadata › /profile/score (Unavailable)" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /add custom field filter/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /add custom field filter/i })).toBeEnabled();
   });
 
   it("applies the visible default when a boolean JSON filter is added", async () => {

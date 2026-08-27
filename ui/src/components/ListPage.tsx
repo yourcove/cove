@@ -169,8 +169,10 @@ const TEXT_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS"
 const ORDERED_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"];
 const BOOLEAN_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "IS_NULL", "NOT_NULL"];
 const REFERENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["INCLUDES", "EXCLUDES", "IS_NULL", "NOT_NULL"];
+const PRESENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["NOT_NULL", "IS_NULL"];
 
 function getDefaultCustomFieldModifier(type: CustomFieldType): CriterionModifier {
+  if (type === "json") return "NOT_NULL";
   return isEntityReferenceType(type) ? "INCLUDES" : "EQUALS";
 }
 
@@ -198,6 +200,8 @@ function isCustomFieldCriterionActive(value: CustomFieldCriterion | undefined) {
 
 function getCustomFieldModifiers(type: CustomFieldType) {
   switch (type) {
+    case "json":
+      return PRESENCE_CUSTOM_FIELD_MODIFIERS;
     case "number":
     case "date":
     case "timestamp":
@@ -334,7 +338,7 @@ function createCustomFieldQueryDefinitions(
       return definition[capability] ? [definition] : [];
     }
 
-    return (definition.jsonPaths ?? [])
+    const pathDefinitions = (definition.jsonPaths ?? [])
       .filter((jsonPath) => jsonPath[capability])
       .map((jsonPath) => ({
         ...definition,
@@ -345,6 +349,13 @@ function createCustomFieldQueryDefinitions(
         sortable: jsonPath.sortable,
         jsonPath: jsonPath.path,
       }));
+
+    if (capability === "sortable") return pathDefinitions;
+    return [...pathDefinitions, {
+      ...definition,
+      label: `${definition.label || definition.key} (presence)`,
+      filterable: true,
+    }];
   });
 }
 

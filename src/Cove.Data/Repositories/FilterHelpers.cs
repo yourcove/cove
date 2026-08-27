@@ -72,19 +72,21 @@ public static class FilterHelpers
         if (!string.IsNullOrWhiteSpace(criterion.JsonPath))
             return ApplyJsonCustomFieldCriterion(query, db, values, normalizedEntityType, key, criterion);
 
-        // JSON documents are queryable only through explicitly configured paths. Long text is
-        // intentionally not queryable at all, even if a client submits a stale or forged target.
-        values = ExcludeNonQueryableCustomFieldValues(values);
-
         if (criterion.Modifier == CriterionModifier.IsNull)
         {
-            return query.Where(entity => !values.Any(value => value.EntityId == entity.Id));
+            var presenceValues = IncludePresenceQueryableCustomFieldValues(values);
+            return query.Where(entity => !presenceValues.Any(value => value.EntityId == entity.Id));
         }
 
         if (criterion.Modifier == CriterionModifier.NotNull)
         {
-            return query.Where(entity => values.Any(value => value.EntityId == entity.Id));
+            var presenceValues = IncludePresenceQueryableCustomFieldValues(values);
+            return query.Where(entity => presenceValues.Any(value => value.EntityId == entity.Id));
         }
+
+        // JSON document contents are queryable only through explicitly configured paths. Long text is
+        // intentionally not queryable at all, even if a client submits a stale or forged target.
+        values = ExcludeNonQueryableCustomFieldValues(values);
 
         if (string.IsNullOrWhiteSpace(criterion.Value)) return query;
 
@@ -242,6 +244,12 @@ public static class FilterHelpers
         IQueryable<CustomFieldValue> values)
         => values.Where(value => value.Definition!.Type.ToLower() != JsonTypeLower
             && value.Definition.Type.ToLower() != LongTextTypeLower);
+
+    private static IQueryable<CustomFieldValue> IncludePresenceQueryableCustomFieldValues(
+        IQueryable<CustomFieldValue> values)
+        => values.Where(value => value.Definition!.Type.ToLower() != LongTextTypeLower
+            && (value.Definition.Type.ToLower() != JsonTypeLower
+                || (value.Position == 0 && value.JsonValue != null)));
 
     private static IQueryable<T> ApplyJsonCustomFieldSort<T>(
         IQueryable<T> query,
