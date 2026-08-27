@@ -84,8 +84,8 @@ public static class FilterHelpers
             return query.Where(entity => presenceValues.Any(value => value.EntityId == entity.Id));
         }
 
-        // JSON document contents are queryable only through explicitly configured paths. Long text is
-        // intentionally not queryable at all, even if a client submits a stale or forged target.
+        // JSON document contents are queryable only through explicitly configured paths. Long-text
+        // contents remain nonqueryable, even though row presence can be checked above.
         values = ExcludeNonQueryableCustomFieldValues(values);
 
         if (string.IsNullOrWhiteSpace(criterion.Value)) return query;
@@ -247,9 +247,8 @@ public static class FilterHelpers
 
     private static IQueryable<CustomFieldValue> IncludePresenceQueryableCustomFieldValues(
         IQueryable<CustomFieldValue> values)
-        => values.Where(value => value.Definition!.Type.ToLower() != LongTextTypeLower
-            && (value.Definition.Type.ToLower() != JsonTypeLower
-                || (value.Position == 0 && value.JsonValue != null)));
+        => values.Where(value => value.Definition!.Type.ToLower() != JsonTypeLower
+            || (value.Position == 0 && value.JsonValue != null));
 
     private static IQueryable<T> ApplyJsonCustomFieldSort<T>(
         IQueryable<T> query,

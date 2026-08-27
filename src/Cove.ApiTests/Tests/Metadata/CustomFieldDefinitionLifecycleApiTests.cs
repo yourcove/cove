@@ -19,7 +19,7 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
     [CoversEndpoint("POST", "/api/performers")]
     [CoversEndpoint("GET", "/api/performers/{id:int}")]
     [CoversEndpoint("POST", "/api/performers/find")]
-    public async Task GivenLongTextDefinition_WhenShortAndLargeValuesAreSaved_ThenTheyRemainUnindexedNonQueryableScalars()
+    public async Task GivenLongTextDefinition_WhenShortAndLargeValuesAreSaved_ThenTheyRemainUnindexedPresenceQueryableScalars()
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
@@ -138,7 +138,8 @@ public sealed class CustomFieldDefinitionLifecycleApiTests(
             },
             FindFilter = new FindFilter { PerPage = 10 },
         }, TestContext.Current.CancellationToken);
-        forgedPresenceFilter.Items.Should().BeEmpty();
+        forgedPresenceFilter.Items.Select(performer => performer.Id)
+            .Should().BeEquivalentTo([shortValuePerformer.Id, largeValuePerformer.Id]);
 
         var forgedSort = await owner.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
         {

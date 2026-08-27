@@ -144,6 +144,32 @@ public class CompoundSortQueryShapeTests
         Assert.DoesNotContain("cove_json_pointer", sql, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(CriterionModifier.NotNull, "EXISTS")]
+    [InlineData(CriterionModifier.IsNull, "NOT EXISTS")]
+    public void LongTextCustomFieldPresenceFilterUsesRowExistenceWithoutReadingContents(
+        CriterionModifier modifier,
+        string expectedOperator)
+    {
+        using var context = CreatePostgresContext();
+        var sql = context.Videos
+            .IgnoreQueryFilters()
+            .ApplyCustomFieldCriterion(context, CustomFieldEntityTypes.Video, new CustomFieldCriterion
+            {
+                Key = "notes",
+                Type = CustomFieldTypes.LongText,
+                Modifier = modifier,
+            })
+            .Select(video => video.Id)
+            .ToQueryString();
+
+        Assert.Contains(expectedOperator, sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("custom_field_values", sql, StringComparison.Ordinal);
+        Assert.Contains("custom_field_definitions", sql, StringComparison.Ordinal);
+        Assert.Contains("\"EntityId\"", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("LongTextValue", sql, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void JsonTextCustomFieldFilterUsesBoundedIndexKeyWhileSortUsesFullText()
     {

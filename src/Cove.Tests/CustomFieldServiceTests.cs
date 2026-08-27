@@ -363,6 +363,44 @@ public class CustomFieldServiceTests
         Assert.Empty(definition.JsonPaths);
     }
 
+    [Theory]
+    [InlineData(CriterionModifier.NotNull, 41)]
+    [InlineData(CriterionModifier.IsNull, 42)]
+    public async Task LongTextCustomFieldPresenceFilter_DoesNotQueryItsContents(CriterionModifier modifier, int expectedEntityId)
+    {
+        await using var context = CreateContext();
+        var definition = new CustomFieldDefinition
+        {
+            Key = "notes",
+            Label = "Notes",
+            Type = CustomFieldTypes.LongText,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+        };
+        context.Videos.AddRange(
+            new Video { Id = 41, Title = "Has notes" },
+            new Video { Id = 42, Title = "No notes" });
+        context.CustomFieldValues.Add(new CustomFieldValue
+        {
+            Definition = definition,
+            EntityType = CustomFieldEntityTypes.Video,
+            EntityId = 41,
+            LongTextValue = new string('x', 5_001),
+        });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var ids = await context.Videos
+            .ApplyCustomFieldCriterion(context, CustomFieldEntityTypes.Video, new CustomFieldCriterion
+            {
+                Key = definition.Key,
+                Type = CustomFieldTypes.LongText,
+                Modifier = modifier,
+            })
+            .Select(video => video.Id)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal([expectedEntityId], ids);
+    }
+
     [Fact]
     public async Task ReplaceDefinitionsAsync_CreatesUpdatesDeletesAndSupportsAudioAndTextEntities()
     {

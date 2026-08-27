@@ -172,7 +172,7 @@ const REFERENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["INCLUDES", "EXCL
 const PRESENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["NOT_NULL", "IS_NULL"];
 
 function getDefaultCustomFieldModifier(type: CustomFieldType): CriterionModifier {
-  if (type === "json") return "NOT_NULL";
+  if (type === "json" || type === "longText") return "NOT_NULL";
   return isEntityReferenceType(type) ? "INCLUDES" : "EQUALS";
 }
 
@@ -201,6 +201,7 @@ function isCustomFieldCriterionActive(value: CustomFieldCriterion | undefined) {
 function getCustomFieldModifiers(type: CustomFieldType) {
   switch (type) {
     case "json":
+    case "longText":
       return PRESENCE_CUSTOM_FIELD_MODIFIERS;
     case "number":
     case "date":
@@ -331,7 +332,11 @@ function createCustomFieldQueryDefinitions(
 ): CustomFieldQueryDefinition[] {
   return definitions.flatMap((definition) => {
     if (definition.type === "longText") {
-      return [];
+      return capability === "filterable" ? [{
+        ...definition,
+        label: `${definition.label || definition.key} (presence)`,
+        filterable: true,
+      }] : [];
     }
 
     if (definition.type !== "json") {

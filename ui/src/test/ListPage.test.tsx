@@ -1317,6 +1317,19 @@ describe("ListPage active filter chips", () => {
         ],
         displayOrder: 0,
       },
+      {
+        id: 3,
+        key: "unindexed_metadata",
+        label: "Unindexed Metadata",
+        type: "json",
+        entityTypes: ["video", "audio"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [],
+        displayOrder: 10,
+      },
     ]);
     const onObjectFilterChange = vi.fn();
 
@@ -1355,6 +1368,7 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
     expect(screen.getByRole("option", { name: "Structured Metadata › Score" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Structured Metadata (presence)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Unindexed Metadata (presence)" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Structured Metadata › Filter only" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Structured Metadata › Sort only" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Structured Metadata › Disabled" })).not.toBeInTheDocument();
@@ -1424,6 +1438,63 @@ describe("ListPage active filter chips", () => {
         type: "json",
         modifier: "NOT_NULL",
         jsonPath: undefined,
+      })],
+    }));
+  });
+
+  it("filters for long-text custom field presence without exposing content comparisons", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [{
+      id: 3,
+      key: "notes",
+      label: "Notes",
+      type: "longText",
+      entityTypes: ["video"],
+      options: [],
+      filterable: false,
+      sortable: false,
+      isMultiValue: false,
+      jsonPaths: [],
+      displayOrder: 0,
+    }]);
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{}}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("notes");
+    expect(screen.getByRole("combobox", { name: "Match" })).toHaveValue("NOT_NULL");
+    expect(screen.getByRole("option", { name: "Not Null" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Is Null" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Equals" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      customFieldCriteria: [expect.objectContaining({
+        key: "notes",
+        type: "longText",
+        modifier: "NOT_NULL",
       })],
     }));
   });
