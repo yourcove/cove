@@ -490,20 +490,20 @@ test("gallery lists mirror the media two-line card hierarchy", () => {
 });
 
 test("performer lists use demographic and library-count cards", () => {
-  const performer = { id: 9, name: "Example Performer", aliases: [], country: "Finland", birthdate: "1990-01-02", tags: [{ id: 1, name: "First" }, { id: 2, name: "Second" }], videoCount: 120, imageCount: 34, galleryCount: 5, likeCount: 6 };
+  const performer = { id: 9, name: "Example Performer", aliases: [], country: "Finland", birthdate: "1990-01-02", tags: [{ id: 1, name: "First" }, { id: 2, name: "Second" }], videoCount: 120, imageCount: 34, galleryCount: 5, audioCount: 1, textCount: 2, likeCount: 6 };
   const rendered = renderPerformers([performer], { color: false, hyperlinks: false, terminalWidth: 100 });
   const lines = rendered.split("\n");
   expect(lines[0]).toBe("Performers · 1 performer");
   expect(lines[2]).toStartWith("Example Performer");
   expect(lines[2]).toEndWith("Finland · 1990-01-02");
-  expect(lines[3]).toStartWith("2 tags · 120 videos · 34 images · 5 galleries · 6 likes");
+  expect(lines[3]).toStartWith("2 tags · 120 videos · 34 images · 5 galleries · 1 audio · 2 texts · 6 likes");
   expect(lines[3]).toEndWith("  9");
   expect(rendered).not.toMatch(/\n\n(?:ID|NAME)\b/);
   for (const line of rendered.split("\n").slice(1)) expect(Bun.stringWidth(line)).toBeLessThanOrEqual(100);
 
   const linked = renderPerformers([performer], { color: "#3bbd83", hyperlinks: true, server: "https://cove.example/base", terminalWidth: 100 });
   expect(linked).toContain("\u001b]8;;https://cove.example/base/performer/9\u0007Example Performer\u001b]8;;\u0007");
-  expect(stripTerminalSequences(linked).split("\n")[3]).toBe("2 tags · 120 videos · 34 images · 5 galleries · 6 likes");
+  expect(stripTerminalSequences(linked).split("\n")[3]).toBe("2 tags · 120 videos · 34 images · 5 galleries · 1 audio · 2 texts · 6 likes");
 
   const narrow = renderPerformers([performer], { color: false, hyperlinks: false, terminalWidth: 40 });
   expect(narrow.split("\n")[2]).toEndWith("1990-01-02");
@@ -513,13 +513,13 @@ test("performer lists use demographic and library-count cards", () => {
   for (const line of narrow.split("\n").slice(1)) expect(Bun.stringWidth(line)).toBeLessThanOrEqual(40);
 
   const defensive = renderPerformers([
-    { ...performer, id: 10, disambiguation: " \n ", tags: [{ id: 1, name: "Only" }], videoCount: 1, imageCount: 0, galleryCount: -1, likeCount: 1.5 },
+    { ...performer, id: 10, disambiguation: " \n ", tags: [{ id: 1, name: "Only" }], videoCount: 1, imageCount: 0, galleryCount: -1, audioCount: Number.NaN, textCount: -1, likeCount: 1.5 },
     { ...performer, id: 11, disambiguation: { malformed: true } as unknown as string },
   ], { color: false, hyperlinks: true, server: "https://cove.example", terminalWidth: 100 });
   const defensiveLines = stripTerminalSequences(defensive).split("\n");
   expect(defensiveLines[2]).toStartWith("Example Performer");
   expect(defensiveLines[2]).not.toContain("()");
-  expect(defensiveLines[3]).toBe("1 tag · 1 video · 0 images · 0 galleries · 0 likes");
+  expect(defensiveLines[3]).toBe("1 tag · 1 video · 0 images · 0 galleries · 0 audios · 0 texts · 0 likes");
   expect(defensiveLines[4]).toStartWith("Example Performer");
   expect(defensiveLines[4]).not.toContain("(");
 });
