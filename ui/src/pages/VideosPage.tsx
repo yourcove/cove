@@ -911,6 +911,7 @@ function VideoCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
   const [urls, setUrls] = useState<string[]>([""]);
   const [studioId, setStudioId] = useState<number | undefined>(undefined);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
   const [sourceMode, setSourceMode] = useState<CreateSourceMode>("metadata");
   const [filePath, setFilePath] = useState("");
@@ -1114,11 +1115,12 @@ function VideoCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
       </Field>
 
       <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="video" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="video" />
       </Field>
 
       <CreateModalActions
         loading={pending}
+        disabled={!customFieldsValid}
         onCancel={onClose}
         onSave={handleSave}
         createAnother={createAnother}

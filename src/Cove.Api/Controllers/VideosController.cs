@@ -145,6 +145,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         var videoRows = videoQuery.Select(video => new VideoListEntryKey
         {
+            CustomFieldEntityId = video.Id,
+            CustomFieldTieKind = "video",
+            CustomFieldTieId = video.Id,
             Kind = "video",
             Id = video.Id,
             Title = video.Title ?? video.FileSearchText ?? string.Empty,
@@ -161,6 +164,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         });
         var compilationRows = compilationQuery.Select(group => new VideoListEntryKey
         {
+            CustomFieldEntityId = null,
+            CustomFieldTieKind = "compilation",
+            CustomFieldTieId = group.Id,
             Kind = "compilation",
             Id = group.Id,
             Title = group.Name,
@@ -176,7 +182,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         var combinedQuery = videoRows.Concat(compilationRows);
         var totalCount = await combinedQuery.CountAsync(ct);
-        var orderedQuery = ApplyVideoListEntrySorting(combinedQuery, sort, string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase), seed);
+        var desc = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
+        var orderedQuery = FilterHelpers.TryParseCustomFieldSort(sort, out _, out _)
+            ? combinedQuery.ApplyProjectedCustomFieldSort(db, CustomFieldEntityTypes.Video, sort, desc)
+            : ApplyVideoListEntrySorting(combinedQuery, sort, desc, seed);
         var rows = await orderedQuery.Skip((safePage - 1) * safePerPage).Take(safePerPage).ToListAsync(ct);
 
         var videoIds = rows.Where(row => row.Kind == "video").Select(row => row.Id).ToArray();
@@ -714,7 +723,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             id => new PerformerSupplementalCounts(audioCounts.GetValueOrDefault(id), textCounts.GetValueOrDefault(id)));
     }
 
-    private sealed class VideoListEntryKey
+    private sealed class VideoListEntryKey : CustomFieldSortProjection
     {
         public string Kind { get; set; } = string.Empty;
         public int Id { get; set; }
@@ -1461,6 +1470,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                     // A retry after an ambiguous commit reuses this request's reservation token. Replace
                     // its keeper rows so replaying the whole transaction stays idempotent.
                     await db.DuplicateDeletionKeeperReservations
+                        .IgnoreQueryFilters()
                         .Where(item => item.SearchId == searchId)
                         .ExecuteDeleteAsync(ct);
                     db.DuplicateDeletionKeeperReservations.AddRange(keeperIds.Select(videoId =>

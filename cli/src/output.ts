@@ -599,6 +599,8 @@ function performerSecondaryLine(item: Performer, context: ResolvedRenderContext)
     countLabel(safeListCount(item.videoCount), "video", "videos"),
     countLabel(safeListCount(item.imageCount), "image", "images"),
     countLabel(safeListCount(item.galleryCount), "gallery", "galleries"),
+    countLabel(safeListCount(item.audioCount), "audio", "audios"),
+    countLabel(safeListCount(item.textCount), "text", "texts"),
     countLabel(safeListCount(item.likeCount), "like", "likes"),
   ], item.id, context);
 }

@@ -91,6 +91,7 @@ public partial class CoveContext : DbContext
     public DbSet<PendingPhysicalFileDeletion> PendingPhysicalFileDeletions => Set<PendingPhysicalFileDeletion>();
     public DbSet<VideoDeletionCommitMarker> VideoDeletionCommitMarkers => Set<VideoDeletionCommitMarker>();
     public DbSet<CustomFieldDefinition> CustomFieldDefinitions => Set<CustomFieldDefinition>();
+    public DbSet<CustomFieldJsonPathDefinition> CustomFieldJsonPathDefinitions => Set<CustomFieldJsonPathDefinition>();
     public DbSet<CustomFieldValue> CustomFieldValues => Set<CustomFieldValue>();
     public DbSet<TagApplication> TagApplications => Set<TagApplication>();
     public DbSet<FieldProvenance> FieldProvenance => Set<FieldProvenance>();
@@ -256,11 +257,28 @@ public partial class CoveContext : DbContext
 
         if (isNpgsql)
         {
+            ConfigureCustomFieldJsonFunctions(modelBuilder);
             ConfigureSearchVectors(modelBuilder);
             ConfigureAuthorizationFilters(modelBuilder);
         }
         else
             ConfigureProviderFallbacks(modelBuilder);
+    }
+
+    private static void ConfigureCustomFieldJsonFunctions(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Text))!)
+            .HasName("cove_json_pointer_text")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.TextIndexKey))!)
+            .HasName("cove_json_pointer_text_index_key")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Number))!)
+            .HasName("cove_json_pointer_number")
+            .HasSchema("public");
+        modelBuilder.HasDbFunction(typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Boolean))!)
+            .HasName("cove_json_pointer_boolean")
+            .HasSchema("public");
     }
 
     private static void ConfigureSearchVectors(ModelBuilder modelBuilder)
@@ -380,6 +398,15 @@ public partial class CoveContext : DbContext
             document => GetJsonDocumentHash(document),
             document => CloneJsonDocument(document));
 
+        var jsonElementConverter = new ValueConverter<JsonElement?, string?>(
+            element => SerializeJsonElement(element),
+            json => DeserializeJsonElement(json));
+
+        var jsonElementComparer = new ValueComparer<JsonElement?>(
+            (left, right) => JsonElementsEqual(left, right),
+            element => GetJsonElementHash(element),
+            element => CloneJsonElement(element));
+
         var objectDictionaryConverter = new ValueConverter<Dictionary<string, object>?, string?>(
             dictionary => SerializeObjectDictionary(dictionary),
             json => DeserializeObjectDictionary(json));
@@ -395,6 +422,13 @@ public partial class CoveContext : DbContext
             {
                 property.SetValueConverter(jsonConverter);
                 property.SetValueComparer(jsonComparer);
+            }
+
+            if (property.ClrType == typeof(JsonElement?))
+            {
+                property.SetValueConverter(jsonElementConverter);
+                property.SetValueComparer(jsonElementComparer);
+                property.SetColumnType("text");
             }
 
             if (property.ClrType == typeof(Dictionary<string, object>))
@@ -422,6 +456,21 @@ public partial class CoveContext : DbContext
 
     private static string? GetJsonText(JsonDocument? document) =>
         document is null ? null : document.RootElement.GetRawText();
+
+    private static string? SerializeJsonElement(JsonElement? element) =>
+        element?.GetRawText();
+
+    private static JsonElement? DeserializeJsonElement(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? null : JsonDocument.Parse(json).RootElement.Clone();
+
+    private static bool JsonElementsEqual(JsonElement? left, JsonElement? right) =>
+        string.Equals(SerializeJsonElement(left), SerializeJsonElement(right), StringComparison.Ordinal);
+
+    private static int GetJsonElementHash(JsonElement? element) =>
+        element?.GetRawText().GetHashCode(StringComparison.Ordinal) ?? 0;
+
+    private static JsonElement? CloneJsonElement(JsonElement? element) =>
+        element?.Clone();
 
     private static string? SerializeObjectDictionary(Dictionary<string, object>? dictionary)
     {

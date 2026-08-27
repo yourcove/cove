@@ -26,6 +26,7 @@ export function TextEditPanel({ text, onSaved }: Props) {
   const [studioId, setStudioId] = useState<number | undefined>(text.studioId ?? undefined);
   const [urls, setUrls] = useState<string[]>(text.urls.length > 0 ? text.urls : [""]);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(text.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(text.tags.map((tag) => tag.id));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(text.performers.map((performer) => performer.id));
   const [contextTagIdsByPerformer, setContextTagIdsByPerformer] = useState<Record<number, number[]>>(() => buildPerformerContextTagIds(text.contextTagApplications));
@@ -141,14 +142,14 @@ export function TextEditPanel({ text, onSaved }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={text.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="text" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="text" />
       </Field>
 
       {mutation.error ? <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{(mutation.error as Error).message}</div> : null}
 
       <div className="flex justify-end gap-3 pt-2">
         <button type="button" onClick={onSaved} className="px-4 py-2 text-sm text-secondary transition hover:text-foreground">Cancel</button>
-        <button type="button" onClick={handleSave} disabled={mutation.isPending} className="rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:bg-accent-hover disabled:opacity-60">
+        <button type="button" onClick={handleSave} disabled={mutation.isPending || !customFieldsValid} className="rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:bg-accent-hover disabled:opacity-60">
           {mutation.isPending ? "Saving..." : "Save"}
         </button>
       </div>

@@ -124,6 +124,7 @@ public sealed class DuplicateSearchJobService(
             }
 
             await db.DuplicateDeletionKeeperReservations
+                .IgnoreQueryFilters()
                 .Where(item => item.SearchId == searchId)
                 .ExecuteDeleteAsync(ct);
             await transaction.CommitAsync(ct);
@@ -174,6 +175,7 @@ public sealed class DuplicateSearchJobService(
                 .Select(search => search.Id)
                 .ToArrayAsync(ct);
             await db.DuplicateDeletionKeeperReservations
+                .IgnoreQueryFilters()
                 .Where(item => searchIds.Contains(item.SearchId))
                 .ExecuteDeleteAsync(ct);
             var released = await db.DuplicateSearches
@@ -206,6 +208,7 @@ public sealed class DuplicateSearchJobService(
             if (released == 1)
             {
                 await db.DuplicateDeletionKeeperReservations
+                    .IgnoreQueryFilters()
                     .Where(item => item.SearchId == searchId)
                     .ExecuteDeleteAsync(ct);
             }
@@ -907,7 +910,7 @@ public sealed class DuplicateSearchRecoveryService(
 
         // In-memory deletion jobs do not survive a restart. Release their keeper constraints so the
         // reconciled search can be queued again; the physical-file outbox is recovered separately.
-        await db.DuplicateDeletionKeeperReservations.ExecuteDeleteAsync(ct);
+        await db.DuplicateDeletionKeeperReservations.IgnoreQueryFilters().ExecuteDeleteAsync(ct);
 
         var claimedSearchIds = await db.DuplicateSearches
             .Where(search => search.DeletionJobId != null

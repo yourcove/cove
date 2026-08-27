@@ -15,6 +15,118 @@ public sealed class DerivedDiscoveryAuthorizationApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    public async Task GivenPersistedDuplicateResults_WhenVideoVisibilityChanges_ThenHiddenDecisionsAreNotMutated()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var hiddenTag = await owner.CreateTagAsync($"Duplicate decision hidden tag {suffix}", TestContext.Current.CancellationToken);
+        var title = $"Persisted duplicate visibility {suffix}";
+        var videos = new[]
+        {
+            await owner.CreateVideoAsync(title, TestContext.Current.CancellationToken),
+            await owner.CreateVideoAsync(title, TestContext.Current.CancellationToken),
+            await owner.CreateVideoAsync(title, TestContext.Current.CancellationToken),
+        };
+
+        var roleName = $"Duplicate decision viewer {suffix}";
+        var role = await owner.CreateRoleAsync(new CreateRoleRequest(
+            roleName,
+            "Changes visible duplicate decisions without mutating hidden results.",
+            [Permissions.VideosRead, Permissions.JobsRun, Permissions.JobsCancel]), TestContext.Current.CancellationToken);
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"), TestContext.Current.CancellationToken);
+        var username = $"duplicate-decision-{suffix}";
+        const string password = "Duplicate decision password 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
+        var user = session.Client;
+
+        var started = await user.StartDuplicateSearchAsync(
+            new DuplicateSearchRequestDto("title", Distance: 0),
+            TestContext.Current.CancellationToken);
+        (await user.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var initialPage = await user.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
+        var initialGroup = initialPage.Items.Should().ContainSingle(group =>
+            group.Videos.Select(video => video.Id).ToHashSet().IsSupersetOf(videos.Select(video => video.Id))).Which;
+        var initiallyKeptId = initialGroup.KeepVideoIds.Should().ContainSingle().Which;
+        var newlyKeptId = videos.Select(video => video.Id).First(id => id != initiallyKeptId);
+
+        await owner.UpdateVideoAsync(initiallyKeptId, new { tagIds = new[] { hiddenTag.Id } }, TestContext.Current.CancellationToken);
+        var restrictedPage = await user.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
+        var restrictedGroup = restrictedPage.Items.Single(group => group.Id == initialGroup.Id);
+        restrictedGroup.Videos.Select(video => video.Id).Should().NotContain(initiallyKeptId);
+
+        await user.UpdateDuplicateSearchGroupDecisionAsync(
+            started.SearchId,
+            initialGroup.Id,
+            new DuplicateSearchGroupDecisionDto([newlyKeptId]),
+            TestContext.Current.CancellationToken);
+
+        await owner.UpdateVideoAsync(initiallyKeptId, new { tagIds = Array.Empty<int>() }, TestContext.Current.CancellationToken);
+        var restoredPage = await user.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
+        var restoredGroup = restoredPage.Items.Single(group => group.Id == initialGroup.Id);
+        restoredGroup.Videos.Select(video => video.Id).Should().Contain(initiallyKeptId);
+        restoredGroup.KeepVideoIds.Should().BeEquivalentTo([initiallyKeptId, newlyKeptId]);
+    }
+
+    [Fact]
+    public async Task GivenHiddenUnwantedDuplicate_WhenDeletionRuns_ThenOnlyVisibleUnwantedVideosAreDeleted()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var hiddenTag = await owner.CreateTagAsync($"Duplicate deletion hidden tag {suffix}", TestContext.Current.CancellationToken);
+        var title = $"Restricted duplicate deletion {suffix}";
+        var videos = new[]
+        {
+            await owner.CreateVideoAsync(title, TestContext.Current.CancellationToken),
+            await owner.CreateVideoAsync(title, TestContext.Current.CancellationToken),
+            await owner.CreateVideoAsync(title, TestContext.Current.CancellationToken),
+        };
+
+        var roleName = $"Restricted duplicate deleter {suffix}";
+        var role = await owner.CreateRoleAsync(new CreateRoleRequest(
+            roleName,
+            "Deletes visible duplicate results without accessing hidden videos.",
+            [Permissions.VideosRead, Permissions.VideosDelete, Permissions.JobsRun, Permissions.JobsCancel]), TestContext.Current.CancellationToken);
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"), TestContext.Current.CancellationToken);
+        var username = $"restricted-duplicate-deleter-{suffix}";
+        const string password = "Restricted duplicate deletion password 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
+        var user = session.Client;
+
+        var started = await user.StartDuplicateSearchAsync(
+            new DuplicateSearchRequestDto("title", Distance: 0),
+            TestContext.Current.CancellationToken);
+        (await user.WaitForTerminalJobAsync(started.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var initialPage = await user.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
+        var group = initialPage.Items.Should().ContainSingle(candidate =>
+            candidate.Videos.Select(video => video.Id).ToHashSet().IsSupersetOf(videos.Select(video => video.Id))).Which;
+        var keeperId = group.KeepVideoIds.Should().ContainSingle().Which;
+        var unwantedIds = videos.Select(video => video.Id).Where(id => id != keeperId).ToArray();
+        var hiddenUnwantedId = unwantedIds[0];
+        var visibleUnwantedId = unwantedIds[1];
+
+        await owner.UpdateVideoAsync(hiddenUnwantedId, new { tagIds = new[] { hiddenTag.Id } }, TestContext.Current.CancellationToken);
+        var restrictedPage = await user.GetDuplicateSearchGroupsAsync(started.SearchId, perPage: 20, cancellationToken: TestContext.Current.CancellationToken);
+        restrictedPage.Items.Single(candidate => candidate.Id == group.Id).Videos.Select(video => video.Id)
+            .Should().BeEquivalentTo([keeperId, visibleUnwantedId]);
+
+        var deletion = await user.DeleteUnkeptDuplicateVideosAsync(
+            started.SearchId,
+            new DuplicateSearchDeleteRequestDto(),
+            TestContext.Current.CancellationToken);
+        deletion.ItemCount.Should().Be(1);
+        (await user.WaitForTerminalJobAsync(deletion.JobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+
+        var visibleRead = () => owner.GetVideoByIdAsync(visibleUnwantedId);
+        await visibleRead.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
+        (await owner.GetVideoByIdAsync(hiddenUnwantedId, TestContext.Current.CancellationToken)).Id.Should().Be(hiddenUnwantedId);
+        (await owner.GetVideoByIdAsync(keeperId, TestContext.Current.CancellationToken)).Id.Should().Be(keeperId);
+    }
+
+    [Fact]
     public async Task GivenRestrictedVideoEmbeddings_WhenDerivedDiscoveryIsRead_ThenHiddenHostsAndArtifactsStayConcealed()
     {
         const string kindFamily = "video.scoped-discovery.v1";

@@ -34,6 +34,7 @@ export function GroupEditModal({ group, open, onClose }: Props) {
   const [showInVideoLists, setShowInVideoLists] = useState(group.showInVideoLists ?? false);
 
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(group.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const tagProvenanceById = buildTagProvenanceById(group.tags, group.fieldProvenance);
   const { data: dynamicSources } = useQuery({
     queryKey: ["group-dynamic-sources"],
@@ -228,12 +229,12 @@ export function GroupEditModal({ group, open, onClose }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={group.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="group" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="group" />
       </Field>
 
       <div className="flex justify-end gap-3 mt-4">
         <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
-        <SaveButton loading={mutation.isPending} onClick={handleSave} />
+        <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>
   );

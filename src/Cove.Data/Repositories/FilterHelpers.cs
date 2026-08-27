@@ -1,5 +1,7 @@
 using System.Linq.Expressions;
 using System.Globalization;
+using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -10,11 +12,29 @@ using Microsoft.EntityFrameworkCore;
 namespace Cove.Data.Repositories;
 
 /// <summary>
+/// Projection shape used when custom-field rows need to be sorted alongside rows
+/// that do not have a corresponding custom-field entity.
+/// </summary>
+public abstract class CustomFieldSortProjection
+{
+    public int? CustomFieldEntityId { get; set; }
+    public string CustomFieldTieKind { get; set; } = string.Empty;
+    public int CustomFieldTieId { get; set; }
+}
+
+/// <summary>
 /// Generic filter helpers that work with any entity type.
 /// Centralizes criterion-based filtering logic previously duplicated per-entity.
 /// </summary>
 public static class FilterHelpers
 {
+    private const string JsonTypeLower = "json";
+    private const string LongTextTypeLower = "longtext";
+    private static readonly MethodInfo JsonTextMethod = typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Text))!;
+    private static readonly MethodInfo JsonTextIndexKeyMethod = typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.TextIndexKey))!;
+    private static readonly MethodInfo JsonNumberMethod = typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Number))!;
+    private static readonly MethodInfo JsonBooleanMethod = typeof(CustomFieldJsonDbFunctions).GetMethod(nameof(CustomFieldJsonDbFunctions.Boolean))!;
+
     public static IQueryable<T> ApplyBooleanKeywordSearch<T>(IQueryable<T> query, string? search, params Expression<Func<T, string?>>[] selectors)
     {
         var groups = ParseKeywordSearch(search);
@@ -49,15 +69,24 @@ public static class FilterHelpers
         var normalizedEntityType = entityType.Trim().ToLowerInvariant();
         var values = db.CustomFieldValues.Where(value => value.EntityType == normalizedEntityType && value.Definition!.Key == key);
 
+        if (!string.IsNullOrWhiteSpace(criterion.JsonPath))
+            return ApplyJsonCustomFieldCriterion(query, db, values, normalizedEntityType, key, criterion);
+
         if (criterion.Modifier == CriterionModifier.IsNull)
         {
-            return query.Where(entity => !values.Any(value => value.EntityId == entity.Id));
+            var presenceValues = IncludePresenceQueryableCustomFieldValues(values);
+            return query.Where(entity => !presenceValues.Any(value => value.EntityId == entity.Id));
         }
 
         if (criterion.Modifier == CriterionModifier.NotNull)
         {
-            return query.Where(entity => values.Any(value => value.EntityId == entity.Id));
+            var presenceValues = IncludePresenceQueryableCustomFieldValues(values);
+            return query.Where(entity => presenceValues.Any(value => value.EntityId == entity.Id));
         }
+
+        // JSON document contents are queryable only through explicitly configured paths. Long-text
+        // contents remain nonqueryable, even though row presence can be checked above.
+        values = ExcludeNonQueryableCustomFieldValues(values);
 
         if (string.IsNullOrWhiteSpace(criterion.Value)) return query;
 
@@ -94,11 +123,15 @@ public static class FilterHelpers
     public static IQueryable<T> ApplyCustomFieldSort<T>(this IQueryable<T> query, CoveContext db, string entityType, string? sort, bool desc)
         where T : BaseEntity
     {
-        if (!TryParseCustomFieldSort(sort, out var key, out var type))
+        if (!TryParseCustomFieldSort(sort, out var key, out var type, out var jsonPath))
             return query;
 
         var normalizedEntityType = entityType.Trim().ToLowerInvariant();
         var values = db.CustomFieldValues.Where(value => value.EntityType == normalizedEntityType && value.Definition!.Key == key);
+        if (jsonPath != null)
+            return ApplyJsonCustomFieldSort(query, values, normalizedEntityType, type, jsonPath, desc);
+
+        values = ExcludeNonQueryableCustomFieldValues(values);
         if (CustomFieldTypes.IsNumberLike(type)) return SortByCustomField(query, values, value => value.NumberValue, desc);
         if (CustomFieldTypes.IsBoolean(type)) return SortByCustomField(query, values, value => value.BoolValue, desc);
         if (CustomFieldTypes.IsDateLike(type)) return SortByCustomField(query, values, value => value.DateValue, desc);
@@ -107,13 +140,54 @@ public static class FilterHelpers
         return SortByCustomField(query, values, value => value.TextValue, desc);
     }
 
+    public static IQueryable<T> ApplyProjectedCustomFieldSort<T>(this IQueryable<T> query, CoveContext db, string entityType, string? sort, bool desc)
+        where T : CustomFieldSortProjection
+    {
+        if (!TryParseCustomFieldSort(sort, out var key, out var type, out var jsonPath))
+            return query;
+
+        var normalizedEntityType = entityType.Trim().ToLowerInvariant();
+        var values = db.CustomFieldValues.Where(value => value.EntityType == normalizedEntityType && value.Definition!.Key == key);
+        if (jsonPath != null)
+            return ApplyProjectedJsonCustomFieldSort(query, values, normalizedEntityType, type, jsonPath, desc);
+
+        values = ExcludeNonQueryableCustomFieldValues(values);
+        if (CustomFieldTypes.IsNumberLike(type)) return SortProjectedByCustomField(query, values, value => value.NumberValue, desc);
+        if (CustomFieldTypes.IsBoolean(type)) return SortProjectedByCustomField(query, values, value => value.BoolValue, desc);
+        if (CustomFieldTypes.IsDateLike(type)) return SortProjectedByCustomField(query, values, value => value.DateValue, desc);
+        if (CustomFieldTypes.IsTimestampLike(type)) return SortProjectedByCustomField(query, values, value => value.TimestampValue, desc);
+        if (CustomFieldTypes.IsReference(type)) return SortProjectedByCustomField(query, values, value => value.IntegerValue, desc);
+        return SortProjectedByCustomField(query, values, value => value.TextValue, desc);
+    }
+
     public static bool TryParseCustomFieldSort(string? sort, out string key, out string type)
+        => TryParseCustomFieldSort(sort, out key, out type, out _);
+
+    private static bool TryParseCustomFieldSort(string? sort, out string key, out string type, out string? jsonPath)
     {
         key = string.Empty;
         type = CustomFieldTypes.Text;
+        jsonPath = null;
         if (string.IsNullOrWhiteSpace(sort)) return false;
 
-        var parts = sort.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parts = sort.Split(':', StringSplitOptions.TrimEntries);
+        if (parts.Length == 4 && string.Equals(parts[0], "custom-json", StringComparison.OrdinalIgnoreCase))
+        {
+            type = CustomFieldTypes.Normalize(parts[1]);
+            key = parts[2];
+            try
+            {
+                jsonPath = Uri.UnescapeDataString(parts[3]);
+            }
+            catch (UriFormatException)
+            {
+                return false;
+            }
+
+            return !string.IsNullOrWhiteSpace(key)
+                && !string.IsNullOrWhiteSpace(jsonPath);
+        }
+
         if (parts.Length < 2 || !string.Equals(parts[0], "custom", StringComparison.OrdinalIgnoreCase)) return false;
 
         if (parts.Length >= 3)
@@ -129,6 +203,109 @@ public static class FilterHelpers
         return !string.IsNullOrWhiteSpace(key);
     }
 
+    private static IQueryable<T> ApplyJsonCustomFieldCriterion<T>(
+        IQueryable<T> query,
+        CoveContext db,
+        IQueryable<CustomFieldValue> values,
+        string entityType,
+        string key,
+        CustomFieldCriterion criterion)
+        where T : BaseEntity
+    {
+        var path = criterion.JsonPath!;
+        var type = CustomFieldTypes.Normalize(criterion.Type);
+        if (!IsSupportedJsonPathType(type) || !IsValidJsonPointer(path))
+            return query.Where(_ => false);
+
+        var configuredPaths = db.CustomFieldJsonPathDefinitions.Where(jsonPath =>
+            jsonPath.Definition!.Key == key
+            && jsonPath.Definition.Type == CustomFieldTypes.Json
+            && jsonPath.Definition.EntityTypes.Contains(entityType)
+            && jsonPath.Path == path
+            && jsonPath.Type == type
+            && jsonPath.Filterable);
+        query = query.Where(_ => configuredPaths.Any());
+        values = values.Where(value => value.Position == 0
+            && value.JsonValue != null
+            && value.Definition!.Type == CustomFieldTypes.Json
+            && value.Definition.JsonPaths.Any(jsonPath =>
+                jsonPath.Path == path
+                && jsonPath.Type == type
+                && jsonPath.Filterable));
+
+        if (type == CustomFieldTypes.Number)
+            return ApplyJsonNumberCustomField(query, values, criterion, BuildJsonNumberSelector(path));
+        if (type == CustomFieldTypes.Boolean)
+            return ApplyJsonBooleanCustomField(query, values, criterion, BuildJsonBooleanSelector(path));
+        return ApplyJsonTextCustomField(query, SelectJsonTextFilterScalars(values, path), criterion);
+    }
+
+    private static IQueryable<CustomFieldValue> ExcludeNonQueryableCustomFieldValues(
+        IQueryable<CustomFieldValue> values)
+        => values.Where(value => value.Definition!.Type.ToLower() != JsonTypeLower
+            && value.Definition.Type.ToLower() != LongTextTypeLower);
+
+    private static IQueryable<CustomFieldValue> IncludePresenceQueryableCustomFieldValues(
+        IQueryable<CustomFieldValue> values)
+        => values.Where(value => value.Definition!.Type.ToLower() != JsonTypeLower
+            || (value.Position == 0 && value.JsonValue != null));
+
+    private static IQueryable<T> ApplyJsonCustomFieldSort<T>(
+        IQueryable<T> query,
+        IQueryable<CustomFieldValue> values,
+        string entityType,
+        string type,
+        string path,
+        bool desc)
+        where T : BaseEntity
+    {
+        if (!IsSupportedJsonPathType(type) || !IsValidJsonPointer(path))
+            return desc ? query.OrderByDescending(entity => entity.Id) : query.OrderBy(entity => entity.Id);
+
+        values = values.Where(value => value.Position == 0
+            && value.JsonValue != null
+            && value.Definition!.Type == CustomFieldTypes.Json
+            && value.Definition.EntityTypes.Contains(entityType)
+            && value.Definition.JsonPaths.Any(jsonPath =>
+                jsonPath.Path == path
+                && jsonPath.Type == type
+                && jsonPath.Sortable));
+
+        if (type == CustomFieldTypes.Number)
+            return SortByJsonCustomField(query, SelectJsonScalars(values, BuildJsonNumberSelector(path)), desc);
+        if (type == CustomFieldTypes.Boolean)
+            return SortByJsonCustomField(query, SelectJsonScalars(values, BuildJsonBooleanSelector(path)), desc);
+        return SortByJsonTextCustomField(query, SelectJsonScalars(values, BuildJsonTextSelector(path)), desc);
+    }
+
+    private static IQueryable<T> ApplyProjectedJsonCustomFieldSort<T>(
+        IQueryable<T> query,
+        IQueryable<CustomFieldValue> values,
+        string entityType,
+        string type,
+        string path,
+        bool desc)
+        where T : CustomFieldSortProjection
+    {
+        if (!IsSupportedJsonPathType(type) || !IsValidJsonPointer(path))
+            return SortProjectedByTie(query, desc);
+
+        values = values.Where(value => value.Position == 0
+            && value.JsonValue != null
+            && value.Definition!.Type == CustomFieldTypes.Json
+            && value.Definition.EntityTypes.Contains(entityType)
+            && value.Definition.JsonPaths.Any(jsonPath =>
+                jsonPath.Path == path
+                && jsonPath.Type == type
+                && jsonPath.Sortable));
+
+        if (type == CustomFieldTypes.Number)
+            return SortProjectedByJsonCustomField(query, SelectJsonScalars(values, BuildJsonNumberSelector(path)), desc);
+        if (type == CustomFieldTypes.Boolean)
+            return SortProjectedByJsonCustomField(query, SelectJsonScalars(values, BuildJsonBooleanSelector(path)), desc);
+        return SortProjectedByJsonTextCustomField(query, SelectJsonScalars(values, BuildJsonTextSelector(path)), desc);
+    }
+
     private static IQueryable<T> SortByCustomField<T, TValue>(IQueryable<T> query, IQueryable<CustomFieldValue> values, Expression<Func<CustomFieldValue, TValue?>> valueSelector, bool desc)
         where T : BaseEntity
     {
@@ -141,6 +318,320 @@ public static class FilterHelpers
         return desc
             ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.Id).Select(item => item.Entity)
             : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.Id).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> SortProjectedByCustomField<T, TValue>(IQueryable<T> query, IQueryable<CustomFieldValue> values, Expression<Func<CustomFieldValue, TValue?>> valueSelector, bool desc)
+        where T : CustomFieldSortProjection
+    {
+        var sorted = query.Select(entity => new
+        {
+            Entity = entity,
+            Value = values
+                .Where(value => entity.CustomFieldEntityId.HasValue && value.EntityId == entity.CustomFieldEntityId.Value)
+                .OrderBy(value => value.Position)
+                .Select(valueSelector)
+                .FirstOrDefault(),
+        });
+
+        return desc
+            ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.CustomFieldTieKind).ThenByDescending(item => item.Entity.CustomFieldTieId).Select(item => item.Entity)
+            : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.CustomFieldTieKind).ThenBy(item => item.Entity.CustomFieldTieId).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> ApplyJsonTextCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<JsonCustomFieldTextScalar> scalars,
+        CustomFieldCriterion criterion)
+        where T : BaseEntity
+    {
+        if (criterion.Modifier == CriterionModifier.IsNull)
+            return query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.IndexKey != null));
+        if (criterion.Modifier == CriterionModifier.NotNull)
+            return query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.IndexKey != null));
+        var text = criterion.Value ?? string.Empty;
+        if (text.Length == 0 && criterion.Modifier is not CriterionModifier.Equals and not CriterionModifier.NotEquals)
+            return query;
+
+        var textBytes = Encoding.UTF8.GetBytes(text);
+        var indexKey = textBytes[..Math.Min(textBytes.Length, CustomFieldJsonDbFunctions.TextIndexKeyByteLength)];
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.IndexKey == indexKey && value.Value == text)),
+            CriterionModifier.NotEquals => query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.IndexKey == indexKey && value.Value == text)),
+            CriterionModifier.Includes => query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value != null && EF.Functions.ILike(value.Value, $"%{text}%"))),
+            CriterionModifier.Excludes => query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.Value != null && EF.Functions.ILike(value.Value, $"%{text}%"))),
+            _ => query,
+        };
+    }
+
+    private static IQueryable<T> ApplyJsonNumberCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<CustomFieldValue> values,
+        CustomFieldCriterion criterion,
+        Expression<Func<CustomFieldValue, decimal?>> selector)
+        where T : BaseEntity
+    {
+        var scalars = SelectJsonScalars(values, selector);
+        if (criterion.Modifier == CriterionModifier.IsNull)
+            return query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.Value != null));
+        if (criterion.Modifier == CriterionModifier.NotNull)
+            return query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value != null));
+        if (!decimal.TryParse(criterion.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
+            return query.Where(_ => false);
+        var requiresSecondValue = criterion.Modifier is CriterionModifier.Between or CriterionModifier.NotBetween;
+        var number2 = number;
+        if (requiresSecondValue && !decimal.TryParse(criterion.Value2, NumberStyles.Float, CultureInfo.InvariantCulture, out number2))
+            return query.Where(_ => false);
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.Equals => query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value == number)),
+            CriterionModifier.NotEquals => query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.Value == number)),
+            CriterionModifier.GreaterThan => query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value > number)),
+            CriterionModifier.LessThan => query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value < number)),
+            CriterionModifier.Between => query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value >= number && value.Value <= number2)),
+            CriterionModifier.NotBetween => query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.Value >= number && value.Value <= number2)),
+            _ => query,
+        };
+    }
+
+    private static IQueryable<T> ApplyJsonBooleanCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<CustomFieldValue> values,
+        CustomFieldCriterion criterion,
+        Expression<Func<CustomFieldValue, bool?>> selector)
+        where T : BaseEntity
+    {
+        var scalars = SelectJsonScalars(values, selector);
+        if (criterion.Modifier == CriterionModifier.IsNull)
+            return query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.Value != null));
+        if (criterion.Modifier == CriterionModifier.NotNull)
+            return query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value != null));
+        if (!bool.TryParse(criterion.Value, out var boolValue))
+            return query.Where(_ => false);
+
+        return criterion.Modifier switch
+        {
+            CriterionModifier.NotEquals or CriterionModifier.Excludes => query.Where(entity => !scalars.Any(value => value.EntityId == entity.Id && value.Value == boolValue)),
+            _ => query.Where(entity => scalars.Any(value => value.EntityId == entity.Id && value.Value == boolValue)),
+        };
+    }
+
+    private static IQueryable<JsonCustomFieldScalar<TValue>> SelectJsonScalars<TValue>(
+        IQueryable<CustomFieldValue> values,
+        Expression<Func<CustomFieldValue, TValue>> selector)
+    {
+        var parameter = selector.Parameters[0];
+        values = values.Where(Expression.Lambda<Func<CustomFieldValue, bool>>(
+            Expression.NotEqual(selector.Body, Expression.Constant(null, typeof(TValue))),
+            parameter));
+        var projection = Expression.MemberInit(
+            Expression.New(typeof(JsonCustomFieldScalar<TValue>)),
+            Expression.Bind(
+                typeof(JsonCustomFieldScalar<TValue>).GetProperty(nameof(JsonCustomFieldScalar<TValue>.EntityId))!,
+                Expression.Property(parameter, nameof(CustomFieldValue.EntityId))),
+            Expression.Bind(
+                typeof(JsonCustomFieldScalar<TValue>).GetProperty(nameof(JsonCustomFieldScalar<TValue>.Value))!,
+                selector.Body));
+        return values.Select(Expression.Lambda<Func<CustomFieldValue, JsonCustomFieldScalar<TValue>>>(projection, parameter));
+    }
+
+    private static IQueryable<JsonCustomFieldTextScalar> SelectJsonTextFilterScalars(
+        IQueryable<CustomFieldValue> values,
+        string path)
+    {
+        var parameter = Expression.Parameter(typeof(CustomFieldValue), "value");
+        var document = Expression.Property(parameter, nameof(CustomFieldValue.JsonValue));
+        var pointer = Expression.Constant(path);
+        var indexKey = Expression.Call(JsonTextIndexKeyMethod, document, pointer);
+        values = values.Where(Expression.Lambda<Func<CustomFieldValue, bool>>(
+            Expression.NotEqual(indexKey, Expression.Constant(null, typeof(byte[]))),
+            parameter));
+        var projection = Expression.MemberInit(
+            Expression.New(typeof(JsonCustomFieldTextScalar)),
+            Expression.Bind(
+                typeof(JsonCustomFieldTextScalar).GetProperty(nameof(JsonCustomFieldTextScalar.EntityId))!,
+                Expression.Property(parameter, nameof(CustomFieldValue.EntityId))),
+            Expression.Bind(
+                typeof(JsonCustomFieldTextScalar).GetProperty(nameof(JsonCustomFieldTextScalar.Value))!,
+                Expression.Call(JsonTextMethod, document, pointer)),
+            Expression.Bind(
+                typeof(JsonCustomFieldTextScalar).GetProperty(nameof(JsonCustomFieldTextScalar.IndexKey))!,
+                indexKey));
+        return values.Select(Expression.Lambda<Func<CustomFieldValue, JsonCustomFieldTextScalar>>(projection, parameter));
+    }
+
+    private static IQueryable<T> SortByJsonTextCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<JsonCustomFieldScalar<string?>> scalars,
+        bool desc)
+        where T : BaseEntity
+    {
+        var sorted =
+            from entity in query
+            join scalar in scalars on entity.Id equals scalar.EntityId into scalarGroup
+            from scalar in scalarGroup.DefaultIfEmpty()
+            select new { Entity = entity, scalar.Value };
+        return desc
+            ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.Id).Select(item => item.Entity)
+            : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.Id).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> SortByJsonCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<JsonCustomFieldScalar<decimal?>> scalars,
+        bool desc)
+        where T : BaseEntity
+    {
+        var sorted =
+            from entity in query
+            join scalar in scalars on entity.Id equals scalar.EntityId into scalarGroup
+            from scalar in scalarGroup.DefaultIfEmpty()
+            select new { Entity = entity, scalar.Value };
+        return desc
+            ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.Id).Select(item => item.Entity)
+            : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.Id).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> SortByJsonCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<JsonCustomFieldScalar<bool?>> scalars,
+        bool desc)
+        where T : BaseEntity
+    {
+        var sorted =
+            from entity in query
+            join scalar in scalars on entity.Id equals scalar.EntityId into scalarGroup
+            from scalar in scalarGroup.DefaultIfEmpty()
+            select new { Entity = entity, scalar.Value };
+        return desc
+            ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.Id).Select(item => item.Entity)
+            : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.Id).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> SortProjectedByJsonTextCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<JsonCustomFieldScalar<string?>> scalars,
+        bool desc)
+        where T : CustomFieldSortProjection
+    {
+        var sorted =
+            from entity in query
+            join scalar in scalars on entity.CustomFieldEntityId equals (int?)scalar.EntityId into scalarGroup
+            from scalar in scalarGroup.DefaultIfEmpty()
+            select new { Entity = entity, scalar.Value };
+        return desc
+            ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.CustomFieldTieKind).ThenByDescending(item => item.Entity.CustomFieldTieId).Select(item => item.Entity)
+            : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.CustomFieldTieKind).ThenBy(item => item.Entity.CustomFieldTieId).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> SortProjectedByJsonCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<JsonCustomFieldScalar<decimal?>> scalars,
+        bool desc)
+        where T : CustomFieldSortProjection
+    {
+        var sorted =
+            from entity in query
+            join scalar in scalars on entity.CustomFieldEntityId equals (int?)scalar.EntityId into scalarGroup
+            from scalar in scalarGroup.DefaultIfEmpty()
+            select new { Entity = entity, scalar.Value };
+        return desc
+            ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.CustomFieldTieKind).ThenByDescending(item => item.Entity.CustomFieldTieId).Select(item => item.Entity)
+            : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.CustomFieldTieKind).ThenBy(item => item.Entity.CustomFieldTieId).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> SortProjectedByJsonCustomField<T>(
+        IQueryable<T> query,
+        IQueryable<JsonCustomFieldScalar<bool?>> scalars,
+        bool desc)
+        where T : CustomFieldSortProjection
+    {
+        var sorted =
+            from entity in query
+            join scalar in scalars on entity.CustomFieldEntityId equals (int?)scalar.EntityId into scalarGroup
+            from scalar in scalarGroup.DefaultIfEmpty()
+            select new { Entity = entity, scalar.Value };
+        return desc
+            ? sorted.OrderBy(item => item.Value == null).ThenByDescending(item => item.Value).ThenByDescending(item => item.Entity.CustomFieldTieKind).ThenByDescending(item => item.Entity.CustomFieldTieId).Select(item => item.Entity)
+            : sorted.OrderBy(item => item.Value == null).ThenBy(item => item.Value).ThenBy(item => item.Entity.CustomFieldTieKind).ThenBy(item => item.Entity.CustomFieldTieId).Select(item => item.Entity);
+    }
+
+    private static IQueryable<T> SortProjectedByTie<T>(IQueryable<T> query, bool desc)
+        where T : CustomFieldSortProjection
+        => desc
+            ? query.OrderByDescending(item => item.CustomFieldTieKind).ThenByDescending(item => item.CustomFieldTieId)
+            : query.OrderBy(item => item.CustomFieldTieKind).ThenBy(item => item.CustomFieldTieId);
+
+    private static Expression<Func<CustomFieldValue, decimal?>> BuildJsonNumberSelector(string path)
+    {
+        var parameter = Expression.Parameter(typeof(CustomFieldValue), "value");
+        var body = Expression.Call(
+            JsonNumberMethod,
+            Expression.Property(parameter, nameof(CustomFieldValue.JsonValue)),
+            Expression.Constant(path));
+        return Expression.Lambda<Func<CustomFieldValue, decimal?>>(body, parameter);
+    }
+
+    private static Expression<Func<CustomFieldValue, string?>> BuildJsonTextSelector(string path)
+    {
+        var parameter = Expression.Parameter(typeof(CustomFieldValue), "value");
+        var body = Expression.Call(
+            JsonTextMethod,
+            Expression.Property(parameter, nameof(CustomFieldValue.JsonValue)),
+            Expression.Constant(path));
+        return Expression.Lambda<Func<CustomFieldValue, string?>>(body, parameter);
+    }
+
+    private static Expression<Func<CustomFieldValue, bool?>> BuildJsonBooleanSelector(string path)
+    {
+        var parameter = Expression.Parameter(typeof(CustomFieldValue), "value");
+        var body = Expression.Call(
+            JsonBooleanMethod,
+            Expression.Property(parameter, nameof(CustomFieldValue.JsonValue)),
+            Expression.Constant(path));
+        return Expression.Lambda<Func<CustomFieldValue, bool?>>(body, parameter);
+    }
+
+    private static bool IsSupportedJsonPathType(string type)
+        => type is CustomFieldTypes.Text or CustomFieldTypes.Number or CustomFieldTypes.Boolean;
+
+    private static bool IsValidJsonPointer(string path)
+    {
+        if (path.Length == 0 || path.Length > 500 || path[0] != '/')
+            return false;
+
+        var rawSegments = path[1..].Split('/', StringSplitOptions.None);
+        if (rawSegments.Length > 32)
+            return false;
+
+        foreach (var rawSegment in rawSegments)
+        {
+            for (var index = 0; index < rawSegment.Length; index++)
+            {
+                if (rawSegment[index] != '~')
+                    continue;
+                if (index + 1 >= rawSegment.Length || rawSegment[index + 1] is not ('0' or '1'))
+                    return false;
+                index++;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed class JsonCustomFieldScalar<TValue>
+    {
+        public int EntityId { get; set; }
+        public TValue Value { get; set; } = default!;
+    }
+
+    private sealed class JsonCustomFieldTextScalar
+    {
+        public int EntityId { get; set; }
+        public string? Value { get; set; }
+        public byte[]? IndexKey { get; set; }
     }
 
     private static IQueryable<T> ApplyNumberCustomField<T>(IQueryable<T> query, IQueryable<CustomFieldValue> values, CustomFieldCriterion criterion)

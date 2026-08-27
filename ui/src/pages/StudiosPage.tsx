@@ -215,6 +215,7 @@ export function StudioCreateModal({ open, onClose, onCreated }: { open: boolean;
   });
   const [parentId, setParentId] = useState<number | undefined>(undefined);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
 
   const resetForm = () => {
@@ -262,10 +263,10 @@ export function StudioCreateModal({ open, onClose, onCreated }: { open: boolean;
         <EntityReferenceSelector entityType="studio" value={parentId} onChange={setParentId} placeholder="Search parent studios..." />
       </Field>
       <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="studio" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="studio" />
       </Field>
       {mutation.error ? <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
-      <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      <CreateModalActions loading={mutation.isPending} disabled={!customFieldsValid} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
   );
 }

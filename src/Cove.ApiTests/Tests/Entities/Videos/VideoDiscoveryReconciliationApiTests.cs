@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
@@ -24,7 +25,9 @@ public sealed class VideoDiscoveryReconciliationApiTests(
         await AsUser().CreateVideoAsync(new VideoBuilder().WithTitle($"Excluded {token}").Build(), TestContext.Current.CancellationToken);
 
         // Act
-        var result = await AsUser(ApiTestUsers.Eva).GetVideosWithCompilationsAsync($"Discovery {token}", TestContext.Current.CancellationToken);
+        var result = await AsUser(ApiTestUsers.Eva).GetVideosWithCompilationsAsync(
+            $"Discovery {token}",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
         result.TotalCount.Should().Be(2);
@@ -33,6 +36,55 @@ public sealed class VideoDiscoveryReconciliationApiTests(
             .Which.Video!.Title.Should().Be(matchingVideo.Title);
         result.Items.Should().ContainSingle(entry => entry.Kind == "compilation" && entry.Id == matchingCompilation.Id)
             .Which.Group!.Name.Should().Be(matchingCompilation.Name);
+    }
+
+    [Fact]
+    [CoversEndpoint("GET", "/api/videos/with-compilations")]
+    [CoversEndpoint("POST", "/api/custom-fields")]
+    [CoversEndpoint("POST", "/api/videos")]
+    public async Task GivenQueryableJsonValuesAndCompilation_WhenListedTogether_ThenJsonSortOrdersVideosAndPlacesCompilationLast()
+    {
+        var owner = AsUser();
+        var token = Guid.NewGuid().ToString("N");
+        var key = $"mixed_json_{token}";
+        const string path = "/profile/score";
+        await owner.CreateCustomFieldDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "Mixed JSON metadata",
+            Type = CustomFieldTypes.Json,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+            JsonPaths =
+            [
+                new CustomFieldJsonPathDefinitionDto
+                {
+                    Path = path,
+                    Label = "Score",
+                    Type = CustomFieldTypes.Number,
+                    Sortable = true,
+                },
+            ],
+        }, TestContext.Current.CancellationToken);
+        var high = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Mixed JSON {token} high")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { profile = new { score = 30 } }))
+            .Build(), TestContext.Current.CancellationToken);
+        var low = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Mixed JSON {token} low")
+            .WithCustomField(key, JsonSerializer.SerializeToElement(new { profile = new { score = 10 } }))
+            .Build(), TestContext.Current.CancellationToken);
+        var compilation = await owner.CreateCompilationAsync($"Mixed JSON {token} compilation", TestContext.Current.CancellationToken);
+        await owner.AddVideoToGroupAsync(high, compilation, TestContext.Current.CancellationToken);
+
+        var result = await owner.GetVideosWithCompilationsAsync(
+            $"Mixed JSON {token}",
+            $"custom-json:number:{key}:{Uri.EscapeDataString(path)}",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        result.Items.Select(entry => (entry.Kind, entry.Id)).Should().Equal(
+            ("video", low.Id),
+            ("video", high.Id),
+            ("compilation", compilation.Id));
     }
 
     [Fact]

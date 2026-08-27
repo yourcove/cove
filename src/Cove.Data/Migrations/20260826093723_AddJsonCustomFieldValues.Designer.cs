@@ -5,6 +5,7 @@ using System.Text.Json;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,9 +16,11 @@ using Pgvector;
 namespace Cove.Data.Migrations
 {
     [DbContext(typeof(CoveContext))]
-    partial class CoveContextModelSnapshot : ModelSnapshot
+    [Migration("20260826093723_AddJsonCustomFieldValues")]
+    partial class AddJsonCustomFieldValues
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1107,57 +1110,6 @@ namespace Cove.Data.Migrations
                     b.ToTable("custom_field_definitions", (string)null);
                 });
 
-            modelBuilder.Entity("Cove.Core.Entities.CustomFieldJsonPathDefinition", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("DefinitionId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DisplayOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("Filterable")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Path")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<bool>("Sortable")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DefinitionId", "DisplayOrder");
-
-                    b.HasIndex("DefinitionId", "Path")
-                        .IsUnique();
-
-                    b.ToTable("custom_field_json_paths", (string)null);
-                });
-
             modelBuilder.Entity("Cove.Core.Entities.CustomFieldValue", b =>
                 {
                     b.Property<int>("Id")
@@ -1189,11 +1141,8 @@ namespace Cove.Data.Migrations
                     b.Property<int?>("IntegerValue")
                         .HasColumnType("integer");
 
-                    b.Property<JsonElement?>("JsonValue")
+                    b.Property<string>("JsonValue")
                         .HasColumnType("jsonb");
-
-                    b.Property<string>("LongTextValue")
-                        .HasColumnType("text");
 
                     b.Property<decimal?>("NumberValue")
                         .HasPrecision(18, 6)
@@ -5122,17 +5071,6 @@ namespace Cove.Data.Migrations
                     b.Navigation("ParentFolder");
                 });
 
-            modelBuilder.Entity("Cove.Core.Entities.CustomFieldJsonPathDefinition", b =>
-                {
-                    b.HasOne("Cove.Core.Entities.CustomFieldDefinition", "Definition")
-                        .WithMany("JsonPaths")
-                        .HasForeignKey("DefinitionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Definition");
-                });
-
             modelBuilder.Entity("Cove.Core.Entities.CustomFieldValue", b =>
                 {
                     b.HasOne("Cove.Core.Entities.CustomFieldDefinition", "Definition")
@@ -6003,8 +5941,6 @@ namespace Cove.Data.Migrations
 
             modelBuilder.Entity("Cove.Core.Entities.CustomFieldDefinition", b =>
                 {
-                    b.Navigation("JsonPaths");
-
                     b.Navigation("Values");
                 });
 

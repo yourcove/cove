@@ -2294,6 +2294,7 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
   const [urls, setUrls] = useState(video.urls.length > 0 ? video.urls : [""]);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(video.remoteIds?.length ? video.remoteIds : []);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(video.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [studioId, setStudioId] = useState<number | undefined>(video.studioId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(getEditableTagIds(video.tags));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(video.performers.map((p) => p.id));
@@ -2497,13 +2498,13 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
       </div>
 
       <div className="space-y-1"><span className="text-xs text-secondary">Remote IDs</span><RemoteIdsEditor value={remoteIds} onChange={setRemoteIds} metadataServers={config?.scraping?.metadataServers} /></div>
-      <div className="space-y-1"><span className="text-xs text-secondary">Custom Fields</span><CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="video" /></div>
+      <div className="space-y-1"><span className="text-xs text-secondary">Custom Fields</span><CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="video" /></div>
 
       {mutation.error && <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 text-sm">{(mutation.error as Error).message}</div>}
 
       <div className="flex justify-end gap-3 pt-2">
         <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-foreground">Cancel</button>
-        <button onClick={handleSave} disabled={mutation.isPending} className="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50">
+        <button onClick={handleSave} disabled={mutation.isPending || !customFieldsValid} className="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50">
           {mutation.isPending ? "Saving…" : "Save"}
         </button>
       </div>

@@ -778,6 +778,60 @@ public class ScrapeAttemptServiceTests
         Assert.Contains(provenance, item => item.FieldKey == "tags" && item.SourceKey == "scraper:tests.fake-scraper/gallery");
     }
 
+    [Fact]
+    public async Task ApplyAttemptAsync_VideoStudioAliasResolvesMergedTargetWithoutCreatingStudio()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        var mergedTarget = new Studio
+        {
+            Name = "Parent Studio",
+            Aliases = [new StudioAlias { Alias = "Merged Studio" }],
+        };
+        var video = new Video { Title = "Video C" };
+        db.Studios.Add(mergedTarget);
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(ct);
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/video" }),
+            ResultJson = JsonSerializer.Serialize(new { StudioName = "merged studio" }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(ct);
+
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["studio"] = "replace" },
+                CreateMissingStudio: true),
+            ct);
+
+        Assert.NotNull(result);
+        var updatedVideo = await db.Videos.Include(item => item.Studio).SingleAsync(item => item.Id == video.Id, ct);
+        Assert.Equal(mergedTarget.Id, updatedVideo.StudioId);
+        Assert.Equal("Parent Studio", updatedVideo.Studio?.Name);
+        Assert.Single(await db.Studios.ToListAsync(ct));
+    }
+
     private static CoveContext CreateDbContext(string dbName)
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

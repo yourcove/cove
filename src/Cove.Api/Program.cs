@@ -339,6 +339,8 @@ try
     builder.Services.AddScoped<DuplicateSearchExecutionService>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();
+    builder.Services.AddSingleton<CustomFieldJsonIndexReconciler>();
+    builder.Services.AddSingleton<CustomFieldJsonIndexJobService>();
     builder.Services.AddScoped<CustomFieldService>();
     builder.Services.AddSingleton<TextExtractionService>();
     builder.Services.AddScoped<AiDataPurgeService>();
@@ -485,6 +487,11 @@ try
         {
             options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         });
+    // Minimal APIs + extension endpoints + generated schema document
+    builder.Services.ConfigureHttpJsonOptions(options =>
+    {
+        options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+    });
     builder.Services.AddOpenApi();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
@@ -646,6 +653,7 @@ try
         app.MapPost("/health/test-reset", async (
             HttpContext httpContext,
             JobService jobs,
+            CustomFieldJsonIndexReconciler jsonIndexes,
             Cove.Data.Auth.AuditService audit,
             Cove.Data.Services.SegmentSpanCacheRegistry segmentCache,
             Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache,
@@ -688,6 +696,10 @@ try
                     $reset$;
                     """, cancellationToken);
             }
+
+            // Expression indexes are schema objects and survive TRUNCATE. Reconcile synchronously so
+            // one API test's custom-field settings cannot leak physical indexes into the next test.
+            await jsonIndexes.ReconcileAsync(cancellationToken: cancellationToken);
 
             segmentCache.InvalidateAll();
             if (memoryCache is Microsoft.Extensions.Caching.Memory.MemoryCache concreteMemoryCache)
@@ -880,6 +892,9 @@ try
                     .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
                     .Take(1).AsSplitQuery().ToListAsync();
                 Log.Information("EF Core and connection pool pre-warmed");
+
+                if (isPostgresProvider)
+                    scope.ServiceProvider.GetRequiredService<CustomFieldJsonIndexJobService>().RequestReconcile();
             }
             else
             {

@@ -10,6 +10,9 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 - Fixed reading a blob on Windows while it is being deleted. Windows can report the concurrent delete as an access-denied error rather than a missing file, which surfaced as a failed request instead of the blob simply being gone. A genuine permission problem on a blob that is still on disk is still reported as an error.
+- Custom fields can now store structured JSON values in PostgreSQL `jsonb`, with validation and formatting in the editor and an indented presentation on entity detail pages. JSON fields can expose multiple typed JSON Pointer paths for filtering and sorting across supported entity lists while keeping the full document non-queryable.
+- Enum values in responses from extension endpoints and other non-controller endpoints, and in the generated `/openapi/v1.json` schema document, are now camel-case strings, matching what controllers and real-time hub messages already send. A client generated from that document reads the permitted value set instead of an undifferentiated number, and can deserialize the host's own responses. Requests may still send either the numeric form or the string form, so existing callers keep working and the accepted input is wider rather than narrower. Extensions that depend on the string form should require the first Cove release that includes this change.
+
 
 ## [1.3.1] - 2026-08-24
 

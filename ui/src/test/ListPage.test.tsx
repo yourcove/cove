@@ -1258,10 +1258,458 @@ describe("ListPage active filter chips", () => {
       .find((element) => element.className.includes("md:w-[min(94vw,72rem)]"));
     expect(dialogShell).toBeTruthy();
 
-    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getAllByText("Custom Fields").at(-1)!);
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
 
     expect(screen.getByPlaceholderText("Search tags...").closest("label")?.className).toContain("min-w-0");
     expect(container.querySelector('[aria-label="Remove custom field filter"]')?.parentElement?.className).toContain("xl:grid-cols");
+  });
+
+  it("expands configured JSON paths into typed filter and sort targets", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [
+      {
+        id: 2,
+        key: "structured_metadata",
+        label: "Structured Metadata",
+        type: "json",
+        entityTypes: ["video"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [
+          {
+            path: "/profile/score",
+            label: "Score",
+            type: "number",
+            filterable: true,
+            sortable: true,
+          },
+          {
+            path: "/profile/filter-only",
+            label: "Filter only",
+            type: "text",
+            filterable: true,
+            sortable: false,
+          },
+          {
+            path: "/profile/sort-only",
+            label: "Sort only",
+            type: "boolean",
+            filterable: false,
+            sortable: true,
+          },
+          {
+            path: "/profile/disabled",
+            label: "Disabled",
+            type: "text",
+            filterable: false,
+            sortable: false,
+          },
+        ],
+        displayOrder: 0,
+      },
+      {
+        id: 3,
+        key: "unindexed_metadata",
+        label: "Unindexed Metadata",
+        type: "json",
+        entityTypes: ["video", "audio"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [],
+        displayOrder: 10,
+      },
+    ]);
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{}}
+            onObjectFilterChange={onObjectFilterChange}
+            sortOptions={[]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("option", { name: "Custom: Structured Metadata › Score" })).toHaveValue(
+      "custom-json:number:structured_metadata:%2Fprofile%2Fscore",
+    );
+    expect(screen.getByRole("option", { name: "Custom: Structured Metadata › Sort only" })).toHaveValue(
+      "custom-json:boolean:structured_metadata:%2Fprofile%2Fsort-only",
+    );
+    expect(screen.queryByRole("option", { name: "Custom: Structured Metadata › Filter only" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Custom: Structured Metadata › Disabled" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    expect(screen.getByRole("option", { name: "Structured Metadata" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Unindexed Metadata" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Score" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Presence" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Filter only" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Sort only" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Disabled" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("combobox", { name: "Target" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("combobox", { name: "Match" })).toHaveValue("NOT_NULL");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Target" }),
+      "structured_metadata:%2Fprofile%2Fscore",
+    );
+    await user.type(screen.getByRole("spinbutton", { name: "Value" }), "15");
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    await user.selectOptions(
+      screen.getAllByRole("combobox", { name: "Target" })[1],
+      "structured_metadata:%2Fprofile%2Ffilter-only",
+    );
+    await user.type(screen.getByRole("textbox", { name: "Value" }), "ready");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      customFieldCriteria: [
+        expect.objectContaining({
+          key: "structured_metadata",
+          jsonPath: "/profile/score",
+          type: "number",
+          value: "15",
+        }),
+        expect.objectContaining({
+          key: "structured_metadata",
+          jsonPath: "/profile/filter-only",
+          type: "text",
+          value: "ready",
+        }),
+      ],
+    }));
+  });
+
+  it("filters for JSON custom field presence without configured paths", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [{
+      id: 2,
+      key: "structured_metadata",
+      label: "Structured Metadata",
+      type: "json",
+      entityTypes: ["video"],
+      options: [],
+      filterable: false,
+      sortable: false,
+      isMultiValue: false,
+      jsonPaths: [],
+      displayOrder: 0,
+    }]);
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{}}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("combobox", { name: "Match" })).toHaveValue("NOT_NULL");
+    expect(screen.getByRole("option", { name: "Not Null" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Is Null" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Equals" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      customFieldCriteria: [expect.objectContaining({
+        key: "structured_metadata",
+        type: "json",
+        modifier: "NOT_NULL",
+        jsonPath: undefined,
+      })],
+    }));
+  });
+
+  it("filters for long-text custom field presence without exposing content comparisons", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [{
+      id: 3,
+      key: "notes",
+      label: "Notes",
+      type: "longText",
+      entityTypes: ["video"],
+      options: [],
+      filterable: false,
+      sortable: false,
+      isMultiValue: false,
+      jsonPaths: [],
+      displayOrder: 0,
+    }]);
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{}}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("notes");
+    expect(screen.getByRole("combobox", { name: "Match" })).toHaveValue("NOT_NULL");
+    expect(screen.getByRole("option", { name: "Not Null" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Is Null" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Equals" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      customFieldCriteria: [expect.objectContaining({
+        key: "notes",
+        type: "longText",
+        modifier: "NOT_NULL",
+      })],
+    }));
+  });
+
+  it.each([
+    {
+      state: "revoked paths",
+      definitions: [{
+        id: 2,
+        key: "structured_metadata",
+        label: "Structured Metadata",
+        type: "json" as const,
+        entityTypes: ["video" as const],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [{ path: "/profile/score", label: "Score", type: "number" as const, filterable: false, sortable: false }],
+        displayOrder: 0,
+      }],
+      fieldDisabled: false,
+      addDisabled: false,
+    },
+    {
+      state: "deleted fields",
+      definitions: [],
+      fieldDisabled: true,
+      addDisabled: true,
+    },
+  ])("keeps JSON filter and sort targets visible as unavailable for $state", async ({ definitions, fieldDisabled, addDisabled }) => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), definitions);
+    const staleSort = "custom-json:number:structured_metadata:%2Fprofile%2Fscore";
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40, sort: staleSort, direction: "asc" }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              customFieldCriteria: [{
+                key: "structured_metadata",
+                jsonPath: "/profile/score",
+                type: "number",
+                modifier: "GREATER_THAN",
+                value: "10",
+              }],
+            }}
+            onObjectFilterChange={vi.fn()}
+            sortOptions={[{ value: "updated_at", label: "Updated" }]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Primary sort" })).toHaveValue(staleSort);
+    expect(screen.getByRole("option", { name: "Unavailable custom sort: structured_metadata › /profile/score" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Filters/ }));
+    await user.click(screen.getAllByText("Custom Fields").at(-1)!);
+
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
+    expect(screen.getByRole("option", { name: fieldDisabled ? "structured_metadata" : "Structured Metadata" })).toHaveProperty("disabled", fieldDisabled);
+    expect(screen.getByRole("combobox", { name: "Target" })).toHaveValue("structured_metadata:%2Fprofile%2Fscore");
+    expect(screen.getByRole("option", { name: "/profile/score (Unavailable)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /add custom field filter/i })).toHaveProperty("disabled", addDisabled);
+  });
+
+  it("applies the visible default when a boolean JSON filter is added", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [
+      {
+        id: 3,
+        key: "structured_metadata",
+        label: "Structured Metadata",
+        type: "json",
+        entityTypes: ["video"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [{ path: "/reviewed", label: "Reviewed", type: "boolean", filterable: true, sortable: false }],
+      },
+    ]);
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{}}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Target" }),
+      "structured_metadata:%2Freviewed",
+    );
+    expect(screen.getByRole("combobox", { name: "Value" })).toHaveValue("true");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      customFieldCriteria: [expect.objectContaining({
+        key: "structured_metadata",
+        jsonPath: "/reviewed",
+        type: "boolean",
+        value: "true",
+      })],
+    }));
+  });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", "   "],
+  ])("submits an exact %s JSON text filter", async (_description, value) => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [
+      {
+        id: 4,
+        key: "structured_metadata",
+        label: "Structured Metadata",
+        type: "json",
+        entityTypes: ["video"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [{ path: "/label", label: "Label", type: "text", filterable: true, sortable: false }],
+      },
+    ]);
+    const onObjectFilterChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            filterMode="videos"
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{}}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByText("Custom Fields"));
+    await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Target" }),
+      "structured_metadata:%2Flabel",
+    );
+    if (value) await user.type(screen.getByRole("textbox", { name: "Value" }), value);
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      customFieldCriteria: [expect.objectContaining({
+        key: "structured_metadata",
+        jsonPath: "/label",
+        type: "text",
+        value,
+      })],
+    }));
   });
 });
