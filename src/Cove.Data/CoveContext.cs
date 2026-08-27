@@ -398,6 +398,15 @@ public partial class CoveContext : DbContext
             document => GetJsonDocumentHash(document),
             document => CloneJsonDocument(document));
 
+        var jsonElementConverter = new ValueConverter<JsonElement?, string?>(
+            element => SerializeJsonElement(element),
+            json => DeserializeJsonElement(json));
+
+        var jsonElementComparer = new ValueComparer<JsonElement?>(
+            (left, right) => JsonElementsEqual(left, right),
+            element => GetJsonElementHash(element),
+            element => CloneJsonElement(element));
+
         var objectDictionaryConverter = new ValueConverter<Dictionary<string, object>?, string?>(
             dictionary => SerializeObjectDictionary(dictionary),
             json => DeserializeObjectDictionary(json));
@@ -413,6 +422,13 @@ public partial class CoveContext : DbContext
             {
                 property.SetValueConverter(jsonConverter);
                 property.SetValueComparer(jsonComparer);
+            }
+
+            if (property.ClrType == typeof(JsonElement?))
+            {
+                property.SetValueConverter(jsonElementConverter);
+                property.SetValueComparer(jsonElementComparer);
+                property.SetColumnType("text");
             }
 
             if (property.ClrType == typeof(Dictionary<string, object>))
@@ -440,6 +456,21 @@ public partial class CoveContext : DbContext
 
     private static string? GetJsonText(JsonDocument? document) =>
         document is null ? null : document.RootElement.GetRawText();
+
+    private static string? SerializeJsonElement(JsonElement? element) =>
+        element?.GetRawText();
+
+    private static JsonElement? DeserializeJsonElement(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? null : JsonDocument.Parse(json).RootElement.Clone();
+
+    private static bool JsonElementsEqual(JsonElement? left, JsonElement? right) =>
+        string.Equals(SerializeJsonElement(left), SerializeJsonElement(right), StringComparison.Ordinal);
+
+    private static int GetJsonElementHash(JsonElement? element) =>
+        element?.GetRawText().GetHashCode(StringComparison.Ordinal) ?? 0;
+
+    private static JsonElement? CloneJsonElement(JsonElement? element) =>
+        element?.Clone();
 
     private static string? SerializeObjectDictionary(Dictionary<string, object>? dictionary)
     {

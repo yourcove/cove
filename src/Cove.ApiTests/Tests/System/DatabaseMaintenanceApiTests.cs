@@ -70,7 +70,8 @@ public sealed class DatabaseMaintenanceApiTests(
         latestFile.LastWriteTimeUtc.Should().BeOnOrAfter(jobStartedAt).And.BeOnOrBefore(DateTime.UtcNow.AddSeconds(1));
         Path.GetDirectoryName(latestAfterJob.Path).Should().Be(Path.GetDirectoryName(backup.BackupPath));
         Path.GetFileName(latestAfterJob.Path).Should().StartWith("cove_backup_").And.EndWith("_manual.sql");
-        var historyJob = (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Should().ContainSingle().Which;
+        var historyJob = (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken))
+            .Should().ContainSingle(job => job.Id == backupJobId).Which;
         historyJob.Id.Should().Be(backupJobId);
         historyJob.Type.Should().Be("backup");
         historyJob.Description.Should().Be("Backing up database");

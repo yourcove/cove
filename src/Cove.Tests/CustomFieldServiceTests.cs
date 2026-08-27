@@ -3,6 +3,7 @@ using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Tests;
@@ -250,6 +251,70 @@ public class CustomFieldServiceTests
         Assert.DoesNotContain(
             definition.Key,
             await service.GetValuesAsync(CustomFieldEntityTypes.Video, 42, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SqliteFallback_JsonValueRoundTripsNullAndPersistsReplacement()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
+
+        await using (var context = new CoveContext(options))
+        {
+            await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+            var definition = new CustomFieldDefinition
+            {
+                Key = "structured_metadata",
+                Label = "Structured Metadata",
+                Type = CustomFieldTypes.Json,
+                EntityTypes = [CustomFieldEntityTypes.Video],
+            };
+            using var initial = JsonDocument.Parse("{\"score\":0.01}");
+            using var jsonNull = JsonDocument.Parse("null");
+            context.CustomFieldValues.AddRange(
+                new CustomFieldValue
+                {
+                    Definition = definition,
+                    EntityType = CustomFieldEntityTypes.Video,
+                    EntityId = 41,
+                    JsonValue = initial.RootElement.Clone(),
+                },
+                new CustomFieldValue
+                {
+                    Definition = definition,
+                    EntityType = CustomFieldEntityTypes.Video,
+                    EntityId = 42,
+                    JsonValue = jsonNull.RootElement.Clone(),
+                },
+                new CustomFieldValue
+                {
+                    Definition = definition,
+                    EntityType = CustomFieldEntityTypes.Video,
+                    EntityId = 43,
+                    JsonValue = null,
+                });
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using (var context = new CoveContext(options))
+        {
+            var values = await context.CustomFieldValues.OrderBy(value => value.EntityId).ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Equal("{\"score\":0.01}", values[0].JsonValue?.GetRawText());
+            Assert.Equal(JsonValueKind.Null, values[1].JsonValue?.ValueKind);
+            Assert.Null(values[2].JsonValue);
+
+            using var replacement = JsonDocument.Parse("{\"score\":0.02}");
+            values[0].JsonValue = replacement.RootElement.Clone();
+            Assert.True(context.ChangeTracker.HasChanges());
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using (var context = new CoveContext(options))
+        {
+            var replaced = await context.CustomFieldValues.SingleAsync(value => value.EntityId == 41, TestContext.Current.CancellationToken);
+            Assert.Equal("{\"score\":0.02}", replaced.JsonValue?.GetRawText());
+        }
     }
 
     [Fact]
