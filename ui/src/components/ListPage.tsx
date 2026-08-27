@@ -15,6 +15,7 @@ import { useCustomFieldDefinitions } from "../hooks/useCustomFieldDefinitions";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
+import { getSortClauses } from "../utils/sortClauses";
 import { trackInteraction } from "../utils/interactionTracking";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { PageSizeSelect } from "./PageSizeSelect";
@@ -143,6 +144,13 @@ const REFERENCE_ENTITY_TYPE_BY_EXTENSION_VALUE: Record<string, EntityType> = {
   faces: "faces",
 };
 
+type CustomFieldQueryDefinition = CustomFieldDefinition & {
+  jsonPath?: string;
+  unavailable?: boolean;
+  fieldLabel?: string;
+  targetLabel?: string;
+};
+
 const CUSTOM_FIELD_MODIFIER_LABELS: Record<CriterionModifier, string> = {
   EQUALS: "Equals",
   NOT_EQUALS: "Does Not Equal",
@@ -166,9 +174,15 @@ const TEXT_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS"
 const ORDERED_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"];
 const BOOLEAN_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "IS_NULL", "NOT_NULL"];
 const REFERENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["INCLUDES", "EXCLUDES", "IS_NULL", "NOT_NULL"];
+const PRESENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["NOT_NULL", "IS_NULL"];
 
 function getDefaultCustomFieldModifier(type: CustomFieldType): CriterionModifier {
+  if (type === "json" || type === "longText") return "NOT_NULL";
   return isEntityReferenceType(type) ? "INCLUDES" : "EQUALS";
+}
+
+function getDefaultCustomFieldValue(type: CustomFieldType) {
+  return type === "boolean" ? "true" : "";
 }
 
 function normalizeCustomFieldCriteria(value: unknown): CustomFieldCriterion[] {
@@ -179,6 +193,10 @@ function isCustomFieldCriterionActive(value: CustomFieldCriterion | undefined) {
   if (!value?.key) return false;
   const modifier = value.modifier ?? "EQUALS";
   if (modifier === "IS_NULL" || modifier === "NOT_NULL") return true;
+  if (value.jsonPath && value.type === "text") {
+    if (modifier === "EQUALS" || modifier === "NOT_EQUALS") return true;
+    return String(value.value ?? "").length > 0;
+  }
   if (modifier === "BETWEEN" || modifier === "NOT_BETWEEN") {
     return String(value.value ?? "").trim() !== "" && String(value.value2 ?? "").trim() !== "";
   }
@@ -187,6 +205,9 @@ function isCustomFieldCriterionActive(value: CustomFieldCriterion | undefined) {
 
 function getCustomFieldModifiers(type: CustomFieldType) {
   switch (type) {
+    case "json":
+    case "longText":
+      return PRESENCE_CUSTOM_FIELD_MODIFIERS;
     case "number":
     case "date":
     case "timestamp":
@@ -278,11 +299,14 @@ function createExtensionSortOption(contribution: ExtensionListSortContribution) 
 }
 
 function formatCustomFieldCriterionValue(
-  definition: CustomFieldDefinition | undefined,
+  definition: CustomFieldQueryDefinition | undefined,
   criterion: CustomFieldCriterion,
   valueKey: "value" | "value2",
 ) {
   const rawValue = criterion[valueKey];
+  if (definition?.jsonPath && definition.type === "text") {
+    return JSON.stringify(String(rawValue ?? ""));
+  }
   if (String(rawValue ?? "").trim() === "") {
     return "";
   }
@@ -295,14 +319,101 @@ function formatCustomFieldCriterionValue(
   return String(rawValue);
 }
 
-function createCustomFieldFilterSection(definitions: CustomFieldDefinition[]): FilterDialogCustomSection {
+function customFieldQueryDefinitionId(definition: CustomFieldQueryDefinition) {
+  return definition.jsonPath ? `${definition.key}:${encodeURIComponent(definition.jsonPath)}` : definition.key;
+}
+
+function findCustomFieldQueryDefinition(
+  definitions: CustomFieldQueryDefinition[],
+  criterion: CustomFieldCriterion,
+) {
+  return definitions.find((candidate) => candidate.key === criterion.key
+    && (candidate.jsonPath ?? undefined) === (criterion.jsonPath ?? undefined));
+}
+
+function createCustomFieldQueryDefinitions(
+  definitions: CustomFieldDefinition[],
+  capability: "filterable" | "sortable",
+): CustomFieldQueryDefinition[] {
+  return definitions.flatMap((definition) => {
+    if (definition.type === "longText") {
+      return capability === "filterable" ? [{
+        ...definition,
+        fieldLabel: definition.label || definition.key,
+        targetLabel: "Presence",
+        filterable: true,
+      }] : [];
+    }
+
+    if (definition.type !== "json") {
+      return definition[capability] ? [definition] : [];
+    }
+
+    const pathDefinitions = (definition.jsonPaths ?? [])
+      .filter((jsonPath) => jsonPath[capability])
+      .map((jsonPath) => ({
+        ...definition,
+        label: `${definition.label || definition.key} › ${jsonPath.label || jsonPath.path}`,
+        fieldLabel: definition.label || definition.key,
+        targetLabel: jsonPath.label || jsonPath.path,
+        type: jsonPath.type,
+        options: [],
+        filterable: jsonPath.filterable,
+        sortable: jsonPath.sortable,
+        jsonPath: jsonPath.path,
+    }));
+
+    if (capability === "sortable") return pathDefinitions;
+    return [{
+      ...definition,
+      fieldLabel: definition.label || definition.key,
+      targetLabel: "Presence",
+      filterable: true,
+    }, ...pathDefinitions];
+  });
+}
+
+function createUnavailableCustomFieldQueryDefinition(criterion: CustomFieldCriterion): CustomFieldQueryDefinition {
+  const pathLabel = criterion.jsonPath ? ` › ${criterion.jsonPath}` : "";
+  return {
+    key: criterion.key,
+    label: `${criterion.key}${pathLabel} (Unavailable)`,
+    type: criterion.type ?? "text",
+    entityTypes: [],
+    options: [],
+    filterable: false,
+    sortable: false,
+    isMultiValue: false,
+    jsonPaths: [],
+    jsonPath: criterion.jsonPath,
+    unavailable: true,
+    fieldLabel: criterion.key,
+    targetLabel: criterion.jsonPath ? `${criterion.jsonPath} (Unavailable)` : "Unavailable",
+  };
+}
+
+function createUnavailableCustomSortOption(key: string) {
+  const parts = key.split(":");
+  if (parts[0] === "custom-json" && parts.length === 4) {
+    let path = parts[3];
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // Keep the encoded token visible when it is malformed.
+    }
+    return { value: key, label: `Unavailable custom sort: ${parts[2]} › ${path}` };
+  }
+  return { value: key, label: `Unavailable custom sort: ${parts.at(-1) ?? key}` };
+}
+
+function createCustomFieldFilterSection(definitions: CustomFieldQueryDefinition[]): FilterDialogCustomSection {
   const normalizeCriterion = (criterion: CustomFieldCriterion): CustomFieldCriterion => {
-    const definition = definitions.find((candidate) => candidate.key === criterion.key);
+    const definition = findCustomFieldQueryDefinition(definitions, criterion);
     if (!definition) return criterion;
     const availableModifiers = getCustomFieldModifiers(definition.type);
     const defaultModifier = getDefaultCustomFieldModifier(definition.type);
     const modifier = availableModifiers.includes(criterion.modifier ?? defaultModifier) ? (criterion.modifier ?? defaultModifier) : defaultModifier;
-    return { ...criterion, type: definition.type, modifier };
+    return { ...criterion, type: definition.type, jsonPath: definition.jsonPath, modifier };
   };
 
   return {
@@ -317,7 +428,7 @@ function createCustomFieldFilterSection(definitions: CustomFieldDefinition[]): F
       const activeCriteria = normalizeCustomFieldCriteria(value).map(normalizeCriterion).filter(isCustomFieldCriterionActive);
       if (activeCriteria.length === 0) return "";
       return activeCriteria.map((criterion) => {
-        const definition = definitions.find((candidate) => candidate.key === criterion.key);
+        const definition = findCustomFieldQueryDefinition(definitions, criterion);
         const label = definition?.label || criterion.key;
         const modifier = CUSTOM_FIELD_MODIFIER_LABELS[criterion.modifier ?? "EQUALS"];
         if (criterion.modifier === "IS_NULL" || criterion.modifier === "NOT_NULL") {
@@ -346,11 +457,14 @@ function CustomFieldCriteriaEditor({
   value,
   onChange,
 }: {
-  definitions: CustomFieldDefinition[];
+  definitions: CustomFieldQueryDefinition[];
   value: CustomFieldCriterion[];
   onChange: (value: CustomFieldCriterion[]) => void;
 }) {
-  const firstDefinition = definitions[0];
+  const firstDefinition = definitions.find((definition) => !definition.unavailable);
+  const fieldDefinitions = definitions.filter((definition, index) =>
+    definitions.findIndex((candidate) => candidate.key === definition.key) === index
+  );
   const rows = value.length > 0 ? value : [];
   const setRow = (index: number, nextCriterion: CustomFieldCriterion) => {
     onChange(rows.map((criterion, candidateIndex) => candidateIndex === index ? nextCriterion : criterion));
@@ -358,37 +472,57 @@ function CustomFieldCriteriaEditor({
   const removeRow = (index: number) => onChange(rows.filter((_, candidateIndex) => candidateIndex !== index));
   const addRow = () => {
     if (!firstDefinition) return;
-    onChange([...rows, { key: firstDefinition.key, type: firstDefinition.type, value: "", modifier: getDefaultCustomFieldModifier(firstDefinition.type) }]);
+    onChange([...rows, { key: firstDefinition.key, jsonPath: firstDefinition.jsonPath, type: firstDefinition.type, value: getDefaultCustomFieldValue(firstDefinition.type), modifier: getDefaultCustomFieldModifier(firstDefinition.type) }]);
   };
 
   return (
     <div className="space-y-2">
       {rows.map((criterion, index) => {
-        const definition = definitions.find((candidate) => candidate.key === criterion.key) ?? firstDefinition;
+        const definition = findCustomFieldQueryDefinition(definitions, criterion) ?? firstDefinition;
         if (!definition) return null;
         const availableModifiers = getCustomFieldModifiers(definition.type);
         const defaultModifier = getDefaultCustomFieldModifier(definition.type);
         const modifier = availableModifiers.includes(criterion.modifier ?? defaultModifier) ? (criterion.modifier ?? defaultModifier) : defaultModifier;
         const valueDisabled = modifier === "IS_NULL" || modifier === "NOT_NULL";
+        const targetDefinitions = definitions.filter((candidate) => candidate.key === definition.key);
 
         return (
           <div key={`${criterion.key}-${index}`} className="min-w-0 rounded border border-border bg-background p-3">
             <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.75fr)] xl:grid-cols-[minmax(12rem,1.1fr)_minmax(9rem,0.6fr)_minmax(18rem,2fr)_auto] xl:items-start">
-              <label className="block min-w-0 text-xs text-muted">
-                Field
-                <select
-                  value={criterion.key}
-                  onChange={(event) => {
-                    const nextDefinition = definitions.find((candidate) => candidate.key === event.target.value) ?? definition;
-                    setRow(index, { key: nextDefinition.key, type: nextDefinition.type, value: "", modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
-                  }}
-                  className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-                >
-                  {definitions.map((option) => (
-                    <option key={option.key} value={option.key}>{option.label || option.key}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="min-w-0 space-y-2">
+                <label className="block min-w-0 text-xs text-muted">
+                  Field
+                  <select
+                    value={definition.key}
+                    onChange={(event) => {
+                      const nextDefinition = definitions.find((candidate) => candidate.key === event.target.value && !candidate.unavailable) ?? definition;
+                      setRow(index, { key: nextDefinition.key, jsonPath: nextDefinition.jsonPath, type: nextDefinition.type, value: getDefaultCustomFieldValue(nextDefinition.type), modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
+                    }}
+                    className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+                  >
+                    {fieldDefinitions.map((option) => (
+                      <option key={option.key} value={option.key} disabled={option.unavailable}>{option.fieldLabel || option.label || option.key}</option>
+                    ))}
+                  </select>
+                </label>
+                {targetDefinitions.length > 1 || definition.jsonPath ? (
+                  <label className="block min-w-0 text-xs text-muted">
+                    Target
+                    <select
+                      value={customFieldQueryDefinitionId(definition)}
+                      onChange={(event) => {
+                        const nextDefinition = targetDefinitions.find((candidate) => customFieldQueryDefinitionId(candidate) === event.target.value) ?? definition;
+                        setRow(index, { key: nextDefinition.key, jsonPath: nextDefinition.jsonPath, type: nextDefinition.type, value: getDefaultCustomFieldValue(nextDefinition.type), modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
+                      }}
+                      className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+                    >
+                      {targetDefinitions.map((option) => (
+                        <option key={customFieldQueryDefinitionId(option)} value={customFieldQueryDefinitionId(option)} disabled={option.unavailable}>{option.targetLabel || option.label || option.key}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
               <label className="block min-w-0 text-xs text-muted">
                 Match
                 <select
@@ -406,7 +540,7 @@ function CustomFieldCriteriaEditor({
                   definition={definition}
                   disabled={valueDisabled}
                   value={criterion.value ?? ""}
-                  onChange={(nextValue, displayValue) => setRow(index, { ...criterion, modifier, type: definition.type, value: nextValue, displayValue })}
+                  onChange={(nextValue, displayValue) => setRow(index, { ...criterion, modifier, type: definition.type, jsonPath: definition.jsonPath, value: nextValue, displayValue })}
                 />
                 {modifier === "BETWEEN" || modifier === "NOT_BETWEEN" ? (
                   <CustomFieldValueInput
@@ -414,7 +548,7 @@ function CustomFieldCriteriaEditor({
                     disabled={valueDisabled}
                     label="And"
                     value={criterion.value2 ?? ""}
-                    onChange={(nextValue, displayValue) => setRow(index, { ...criterion, modifier, type: definition.type, value2: nextValue, displayValue2: displayValue })}
+                    onChange={(nextValue, displayValue) => setRow(index, { ...criterion, modifier, type: definition.type, jsonPath: definition.jsonPath, value2: nextValue, displayValue2: displayValue })}
                   />
                 ) : null}
               </div>
@@ -433,7 +567,8 @@ function CustomFieldCriteriaEditor({
       <button
         type="button"
         onClick={addRow}
-        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-secondary hover:border-accent hover:text-foreground"
+        disabled={!firstDefinition}
+        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-secondary hover:border-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Plus className="h-3.5 w-3.5" />
         Add custom field filter
@@ -655,10 +790,17 @@ export function ListPage({
   );
   const { data: customFieldDefinitions = [] } = useCustomFieldDefinitions(customFieldEntityType, Boolean(customFieldEntityType));
   const generatedCustomFieldSection = useMemo(() => {
-    const definitions = customFieldDefinitions.filter((definition) => definition.filterable);
+    const definitions = createCustomFieldQueryDefinitions(customFieldDefinitions, "filterable");
+    const unavailableDefinitions = normalizeCustomFieldCriteria(objectFilter?.customFieldCriteria)
+      .filter((criterion) => Boolean(criterion.key) && !findCustomFieldQueryDefinition(definitions, criterion))
+      .filter((criterion, index, criteria) => criteria.findIndex((candidate) =>
+        candidate.key === criterion.key && (candidate.jsonPath ?? undefined) === (criterion.jsonPath ?? undefined)
+      ) === index)
+      .map(createUnavailableCustomFieldQueryDefinition);
+    const editorDefinitions = [...definitions, ...unavailableDefinitions];
 
-    return definitions.length > 0 ? createCustomFieldFilterSection(definitions) : undefined;
-  }, [customFieldDefinitions]);
+    return editorDefinitions.length > 0 ? createCustomFieldFilterSection(editorDefinitions) : undefined;
+  }, [customFieldDefinitions, objectFilter]);
   const mergedCustomFilterSections = useMemo(
     () => generatedCustomFieldSection ? [...(customFilterSections ?? []), generatedCustomFieldSection] : customFilterSections,
     [customFilterSections, generatedCustomFieldSection]
@@ -672,12 +814,21 @@ export function ListPage({
   const start = totalCount > 0 ? (infinitePageSize ? 1 : (page - 1) * effectivePerPage + 1) : 0;
   const end = infinitePageSize ? totalCount : Math.min(page * effectivePerPage, totalCount);
   const sortedSortOptions = useMemo(() => {
-    const customSortOptions = customFieldDefinitions
-      .filter((definition) => definition.sortable)
-      .map((definition) => ({ value: `custom:${definition.type}:${definition.key}`, label: `Custom: ${definition.label || definition.key}` }));
+    const customSortOptions = createCustomFieldQueryDefinitions(customFieldDefinitions, "sortable")
+      .map((definition) => ({
+        value: definition.jsonPath
+          ? `custom-json:${definition.type}:${definition.key}:${encodeURIComponent(definition.jsonPath)}`
+          : `custom:${definition.type}:${definition.key}`,
+        label: `Custom: ${definition.label || definition.key}`,
+      }));
     const mergedOptions = [...(sortOptions ?? []), ...extensionSortOptions, ...customSortOptions];
+    const knownValues = new Set(mergedOptions.map((option) => option.value));
+    const unavailableCustomSortOptions = getSortClauses(filter)
+      .filter((clause) => (clause.key.startsWith("custom:") || clause.key.startsWith("custom-json:")) && !knownValues.has(clause.key))
+      .map((clause) => createUnavailableCustomSortOption(clause.key));
+    mergedOptions.push(...unavailableCustomSortOptions);
     return mergedOptions.length > 0 ? mergedOptions.sort((left, right) => left.label.localeCompare(right.label)) : undefined;
-  }, [customFieldDefinitions, extensionSortOptions, sortOptions]);
+  }, [customFieldDefinitions, extensionSortOptions, filter, sortOptions]);
   const slotContext = { pageKey, title, filter, onFilterChange, totalCount, isLoading };
   const selecting = selectedIds && selectedIds.size > 0;
   const showSelectionBar = Boolean(selectedIds && selecting);

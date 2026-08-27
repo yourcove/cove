@@ -283,6 +283,7 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
     queryJson: defaultDynamicGroupFilterQueryJson(),
   });
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [parentGroupIds, setParentGroupIds] = useState<number[]>([]);
   const [createAnother, setCreateAnother] = useState(false);
 
@@ -383,9 +384,9 @@ function GroupCreateModal({ open, onClose, onCreated }: { open: boolean; onClose
         <EntityReferenceMultiSelector entityType="group" values={parentGroupIds} onChange={setParentGroupIds} placeholder="Search parent groups..." />
       </Field>
       <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="group" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="group" />
       </Field>
-      <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      <CreateModalActions loading={mutation.isPending} disabled={!customFieldsValid} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
   );
 }

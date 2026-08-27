@@ -42,6 +42,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   );
   const [contextTagIdsByPerformer, setContextTagIdsByPerformer] = useState<Record<number, number[]>>(() => buildPerformerContextTagIds(video));
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(video.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(video.remoteIds.map((remoteId) => ({ ...remoteId })));
 
   useEffect(() => {
@@ -274,7 +275,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={video.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="video" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="video" />
       </Field>
 
       {mutation.error && (
@@ -285,7 +286,7 @@ export function VideoEditModal({ video, open, onClose }: Props) {
 
       <div className="flex justify-end gap-3">
         <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
-        <SaveButton loading={mutation.isPending} onClick={handleSave} />
+        <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>
   );

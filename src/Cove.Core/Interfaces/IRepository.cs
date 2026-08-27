@@ -165,7 +165,7 @@ public enum CriterionModifier
 
 public class IntCriterion { public int Value { get; set; } public int? Value2 { get; set; } public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }
 public class StringCriterion { public string Value { get; set; } = ""; public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }
-public class CustomFieldCriterion : StringCriterion { public string Key { get; set; } = ""; public string Type { get; set; } = "text"; public string? Value2 { get; set; } }
+public class CustomFieldCriterion : StringCriterion { public string Key { get; set; } = ""; public string Type { get; set; } = "text"; public string? JsonPath { get; set; } public string? Value2 { get; set; } }
 public class FingerprintCriterion { public string Type { get; set; } = "md5"; public string Value { get; set; } = ""; public CriterionModifier Modifier { get; set; } = CriterionModifier.Equals; }
 public class BoolCriterion { public bool Value { get; set; } }
 public class MultiIdCriterion { public List<int> Value { get; set; } = []; public CriterionModifier Modifier { get; set; } = CriterionModifier.Includes; public List<int>? Excludes { get; set; } public List<int>? RequiredIds { get; set; } public int? RequiredIdsDepth { get; set; } public int? Depth { get; set; } }

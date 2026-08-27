@@ -119,11 +119,11 @@ export function SelectInput({ value, onChange, options }: { value: string; onCha
   );
 }
 
-export function SaveButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+export function SaveButton({ loading, disabled = false, onClick }: { loading: boolean; disabled?: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      disabled={loading}
+      disabled={loading || disabled}
       className="flex items-center gap-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white px-6 py-2 rounded-lg transition-colors text-sm"
     >
       {loading ? "Saving..." : "Save"}
@@ -133,12 +133,14 @@ export function SaveButton({ loading, onClick }: { loading: boolean; onClick: ()
 
 export function CreateModalActions({
   loading,
+  disabled = false,
   onCancel,
   onSave,
   createAnother,
   onCreateAnotherChange,
 }: {
   loading: boolean;
+  disabled?: boolean;
   onCancel?: () => void;
   onSave: () => void;
   createAnother: boolean;
@@ -161,7 +163,7 @@ export function CreateModalActions({
         </label>
         <div className="flex items-center justify-end gap-3">
           {onCancel && <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>}
-          <SaveButton loading={loading} onClick={onSave} />
+          <SaveButton loading={loading} disabled={disabled} onClick={onSave} />
         </div>
       </div>
     </div>

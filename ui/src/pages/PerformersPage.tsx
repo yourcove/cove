@@ -302,6 +302,7 @@ export function PerformerCreateModal({ open, onClose, onCreated }: { open: boole
   const [details, setDetails] = useState("");
   const [aliases, setAliases] = useState<string[]>([""]);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [createAnother, setCreateAnother] = useState(false);
 
   const resetForm = () => {
@@ -420,11 +421,11 @@ export function PerformerCreateModal({ open, onClose, onCreated }: { open: boole
         </Field>
 
         <Field label="Custom Fields">
-          <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="performer" />
+          <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="performer" />
         </Field>
         {mutation.error ? <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
       </div>
-      <CreateModalActions loading={mutation.isPending} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      <CreateModalActions loading={mutation.isPending} disabled={!customFieldsValid} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
     </EditModal>
   );
 }

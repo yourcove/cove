@@ -72,6 +72,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const [selectedTagsById, setSelectedTagsById] = useState<Record<number, SelectedTagOption>>(() => buildSelectedTagLookup(performer.tags));
   const [tagSearch, setTagSearch] = useState("");
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(performer.customFields ?? {}) });
+  const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(performer.remoteIds.map((remoteId) => ({ ...remoteId })));
   const trimmedTagSearch = tagSearch.trim();
 
@@ -418,7 +419,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
         <RemoteIdsEditor value={remoteIds} onChange={setRemoteIds} />
       </Field>
       <Field label="Custom Fields" fieldProvenance={performer.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} entityType="performer" />
+        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="performer" />
       </Field>
       </div>
 
@@ -430,7 +431,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
 
       <div className="flex justify-end gap-3">
         <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
-        <SaveButton loading={mutation.isPending} onClick={handleSave} />
+        <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>
   );

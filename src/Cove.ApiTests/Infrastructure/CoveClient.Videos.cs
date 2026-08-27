@@ -171,10 +171,12 @@ public sealed partial class CoveClient
 
     public Task<PaginatedResponse<VideoListEntryDto>> GetVideosWithCompilationsAsync(
         string title,
+        string sort = "title",
+        string direction = "asc",
         CancellationToken cancellationToken = default)
         => SendAsync<PaginatedResponse<VideoListEntryDto>>(
             HttpMethod.Get,
-            WithCacheNonce($"/api/videos/with-compilations?title={Uri.EscapeDataString(title)}&sort=title&perPage=250"),
+            WithCacheNonce($"/api/videos/with-compilations?title={Uri.EscapeDataString(title)}&sort={Uri.EscapeDataString(sort)}&direction={Uri.EscapeDataString(direction)}&perPage=250"),
             payload: null,
             cancellationToken);
 

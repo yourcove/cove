@@ -5,6 +5,7 @@ using System.Text.Json;
 using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,9 +16,11 @@ using Pgvector;
 namespace Cove.Data.Migrations
 {
     [DbContext(typeof(CoveContext))]
-    partial class CoveContextModelSnapshot : ModelSnapshot
+    [Migration("20260826103928_AddCustomFieldJsonPaths")]
+    partial class AddCustomFieldJsonPaths
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1191,9 +1194,6 @@ namespace Cove.Data.Migrations
 
                     b.Property<JsonElement?>("JsonValue")
                         .HasColumnType("jsonb");
-
-                    b.Property<string>("LongTextValue")
-                        .HasColumnType("text");
 
                     b.Property<decimal?>("NumberValue")
                         .HasPrecision(18, 6)

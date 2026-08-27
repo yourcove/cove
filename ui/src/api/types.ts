@@ -2004,7 +2004,16 @@ export interface InterfaceConfig {
 }
 
 export type CustomFieldEntityType = "video" | "audio" | "text" | "performer" | "tag" | "studio" | "gallery" | "image" | "group" | "face";
-export type CustomFieldType = "text" | "longText" | "number" | "boolean" | "date" | "timestamp" | "duration" | "percent" | "url" | "enum" | "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group";
+export type CustomFieldType = "text" | "longText" | "number" | "boolean" | "date" | "timestamp" | "duration" | "percent" | "url" | "enum" | "json" | "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group";
+export type CustomFieldJsonPathType = Extract<CustomFieldType, "text" | "number" | "boolean">;
+
+export interface CustomFieldJsonPathDefinition {
+  path: string;
+  label: string;
+  type: CustomFieldJsonPathType;
+  filterable: boolean;
+  sortable: boolean;
+}
 
 export interface CustomFieldDefinition {
   id?: number;
@@ -2016,6 +2025,7 @@ export interface CustomFieldDefinition {
   filterable: boolean;
   sortable: boolean;
   isMultiValue?: boolean;
+  jsonPaths?: CustomFieldJsonPathDefinition[];
   displayOrder?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -2030,6 +2040,7 @@ export interface CustomFieldDefinitionCreate {
   filterable: boolean;
   sortable: boolean;
   isMultiValue?: boolean;
+  jsonPaths?: CustomFieldJsonPathDefinition[];
   displayOrder?: number | null;
 }
 
@@ -2042,6 +2053,7 @@ export interface CustomFieldDefinitionUpdate {
   filterable?: boolean;
   sortable?: boolean;
   isMultiValue?: boolean;
+  jsonPaths?: CustomFieldJsonPathDefinition[];
   displayOrder?: number | null;
 }
 
@@ -2649,6 +2661,7 @@ export interface StringCriterion {
 export interface CustomFieldCriterion extends StringCriterion {
   key: string;
   type?: CustomFieldType;
+  jsonPath?: string;
   value2?: string;
   displayValue?: string;
   displayValue2?: string;
