@@ -40,6 +40,37 @@ public sealed class RelationNameResolverTests
     }
 
     [Fact]
+    public async Task ResolveStudiosAsync_PrefersCanonicalNamesAndFallsBackToAliases()
+    {
+        await using var db = CreateContext();
+        var aliasOwner = new Studio
+        {
+            Name = "Surviving Studio",
+            Aliases =
+            [
+                new StudioAlias { Alias = "Merged Studio" },
+                new StudioAlias { Alias = "Canonical Studio" },
+            ],
+        };
+        var canonicalOwner = new Studio { Name = "Canonical Studio" };
+        db.Studios.AddRange(aliasOwner, canonicalOwner);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var matches = await RelationNameResolver.ResolveStudiosAsync(
+            db,
+            [" merged studio ", "CANONICAL STUDIO"],
+            TestContext.Current.CancellationToken);
+        var singleMatch = await RelationNameResolver.ResolveStudioAsync(
+            db,
+            "MERGED STUDIO",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(aliasOwner.Id, matches["merged studio"].Id);
+        Assert.Equal(canonicalOwner.Id, matches["CANONICAL STUDIO"].Id);
+        Assert.Equal(aliasOwner.Id, singleMatch?.Id);
+    }
+
+    [Fact]
     public async Task NameOnlyPerformerRelations_DoNotResolveAliasesOrDisambiguatedIdentities()
     {
         await using var db = CreateContext();
