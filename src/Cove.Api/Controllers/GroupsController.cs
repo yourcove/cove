@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -150,17 +151,20 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
 
         if (dto.Urls != null)
         {
-            group.Urls.Clear();
-            group.Urls = dto.Urls.Select(u => new GroupUrl { Url = u, GroupId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(group.Urls, dto.Urls, item => item.Url, url => new GroupUrl { Url = url, GroupId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(group);
         }
         if (dto.TagIds != null)
         {
-            group.GroupTags.Clear();
-            group.GroupTags = dto.TagIds.Select(tid => new GroupTag { TagId = tid, GroupId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(group.GroupTags, dto.TagIds, item => item.TagId, tagId => new GroupTag { TagId = tagId, GroupId = id }))
+                MetadataCollectionUpdater.Touch(group);
         }
         await groupRepo.UpdateAsync(group, ct);
-        if (dto.CustomFields != null)
-            await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Group, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Group, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(group);
+            await groupRepo.UpdateAsync(group, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Group, id, dto.Rating, cancellationToken: ct);
         var updated = await groupRepo.GetByIdWithRelationsAsync(id, ct);

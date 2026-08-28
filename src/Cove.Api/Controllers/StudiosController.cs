@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -122,23 +123,24 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
 
         if (dto.Urls != null)
         {
-            studio.Urls.Clear();
-            studio.Urls = dto.Urls.Select(u => new StudioUrl { Url = u, StudioId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.Urls, dto.Urls, item => item.Url, url => new StudioUrl { Url = url, StudioId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(studio);
         }
         if (dto.Aliases != null)
         {
-            studio.Aliases.Clear();
-            studio.Aliases = dto.Aliases.Select(a => new StudioAlias { Alias = a, StudioId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.Aliases, dto.Aliases, item => item.Alias, alias => new StudioAlias { Alias = alias, StudioId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(studio);
         }
         if (dto.TagIds != null)
         {
-            studio.StudioTags.Clear();
-            studio.StudioTags = dto.TagIds.Select(tid => new StudioTag { TagId = tid, StudioId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.StudioTags, dto.TagIds, item => item.TagId, tagId => new StudioTag { TagId = tagId, StudioId = id }))
+                MetadataCollectionUpdater.Touch(studio);
         }
         if (dto.RemoteIds != null)
         {
-            studio.RemoteIds.Clear();
-            studio.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new StudioRemoteId { StudioId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(studio.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new StudioRemoteId { StudioId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(studio);
         }
         try
         {
@@ -148,8 +150,11 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         {
             return Conflict(new { code = "STUDIO_NAME_CONFLICT", message = exception.Message });
         }
-        if (dto.CustomFields != null)
-            await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Studio, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(studio);
+            await studioRepo.UpdateAsync(studio, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Studio, id, dto.Rating, cancellationToken: ct);
         var updated = await studioRepo.GetByIdWithRelationsAsync(id, ct);

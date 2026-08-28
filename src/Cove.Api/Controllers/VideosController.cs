@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -395,32 +396,34 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         if (dto.Urls != null)
         {
-            video.Urls.Clear();
-            video.Urls = dto.Urls.Select(u => new VideoUrl { Url = u, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.Urls, dto.Urls, item => item.Url, url => new VideoUrl { Url = url, VideoId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.TagIds != null)
         {
-            video.VideoTags.Clear();
-            video.VideoTags = dto.TagIds.Select(tid => new VideoTag { TagId = tid, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.VideoTags, dto.TagIds, item => item.TagId, tagId => new VideoTag { TagId = tagId, VideoId = id }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.PerformerIds != null)
         {
-            video.VideoPerformers.Clear();
-            video.VideoPerformers = dto.PerformerIds.Distinct().Select(pid => new VideoPerformer { PerformerId = pid, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.VideoPerformers, dto.PerformerIds.Distinct(), item => item.PerformerId, performerId => new VideoPerformer { PerformerId = performerId, VideoId = id }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.GalleryIds != null)
         {
-            video.VideoGalleries.Clear();
-            video.VideoGalleries = dto.GalleryIds.Select(gid => new VideoGallery { GalleryId = gid, VideoId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.VideoGalleries, dto.GalleryIds, item => item.GalleryId, galleryId => new VideoGallery { GalleryId = galleryId, VideoId = id }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.Groups != null)
         {
-            ReplaceWholeVideoGroupItems(video, dto.Groups);
+            if (ReplaceWholeVideoGroupItems(video, dto.Groups))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.RemoteIds != null)
         {
-            video.RemoteIds.Clear();
-            video.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new VideoRemoteId { VideoId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(video.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new VideoRemoteId { VideoId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(video);
         }
         if (dto.TagIds != null && tagProvenanceService != null)
         {
@@ -433,8 +436,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         }
 
         await videoRepo.UpdateAsync(video, ct);
-        if (dto.CustomFields != null)
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Video, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Video, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(video);
+            await videoRepo.UpdateAsync(video, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetVideoRatingAsync(id, dto.Rating, cancellationToken: ct);
         var updated = await videoRepo.GetByIdWithRelationsAsync(id, ct);
@@ -1713,10 +1719,14 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             .Select(item => new GroupSummaryDto(item.Group!.Id, item.Group.Name, item.OrderIndex))
             .ToList();
 
-    private void ReplaceWholeVideoGroupItems(Video video, IEnumerable<VideoGroupInputDto> groups)
+    private bool ReplaceWholeVideoGroupItems(Video video, IEnumerable<VideoGroupInputDto> groups)
     {
+        var requested = groups.Where(group => group is { GroupId: > 0 }).Select(group => (group.GroupId, group.VideoIndex)).ToList();
+        var current = video.GroupItems.Where(item => item.Kind == GroupItemKind.Video).Select(item => (item.GroupId, item.OrderIndex));
+        if (current.OrderBy(item => item.GroupId).ThenBy(item => item.OrderIndex).SequenceEqual(requested.OrderBy(item => item.GroupId).ThenBy(item => item.VideoIndex)))
+            return false;
         RemoveWholeVideoGroupItems(video, video.GroupItems.Where(item => item.Kind == GroupItemKind.Video).ToList());
-        foreach (var group in groups.Where(group => group is { GroupId: > 0 }))
+        foreach (var group in requested)
         {
             video.GroupItems.Add(new GroupItem
             {
@@ -1726,6 +1736,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 VideoId = video.Id,
             });
         }
+        return true;
     }
 
     private void RemoveWholeVideoGroupItems(Video video, IReadOnlyCollection<GroupItem> items)

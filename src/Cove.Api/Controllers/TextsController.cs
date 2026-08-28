@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Http;
+using Cove.Api.Helpers;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -400,40 +401,43 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         if (dto.Urls != null)
         {
-            text.Urls.Clear();
-            text.Urls = dto.Urls
+            var urls = dto.Urls
                 .Select(url => NormalizeOptionalText(url))
                 .Where(url => !string.IsNullOrWhiteSpace(url))
-                .Select(url => new TextUrl { TextDocumentId = id, Url = url! })
+                .Select(url => url!)
                 .ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(text.Urls, urls, item => item.Url, url => new TextUrl { TextDocumentId = id, Url = url }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(text);
         }
 
         if (dto.TagIds != null)
         {
             var tagIds = dto.TagIds.Where(tagId => tagId > 0).Distinct().ToArray();
-            text.TextTags.Clear();
-            text.TextTags = tagIds.Select(tagId => new TextTag { TextDocumentId = id, TagId = tagId }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(text.TextTags, tagIds, item => item.TagId, tagId => new TextTag { TextDocumentId = id, TagId = tagId }))
+                MetadataCollectionUpdater.Touch(text);
             text.TagIds = tagIds;
         }
 
         if (dto.PerformerIds != null)
         {
             var performerIds = dto.PerformerIds.Where(performerId => performerId > 0).Distinct().ToArray();
-            text.TextPerformers.Clear();
-            text.TextPerformers = performerIds.Select(performerId => new TextPerformer { TextDocumentId = id, PerformerId = performerId }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(text.TextPerformers, performerIds, item => item.PerformerId, performerId => new TextPerformer { TextDocumentId = id, PerformerId = performerId }))
+                MetadataCollectionUpdater.Touch(text);
             text.PerformerIds = performerIds;
         }
 
         if (dto.GroupIds != null)
         {
-            await ReplaceWholeTextGroupItemsAsync(id, dto.GroupIds, text.Title, ct);
+            if (await ReplaceWholeTextGroupItemsAsync(id, dto.GroupIds, text.Title, ct))
+                MetadataCollectionUpdater.Touch(text);
         }
 
         await db.SaveChangesAsync(ct);
 
-        if (dto.CustomFields != null)
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Text, id, dto.CustomFields, ct))
         {
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Text, id, dto.CustomFields, ct);
+            MetadataCollectionUpdater.Touch(text);
+            await db.SaveChangesAsync(ct);
         }
 
         var updated = await db.TextDocuments.AsNoTracking()
@@ -910,16 +914,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Select(item => new GroupSummaryDto(item.GroupId, item.Group!.Name, 0))
             .ToListAsync(ct);
 
-    private async Task ReplaceWholeTextGroupItemsAsync(int textDocumentId, IReadOnlyCollection<VideoGroupInputDto> groups, string? textTitle, CancellationToken ct)
+    private async Task<bool> ReplaceWholeTextGroupItemsAsync(int textDocumentId, IReadOnlyCollection<VideoGroupInputDto> groups, string? textTitle, CancellationToken ct)
     {
         var existing = await db.GroupItems
             .Where(item => item.HostType == "text" && item.HostId == textDocumentId && item.Kind == GroupItemKind.Text)
             .ToListAsync(ct);
-
-        if (existing.Count > 0)
-        {
-            db.GroupItems.RemoveRange(existing);
-        }
 
         var normalizedGroups = groups
             .Where(group => group is { GroupId: > 0 })
@@ -927,9 +926,16 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Select((group, index) => new { GroupId = group.Key, OrderIndex = index })
             .ToList();
 
+        if (existing.OrderBy(item => item.OrderIndex).Select(item => (item.GroupId, item.OrderIndex))
+            .SequenceEqual(normalizedGroups.Select(item => (item.GroupId, item.OrderIndex))))
+            return false;
+
+        if (existing.Count > 0)
+            db.GroupItems.RemoveRange(existing);
+
         if (normalizedGroups.Count == 0)
         {
-            return;
+            return true;
         }
 
         db.GroupItems.AddRange(normalizedGroups.Select(group => new GroupItem
@@ -941,6 +947,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             HostId = textDocumentId,
             Title = NormalizeOptionalText(textTitle),
         }));
+        return true;
     }
 
     private static DateOnly? ParseDate(string? value)

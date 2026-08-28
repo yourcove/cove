@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -273,23 +274,24 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.Details != null) p.Details = dto.Details;
         if (dto.Urls != null)
         {
-            p.Urls.Clear();
-            p.Urls = dto.Urls.Select(u => new PerformerUrl { Url = u, PerformerId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.Urls, dto.Urls, item => item.Url, url => new PerformerUrl { Url = url, PerformerId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(p);
         }
         if (dto.Aliases != null)
         {
-            p.Aliases.Clear();
-            p.Aliases = dto.Aliases.Select(a => new PerformerAlias { Alias = a, PerformerId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.Aliases, dto.Aliases, item => item.Alias, alias => new PerformerAlias { Alias = alias, PerformerId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(p);
         }
         if (dto.TagIds != null)
         {
-            p.PerformerTags.Clear();
-            p.PerformerTags = dto.TagIds.Select(tid => new PerformerTag { TagId = tid, PerformerId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.PerformerTags, dto.TagIds, item => item.TagId, tagId => new PerformerTag { TagId = tagId, PerformerId = id }))
+                MetadataCollectionUpdater.Touch(p);
         }
         if (dto.RemoteIds != null)
         {
-            p.RemoteIds.Clear();
-            p.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new PerformerRemoteId { PerformerId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(p.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new PerformerRemoteId { PerformerId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(p);
         }
         foreach (var field in dto.ClearFields?.Distinct(StringComparer.OrdinalIgnoreCase) ?? [])
         {
@@ -324,8 +326,11 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         {
             return Conflict(new { code = "PERFORMER_NAME_CONFLICT", message = exception.Message });
         }
-        if (dto.CustomFields != null)
-            await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Performer, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(p);
+            await performerRepo.UpdateAsync(p, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Performer, id, dto.Rating, cancellationToken: ct);
         var updated = await performerRepo.GetByIdWithRelationsAsync(id, ct);

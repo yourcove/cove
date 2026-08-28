@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -186,23 +187,23 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
 
         if (dto.Urls != null)
         {
-            gallery.Urls.Clear();
-            gallery.Urls = dto.Urls.Select(u => new GalleryUrl { Url = u, GalleryId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(gallery.Urls, dto.Urls, item => item.Url, url => new GalleryUrl { Url = url, GalleryId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(gallery);
         }
         if (dto.TagIds != null)
         {
-            gallery.GalleryTags.Clear();
-            gallery.GalleryTags = dto.TagIds.Select(tid => new GalleryTag { TagId = tid, GalleryId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(gallery.GalleryTags, dto.TagIds, item => item.TagId, tagId => new GalleryTag { TagId = tagId, GalleryId = id }))
+                MetadataCollectionUpdater.Touch(gallery);
         }
         if (dto.PerformerIds != null)
         {
-            gallery.GalleryPerformers.Clear();
-            gallery.GalleryPerformers = dto.PerformerIds.Select(pid => new GalleryPerformer { PerformerId = pid, GalleryId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(gallery.GalleryPerformers, dto.PerformerIds, item => item.PerformerId, performerId => new GalleryPerformer { PerformerId = performerId, GalleryId = id }))
+                MetadataCollectionUpdater.Touch(gallery);
         }
         if (dto.VideoIds != null)
         {
-            gallery.VideoGalleries.Clear();
-            gallery.VideoGalleries = dto.VideoIds.Select(sid => new VideoGallery { VideoId = sid, GalleryId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(gallery.VideoGalleries, dto.VideoIds, item => item.VideoId, videoId => new VideoGallery { VideoId = videoId, GalleryId = id }))
+                MetadataCollectionUpdater.Touch(gallery);
         }
         if (dto.TagIds != null && tagProvenanceService != null)
         {
@@ -215,8 +216,11 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
         }
 
         await galleryRepo.UpdateAsync(gallery, ct);
-        if (dto.CustomFields != null)
-            await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Gallery, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await _customFields.SaveValuesAsync(CustomFieldEntityTypes.Gallery, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(gallery);
+            await galleryRepo.UpdateAsync(gallery, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Gallery, id, dto.Rating, cancellationToken: ct);
         var updated = await galleryRepo.GetByIdWithRelationsAsync(id, ct);

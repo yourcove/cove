@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Http;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
@@ -154,27 +155,28 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
 
         if (dto.Urls != null)
         {
-            image.Urls.Clear();
-            image.Urls = dto.Urls.Select(u => new ImageUrl { Url = u, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.Urls, dto.Urls, item => item.Url, url => new ImageUrl { Url = url, ImageId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.TagIds != null)
         {
-            image.ImageTags.Clear();
-            image.ImageTags = dto.TagIds.Select(tid => new ImageTag { TagId = tid, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.ImageTags, dto.TagIds, item => item.TagId, tagId => new ImageTag { TagId = tagId, ImageId = id }))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.PerformerIds != null)
         {
-            image.ImagePerformers.Clear();
-            image.ImagePerformers = dto.PerformerIds.Select(pid => new ImagePerformer { PerformerId = pid, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.ImagePerformers, dto.PerformerIds, item => item.PerformerId, performerId => new ImagePerformer { PerformerId = performerId, ImageId = id }))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.GalleryIds != null)
         {
-            image.ImageGalleries.Clear();
-            image.ImageGalleries = dto.GalleryIds.Select(gid => new ImageGallery { GalleryId = gid, ImageId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(image.ImageGalleries, dto.GalleryIds, item => item.GalleryId, galleryId => new ImageGallery { GalleryId = galleryId, ImageId = id }))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.GroupIds != null)
         {
-            await ReplaceWholeImageGroupItemsAsync(id, dto.GroupIds, image.Title, ct);
+            if (await ReplaceWholeImageGroupItemsAsync(id, dto.GroupIds, image.Title, ct))
+                MetadataCollectionUpdater.Touch(image);
         }
         if (dto.TagIds != null && tagProvenanceService != null)
         {
@@ -187,8 +189,11 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         }
 
         await imageRepo.UpdateAsync(image, ct);
-        if (dto.CustomFields != null)
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Image, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Image, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(image);
+            await imageRepo.UpdateAsync(image, ct);
+        }
         if (dto.Rating.HasValue)
             await engagementService.SetRatingAsync(AffinityHostType.Image, id, dto.Rating, cancellationToken: ct);
         var updated = await imageRepo.GetByIdWithRelationsAsync(id, ct);
@@ -550,16 +555,11 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     private static List<GroupSummaryDto> GetGroups(IReadOnlyDictionary<int, List<GroupSummaryDto>> lookup, int imageId)
         => lookup.TryGetValue(imageId, out var groups) ? groups : [];
 
-    private async Task ReplaceWholeImageGroupItemsAsync(int imageId, IReadOnlyCollection<VideoGroupInputDto> groups, string? imageTitle, CancellationToken ct)
+    private async Task<bool> ReplaceWholeImageGroupItemsAsync(int imageId, IReadOnlyCollection<VideoGroupInputDto> groups, string? imageTitle, CancellationToken ct)
     {
         var existing = await db.GroupItems
             .Where(item => item.HostType == "image" && item.HostId == imageId && item.Kind == GroupItemKind.Image)
             .ToListAsync(ct);
-
-        if (existing.Count > 0)
-        {
-            db.GroupItems.RemoveRange(existing);
-        }
 
         var normalizedGroups = groups
             .Where(group => group is { GroupId: > 0 })
@@ -567,9 +567,16 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             .Select((group, index) => new { GroupId = group.Key, OrderIndex = index })
             .ToList();
 
+        if (existing.OrderBy(item => item.OrderIndex).Select(item => (item.GroupId, item.OrderIndex))
+            .SequenceEqual(normalizedGroups.Select(item => (item.GroupId, item.OrderIndex))))
+            return false;
+
+        if (existing.Count > 0)
+            db.GroupItems.RemoveRange(existing);
+
         if (normalizedGroups.Count == 0)
         {
-            return;
+            return true;
         }
 
         db.GroupItems.AddRange(normalizedGroups.Select(group => new GroupItem
@@ -582,6 +589,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             ImageId = imageId,
             Title = string.IsNullOrWhiteSpace(imageTitle) ? null : imageTitle.Trim(),
         }));
+        return true;
     }
 
     private static List<TagProvenanceDto> GetTagProvenance(IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup, int tagId)
