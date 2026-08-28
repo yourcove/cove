@@ -202,6 +202,9 @@ describe("Audio and text detail pages", () => {
     expect(await screen.findByRole("heading", { name: "Night Drive" })).toBeInTheDocument();
     expect(screen.getByText("Audio Player Night Drive")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /edit/i })).toBeInTheDocument();
+    const audioFavorite = screen.getByRole("button", { name: "Favorite" });
+    fireEvent.click(audioFavorite);
+    expect(mockSetFavorite).toHaveBeenCalledWith(true);
     expect(screen.queryByRole("tab", { name: /related/i })).not.toBeInTheDocument();
     expect(mockTrackInteraction).toHaveBeenCalledWith(expect.objectContaining({ hostType: "audio", hostId: 14, kind: "pageVisit" }));
 
@@ -266,6 +269,9 @@ describe("Audio and text detail pages", () => {
     expect(await screen.findByRole("heading", { name: "Project Notes" })).toBeInTheDocument();
     expect(await screen.findAllByText("Chapter One")).not.toHaveLength(0);
     expect(screen.getByRole("tab", { name: /edit/i })).toBeInTheDocument();
+    const textFavorite = screen.getByRole("button", { name: "Favorite" });
+    fireEvent.click(textFavorite);
+    expect(mockSetFavorite).toHaveBeenCalledWith(true);
     expect(screen.queryByRole("tab", { name: /related/i })).not.toBeInTheDocument();
 
     const tabs = screen.getByRole("tablist", { name: /detail tabs/i });

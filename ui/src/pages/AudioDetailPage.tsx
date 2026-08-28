@@ -78,6 +78,9 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
   const trackAudioActivity = canEngageAudio && trackingEnabled;
   const {
     engagement: audioEngagement,
+    favorite: audioFavorite,
+    setFavorite: setAudioFavorite,
+    favoritePending: audioFavoritePending,
     rating: audioRating,
     setRating: setAudioRating,
   } = useEntityEngagement("audio", id, {
@@ -290,6 +293,9 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
       onTabChange={(key) => setActiveTab(key as AudioTab)}
       engagement={{
         primaryContent: <InteractiveRating value={audioRating} onChange={(value) => setAudioRating(value)} readOnly={!canEngageAudio} />,
+        favorite: canEngageAudio ? audioFavorite : undefined,
+        favoritePending: audioFavoritePending,
+        onFavoriteChange: setAudioFavorite,
         additionalMetrics: [{
           label: "Likes",
           value: audioLikeCount,
