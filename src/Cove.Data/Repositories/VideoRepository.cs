@@ -233,6 +233,7 @@ public class VideoRepository : IVideoRepository
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, currentUserId, RatingHostType.Video, filter.RatingCriterion);
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, currentUserId, AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, currentUserId, AffinityHostType.Video, filter.FavoriteCriterion);
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, currentUserId, AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
 
             if (filter.PerformerCountCriterion != null)

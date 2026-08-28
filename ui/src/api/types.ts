@@ -2729,6 +2729,7 @@ export interface VideoFilterCriteria {
   performerIds?: number[];
   ratingCriterion?: IntCriterion;
   likeCounterCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   durationCriterion?: IntCriterion;
   resolutionCriterion?: IntCriterion;
   playCountCriterion?: IntCriterion;
@@ -2930,6 +2931,7 @@ export interface GalleryFilterCriteria {
   studiosCriterion?: MultiIdCriterion;
   imageCountCriterion?: IntCriterion;
   likeCounterCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   lastLikedAtCriterion?: TimestampCriterion;
   titleCriterion?: StringCriterion;
   dateCriterion?: DateCriterion;
@@ -2970,6 +2972,7 @@ export interface ImageFilterCriteria {
   galleriesCriterion?: MultiIdCriterion;
   titleCriterion?: StringCriterion;
   likeCounterCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   resolutionCriterion?: IntCriterion;
   pathCriterion?: StringCriterion;
   fingerprintCriterion?: FingerprintCriterion;
@@ -2995,6 +2998,7 @@ export interface ImageFilterCriteria {
 
 export interface AudioFilterCriteria {
   ratingCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   titleCriterion?: StringCriterion;
   codeCriterion?: StringCriterion;
   detailsCriterion?: StringCriterion;
@@ -3034,6 +3038,7 @@ export interface AudioFilterCriteria {
 
 export interface TextFilterCriteria {
   ratingCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   titleCriterion?: StringCriterion;
   codeCriterion?: StringCriterion;
   detailsCriterion?: StringCriterion;
@@ -3071,6 +3076,7 @@ export interface GroupFilterCriteria {
   studioId?: number;
   nameCriterion?: StringCriterion;
   ratingCriterion?: IntCriterion;
+  favoriteCriterion?: BoolCriterion;
   durationCriterion?: IntCriterion;
   studiosCriterion?: MultiIdCriterion;
   tagsCriterion?: MultiIdCriterion;

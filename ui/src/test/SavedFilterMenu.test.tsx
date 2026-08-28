@@ -21,7 +21,7 @@ function renderMenu() {
       <SavedFilterMenu
         mode="videos"
         currentFilter={{ page: 2, sort: "title", direction: "asc" }}
-        currentObjectFilter={{ favorite: true }}
+        currentObjectFilter={{ favoriteCriterion: { value: true } }}
         currentUIOptions={{ displayMode: "list", zoomLevel: 5.25 }}
         onApplyFilter={vi.fn()}
       />
@@ -182,7 +182,7 @@ describe("SavedFilterMenu", () => {
 
     await waitFor(() => expect(savedFilters.update).toHaveBeenCalledWith(2, {
       findFilter: JSON.stringify({ page: 2, sort: "title", direction: "asc" }),
-      objectFilter: JSON.stringify({ favorite: true }),
+      objectFilter: JSON.stringify({ favoriteCriterion: { value: true } }),
       uiOptions: JSON.stringify({ displayMode: "list", zoomLevel: 5.25 }),
     }));
     await waitFor(() => expect(screen.queryByText("Saved Filters")).not.toBeInTheDocument());

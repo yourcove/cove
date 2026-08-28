@@ -77,6 +77,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:videos:OrganizedCriterion/true",
             fixture => QueryFilteredIdsAsync(fixture.Context, "videos", new VideoFilter { OrganizedCriterion = new BoolCriterion { Value = true } }),
             _ => [402, 403])];
+        yield return [new FilterProbe(
+            "filter:videos:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "videos", new VideoFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [401])];
 
         yield return [new FilterProbe(
             "filter:images:TitleCriterion/includes",
@@ -94,6 +98,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:images:PerformerCountCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "images", new ImageFilter { PerformerCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
             _ => [502, 503])];
+        yield return [new FilterProbe(
+            "filter:images:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "images", new ImageFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [501])];
 
         yield return [new FilterProbe(
             "filter:audios:TitleCriterion/includes",
@@ -115,6 +123,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:audios:FileSizeCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "audios", new AudioFilter { FileSizeCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1_500 } }),
             _ => [802, 803])];
+        yield return [new FilterProbe(
+            "filter:audios:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "audios", new AudioFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [801])];
 
         yield return [new FilterProbe(
             "filter:texts:TitleCriterion/includes",
@@ -136,6 +148,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:texts:ContentCriterion/includes",
             fixture => QueryFilteredIdsAsync(fixture.Context, "texts", new TextDocumentFilter { ContentCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "gamma text content" } }),
             _ => [903])];
+        yield return [new FilterProbe(
+            "filter:texts:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "texts", new TextDocumentFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [901])];
 
         yield return [new FilterProbe(
             "filter:galleries:TitleCriterion/includes",
@@ -152,6 +168,14 @@ public class EntityListSortBehaviorHarnessTests
         yield return [new FilterProbe(
             "filter:galleries:LastLikedAtCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { LastLikedAtCriterion = new TimestampCriterion { Modifier = CriterionModifier.GreaterThan, Value = fixture.Now.AddDays(-7).ToString("o") } }),
+            _ => [602, 603])];
+        yield return [new FilterProbe(
+            "filter:galleries:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [601])];
+        yield return [new FilterProbe(
+            "filter:galleries:FavoriteCriterion/false",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "galleries", new GalleryFilter { FavoriteCriterion = new BoolCriterion { Value = false } }),
             _ => [602, 603])];
 
         yield return [new FilterProbe(
@@ -178,6 +202,10 @@ public class EntityListSortBehaviorHarnessTests
             "filter:groups:CachedItemCountCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "groups", new GroupFilter { CachedItemCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 10 } }),
             _ => [703])];
+        yield return [new FilterProbe(
+            "filter:groups:FavoriteCriterion/true",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "groups", new GroupFilter { FavoriteCriterion = new BoolCriterion { Value = true } }),
+            _ => [701])];
 
         yield return [new FilterProbe(
             "filter:segments:kind/includes",
@@ -1880,15 +1908,19 @@ public class EntityListSortBehaviorHarnessTests
             AddAffinity(AffinityHostType.Video, videos[0].Id, viewCount: 1, likeCount: 10, totalConsumedSec: 100, lastPositionSec: 11, lastConsumedAt: now.AddDays(-30), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Video, videos[1].Id, viewCount: 3, likeCount: 20, totalConsumedSec: 200, lastPositionSec: 22, lastConsumedAt: now.AddDays(-20), favoritedAt: now.AddDays(-8));
             AddAffinity(AffinityHostType.Video, videos[2].Id, viewCount: 9, likeCount: 30, totalConsumedSec: 300, lastPositionSec: 33, lastConsumedAt: now.AddDays(-10), favoritedAt: now.AddDays(-6));
-            AddAffinity(AffinityHostType.Image, images[0].Id, viewCount: 1, likeCount: 5, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-30));
+            Affinity(AffinityHostType.Video, videos[1].Id).IsFavorite = false;
+            Affinity(AffinityHostType.Video, videos[2].Id).IsFavorite = false;
+            AddAffinity(AffinityHostType.Image, images[0].Id, viewCount: 1, likeCount: 5, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-30), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Image, images[1].Id, viewCount: 1, likeCount: 15, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-20));
             AddAffinity(AffinityHostType.Image, images[2].Id, viewCount: 1, likeCount: 25, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: now.AddDays(-10));
-            AddAffinity(AffinityHostType.Audio, audios[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-25));
+            AddAffinity(AffinityHostType.Audio, audios[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-25), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Audio, audios[1].Id, viewCount: 4, likeCount: 8, totalConsumedSec: 80, lastPositionSec: 8, lastConsumedAt: now.AddDays(-15));
             AddAffinity(AffinityHostType.Audio, audios[2].Id, viewCount: 6, likeCount: 12, totalConsumedSec: 120, lastPositionSec: 12, lastConsumedAt: now.AddDays(-5));
-            AddAffinity(AffinityHostType.Text, texts[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-24));
+            AddAffinity(AffinityHostType.Text, texts[0].Id, viewCount: 2, likeCount: 4, totalConsumedSec: 40, lastPositionSec: 4, lastConsumedAt: now.AddDays(-24), favoritedAt: now.AddDays(-10));
             AddAffinity(AffinityHostType.Text, texts[1].Id, viewCount: 4, likeCount: 8, totalConsumedSec: 80, lastPositionSec: 8, lastConsumedAt: now.AddDays(-14));
             AddAffinity(AffinityHostType.Text, texts[2].Id, viewCount: 6, likeCount: 12, totalConsumedSec: 120, lastPositionSec: 12, lastConsumedAt: now.AddDays(-4));
+            AddAffinity(AffinityHostType.Gallery, galleries[0].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-10));
+            AddAffinity(AffinityHostType.Group, groups[0].Id, viewCount: 0, likeCount: 0, totalConsumedSec: 0, lastPositionSec: null, lastConsumedAt: null, favoritedAt: now.AddDays(-10));
             Context.Interactions.AddRange(
                 new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[0].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-9) },
                 new Interaction { UserId = TestUserId, HostType = InteractionHostType.Image, HostId = images[1].Id, Kind = InteractionKind.LikeCount, At = now.AddDays(-6) },

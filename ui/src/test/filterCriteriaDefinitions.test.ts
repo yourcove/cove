@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUDIO_CRITERIA,
   GALLERY_CRITERIA,
   GROUP_CRITERIA,
   IMAGE_CRITERIA,
@@ -7,6 +8,7 @@ import {
   VIDEO_CRITERIA,
   STUDIO_CRITERIA,
   TAG_CRITERIA,
+  TEXT_CRITERIA,
   type CriterionDefinition,
 } from "../components/FilterDialog";
 
@@ -17,6 +19,8 @@ const criteriaSets = [
   ["studio", STUDIO_CRITERIA],
   ["gallery", GALLERY_CRITERIA],
   ["image", IMAGE_CRITERIA],
+  ["audio", AUDIO_CRITERIA],
+  ["text", TEXT_CRITERIA],
   ["group", GROUP_CRITERIA],
 ] as const;
 
@@ -46,6 +50,22 @@ describe("filter criteria definitions", () => {
     expectUnique(criteria, "id", entityName);
     expectUnique(criteria, "label", entityName);
     expectUnique(criteria, "filterKey", entityName);
+  });
+
+  it.each([
+    ["video", VIDEO_CRITERIA],
+    ["image", IMAGE_CRITERIA],
+    ["audio", AUDIO_CRITERIA],
+    ["text", TEXT_CRITERIA],
+    ["gallery", GALLERY_CRITERIA],
+    ["group", GROUP_CRITERIA],
+  ] as const)("%s exposes the shared Favorite boolean criterion", (_entityName, criteria) => {
+    expect(criteria).toContainEqual(expect.objectContaining({
+      id: "favorite",
+      label: "Favorite",
+      type: "bool",
+      filterKey: "favoriteCriterion",
+    }));
   });
 
   it("keeps video filter labels and modifiers aligned with the supported UI", () => {

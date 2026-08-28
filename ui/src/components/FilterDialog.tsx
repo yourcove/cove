@@ -409,6 +409,7 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "duplicatedRemoteId", label: "Duplicated Remote ID", type: "bool", filterKey: "duplicatedRemoteIdCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "likeCounter", label: "Likes", type: "number", filterKey: "likeCounterCriterion" },
+  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
   { id: "isVr", label: "VR", type: "bool", filterKey: "isVrCriterion" },
   { id: "hasSegments", label: "Has Segments", type: "bool", filterKey: "hasSegmentsCriterion" },
@@ -559,6 +560,7 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion", options: [...VISUAL_HASH_OPTIONS] },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
+  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
@@ -588,6 +590,7 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion" as Extract<keyof ImageFilterCriteria, string>, options: [...VISUAL_HASH_OPTIONS] },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
+  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
   { id: "likeCounter", label: "Likes", type: "number", filterKey: "likeCounterCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "resolution", label: "Resolution", type: "resolution", filterKey: "resolutionCriterion" },
@@ -613,6 +616,7 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
 
 export const AUDIO_CRITERIA: CriteriaDefinitionList<AudioFilterCriteria> = [
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
+  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
   { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
@@ -650,6 +654,7 @@ export const AUDIO_CRITERIA: CriteriaDefinitionList<AudioFilterCriteria> = [
 
 export const TEXT_CRITERIA: CriteriaDefinitionList<TextFilterCriteria> = [
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
+  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
   { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
@@ -693,6 +698,7 @@ export const GROUP_CRITERIA: CriteriaDefinitionList<GroupFilterCriteria> = [
   { id: "allowedHostTypes", label: "Allowed Host Type", type: "string", filterKey: "allowedHostTypesCriterion" },
   { id: "sortOrder", label: "Manual Sort Order", type: "number", filterKey: "sortOrderCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
+  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "director", label: "Director", type: "string", filterKey: "directorCriterion" },
   { id: "description", label: "Description", type: "string", filterKey: "synopsisCriterion" },
   { id: "duration", label: "Duration", type: "duration", filterKey: "durationCriterion" },
