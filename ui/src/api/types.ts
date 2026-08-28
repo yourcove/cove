@@ -2801,6 +2801,8 @@ export interface PerformerFilterCriteria {
   tagsCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
   videoCountCriterion?: IntCriterion;
+  audioCountCriterion?: IntCriterion;
+  textCountCriterion?: IntCriterion;
   studioCountCriterion?: IntCriterion;
   imageCountCriterion?: IntCriterion;
   galleryCountCriterion?: IntCriterion;

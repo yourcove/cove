@@ -44,6 +44,8 @@ public class Performer : BaseEntity
     public ICollection<PerformerAlias> Aliases { get; set; } = [];
     public ICollection<PerformerTag> PerformerTags { get; set; } = [];
     public ICollection<VideoPerformer> VideoPerformers { get; set; } = [];
+    public ICollection<AudioPerformer> AudioPerformers { get; set; } = [];
+    public ICollection<TextPerformer> TextPerformers { get; set; } = [];
     public ICollection<ImagePerformer> ImagePerformers { get; set; } = [];
     public ICollection<GalleryPerformer> GalleryPerformers { get; set; } = [];
     public ICollection<PerformerRemoteId> RemoteIds { get; set; } = [];

@@ -330,12 +330,23 @@ public class PerformerRepository : IPerformerRepository
         }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Performer>(
-            _db,
-            EntityKinds.Performer,
-            currentPrincipal?.Has(PermissionKeys.PerformersRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Performer) == true,
-            ct);
+        // The root-plan optimization may ignore query filters on the whole query tree, including the
+        // relationship counts below, so keep the normal authorization filters for count queries.
+        var usesRelatedMediaCount = filter?.AudioCountCriterion != null
+            || filter?.TextCountCriterion != null
+            || string.Equals(findFilter?.Sort, "audio_count", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(findFilter?.Sort, "text_count", StringComparison.OrdinalIgnoreCase)
+            || findFilter?.Sorts?.Any(clause => clause is not null
+                && (clause.Key.Equals("audio_count", StringComparison.OrdinalIgnoreCase)
+                    || clause.Key.Equals("text_count", StringComparison.OrdinalIgnoreCase))) == true;
+        var readScopePlan = usesRelatedMediaCount
+            ? null
+            : await ReadScopeListOptimization.TryBuildPlanAsync<Performer>(
+                _db,
+                EntityKinds.Performer,
+                currentPrincipal?.Has(PermissionKeys.PerformersRead) == true,
+                currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Performer) == true,
+                ct);
 
         var query = (readScopePlan ?? new ReadScopeRootPlan<Performer>(false, null)).Apply(_db.Performers.AsQueryable());
         var currentUserId = EngagementQueryHelpers.CurrentUserId(_db);
@@ -368,6 +379,9 @@ public class PerformerRepository : IPerformerRepository
                     _ => FilterHelpers.ApplyInt(query, filter.VideoCountCriterion, p => p.VideoPerformers.Count),
                 };
             }
+
+            query = FilterHelpers.ApplyInt(query, filter.AudioCountCriterion, p => p.AudioPerformers.Count);
+            query = FilterHelpers.ApplyInt(query, filter.TextCountCriterion, p => p.TextPerformers.Count);
 
             if (filter.StudioCountCriterion != null)
             {
@@ -566,6 +580,12 @@ public class PerformerRepository : IPerformerRepository
             "created_at" => desc ? query.OrderByDescending(p => p.CreatedAt) : query.OrderBy(p => p.CreatedAt),
             "birthdate" => desc ? query.OrderByDescending(p => p.Birthdate) : query.OrderBy(p => p.Birthdate),
             "video_count" => desc ? query.OrderByDescending(p => p.VideoPerformers.Count) : query.OrderBy(p => p.VideoPerformers.Count),
+            "audio_count" => desc
+                ? query.OrderByDescending(p => p.AudioPerformers.Count).ThenByDescending(p => p.Id)
+                : query.OrderBy(p => p.AudioPerformers.Count).ThenBy(p => p.Id),
+            "text_count" => desc
+                ? query.OrderByDescending(p => p.TextPerformers.Count).ThenByDescending(p => p.Id)
+                : query.OrderBy(p => p.TextPerformers.Count).ThenBy(p => p.Id),
             "image_count" => desc ? query.OrderByDescending(p => p.ImagePerformers.Count) : query.OrderBy(p => p.ImagePerformers.Count),
             "gallery_count" => desc ? query.OrderByDescending(p => p.GalleryPerformers.Count) : query.OrderBy(p => p.GalleryPerformers.Count),
             "latest_video_date" => desc ? query.OrderByDescending(p => p.VideoPerformers.Max(sp => sp.Video!.Date)) : query.OrderBy(p => p.VideoPerformers.Max(sp => sp.Video!.Date)),
@@ -629,6 +649,8 @@ public class PerformerRepository : IPerformerRepository
             ["updated_at"] = (compound, desc) => compound.Append(performer => performer.UpdatedAt, desc),
             ["birthdate"] = (compound, desc) => compound.Append(performer => performer.Birthdate, desc),
             ["video_count"] = (compound, desc) => compound.Append(performer => performer.VideoPerformers.Count, desc),
+            ["audio_count"] = (compound, desc) => compound.Append(performer => performer.AudioPerformers.Count, desc),
+            ["text_count"] = (compound, desc) => compound.Append(performer => performer.TextPerformers.Count, desc),
             ["image_count"] = (compound, desc) => compound.Append(performer => performer.ImagePerformers.Count, desc),
             ["gallery_count"] = (compound, desc) => compound.Append(performer => performer.GalleryPerformers.Count, desc),
             ["latest_video_date"] = (compound, desc) => compound.Append(performer => performer.VideoPerformers.Max(link => link.Video!.Date), desc),

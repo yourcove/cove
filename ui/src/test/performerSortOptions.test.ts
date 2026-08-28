@@ -11,6 +11,8 @@ describe("PERFORMER_SORT_OPTIONS", () => {
     expect(sortByValue.get("measurements")).toBe("Measurements");
     expect(sortByValue.get("like_counter")).toBe("Likes");
     expect(sortByValue.get("play_count")).toBe("Play Count");
+    expect(sortByValue.get("audio_count")).toBe("Audio Count");
+    expect(sortByValue.get("text_count")).toBe("Text Count");
     expect(sortByValue.get("random")).toBe("Random");
     expect(sortByValue.size).toBe(PERFORMER_SORT_OPTIONS.length);
   });
@@ -22,6 +24,8 @@ describe("PERFORMER_SORT_OPTIONS", () => {
       "play_count",
       "last_like_at",
       "last_played_at",
+      "audio_count",
+      "text_count",
     ]));
   });
 });
