@@ -46,6 +46,33 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task VideosController_Find_PreservesCachedPerformerCountsWithoutDetailQueries()
+    {
+        await using var context = CreateContext();
+        var performer = new Performer { Name = "List Performer", VideoCount = 4, ImageCount = 3, GalleryCount = 2 };
+        var video = CreateVideoWithFile("performer-count-list");
+        video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
+        context.Videos.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        performer.VideoCount = 4;
+        performer.ImageCount = 3;
+        performer.GalleryCount = 2;
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var controller = CreateVideosControllerWithRepository(context);
+        var response = await controller.Find(q: null, page: 1, perPage: 25, ct: TestContext.Current.CancellationToken);
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var page = Assert.IsType<PaginatedResponse<VideoDto>>(ok.Value);
+        var summary = Assert.Single(Assert.Single(page.Items).Performers);
+
+        Assert.Equal(4, summary.VideoCount);
+        Assert.Equal(3, summary.ImageCount);
+        Assert.Equal(2, summary.GalleryCount);
+        Assert.Equal(0, summary.AudioCount);
+        Assert.Equal(0, summary.TextCount);
+    }
+
+    [Fact]
     public async Task PathCriterion_UnderPath_UsesFolderBoundaries()
     {
         await using var context = CreateContext();
