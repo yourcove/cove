@@ -1893,7 +1893,7 @@ function GroupItemCardShell({ children, dragHandleProps, isDragging, isOver }: {
         <span
           {...dragHandleProps}
           onClick={(event) => event.stopPropagation()}
-          className="absolute bottom-1.5 right-1.5 z-20 inline-flex h-7 w-7 cursor-grab items-center justify-center rounded bg-black/70 text-white opacity-0 transition-opacity hover:bg-black/85 active:cursor-grabbing group-hover:opacity-100 focus:opacity-100"
+          className="absolute bottom-1.5 right-1.5 z-20 inline-flex h-7 w-7 cursor-grab items-center justify-center rounded bg-black/70 text-white transition-colors hover:bg-black/85 active:cursor-grabbing"
           title="Drag to reorder"
         >
           <GripVertical className="h-4 w-4" />
