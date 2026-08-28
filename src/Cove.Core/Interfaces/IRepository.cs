@@ -187,6 +187,14 @@ public class TagDurationCriterion : TagDurationClause
     public List<TagDurationClause> Clauses { get; set; } = [];
 }
 
+/// <summary>Filters an entity by whether it has a related entity matching another list filter.</summary>
+public class RelatedFilterCriterion<TFilter> where TFilter : class
+{
+    public FindFilter? FindFilter { get; set; }
+    public TFilter? ObjectFilter { get; set; }
+    public bool Exclude { get; set; }
+}
+
 public class VideoFilter
 {
     public List<int>? Ids { get; set; }
@@ -203,6 +211,7 @@ public class VideoFilter
     public List<int>? PerformerIds { get; set; }
     // Advanced criteria
     public IntCriterion? RatingCriterion { get; set; }
+    public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? LikeCounterCriterion { get; set; }
     public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? DurationCriterion { get; set; }
@@ -251,6 +260,7 @@ public class VideoFilter
     public MultiIdCriterion? GalleriesCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
     public IntCriterion? PerformerAgeCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public StringCriterion? CaptionsCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
@@ -309,6 +319,7 @@ public class PerformerFilter
     public IntCriterion? LikeCounterCriterion { get; set; }
     public MultiIdCriterion? GroupsCriterion { get; set; }
     public IntCriterion? TagCountCriterion { get; set; }
+    public RelatedFilterCriterion<VideoFilter>? VideoFilterCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }
@@ -435,6 +446,7 @@ public class GalleryFilter
     public IntCriterion? TypicalResolutionCriterion { get; set; }
     public MultiIdCriterion? VideosCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }
@@ -478,6 +490,7 @@ public class ImageFilter
     public IntCriterion? PerformerAgeCriterion { get; set; }
     public StringCriterion? OrientationCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }
@@ -513,6 +526,7 @@ public class AudioFilter
     public IntCriterion? TagCountCriterion { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public MultiIdCriterion? TagsCriterion { get; set; }
     public MultiIdCriterion? PerformersCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
@@ -549,6 +563,7 @@ public class TextDocumentFilter
     public IntCriterion? TagCountCriterion { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public MultiIdCriterion? TagsCriterion { get; set; }
     public MultiIdCriterion? PerformersCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }

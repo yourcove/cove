@@ -8,7 +8,7 @@ import type { CriterionModifier } from "../api/types";
 import { writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 import { AppConfigProvider } from "../state/AppConfigContext";
 
-const { performersFind, studiosFind, tagsFind, libraryFolders } = vi.hoisted(() => ({ performersFind: vi.fn(), studiosFind: vi.fn(), tagsFind: vi.fn(), libraryFolders: vi.fn() }));
+const { performersFind, studiosFind, tagsFind, libraryFolders, savedFiltersList } = vi.hoisted(() => ({ performersFind: vi.fn(), studiosFind: vi.fn(), tagsFind: vi.fn(), libraryFolders: vi.fn(), savedFiltersList: vi.fn() }));
 const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -19,6 +19,7 @@ vi.mock("../api/client", async (importOriginal) => {
     studios: { ...actual.studios, find: studiosFind },
     tags: { ...actual.tags, find: tagsFind },
     metadata: { ...actual.metadata, libraryFolders },
+    savedFilters: { ...actual.savedFilters, list: savedFiltersList },
   };
 });
 
@@ -33,6 +34,120 @@ describe("FilterDialog", () => {
     localStorage.clear();
     tagsFind.mockResolvedValue({ items: [] });
     libraryFolders.mockResolvedValue([]);
+    savedFiltersList.mockResolvedValue([]);
+  });
+
+  it("uses a saved performer filter as a related video condition", async () => {
+    savedFiltersList.mockResolvedValue([
+      {
+        id: 7,
+        mode: "performers",
+        name: "Favorite performers",
+        findFilter: "{}",
+        objectFilter: JSON.stringify({ favoriteCriterion: { value: true } }),
+      },
+    ]);
+    const onApply = vi.fn();
+
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    await screen.findByRole("option", { name: "Favorite performers" });
+    fireEvent.change(screen.getByLabelText("Saved performer filter"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        objectFilter: { favoriteCriterion: { value: true } },
+        _savedFilterName: "Favorite performers",
+      },
+    });
+    expect(savedFiltersList).toHaveBeenCalledWith("performers");
+  });
+
+  it("builds an ad hoc related performer filter in the same dialog", async () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    fireEvent.change(screen.getByLabelText("Search related performers"), { target: { value: "Bianca" } });
+    fireEvent.change(screen.getByLabelText("Add performer condition"), { target: { value: "favorite" } });
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        findFilter: { q: "Bianca" },
+        objectFilter: { favoriteCriterion: { value: true } },
+      },
+    });
+  });
+
+  it("builds a performer filter from related five-star videos", async () => {
+    writeStoredRatingOptionsOverride({ type: "stars", starPrecision: "full" });
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={PERFORMER_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Videos"));
+    fireEvent.change(screen.getByLabelText("Add video condition"), { target: { value: "rating" } });
+    fireEvent.click(screen.getByRole("button", { name: "Set rating to 5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      videoFilterCriterion: {
+        objectFilter: { ratingCriterion: { value: 100, modifier: "EQUALS" } },
+      },
+    });
+  });
+
+  it("builds a performer filter from related favorite videos", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={PERFORMER_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Videos"));
+    fireEvent.change(screen.getByLabelText("Add video condition"), { target: { value: "favorite" } });
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      videoFilterCriterion: {
+        objectFilter: { favoriteCriterion: { value: true } },
+      },
+    });
+  });
+
+  it.each([
+    [true, false],
+    [false, true],
+  ])("migrates a legacy performer-favorite value of %s without losing its semantics", (legacyValue, exclude) => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ performerFavoriteCriterion: { value: legacyValue } }}
+        onApply={onApply}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: /Related Performers/ })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        objectFilter: { favoriteCriterion: { value: true } },
+        ...(exclude ? { exclude: true } : {}),
+      },
+    });
   });
 
   it("browses configured folders and applies a folder-aware path criterion", async () => {

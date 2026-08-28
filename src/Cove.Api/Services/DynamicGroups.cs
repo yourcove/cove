@@ -625,17 +625,21 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
     private async Task<int> CountAudiosAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
     {
         var prepared = await PrepareAudioFilterAsync(entityConfig.ObjectFilter, ct);
-        return await ApplyAudioFilter(ApplyAudioSearch(db.Audios.AsNoTracking(), findFilter.Q), prepared.Filter,
+        var query = ApplyAudioFilter(ApplyAudioSearch(db.Audios.AsNoTracking(), findFilter.Q), prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
-            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups).CountAsync(ct);
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToAudiosAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
+        return await query.CountAsync(ct);
     }
 
     private async Task<int> CountTextsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
     {
         var prepared = await PrepareTextFilterAsync(entityConfig.ObjectFilter, ct);
-        return await ApplyTextFilter(ApplyTextSearch(db.TextDocuments.AsNoTracking(), findFilter.Q), prepared.Filter,
+        var query = ApplyTextFilter(ApplyTextSearch(db.TextDocuments.AsNoTracking(), findFilter.Q), prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
-            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups).CountAsync(ct);
+            prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
+        return await query.CountAsync(ct);
     }
 
     private async Task<int> CountSegmentsAsync(FilterEntityConfig entityConfig, FindFilter findFilter, CancellationToken ct)
@@ -685,6 +689,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = ApplyAudioFilter(query, prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
             prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToAudiosAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
         query = ApplyAudioSort(query, findFilter.Sort, findFilter.Direction == SortDirection.Desc);
 
         var totalCount = await query.CountAsync(ct);
@@ -708,6 +713,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         query = ApplyTextFilter(query, prepared.Filter,
             prepared.Tags?.ValueGroups, prepared.Tags?.RequiredIdGroups,
             prepared.Studios?.ValueGroups, prepared.Studios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, prepared.Filter?.PerformerFilterCriterion, ct);
         query = ApplyTextSort(query, findFilter.Sort, findFilter.Direction == SortDirection.Desc);
 
         var totalCount = await query.CountAsync(ct);

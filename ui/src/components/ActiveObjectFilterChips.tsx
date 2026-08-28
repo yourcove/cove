@@ -157,12 +157,27 @@ export function formatFilterChipValue(def: CriterionDefinition | undefined, valu
     _names?: Record<string, string>;
     type?: string;
     _selectedValues?: string[];
+    findFilter?: { q?: string };
+    objectFilter?: Record<string, unknown>;
+    exclude?: boolean;
+    _savedFilterName?: string;
+    _matchAll?: boolean;
   };
   const modifier = criterion.modifier ? CHIP_MODIFIER_LABELS[criterion.modifier] ?? criterion.modifier : "";
   const resolveEntityName = (id: unknown): string => {
     if (typeof id === "number") return criterion._names?.[String(id)] ?? nameMap?.get(id) ?? "Unavailable item";
     return formatChipEntityId(id, nameMap);
   };
+
+  if (def?.type === "related") {
+    const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
+    const q = criterion.findFilter?.q?.trim();
+    const conditionCount = criterion.objectFilter ? Object.keys(criterion.objectFilter).length : 0;
+    const details = criterion._savedFilterName?.trim()
+      || [q ? `search “${q}”` : "", conditionCount > 0 ? `${conditionCount} ${conditionCount === 1 ? "condition" : "conditions"}` : ""].filter(Boolean).join(" · ")
+      || (criterion._matchAll ? `any ${singular}` : `matching ${singular}`);
+    return criterion.exclude ? `No match · ${details}` : details;
+  }
 
   if (def?.type === "tagDuration") {
     const clauses = Array.isArray(criterion.clauses) && criterion.clauses.length > 0 ? criterion.clauses : [criterion];

@@ -22,6 +22,8 @@ const criteriaSets = [
   ["audio", AUDIO_CRITERIA],
   ["text", TEXT_CRITERIA],
   ["group", GROUP_CRITERIA],
+  ["audio", AUDIO_CRITERIA],
+  ["text", TEXT_CRITERIA],
 ] as const;
 
 function getDuplicates(values: string[]) {
@@ -86,6 +88,29 @@ describe("filter criteria definitions", () => {
     expect(videoCriteriaById.get("frameRate")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(videoCriteriaById.get("orientation")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS"]);
     expect(videoCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
+  });
+
+  it("offers related-entity filters instead of specialized performer-favorite filters", () => {
+    for (const criteria of [VIDEO_CRITERIA, IMAGE_CRITERIA, GALLERY_CRITERIA, AUDIO_CRITERIA, TEXT_CRITERIA]) {
+      expect(criteria).toContainEqual(expect.objectContaining({
+        id: "relatedPerformers",
+        label: "Related Performers",
+        type: "related",
+        entityType: "performers",
+        filterKey: "performerFilterCriterion",
+        category: "related",
+      }));
+      expect(criteria.some((criterion) => criterion.id === "performerFavorite")).toBe(false);
+    }
+
+    expect(PERFORMER_CRITERIA).toContainEqual(expect.objectContaining({
+      id: "relatedVideos",
+      label: "Related Videos",
+      type: "related",
+      entityType: "videos",
+      filterKey: "videoFilterCriterion",
+      category: "related",
+    }));
   });
 
   it("does not expose unsupported performer path filtering", () => {

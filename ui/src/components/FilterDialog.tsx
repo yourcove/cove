@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft } from "lucide-react";
-import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata } from "../api/client";
+import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
 import { EntityReferenceSelector } from "./EntityReferenceSelector";
@@ -36,6 +36,7 @@ import type {
   TextFilterCriteria,
   GroupFilterCriteria,
   MetadataServer,
+  RelatedFilterCriterion,
 } from "../api/types";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { rankByLabel } from "../utils/searchRanking";
@@ -48,7 +49,7 @@ import { LibraryFolderTree } from "./LibraryFolderTree";
 
 // ===== Criterion definitions =====
 
-export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
+export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash" | "related";
 export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "faces";
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
@@ -57,6 +58,7 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   type: CriterionType;
   entityType?: EntityType;
   filterKey: TFilterKey;
+  category?: "related";
   customFieldKey?: string;
   customFieldType?: string;
   modifiers?: CriterionModifier[];
@@ -125,6 +127,7 @@ const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   resolution: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN"],
   multiId: ["INCLUDES", "INCLUDES_ALL", "EXCLUDES", "EXCLUDES_ALL", "IS_NULL", "NOT_NULL"],
   enum: ["EQUALS", "NOT_EQUALS", "IS_NULL", "NOT_NULL"],
+  related: [],
 };
 
 const NON_NULL_NUMBER_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"];
@@ -222,6 +225,8 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
       const criterionValue = value as TagDurationCriterion;
       return getTagDurationClauses(criterionValue).some((clause) => isTagDurationClauseValid(clause));
     }
+    case "related":
+      return sanitizeRelatedFilterCriterion(value, criterion) !== undefined;
     case "string":
     case "path":
     case "remoteId":
@@ -384,6 +389,9 @@ function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria: Crite
 
     if (criterion.customFieldKey || criterion.type === "remoteId") {
       sanitized = setCriterionFilterValue(sanitized, criterion, value);
+    } else if (criterion.type === "related") {
+      const related = sanitizeRelatedFilterCriterion(value, criterion);
+      if (related) sanitized[criterion.filterKey] = related;
     } else {
       sanitized[criterion.filterKey] = value;
     }
@@ -408,6 +416,7 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "duplicatedTitle", label: "Duplicated Title", type: "bool", filterKey: "duplicatedTitleCriterion" },
   { id: "duplicatedRemoteId", label: "Duplicated Remote ID", type: "bool", filterKey: "duplicatedRemoteIdCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
+  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "likeCounter", label: "Likes", type: "number", filterKey: "likeCounterCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
@@ -433,7 +442,7 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "frameRate", label: "Frame Rate", type: "number", filterKey: "frameRateCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "bitrate", label: "Bitrate (kbps)", type: "number", filterKey: "bitrateInterval" },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
-  { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related" },
   { id: "resumeTime", label: "Resume Time", type: "number", filterKey: "resumeTimeCriterion" },
   { id: "playDuration", label: "Play Duration", type: "duration", filterKey: "playDurationCriterion" },
   { id: "lastPlayedAt", label: "Last Played", type: "timestamp", filterKey: "lastPlayedAtCriterion" },
@@ -453,6 +462,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
+  { id: "relatedVideos", label: "Related Videos", type: "related", entityType: "videos", filterKey: "videoFilterCriterion", category: "related" },
   { id: "age", label: "Age", type: "number", filterKey: "ageCriterion" },
   { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [
     { value: "Male", label: "Male" },
@@ -567,7 +577,7 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "videos", label: "Videos", type: "multiId", entityType: "videos", filterKey: "videosCriterion" },
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
-  { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related" },
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "likes", label: "Likes", type: "number", filterKey: "likeCounterCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "lastLikedAt", label: "Last Liked Date", type: "timestamp", filterKey: "lastLikedAtCriterion" },
@@ -599,7 +609,7 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "galleries", label: "Galleries", type: "multiId", entityType: "galleries", filterKey: "galleriesCriterion" },
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
-  { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related" },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
@@ -646,6 +656,7 @@ export const AUDIO_CRITERIA: CriteriaDefinitionList<AudioFilterCriteria> = [
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
@@ -679,6 +690,7 @@ export const TEXT_CRITERIA: CriteriaDefinitionList<TextFilterCriteria> = [
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
@@ -725,6 +737,72 @@ export const GROUP_CRITERIA: CriteriaDefinitionList<GroupFilterCriteria> = [
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
 ];
 
+function getRelatedCriteria(entityType: EntityType | undefined): CriterionDefinition[] {
+  const criteria = entityType === "performers"
+    ? PERFORMER_CRITERIA
+    : entityType === "videos"
+    ? VIDEO_CRITERIA
+    : [];
+  return criteria.filter((criterion) => criterion.type !== "related");
+}
+
+function hasMeaningfulRelatedValue(value: unknown): boolean {
+  if (value == null || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefinition): RelatedFilterCriterion | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as RelatedFilterCriterion;
+  const nestedCriteria = getRelatedCriteria(criterion.entityType);
+  const rawObjectFilter = raw.objectFilter && typeof raw.objectFilter === "object"
+    ? raw.objectFilter as Record<string, unknown>
+    : {};
+  const knownKeys = new Set(nestedCriteria.flatMap((item) => [item.filterKey, item.secondaryFilterKey, item.auxiliaryToggleKey].filter(Boolean) as string[]));
+  const unknownValues = Object.fromEntries(Object.entries(rawObjectFilter).filter(([key, item]) =>
+    !knownKeys.has(key)
+    && key !== "performerFilterCriterion"
+    && key !== "videoFilterCriterion"
+    && !key.startsWith("_")
+    && hasMeaningfulRelatedValue(item)));
+  const objectFilter = sanitizeFilterCriteria(rawObjectFilter, nestedCriteria, unknownValues);
+  const q = raw.findFilter?.q?.trim();
+  const matchAll = raw._matchAll === true;
+  if (!q && Object.keys(objectFilter).length === 0 && !matchAll) return undefined;
+
+  return {
+    ...(q ? { findFilter: { q } } : {}),
+    ...(Object.keys(objectFilter).length > 0 ? { objectFilter } : {}),
+    ...(raw.exclude ? { exclude: true } : {}),
+    ...(raw._savedFilterName?.trim() ? { _savedFilterName: raw._savedFilterName.trim() } : {}),
+    ...(matchAll ? { _matchAll: true } : {}),
+  };
+}
+
+function migrateLegacyPerformerFavoriteCriterion(
+  filter: Record<string, unknown>,
+  criteria: CriterionDefinition[],
+): Record<string, unknown> {
+  const supportsRelatedPerformers = criteria.some((criterion) => criterion.filterKey === "performerFilterCriterion");
+  const legacy = filter.performerFavoriteCriterion;
+  if (!supportsRelatedPerformers || !legacy || typeof legacy !== "object" || typeof (legacy as { value?: unknown }).value !== "boolean") {
+    return filter;
+  }
+
+  const next = { ...filter };
+  delete next.performerFavoriteCriterion;
+  if (next.performerFilterCriterion !== undefined) return next;
+
+  const requiresFavorite = (legacy as { value: boolean }).value;
+  next.performerFilterCriterion = {
+    objectFilter: { favoriteCriterion: { value: true } },
+    ...(!requiresFavorite ? { exclude: true } : {}),
+  } satisfies RelatedFilterCriterion;
+  return next;
+}
+
 // ===== Filter Dialog =====
 
 interface FilterDialogProps {
@@ -764,6 +842,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const pendingPinFocusRef = useRef<string | null>(null);
   const wasOpenRef = useRef(false);
   const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
+  const normalizedActiveFilter = useMemo(
+    () => migrateLegacyPerformerFavoriteCriterion(JSON.parse(activeFilterSignature) as Record<string, unknown>, criteria),
+    [activeFilterSignature, criteria],
+  );
   const lastActiveFilterSignatureRef = useRef(activeFilterSignature);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
     try {
@@ -855,10 +937,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const items = [...customItems, ...criterionItems];
     const active = items.filter((item) => item.active).sort(sortItems);
     const pinned = items.filter((item) => !item.active && item.pinned).sort(sortItems);
-    const remaining = items.filter((item) => !item.active && !item.pinned).sort(sortItems);
+    const related = items.filter((item) => !item.active && !item.pinned && item.kind === "criterion" && item.criterion.category === "related").sort(sortItems);
+    const remaining = items.filter((item) => !item.active && !item.pinned && !(item.kind === "criterion" && item.criterion.category === "related")).sort(sortItems);
     return [
       { label: "Active", items: active },
       { label: "Pinned", items: pinned },
+      { label: "Related items", items: related },
       { label: "All filters", items: remaining },
     ].filter((group) => group.items.length > 0);
   }, [customSections, editFilter, filteredCriteria, pinnedIds, search]);
@@ -893,7 +977,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     } : undefined;
   }, [criteria, customSections, editFilter, expandedCriterion, pinnedIds]);
 
-  const cloneActiveFilter = useCallback(() => JSON.parse(activeFilterSignature) as Record<string, unknown>, [activeFilterSignature]);
+  const cloneActiveFilter = useCallback(
+    () => JSON.parse(JSON.stringify(normalizedActiveFilter)) as Record<string, unknown>,
+    [normalizedActiveFilter],
+  );
 
   const focusFirstEditorControl = useCallback(() => {
     window.setTimeout(() => {
@@ -938,8 +1025,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       setEditFilter(cloneActiveFilter());
       setSearch("");
       setNavigatorFocusId(null);
-      const firstActive = criteria.find((criterion) => isCriterionValueValid(getCriterionFilterValue(activeFilter, criterion), criterion))?.id
-        ?? (customSections ?? []).find((section) => section.isActive(activeFilter[section.filterKey]))?.id;
+      const firstActive = criteria.find((criterion) => isCriterionValueValid(getCriterionFilterValue(normalizedActiveFilter, criterion), criterion))?.id
+        ?? (customSections ?? []).find((section) => section.isActive(normalizedActiveFilter[section.filterKey]))?.id;
       const nextSelected = preselectCriterion ?? firstActive ?? null;
       setExpandedCriterion(nextSelected);
       window.setTimeout(() => {
@@ -949,7 +1036,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }, 0);
     }
     wasOpenRef.current = true;
-  }, [activeFilter, cloneActiveFilter, criteria, customSections, focusFirstEditorControl, open, preselectCriterion]);
+  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, normalizedActiveFilter, open, preselectCriterion]);
 
   const dismiss = useCallback(() => {
     setEditFilter(cloneActiveFilter());
@@ -1338,6 +1425,8 @@ function CriterionEditor({
   const modifiers = criterion.modifiers ?? TYPE_MODIFIERS[type];
 
   switch (type) {
+    case "related":
+      return <RelatedFilterEditor value={value as RelatedFilterCriterion | undefined} onChange={onChange} entityType={entityType!} />;
     case "bool":
       return <BoolEditor value={value as BoolCriterion | undefined} onChange={onChange} />;
     case "rating":
@@ -1385,6 +1474,219 @@ function CriterionEditor({
     default:
       return null;
   }
+}
+
+// ===== Related-entity Editor =====
+
+function parseSavedFilterObject(value: string | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function RelatedFilterEditor({
+  value,
+  onChange,
+  entityType,
+}: {
+  value?: RelatedFilterCriterion;
+  onChange: (v: unknown) => void;
+  entityType: EntityType;
+}) {
+  const singular = entityType === "performers" ? "performer" : "video";
+  const plural = entityType === "performers" ? "performers" : "videos";
+  const nestedCriteria = useMemo(() => getRelatedCriteria(entityType), [entityType]);
+  const [selectedCriterionId, setSelectedCriterionId] = useState("");
+  const related = value ?? {};
+  const objectFilter = related.objectFilter && typeof related.objectFilter === "object"
+    ? related.objectFilter as Record<string, unknown>
+    : {};
+  const selectedCriterion = nestedCriteria.find((criterion) => criterion.id === selectedCriterionId);
+  const { data: savedFilters = [], isPending: savedFiltersPending, isError: savedFiltersError } = useQuery({
+    queryKey: ["saved-filters", entityType],
+    queryFn: () => savedFiltersApi.list(entityType),
+  });
+  const selectedSavedFilterId = savedFilters.find((savedFilter) => savedFilter.name === related._savedFilterName)?.id ?? "";
+
+  const update = (patch: Partial<RelatedFilterCriterion>, clearSavedFilterName = false) => {
+    const next: Record<string, unknown> = { ...related, ...patch };
+    if (clearSavedFilterName) delete next._savedFilterName;
+    for (const [key, item] of Object.entries(next)) {
+      if (item === undefined) delete next[key];
+    }
+    onChange(next);
+  };
+
+  const updateNestedCriterion = (criterion: CriterionDefinition, nextValue: unknown) => {
+    update({
+      objectFilter: setCriterionFilterValue(objectFilter, criterion, nextValue),
+      _matchAll: undefined,
+    }, true);
+  };
+
+  const removeNestedCriterion = (key: string) => {
+    const criterion = nestedCriteria.find((item) => item.id === key
+      || item.filterKey === key
+      || item.secondaryFilterKey === key
+      || item.auxiliaryToggleKey === key);
+    const nextObjectFilter = criterion ? removeCriterionFilterValue(objectFilter, criterion) : { ...objectFilter };
+    if (!criterion) delete nextObjectFilter[key];
+    update({ objectFilter: nextObjectFilter }, true);
+  };
+
+  const chooseSavedFilter = (id: string) => {
+    const savedFilter = savedFilters.find((candidate) => String(candidate.id) === id);
+    if (!savedFilter) return;
+    const findFilter = parseSavedFilterObject(savedFilter.findFilter);
+    const savedObjectFilter = parseSavedFilterObject(savedFilter.objectFilter);
+    const q = typeof findFilter.q === "string" ? findFilter.q.trim() : "";
+    const hasObjectFilter = Object.keys(savedObjectFilter).length > 0;
+    onChange({
+      ...(q ? { findFilter: { q } } : {}),
+      ...(hasObjectFilter ? { objectFilter: savedObjectFilter } : {}),
+      ...(related.exclude ? { exclude: true } : {}),
+      _savedFilterName: savedFilter.name,
+      ...(!q && !hasObjectFilter ? { _matchAll: true } : {}),
+    });
+    setSelectedCriterionId("");
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-base font-semibold text-foreground">Filter by related {plural}</h3>
+        <p className="mt-1 text-sm text-secondary">Use a saved filter, a simple search, or add familiar {singular} conditions below.</p>
+      </div>
+
+      <div role="group" aria-label="Related item match" className="grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          aria-pressed={!related.exclude}
+          onClick={() => update({ exclude: undefined })}
+          className={`min-h-11 rounded-lg border px-3 py-2 text-sm ${!related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
+        >
+          At least one matching {singular}
+        </button>
+        <button
+          type="button"
+          aria-pressed={related.exclude === true}
+          onClick={() => update({ exclude: true })}
+          className={`min-h-11 rounded-lg border px-3 py-2 text-sm ${related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
+        >
+          No matching {singular}
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card/40 p-4 space-y-4">
+        <LabeledControl label={`Saved ${singular} filter`}>
+          <select
+            data-filter-primary-control
+            aria-label={`Saved ${singular} filter`}
+            value={selectedSavedFilterId}
+            onChange={(event) => chooseSavedFilter(event.target.value)}
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+          >
+            <option value="">Choose a saved filter…</option>
+            {savedFilters.map((savedFilter) => <option key={savedFilter.id} value={savedFilter.id}>{savedFilter.name}</option>)}
+          </select>
+        </LabeledControl>
+        {savedFiltersPending ? <p className="text-xs text-muted">Loading saved filters…</p> : null}
+        {savedFiltersError ? <p className="text-xs text-red-300">Saved filters are unavailable. You can still build the filter here.</p> : null}
+
+        <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted" aria-hidden="true">
+          <span className="h-px flex-1 bg-border" />
+          <span>or build here</span>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <LabeledControl label={`Search related ${plural}`}>
+          <input
+            type="search"
+            aria-label={`Search related ${plural}`}
+            value={related.findFilter?.q ?? ""}
+            onChange={(event) => update({
+              findFilter: event.target.value ? { q: event.target.value } : undefined,
+              _matchAll: undefined,
+            }, true)}
+            placeholder={`Name, title, tag, or other ${singular} text`}
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm"
+          />
+        </LabeledControl>
+
+        <label className="flex min-h-11 items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm text-secondary">
+          <input
+            type="checkbox"
+            aria-label={`Match any related ${singular}`}
+            checked={related._matchAll === true}
+            onChange={(event) => {
+              if (event.target.checked) {
+                onChange({ ...(related.exclude ? { exclude: true } : {}), _matchAll: true });
+                setSelectedCriterionId("");
+              } else {
+                update({ _matchAll: undefined });
+              }
+            }}
+            className="h-4 w-4 accent-accent"
+          />
+          Match any related {singular}
+        </label>
+
+        {Object.keys(objectFilter).length > 0 ? (
+          <ActiveObjectFilterChips
+            criteriaDefinitions={nestedCriteria}
+            objectFilter={objectFilter}
+            onRemove={removeNestedCriterion}
+            onEdit={(key) => {
+              const criterion = nestedCriteria.find((item) => item.id === key || item.filterKey === key);
+              if (criterion) setSelectedCriterionId(criterion.id);
+            }}
+            ariaLabel={`Selected ${singular} conditions`}
+            className="!mx-0 !mt-0"
+          />
+        ) : null}
+
+        <LabeledControl label={`Add ${singular} condition`}>
+          <select
+            aria-label={`Add ${singular} condition`}
+            value={selectedCriterionId}
+            onChange={(event) => setSelectedCriterionId(event.target.value)}
+            className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+          >
+            <option value="">Choose a condition…</option>
+            {nestedCriteria.map((criterion) => <option key={criterion.id} value={criterion.id}>{criterion.label}</option>)}
+          </select>
+        </LabeledControl>
+
+        {selectedCriterion ? (
+          <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-foreground">{selectedCriterion.label}</h4>
+              <button type="button" onClick={() => removeNestedCriterion(selectedCriterion.filterKey)} className="text-xs text-muted hover:text-foreground">Remove</button>
+            </div>
+            <CriterionEditor
+              criterion={selectedCriterion}
+              value={getCriterionFilterValue(objectFilter, selectedCriterion)}
+              auxiliaryToggleChecked={selectedCriterion.auxiliaryToggleKey ? Boolean(objectFilter[selectedCriterion.auxiliaryToggleKey]) : undefined}
+              onAuxiliaryToggleChange={(checked) => {
+                if (!selectedCriterion.auxiliaryToggleKey) return;
+                const nextObjectFilter = { ...objectFilter };
+                if (checked) nextObjectFilter[selectedCriterion.auxiliaryToggleKey] = true;
+                else delete nextObjectFilter[selectedCriterion.auxiliaryToggleKey];
+                update({ objectFilter: nextObjectFilter }, true);
+              }}
+              onChange={(nextValue) => updateNestedCriterion(selectedCriterion, nextValue)}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <button type="button" onClick={() => { onChange(undefined); setSelectedCriterionId(""); }} className="text-sm text-muted hover:text-foreground">Clear related filter</button>
+    </div>
+  );
 }
 
 // ===== Bool Editor =====

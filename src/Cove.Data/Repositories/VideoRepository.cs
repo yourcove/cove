@@ -78,7 +78,12 @@ public class VideoRepository : IVideoRepository
             .Where(vp => videoIds.Contains(vp.VideoId) && vp.Performer != null)
             .ToListAsync(ct);
 
-    public async Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    internal async Task<IQueryable<Video>> BuildFilteredQueryAsync(
+        VideoFilter? filter,
+        FindFilter? findFilter,
+        bool includeRelatedFilters = true,
+        bool allowReadScopeOptimization = true,
+        CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -94,12 +99,14 @@ public class VideoRepository : IVideoRepository
         }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Video>(
-            _db,
-            EntityKinds.Video,
-            currentPrincipal?.Has(PermissionKeys.VideosRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Video) == true,
-            ct);
+        var readScopePlan = !allowReadScopeOptimization || filter?.PerformerFilterCriterion != null
+            ? null
+            : await ReadScopeListOptimization.TryBuildPlanAsync<Video>(
+                _db,
+                EntityKinds.Video,
+                currentPrincipal?.Has(PermissionKeys.VideosRead) == true,
+                currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Video) == true,
+                ct);
 
         // Build a lightweight filter-only query (no Includes) for COUNT and filter predicates
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
@@ -108,6 +115,16 @@ public class VideoRepository : IVideoRepository
         filterQuery = ApplyFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
 
         filterQuery = ApplyVideoSearch(filterQuery, findFilter?.Q);
+
+        if (includeRelatedFilters)
+            filterQuery = await RelatedFilterQuery.ApplyToVideosAsync(_db, filterQuery, filter?.PerformerFilterCriterion, ct);
+
+        return filterQuery;
+    }
+
+    public async Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var filterQuery = await BuildFilteredQueryAsync(filter, findFilter, ct: ct);
 
         // COUNT runs on the lightweight query â€” no JOINs from Includes
         var perPage = findFilter?.PerPage ?? 25;
@@ -174,29 +191,7 @@ public class VideoRepository : IVideoRepository
 
     public async Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchyCriterion? expandedTags = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
-        {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
-            filter.TagsCriterion = expandedTags.Criterion;
-        }
-        ExpandedHierarchyCriterion? expandedStudios = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
-        {
-            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
-            filter.StudiosCriterion = expandedStudios.Criterion;
-        }
-
-        var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Video>(
-            _db,
-            EntityKinds.Video,
-            currentPrincipal?.Has(PermissionKeys.VideosRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Video) == true,
-            ct);
-        var query = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
-        query = ApplyFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        query = ApplyVideoSearch(query, findFilter?.Q);
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct: ct);
 
         return await query.AsNoTracking()
             .GroupBy(_ => 1)
@@ -232,6 +227,7 @@ public class VideoRepository : IVideoRepository
 
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, currentUserId, RatingHostType.Video, filter.RatingCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, currentUserId, AffinityHostType.Video, filter.FavoriteCriterion);
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, currentUserId, AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
             query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, currentUserId, AffinityHostType.Video, filter.FavoriteCriterion);
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, currentUserId, AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);

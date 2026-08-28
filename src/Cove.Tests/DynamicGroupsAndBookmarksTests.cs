@@ -748,6 +748,54 @@ public class DynamicGroupsAndBookmarksTests
     }
 
     [Fact]
+    public async Task FilterDynamicGroupSource_AppliesRelatedPerformerFiltersToAudio()
+    {
+        await using var scope = CreateContext();
+        var context = scope.Context;
+        var principalAccessor = scope.PrincipalAccessor;
+        principalAccessor.Set(CreatePrincipal(7));
+
+        var favoritePerformer = new Performer { Name = "Favorite", Favorite = true };
+        var otherPerformer = new Performer { Name = "Other" };
+        var included = new Audio
+        {
+            Title = "Included",
+            AudioPerformers = [new AudioPerformer { Performer = favoritePerformer }],
+        };
+        var excluded = new Audio
+        {
+            Title = "Excluded",
+            AudioPerformers = [new AudioPerformer { Performer = otherPerformer }],
+        };
+        var group = new Group
+        {
+            Name = "Favorite Performer Audio",
+            Kind = GroupKind.Dynamic,
+            QuerySourceKey = DynamicGroupResolver.FilterSourceKey,
+            QueryJson = JsonSerializer.Serialize(new
+            {
+                entityType = "audio",
+                objectFilter = new AudioFilter
+                {
+                    PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                    {
+                        ObjectFilter = new PerformerFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
+                    },
+                },
+            }),
+        };
+        context.AddRange(included, excluded, group);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var resolver = CreateResolver(context, principalAccessor, includeFilterSource: true);
+        var page = await resolver.ResolvePageDtosAsync(group.Id, new FindFilter { Page = 1, PerPage = 10 }, forceRefresh: true, CancellationToken.None);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(included.Id, item.HostId);
+        Assert.Equal(1, page.TotalCount);
+    }
+
+    [Fact]
     public async Task FilterDynamicGroupSource_ScopesAudioOccurrenceTagsToRequiredPerformer()
     {
         await using var scope = CreateContext();
