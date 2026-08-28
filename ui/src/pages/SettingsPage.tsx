@@ -6097,7 +6097,7 @@ function NavReorderList({
         const isEnabled = enabledSet.has(item.value);
         return (
           <div
-            className={`flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors cursor-grab active:cursor-grabbing select-none ${
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors select-none ${
               isDragging ? "opacity-40 border-accent" : isOver ? "border-accent bg-accent/5" : "border-border bg-card"
             }`}
           >
