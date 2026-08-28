@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { videos, performers, studios, tags, galleries, groups, savedFilters, dashboards } from "../api/client";
-import type { AffinityHostType, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter, FindFilter, Dashboard, DashboardSummary, DashboardWidget, DashboardWidgetPresentation, ExtensionDashboardWidgetContribution } from "../api/types";
+import { videos, performers, studios, tags, galleries, groups, audios, texts, faces, segmentLibrary, segmentSpans, savedFilters, dashboards } from "../api/client";
+import type { AffinityHostType, Audio, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter, FindFilter, Dashboard, DashboardSummary, DashboardWidget, DashboardWidgetPresentation, ExtensionDashboardWidgetContribution, TextDocument } from "../api/types";
 import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { RatingBanner } from "../components/Rating";
-import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical, Headphones, Layers, Copy, Home, AlertTriangle, X, Check, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical, Headphones, Layers, Copy, Home, AlertTriangle, X, Check, RotateCcw, FileText } from "lucide-react";
 import { createRouteLinkProps } from "../components/cardNavigation";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { readAuthenticatedUserHomePageContent } from "../utils/userUiPreferences";
@@ -17,10 +17,17 @@ import { useAuth } from "../auth/AuthContext";
 import { canAccessExtensionContribution } from "../extensions/extension-permissions";
 import { ExtensionErrorBoundary } from "../components/ExtensionErrorBoundary";
 import { emitLocationChange, registerNavigationBlocker } from "../router/location";
+import { buildSpanSearchRequest } from "./segments/useDerivedSpansQuery";
+import { buildRawSegmentListOptions } from "./segments/useRawSegmentsQuery";
+import { createDefaultRawSegmentFilter, readRawSegmentListFilter } from "./segments/rawSegmentFilter";
+import { buildSpanTitle, buildRawSegmentTitle, formatSegmentCardEyebrow, SegmentVideoPreview } from "./segments/segmentDisplayUtils";
+import type { DerivedSpanItem, RawSegmentItem } from "./segments/types";
+import { buildAppliedDerivedQuery, buildDerivedQueryDescriptor, readDerivedSpanQueryFilter } from "./segments/derivedQueryCriterion";
+import { readMultiIdCriterionDepth, readMultiIdCriterionIds } from "./segments/segmentCriteriaDefinitions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type FilterMode = "videos" | "performers" | "studios" | "tags" | "galleries" | "groups";
+type FilterMode = "videos" | "performers" | "studios" | "tags" | "galleries" | "groups" | "audios" | "texts" | "segments" | "rawsegments";
 
 interface CustomFilter {
   type: "custom";
@@ -48,6 +55,10 @@ const DEFAULT_SORT_BY_MODE: Record<FilterMode, string> = {
   tags: "latest_video_date",
   galleries: "date",
   groups: "date",
+  audios: "date",
+  texts: "date",
+  segments: "updated_at",
+  rawsegments: "updated_at",
 };
 
 function normalizeFilterMode(mode: string | undefined): FilterMode | null {
@@ -58,7 +69,11 @@ function normalizeFilterMode(mode: string | undefined): FilterMode | null {
     normalized === "studios" ||
     normalized === "tags" ||
     normalized === "galleries" ||
-    normalized === "groups"
+    normalized === "groups" ||
+    normalized === "audios" ||
+    normalized === "texts" ||
+    normalized === "segments" ||
+    normalized === "rawsegments"
   ) {
     return normalized;
   }
@@ -910,6 +925,7 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
       case "tags": return () => tags.find(findFilter);
       case "galleries": return () => galleries.find(findFilter);
       case "groups": return () => groups.find(findFilter);
+      default: return () => Promise.resolve({ items: [], totalCount: 0 });
     }
   }, [filter.mode, findFilter]);
 
@@ -953,6 +969,9 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate 
   const parsedObjectFilter = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.objectFilter), [filter?.objectFilter]);
   const parsedUIOptions = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.uiOptions), [filter?.uiOptions]);
   const hasObjectFilter = !!parsedObjectFilter && Object.keys(parsedObjectFilter).length > 0;
+  const segmentProfileId = typeof parsedUIOptions?.profileId === "number" && Number.isInteger(parsedUIOptions.profileId) && parsedUIOptions.profileId > 0
+    ? parsedUIOptions.profileId
+    : undefined;
   const findFilter = useMemo((): FindFilter | undefined => {
     if (!mode) return undefined;
     return withSeededRandomSort({}, {
@@ -973,12 +992,91 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate 
       tags: hasObjectFilter ? () => tags.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => tags.find(findFilter),
       galleries: hasObjectFilter ? () => galleries.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => galleries.find(findFilter),
       groups: hasObjectFilter ? () => groups.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => groups.find(findFilter),
+      audios: hasObjectFilter ? () => audios.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => audios.find(findFilter),
+      texts: hasObjectFilter ? () => texts.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => texts.find(findFilter),
+      segments: async () => {
+        if (segmentProfileId == null) return { items: [], totalCount: 0 };
+        const criteria = readRawSegmentListFilter(parsedObjectFilter ?? {});
+        const videoTagIds = readMultiIdCriterionIds(parsedObjectFilter?.videoTagsCriterion);
+        const videoTagDepth = readMultiIdCriterionDepth(parsedObjectFilter?.videoTagsCriterion);
+        const rawTagDepth = readMultiIdCriterionDepth(parsedObjectFilter?.rawTagsCriterion);
+        const derivedFilter = readDerivedSpanQueryFilter(parsedObjectFilter?.derivedSpanQuery);
+        const performerIds = Array.from(new Set(derivedFilter.operands.flatMap((operand) => operand.performerIds)));
+        const performerFaceEntries = await Promise.all(performerIds.map(async (performerId) => {
+          const response = await faces.list({ performerId, merged: false, page: 1, perPage: 200 });
+          return [performerId, response.items.map((face) => face.id)] as const;
+        }));
+        const appliedQuery = buildAppliedDerivedQuery(derivedFilter, new Map(performerFaceEntries));
+        const derivedQueryDescriptor = buildDerivedQueryDescriptor(derivedFilter);
+        const response = await segmentSpans.search(buildSpanSearchRequest({
+          activeProfileId: segmentProfileId,
+          pageNumber: 1,
+          perPage: 25,
+          q: findFilter?.q?.trim() ?? "",
+          videoTitle: criteria.videoTitle ?? "",
+          videoTagIds,
+          videoTagDepth,
+          sort: findFilter?.sort ?? DEFAULT_SORT_BY_MODE.segments,
+          direction: findFilter?.direction ?? "desc",
+          seed: findFilter?.seed,
+          includeVideoIds: criteria.videoIds,
+          excludeVideoIds: criteria.excludeVideoIds,
+          appliedQuery,
+          rawFilter: { ...createDefaultRawSegmentFilter(), ...criteria, tagDepth: rawTagDepth },
+        }));
+        return {
+          ...response,
+          items: response.items.map<DerivedSpanItem>((item) => ({
+            id: `${item.videoId}:${item.span.spanKey}`,
+            key: `${item.videoId}:${item.span.spanKey}`,
+            kind: derivedQueryDescriptor ? "derivedQuery" : "profile",
+            videoId: item.videoId,
+            videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
+            videoUpdatedAt: item.videoUpdatedAt,
+            span: item.span,
+            profileId: item.profileId,
+            derivedQuery: appliedQuery ?? undefined,
+            derivedQueryDescriptor,
+          })),
+        };
+      },
+      rawsegments: async () => {
+        const criteria = readRawSegmentListFilter(parsedObjectFilter ?? {});
+        const videoTagIds = readMultiIdCriterionIds(parsedObjectFilter?.videoTagsCriterion);
+        const videoTagDepth = readMultiIdCriterionDepth(parsedObjectFilter?.videoTagsCriterion);
+        const rawTagDepth = readMultiIdCriterionDepth(parsedObjectFilter?.rawTagsCriterion);
+        const response = await segmentLibrary.list(buildRawSegmentListOptions({
+          pageNumber: 1,
+          perPage: 25,
+          q: findFilter?.q?.trim() ?? "",
+          videoTitle: criteria.videoTitle ?? "",
+          videoTagIds,
+          videoTagDepth,
+          sort: findFilter?.sort ?? DEFAULT_SORT_BY_MODE.rawsegments,
+          direction: findFilter?.direction ?? "desc",
+          seed: findFilter?.seed,
+          includeVideoIds: criteria.videoIds,
+          excludeVideoIds: criteria.excludeVideoIds,
+          rawSegmentIds: [],
+          rawFilter: { ...createDefaultRawSegmentFilter(), ...criteria, tagDepth: rawTagDepth },
+          includeAggregate: false,
+        }));
+        return {
+          ...response,
+          items: response.items.map<RawSegmentItem>((item) => ({
+            ...item,
+            key: `segment:${item.id}`,
+            videoId: item.hostId,
+            videoTitle: item.hostTitle?.trim() || `Video #${item.hostId}`,
+          })),
+        };
+      },
     };
     return fetchMap[mode] ?? (() => Promise.resolve({ items: [], totalCount: 0 }));
-  }, [mode, findFilter, parsedObjectFilter, hasObjectFilter]);
+  }, [mode, findFilter, parsedObjectFilter, hasObjectFilter, segmentProfileId]);
 
   const { data, isLoading } = useQuery<any>({
-    queryKey: ["front-page-saved", principalKey, savedFilterId, mode, findFilter, parsedObjectFilter],
+    queryKey: ["front-page-saved", principalKey, savedFilterId, mode, findFilter, parsedObjectFilter, segmentProfileId],
     queryFn: fetchFn,
     enabled: !!mode,
   });
@@ -991,7 +1089,7 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate 
   return (
     <RecommendationRowShell
       header={filter.name}
-      viewAllPage={mode ?? "videos"}
+      viewAllPage={mode === "segments" || mode === "rawsegments" ? "segments" : mode ?? "videos"}
       viewAllFilter={{
         ...parsedFilter,
         q: parsedFilter.q ?? "",
@@ -1002,6 +1100,8 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate 
       }}
       viewAllObjectFilter={parsedObjectFilter ?? {}}
       viewAllView={typeof parsedUIOptions?.displayMode === "string" ? parsedUIOptions.displayMode : undefined}
+      viewAllProfileId={mode === "segments" ? segmentProfileId : undefined}
+      viewAllSegmentsView={mode === "rawsegments" ? "raw" : undefined}
       onNavigate={onNavigate}
       loading={isLoading}
       count={items.length}
@@ -1022,6 +1122,8 @@ function RecommendationRowShell({
   viewAllFilter,
   viewAllObjectFilter,
   viewAllView,
+  viewAllProfileId,
+  viewAllSegmentsView,
   onNavigate,
   loading,
   count,
@@ -1033,6 +1135,8 @@ function RecommendationRowShell({
   viewAllFilter?: FindFilter;
   viewAllObjectFilter?: Record<string, unknown>;
   viewAllView?: string;
+  viewAllProfileId?: number;
+  viewAllSegmentsView?: "raw";
   onNavigate: (r: any) => void;
   loading: boolean;
   count: number;
@@ -1087,6 +1191,8 @@ function RecommendationRowShell({
             ...(viewAllFilter ? { listFilter: viewAllFilter } : {}),
             ...(viewAllObjectFilter !== undefined ? { listObjectFilter: viewAllObjectFilter } : {}),
             ...(viewAllView ? { listView: viewAllView } : {}),
+            ...(viewAllProfileId ? { profileId: viewAllProfileId } : {}),
+            ...(viewAllSegmentsView ? { segmentsView: viewAllSegmentsView } : {}),
           })}
           className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-muted hover:text-accent sm:min-h-0 sm:px-0 sm:text-xs"
         >
@@ -1161,8 +1267,39 @@ function EntityCard({ item, engagement, mode, onNavigate }: { item: any; engagem
     case "tags": return <TagRecommendationCard tag={item} onNavigate={onNavigate} />;
     case "galleries": return <GalleryRecommendationCard gallery={item} engagement={engagement} onNavigate={onNavigate} />;
     case "groups": return <GroupRecommendationCard group={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "audios": return <AudioRecommendationCard audio={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "texts": return <TextRecommendationCard text={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "segments": return <DerivedSegmentRecommendationCard item={item} onNavigate={onNavigate} />;
+    case "rawsegments": return <RawSegmentRecommendationCard item={item} engagement={engagement} onNavigate={onNavigate} />;
     default: return null;
   }
+}
+
+function AudioRecommendationCard({ audio, engagement, onNavigate }: { audio: Audio; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
+  const title = audio.title?.trim() || audio.files?.[0]?.basename || "Untitled audio";
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "audio", id: audio.id }, () => onNavigate({ page: "audio", id: audio.id }));
+  return <a {...linkProps} className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="relative flex aspect-video items-center justify-center bg-surface">{audio.imagePath ? <img src={audio.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" /> : <Headphones className="h-10 w-10 text-muted" />}<RatingBanner rating={engagement?.rating} /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p>{audio.date ? <p className="text-xs text-muted">{audio.date}</p> : null}</div></a>;
+}
+
+function TextRecommendationCard({ text, engagement, onNavigate }: { text: TextDocument; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
+  const title = text.title?.trim() || text.files?.[0]?.basename || "Untitled text";
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "text", id: text.id }, () => onNavigate({ page: "text", id: text.id }));
+  return <a {...linkProps} className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="relative flex aspect-video items-center justify-center bg-surface">{text.imagePath ? <img src={text.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" /> : <FileText className="h-10 w-10 text-muted" />}<RatingBanner rating={engagement?.rating} /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p>{text.date ? <p className="text-xs text-muted">{text.date}</p> : null}</div></a>;
+}
+
+function DerivedSegmentRecommendationCard({ item, onNavigate }: { item: DerivedSpanItem; onNavigate: (r: any) => void }) {
+  const title = buildSpanTitle(item.span, item.videoTitle);
+  const primarySegmentId = item.span.segmentIds[0];
+  const route = { page: "video-span", id: item.videoId, spanKey: item.span.spanKey, profileId: item.profileId, derivedQueryDescriptor: item.derivedQueryDescriptor };
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
+  return <a {...linkProps} className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="aspect-video bg-black"><SegmentVideoPreview hostId={item.videoId} segmentId={primarySegmentId} updatedAt={item.videoUpdatedAt} startSec={item.span.startSec} endSec={item.span.endSec} title={title} imgClassName="h-full w-full object-cover" /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p><p className="text-xs text-muted">{formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}</p></div></a>;
+}
+
+function RawSegmentRecommendationCard({ item, engagement, onNavigate }: { item: RawSegmentItem; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
+  const title = buildRawSegmentTitle(item);
+  const route = { page: "segment", id: item.id };
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
+  return <a {...linkProps} className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="relative aspect-video bg-black"><SegmentVideoPreview hostId={item.hostId} segmentId={item.id} updatedAt={item.updatedAt} startSec={item.startSec} endSec={item.endSec} title={title} imgClassName="h-full w-full object-cover" /><RatingBanner rating={engagement?.rating} /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p><p className="text-xs text-muted">{formatSegmentCardEyebrow(item.startSec, item.endSec)}</p></div></a>;
 }
 
 // ─── Video Card ─────────────────────────────────────────────────────────────
@@ -1360,6 +1497,14 @@ function getRecommendationEngagementHostType(mode: FilterMode | undefined): Affi
       return "gallery";
     case "groups":
       return "group";
+    case "audios":
+      return "audio";
+    case "texts":
+      return "text";
+    case "rawsegments":
+      return "segment";
+    case "segments":
+      return null;
     default:
       return null;
   }

@@ -278,18 +278,22 @@ describe("HomePage dashboards", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
-  it("offers only saved filters supported by built-in collection widgets", async () => {
+  it("offers audio, text, and segment saved filters in the built-in collection catalog", async () => {
     state.savedFilters = [
-      { id: 1, name: "Supported videos", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
-      { id: 2, name: "Unsupported audio", mode: "audios", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+      { id: 1, name: "Saved audio", mode: "audios", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+      { id: 2, name: "Saved text", mode: "texts", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+      { id: 3, name: "Saved spans", mode: "segments", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+      { id: 4, name: "Saved raw segments", mode: "rawsegments", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
     ];
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
     fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
 
-    expect(await screen.findByRole("button", { name: /Supported videos/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Unsupported audio/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Saved audio/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Saved text/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Saved spans/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Saved raw segments/ })).toBeInTheDocument();
   });
 
   it("blocks canvas catalog items until the dashboard is empty", async () => {

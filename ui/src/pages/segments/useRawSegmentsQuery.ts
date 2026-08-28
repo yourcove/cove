@@ -48,6 +48,7 @@ export function buildRawSegmentListOptions({
     videoTagIds: videoTagIds.length > 0 ? videoTagIds.join(",") : undefined,
     videoTagDepth,
     tagIds: rawFilter.tagIds.length > 0 ? rawFilter.tagIds.join(",") : undefined,
+    tagDepth: rawFilter.tagDepth,
     kind: rawFilter.kind,
     sourceKey: rawFilter.sourceKey,
     sourceCategory: rawFilter.sourceCategory,
