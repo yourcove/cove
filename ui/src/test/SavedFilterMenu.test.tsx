@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { savedFilters } from "../api/client";
@@ -31,6 +31,7 @@ function renderMenu() {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   localStorage.clear();
 });
 
@@ -80,6 +81,85 @@ describe("SavedFilterMenu", () => {
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("dialog", { name: "Saved filters" })).not.toBeInTheDocument();
+  });
+
+  it("reveals a truncated saved-filter name on hover and keyboard focus", async () => {
+    const longName = "A saved filter name that cannot fit in the available width";
+    vi.mocked(savedFilters.list).mockResolvedValue([
+      { id: 1, mode: "videos", name: longName, findFilter: "{}" },
+    ]);
+    const user = userEvent.setup();
+    renderMenu();
+
+    await user.click(screen.getByTitle("Saved filters"));
+    const filterButton = await screen.findByRole("button", { name: longName });
+    Object.defineProperties(filterButton, {
+      clientWidth: { configurable: true, value: 120 },
+      scrollWidth: { configurable: true, value: 320 },
+    });
+
+    await user.hover(filterButton);
+    const hoverTooltip = screen.getByRole("tooltip", { name: longName });
+    expect(filterButton).toHaveAttribute("aria-describedby", hoverTooltip.id);
+
+    await user.unhover(filterButton);
+    await user.hover(hoverTooltip);
+    expect(screen.getByRole("tooltip", { name: longName })).toBeInTheDocument();
+    await user.unhover(hoverTooltip);
+    await waitFor(() => expect(screen.queryByRole("tooltip", { name: longName })).not.toBeInTheDocument());
+
+    await user.tab();
+    expect(filterButton).toHaveFocus();
+    expect(screen.getByRole("tooltip", { name: longName })).toBeInTheDocument();
+  });
+
+  it("does not add a tooltip when the saved-filter name fits", async () => {
+    vi.mocked(savedFilters.list).mockResolvedValue([
+      { id: 1, mode: "videos", name: "Short name", findFilter: "{}" },
+    ]);
+    const user = userEvent.setup();
+    renderMenu();
+
+    await user.click(screen.getByTitle("Saved filters"));
+    const filterButton = await screen.findByRole("button", { name: "Short name" });
+    Object.defineProperties(filterButton, {
+      clientWidth: { configurable: true, value: 120 },
+      scrollWidth: { configurable: true, value: 80 },
+    });
+
+    await user.hover(filterButton);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(filterButton).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("stays open when a mobile viewport shift moves the trigger offscreen while naming a filter", async () => {
+    const visualViewport = Object.assign(new EventTarget(), {
+      offsetTop: 0,
+      offsetLeft: 0,
+      width: 390,
+      height: 400,
+    });
+    vi.stubGlobal("visualViewport", visualViewport);
+    vi.mocked(savedFilters.list).mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderMenu();
+
+    const trigger = screen.getByTitle("Saved filters");
+    await user.click(trigger);
+    await user.click(screen.getByRole("button", { name: "Save current filter" }));
+    const input = screen.getByPlaceholderText("Filter name...");
+    expect(input).toHaveFocus();
+
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: -100, top: -100, bottom: -76, left: 0, right: 48, width: 48, height: 24,
+      toJSON: () => ({}),
+    });
+    fireEvent(visualViewport as unknown as Window, new Event("resize"));
+
+    const dialog = await screen.findByRole("dialog", { name: "Saved filters" });
+    await waitFor(() => expect(dialog).toHaveStyle({ top: "8px" }));
+    expect(dialog).toHaveStyle({ maxHeight: "384px", maxWidth: "374px", minWidth: "224px" });
+    expect(input).toHaveFocus();
   });
 
   it("updates a saved filter from the current state", async () => {
