@@ -51,7 +51,10 @@ public class FingerprintService(
 
         try
         {
-            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+            if (stream == null)
+                return null;
+
             var hash = await MD5.HashDataAsync(stream, ct);
             return Convert.ToHexStringLower(hash);
         }
@@ -133,7 +136,10 @@ public class FingerprintService(
 
     private static async Task<byte[]> ReadFilePrefixAsync(string path, int maxBytes, CancellationToken ct)
     {
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+        if (stream == null)
+            return [];
+
         var length = (int)Math.Min(maxBytes, stream.Length);
         var buffer = new byte[length];
         var totalRead = 0;
@@ -155,7 +161,10 @@ public class FingerprintService(
 
         const int bucketCount = 64;
         const int sampleSize = 4096;
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        await using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+        if (stream == null)
+            return null;
+
         if (stream.Length == 0)
             return null;
 

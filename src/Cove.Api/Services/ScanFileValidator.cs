@@ -113,6 +113,10 @@ public sealed class ScanFileValidator(
         {
             return ScanFileValidationResult.Deferred("the file disappeared during validation");
         }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, path))
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return ScanFileValidationResult.Failed(ex.Message);
@@ -130,6 +134,10 @@ public sealed class ScanFileValidator(
                 return ScanFileValidationResult.Deferred("the file changed within the quiet period");
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, path))
         {
             return ScanFileValidationResult.Deferred("the file disappeared during validation");
         }

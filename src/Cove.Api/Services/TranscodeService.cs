@@ -192,9 +192,23 @@ public class TranscodeService : ITranscodeService
         var manifestPath = Path.Combine(outputDir, $"{resolution ?? "original"}.m3u8");
 
         // If manifest already exists and is recent, return it
-        if (File.Exists(manifestPath) && (DateTime.UtcNow - File.GetLastWriteTimeUtc(manifestPath)).TotalHours < 24)
+        if (File.Exists(manifestPath))
         {
-            return await File.ReadAllTextAsync(manifestPath, ct);
+            try
+            {
+                if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(manifestPath)).TotalHours < 24)
+                {
+                    var cachedManifest = await FileReadRace.TryReadAllTextAsync(manifestPath, ct, pathWasObserved: true);
+                    if (cachedManifest != null)
+                        return cachedManifest;
+                }
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+            }
+            catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, manifestPath))
+            {
+            }
         }
 
         var encoder = GetH264Encoder(ffmpeg);
@@ -232,7 +246,9 @@ public class TranscodeService : ITranscodeService
                 return null;
             }
 
-            return File.Exists(manifestPath) ? await File.ReadAllTextAsync(manifestPath, ct) : null;
+            return File.Exists(manifestPath)
+                ? await FileReadRace.TryReadAllTextAsync(manifestPath, ct, pathWasObserved: true)
+                : null;
         }
         finally
         {
@@ -249,8 +265,7 @@ public class TranscodeService : ITranscodeService
 
         if (!File.Exists(segmentPath)) return Task.FromResult<Stream?>(null);
 
-        Stream stream = new FileStream(segmentPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-        return Task.FromResult<Stream?>(stream);
+        return Task.FromResult<Stream?>(FileReadRace.TryOpenRead(segmentPath, pathWasObserved: true));
     }
 
     /// <summary>

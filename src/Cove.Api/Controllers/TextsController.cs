@@ -252,13 +252,26 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .OrderByDescending(item => item.WordCount)
             .ThenBy(item => item.Id)
             .FirstOrDefault();
-        if (file == null || string.IsNullOrWhiteSpace(file.Path) || !System.IO.File.Exists(file.Path))
+        if (file == null || string.IsNullOrWhiteSpace(file.Path))
         {
             return NotFound();
         }
 
-        var extracted = await textExtractionService.ExtractContentAsync(file.Path, ct);
-        return Ok(new TextContentDto(extracted.Format, extracted.RenderMode, extracted.Content));
+        if (!System.IO.File.Exists(file.Path)) return NotFound();
+
+        try
+        {
+            var extracted = await textExtractionService.ExtractContentAsync(file.Path, ct);
+            return Ok(new TextContentDto(extracted.Format, extracted.RenderMode, extracted.Content));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, file.Path))
+        {
+            return NotFound();
+        }
     }
 
     [HttpGet("{id:int}/file")]
@@ -283,7 +296,9 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             contentType = "application/octet-stream";
         }
 
-        var stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        var stream = FileReadRace.TryOpenRead(file.Path, pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         return File(stream, contentType, enableRangeProcessing: true);
     }
 
