@@ -8,8 +8,9 @@ import type { CriterionModifier } from "../api/types";
 import { writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 import { AppConfigProvider } from "../state/AppConfigContext";
 
-const { performersFind, studiosFind, tagsFind, libraryFolders } = vi.hoisted(() => ({ performersFind: vi.fn(), studiosFind: vi.fn(), tagsFind: vi.fn(), libraryFolders: vi.fn() }));
+const { performersFind, studiosFind, tagsFind, libraryFolders, savedFiltersList } = vi.hoisted(() => ({ performersFind: vi.fn(), studiosFind: vi.fn(), tagsFind: vi.fn(), libraryFolders: vi.fn(), savedFiltersList: vi.fn() }));
 const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
@@ -19,6 +20,7 @@ vi.mock("../api/client", async (importOriginal) => {
     studios: { ...actual.studios, find: studiosFind },
     tags: { ...actual.tags, find: tagsFind },
     metadata: { ...actual.metadata, libraryFolders },
+    savedFilters: { ...actual.savedFilters, list: savedFiltersList },
   };
 });
 
@@ -33,6 +35,326 @@ describe("FilterDialog", () => {
     localStorage.clear();
     tagsFind.mockResolvedValue({ items: [] });
     libraryFolders.mockResolvedValue([]);
+    savedFiltersList.mockResolvedValue([]);
+  });
+
+  it("uses a saved performer filter as a related video condition", async () => {
+    savedFiltersList.mockResolvedValue([
+      {
+        id: 7,
+        mode: "performers",
+        name: "Favorite performers",
+        findFilter: "{}",
+        objectFilter: JSON.stringify({ favoriteCriterion: { value: true } }),
+      },
+    ]);
+    const onApply = vi.fn();
+
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    await screen.findByRole("option", { name: "Favorite performers" });
+    fireEvent.change(screen.getByLabelText("Saved performer filter"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        objectFilter: { favoriteCriterion: { value: true } },
+        _savedFilterName: "Favorite performers",
+      },
+    });
+    expect(savedFiltersList).toHaveBeenCalledWith("performers");
+  });
+
+  it("builds an ad hoc related performer filter in the same dialog", async () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    expect(screen.getByRole("button", { name: "Back to filters" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Performers").querySelector(".lucide-users")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Add performer condition")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Text search" }));
+    fireEvent.change(screen.getByLabelText("Search related performers"), { target: { value: "Bianca" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        findFilter: { q: "Bianca" },
+        objectFilter: { favoriteCriterion: { value: true } },
+      },
+    });
+  });
+
+  it("focuses the saved-filter selector when entering a related workspace", async () => {
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+
+    await waitFor(() => expect(screen.getByLabelText("Saved performer filter")).toHaveFocus());
+  });
+
+  it("returns focus to related criteria search after leaving a mobile-style editor", async () => {
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    fireEvent.click(screen.getByRole("tab", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to related filter criteria" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Search performer filter criteria")).toHaveFocus());
+  });
+
+  it("opens the related-existence chip in a dedicated editor", async () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ performerFilterCriterion: { _matchAll: true } }}
+        onApply={vi.fn()}
+        preselectCriterion={{ criterionId: "relatedPerformers", relatedFacet: "existence" }}
+      />,
+    );
+
+    const matchAny = screen.getByRole("button", { name: "Match any related performer" });
+    expect(screen.getByRole("tabpanel", { name: "Any performer" })).toContainElement(matchAny);
+    expect(matchAny).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(matchAny).toHaveFocus());
+  });
+
+  it("builds a performer filter from related five-star videos", async () => {
+    writeStoredRatingOptionsOverride({ type: "stars", starPrecision: "full" });
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={PERFORMER_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Videos"));
+    expect(screen.getByLabelText("Videos").querySelector(".lucide-film")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Rating" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set rating to 5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to filters" }));
+    const group = screen.getByRole("group", { name: "Related Videos filters" });
+    expect(group.querySelectorAll(".lucide-film")).toHaveLength(1);
+    expect(within(group).getByRole("button", { name: "Edit video filter: Rating" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      videoFilterCriterion: {
+        objectFilter: { ratingCriterion: { value: 100, modifier: "EQUALS" } },
+      },
+    });
+  });
+
+  it("builds a performer filter from related favorite videos", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={PERFORMER_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Videos"));
+    fireEvent.click(screen.getByRole("tab", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      videoFilterCriterion: {
+        objectFilter: { favoriteCriterion: { value: true } },
+      },
+    });
+  });
+
+  it("keeps multiple related conditions together while moving between the workspace and parent filters", () => {
+    writeStoredRatingOptionsOverride({ type: "stars", starPrecision: "full" });
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    expect(screen.getByText("Filters / Related Performers")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Rating" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set rating to 5" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to filters" }));
+    fireEvent.click(screen.getByRole("tab", { name: /Related Performers/ }));
+    expect(screen.getByRole("tab", { name: "Favorite" })).toHaveAttribute("data-active", "true");
+    expect(screen.getByRole("tab", { name: "Rating" })).toHaveAttribute("data-active", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        objectFilter: {
+          favoriteCriterion: { value: true },
+          ratingCriterion: { value: 100, modifier: "EQUALS" },
+        },
+      },
+    });
+  });
+
+  it("renders related parameters as one icon-prefixed group and removes only the chosen condition", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          performerFilterCriterion: {
+            findFilter: { q: "example" },
+            objectFilter: {
+              favoriteCriterion: { value: true },
+              ratingCriterion: { value: 100, modifier: "EQUALS" },
+            },
+          },
+        }}
+        onApply={onApply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to filters" }));
+    await waitFor(() => expect(screen.getByLabelText("Search filter criteria")).toHaveFocus());
+    const group = screen.getByRole("group", { name: "Related Performers filters" });
+    expect(group).toHaveTextContent("At least one performer matching all");
+    expect(group.querySelectorAll(".lucide-users")).toHaveLength(3);
+    const editFavorite = within(group).getByRole("button", { name: "Edit performer filter: Favorite" });
+    const removeFavorite = within(group).getByRole("button", { name: "Remove performer filter: Favorite" });
+    expect(editFavorite).not.toHaveAttribute("tabindex", "-1");
+    expect(removeFavorite).not.toHaveAttribute("tabindex", "-1");
+    expect(within(group).getByRole("button", { name: "Edit performer filter: Rating" })).toBeInTheDocument();
+    removeFavorite.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(within(group).getByRole("button", { name: "Edit filter: Related Performers" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        findFilter: { q: "example" },
+        objectFilter: { ratingCriterion: { value: 100, modifier: "EQUALS" } },
+      },
+    });
+  });
+
+  it("shows unsupported saved-filter fields as removable read-only aggregates", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          performerFilterCriterion: {
+            objectFilter: {
+              customFieldCriteria: [
+                { key: "example", type: "text", modifier: "EQUALS", value: "one" },
+                { key: "example-two", type: "text", modifier: "EQUALS", value: "two" },
+              ],
+            },
+          },
+        }}
+        onApply={onApply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to filters" }));
+    await waitFor(() => expect(screen.getByLabelText("Search filter criteria")).toHaveFocus());
+    const group = screen.getByRole("group", { name: "Related Performers filters" });
+    expect(group).toHaveTextContent("Custom field conditions:2 conditions");
+    expect(within(group).queryByRole("button", { name: "Edit performer filter: Custom field conditions" })).not.toBeInTheDocument();
+    const removeAggregate = within(group).getByRole("button", { name: "Remove performer filter: Custom field conditions" });
+    removeAggregate.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Related Performers filters" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Search filter criteria")).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({});
+  });
+
+  it("keeps focus in the visible editor when removing the last related condition", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query === "(max-width: 767px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          performerFilterCriterion: {
+            objectFilter: { favoriteCriterion: { value: true } },
+          },
+        }}
+        onApply={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to filters" }));
+    await waitFor(() => expect(screen.getByLabelText("Search filter criteria")).toHaveFocus());
+    fireEvent.click(screen.getByRole("tab", { name: "Favorite" }));
+    const editor = screen.getByRole("tabpanel", { name: "Favorite" });
+    const trueButton = within(editor).getByRole("button", { name: "True" });
+    await waitFor(() => expect(trueButton).toHaveFocus());
+
+    const group = screen.getByRole("group", { name: "Related Performers filters" });
+    const removeFavorite = within(group).getByRole("button", { name: "Remove performer filter: Favorite" });
+    removeFavorite.focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Related Performers filters" })).not.toBeInTheDocument());
+    expect(trueButton).toHaveFocus();
+  });
+
+  it.each([
+    [true, false],
+    [false, true],
+  ])("migrates a legacy performer-favorite value of %s without losing its semantics", (legacyValue, exclude) => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ performerFavoriteCriterion: { value: legacyValue } }}
+        onApply={onApply}
+      />,
+    );
+
+    expect(screen.getByRole("dialog", { name: "Filters / Related Performers" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: exclude ? "No matching performer" : "At least one matching performer" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        objectFilter: { favoriteCriterion: { value: true } },
+        ...(exclude ? { exclude: true } : {}),
+      },
+    });
   });
 
   it("browses configured folders and applies a folder-aware path criterion", async () => {
@@ -113,6 +435,8 @@ describe("FilterDialog", () => {
   afterEach(() => {
     if (scrollIntoViewDescriptor) Object.defineProperty(Element.prototype, "scrollIntoView", scrollIntoViewDescriptor);
     else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+    if (matchMediaDescriptor) Object.defineProperty(window, "matchMedia", matchMediaDescriptor);
+    else Reflect.deleteProperty(window, "matchMedia");
   });
 
   it("keeps the toolbar trigger at the compact toolbar scale", () => {

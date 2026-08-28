@@ -25,6 +25,7 @@ public class FilterCriteriaParityTests
         var filter = new VideoFilter();
         // Original criteria
         Assert.Null(filter.RatingCriterion);
+        Assert.Null(filter.FavoriteCriterion);
         Assert.Null(filter.LikeCounterCriterion);
         Assert.Null(filter.DurationCriterion);
         Assert.Null(filter.ResolutionCriterion);
@@ -55,6 +56,7 @@ public class FilterCriteriaParityTests
         // Additional filter criteria
         Assert.Null(filter.PerformerTagsCriterion);
         Assert.Null(filter.PerformerAgeCriterion);
+        Assert.Null(filter.PerformerFilterCriterion);
         Assert.Null(filter.CaptionsCriterion);
     }
 
@@ -151,6 +153,29 @@ public class FilterCriteriaParityTests
         Assert.Equal("percent", result.ObjectFilter.TagDurationCriterion.Clauses[1].Unit);
     }
 
+    [Fact]
+    public void VideoFilter_RelatedPerformerFilter_DeserializesSavedFilterSnapshot()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "performerFilterCriterion": {
+                    "findFilter": { "q": "favorite" },
+                    "objectFilter": { "favoriteCriterion": { "value": true } },
+                    "exclude": true,
+                    "_savedFilterName": "Favorite performers"
+                }
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<VideoFilter>>(json, Options);
+
+        Assert.Equal("favorite", result?.ObjectFilter?.PerformerFilterCriterion?.FindFilter?.Q);
+        Assert.True(result?.ObjectFilter?.PerformerFilterCriterion?.ObjectFilter?.FavoriteCriterion?.Value);
+        Assert.True(result?.ObjectFilter?.PerformerFilterCriterion?.Exclude);
+    }
+
     // ===== PERFORMER FILTER CRITERIA EXISTENCE =====
 
     [Fact]
@@ -179,6 +204,7 @@ public class FilterCriteriaParityTests
         Assert.Null(filter.TagCountCriterion);
         Assert.Null(filter.StudioCountCriterion);
         Assert.Null(filter.RemoteIdValueCriterion);
+        Assert.Null(filter.VideoFilterCriterion);
     }
 
     [Fact]
@@ -273,6 +299,27 @@ public class FilterCriteriaParityTests
         var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
         Assert.NotNull(result?.ObjectFilter?.GroupsCriterion);
         Assert.Equal(2, result.ObjectFilter.GroupsCriterion.Value.Count);
+    }
+
+    [Fact]
+    public void PerformerFilter_RelatedVideoFilter_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "videoFilterCriterion": {
+                    "objectFilter": {
+                        "ratingCriterion": { "value": 100, "modifier": "equals" }
+                    }
+                }
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+
+        Assert.Equal(100, result?.ObjectFilter?.VideoFilterCriterion?.ObjectFilter?.RatingCriterion?.Value);
+        Assert.Equal(CriterionModifier.Equals, result?.ObjectFilter?.VideoFilterCriterion?.ObjectFilter?.RatingCriterion?.Modifier);
     }
 
     // ===== TAG FILTER CRITERIA EXISTENCE =====

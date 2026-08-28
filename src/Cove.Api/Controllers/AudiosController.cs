@@ -117,6 +117,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, findFilter.Q, audio => audio.Files);
 
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToAudiosAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, findFilter.Q, audio => audio.Title);
@@ -161,6 +162,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             performerSelectors: [audio => audio.AudioPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, findFilter.Q, audio => audio.Files);
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToAudiosAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
         if (req.Ids is { Count: > 0 }) query = query.Where(audio => req.Ids.Contains(audio.Id));
 
         return Ok(await query.GroupBy(_ => 1)

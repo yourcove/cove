@@ -172,6 +172,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
 
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, findFilter.Q, text => text.Title);
@@ -216,6 +217,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerSelectors: [text => text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, textBase, findFilter.Q, text => text.Files);
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
+        query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
         if (req.Ids is { Count: > 0 }) query = query.Where(text => req.Ids.Contains(text.Id));
 
         return Ok(await query.GroupBy(_ => 1)

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft } from "lucide-react";
-import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata } from "../api/client";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users } from "lucide-react";
+import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
 import { EntityReferenceSelector } from "./EntityReferenceSelector";
@@ -36,11 +36,18 @@ import type {
   TextFilterCriteria,
   GroupFilterCriteria,
   MetadataServer,
+  RelatedFilterCriterion,
 } from "../api/types";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { rankByLabel } from "../utils/searchRanking";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
-import { ActiveObjectFilterChips } from "./ActiveObjectFilterChips";
+import {
+  ActiveObjectFilterChips,
+  getFilterChipTargetKey,
+  removeObjectFilterChipTarget,
+  type FilterChipTarget,
+  type RelatedFilterChipFacet,
+} from "./ActiveObjectFilterChips";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { getMultiIdModifierLabel } from "../utils/filterModifierLabels";
 import { pushOverlay } from "../utils/overlayState";
@@ -49,7 +56,7 @@ import { CountrySelect } from "./Country";
 
 // ===== Criterion definitions =====
 
-export type CriterionType = "string" | "country" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
+export type CriterionType = "string" | "country" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash" | "related";
 export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "faces";
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
@@ -58,6 +65,9 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   type: CriterionType;
   entityType?: EntityType;
   filterKey: TFilterKey;
+  category?: "related";
+  /** Lazily resolves the criteria available inside a related-entity workspace. */
+  relatedCriteria?: () => CriterionDefinition[];
   customFieldKey?: string;
   customFieldType?: string;
   modifiers?: CriterionModifier[];
@@ -127,6 +137,7 @@ const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   resolution: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN"],
   multiId: ["INCLUDES", "INCLUDES_ALL", "EXCLUDES", "EXCLUDES_ALL", "IS_NULL", "NOT_NULL"],
   enum: ["EQUALS", "NOT_EQUALS", "IS_NULL", "NOT_NULL"],
+  related: [],
 };
 
 const NON_NULL_NUMBER_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"];
@@ -224,6 +235,8 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
       const criterionValue = value as TagDurationCriterion;
       return getTagDurationClauses(criterionValue).some((clause) => isTagDurationClauseValid(clause));
     }
+    case "related":
+      return sanitizeRelatedFilterCriterion(value, criterion) !== undefined;
     case "string":
     case "country":
     case "path":
@@ -387,6 +400,9 @@ function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria: Crite
 
     if (criterion.customFieldKey || criterion.type === "remoteId") {
       sanitized = setCriterionFilterValue(sanitized, criterion, value);
+    } else if (criterion.type === "related") {
+      const related = sanitizeRelatedFilterCriterion(value, criterion);
+      if (related) sanitized[criterion.filterKey] = related;
     } else {
       sanitized[criterion.filterKey] = value;
     }
@@ -436,7 +452,7 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "frameRate", label: "Frame Rate", type: "number", filterKey: "frameRateCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "bitrate", label: "Bitrate (kbps)", type: "number", filterKey: "bitrateInterval" },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
-  { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("performers") },
   { id: "resumeTime", label: "Resume Time", type: "number", filterKey: "resumeTimeCriterion" },
   { id: "playDuration", label: "Play Duration", type: "duration", filterKey: "playDurationCriterion" },
   { id: "lastPlayedAt", label: "Last Played", type: "timestamp", filterKey: "lastPlayedAtCriterion" },
@@ -456,6 +472,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "name", label: "Name", type: "string", filterKey: "nameCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
+  { id: "relatedVideos", label: "Related Videos", type: "related", entityType: "videos", filterKey: "videoFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("videos") },
   { id: "age", label: "Age", type: "number", filterKey: "ageCriterion" },
   { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [
     { value: "Male", label: "Male" },
@@ -570,7 +587,7 @@ export const GALLERY_CRITERIA: CriteriaDefinitionList<GalleryFilterCriteria> = [
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "videos", label: "Videos", type: "multiId", entityType: "videos", filterKey: "videosCriterion" },
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
-  { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("performers") },
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "likes", label: "Likes", type: "number", filterKey: "likeCounterCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "lastLikedAt", label: "Last Liked Date", type: "timestamp", filterKey: "lastLikedAtCriterion" },
@@ -602,7 +619,7 @@ export const IMAGE_CRITERIA: CriteriaDefinitionList<ImageFilterCriteria> = [
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "galleries", label: "Galleries", type: "multiId", entityType: "galleries", filterKey: "galleriesCriterion" },
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
-  { id: "performerFavorite", label: "Performer Favorite", type: "bool", filterKey: "performerFavoriteCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("performers") },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "tagCount", label: "Tag Count", type: "number", filterKey: "tagCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
@@ -649,6 +666,7 @@ export const AUDIO_CRITERIA: CriteriaDefinitionList<AudioFilterCriteria> = [
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("performers") },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
@@ -682,6 +700,7 @@ export const TEXT_CRITERIA: CriteriaDefinitionList<TextFilterCriteria> = [
   { id: "performerTags", label: "Performer Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("performers") },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
@@ -728,7 +747,79 @@ export const GROUP_CRITERIA: CriteriaDefinitionList<GroupFilterCriteria> = [
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
 ];
 
+function getRelatedCriteria(entityType: EntityType | undefined): CriterionDefinition[] {
+  const criteria = entityType === "performers"
+    ? PERFORMER_CRITERIA
+    : entityType === "videos"
+    ? VIDEO_CRITERIA
+    : [];
+  return criteria.filter((criterion) => criterion.type !== "related");
+}
+
+function hasMeaningfulRelatedValue(value: unknown): boolean {
+  if (value == null || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefinition): RelatedFilterCriterion | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as RelatedFilterCriterion;
+  const nestedCriteria = getRelatedCriteria(criterion.entityType);
+  const rawObjectFilter = raw.objectFilter && typeof raw.objectFilter === "object"
+    ? raw.objectFilter as Record<string, unknown>
+    : {};
+  const knownKeys = new Set(nestedCriteria.flatMap((item) => [item.filterKey, item.secondaryFilterKey, item.auxiliaryToggleKey].filter(Boolean) as string[]));
+  const unknownValues = Object.fromEntries(Object.entries(rawObjectFilter).filter(([key, item]) =>
+    !knownKeys.has(key)
+    && key !== "performerFilterCriterion"
+    && key !== "videoFilterCriterion"
+    && !key.startsWith("_")
+    && hasMeaningfulRelatedValue(item)));
+  const objectFilter = sanitizeFilterCriteria(rawObjectFilter, nestedCriteria, unknownValues);
+  const q = raw.findFilter?.q?.trim();
+  const matchAll = raw._matchAll === true;
+  if (!q && Object.keys(objectFilter).length === 0 && !matchAll) return undefined;
+
+  return {
+    ...(q ? { findFilter: { q } } : {}),
+    ...(Object.keys(objectFilter).length > 0 ? { objectFilter } : {}),
+    ...(raw.exclude ? { exclude: true } : {}),
+    ...(raw._savedFilterName?.trim() ? { _savedFilterName: raw._savedFilterName.trim() } : {}),
+    ...(matchAll ? { _matchAll: true } : {}),
+  };
+}
+
+export function migrateLegacyPerformerFavoriteCriterion(
+  filter: Record<string, unknown>,
+  criteria: CriterionDefinition[],
+): Record<string, unknown> {
+  const supportsRelatedPerformers = criteria.some((criterion) => criterion.filterKey === "performerFilterCriterion");
+  const legacy = filter.performerFavoriteCriterion;
+  if (!supportsRelatedPerformers || !legacy || typeof legacy !== "object" || typeof (legacy as { value?: unknown }).value !== "boolean") {
+    return filter;
+  }
+
+  const next = { ...filter };
+  delete next.performerFavoriteCriterion;
+  if (next.performerFilterCriterion !== undefined) return next;
+
+  const requiresFavorite = (legacy as { value: boolean }).value;
+  next.performerFilterCriterion = {
+    objectFilter: { favoriteCriterion: { value: true } },
+    ...(!requiresFavorite ? { exclude: true } : {}),
+  } satisfies RelatedFilterCriterion;
+  return next;
+}
+
 // ===== Filter Dialog =====
+
+export type FilterDialogPreselection = string | {
+  criterionId: string;
+  relatedFacet?: RelatedFilterChipFacet;
+  nestedCriterionId?: string;
+};
 
 interface FilterDialogProps {
   open: boolean;
@@ -736,7 +827,7 @@ interface FilterDialogProps {
   criteria: CriterionDefinition[];
   activeFilter: Record<string, unknown>;
   onApply: (filter: Record<string, unknown>) => void;
-  preselectCriterion?: string;
+  preselectCriterion?: FilterDialogPreselection;
   customSections?: FilterDialogCustomSection[];
   showCustomSectionDivider?: boolean;
 }
@@ -753,11 +844,19 @@ export interface FilterDialogCustomSection {
   summarize?: (value: unknown) => string;
 }
 
+function getFirstEditorControl(panel: HTMLElement | null | undefined): HTMLElement | null {
+  return panel?.querySelector<HTMLElement>("[data-filter-primary-control]")
+    ?? panel?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]):not([data-mobile-only-control])")
+    ?? panel?.querySelector<HTMLElement>("button:not([disabled])")
+    ?? null;
+}
+
 export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, preselectCriterion, customSections, showCustomSectionDivider = true }: FilterDialogProps) {
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
   const backdropPointerDownRef = useRef(false);
   const [search, setSearch] = useState("");
   const [expandedCriterion, setExpandedCriterion] = useState<string | null>(null);
+  const [relatedWorkspaceSelection, setRelatedWorkspaceSelection] = useState<{ facet: RelatedFilterChipFacet; nestedCriterionId?: string } | null>(null);
   const [navigatorFocusId, setNavigatorFocusId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -767,6 +866,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const pendingPinFocusRef = useRef<string | null>(null);
   const wasOpenRef = useRef(false);
   const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
+  const normalizedActiveFilter = useMemo(
+    () => migrateLegacyPerformerFavoriteCriterion(JSON.parse(activeFilterSignature) as Record<string, unknown>, criteria),
+    [activeFilterSignature, criteria],
+  );
   const lastActiveFilterSignatureRef = useRef(activeFilterSignature);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
     try {
@@ -858,10 +961,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const items = [...customItems, ...criterionItems];
     const active = items.filter((item) => item.active).sort(sortItems);
     const pinned = items.filter((item) => !item.active && item.pinned).sort(sortItems);
-    const remaining = items.filter((item) => !item.active && !item.pinned).sort(sortItems);
+    const related = items.filter((item) => !item.active && !item.pinned && item.kind === "criterion" && item.criterion.category === "related").sort(sortItems);
+    const remaining = items.filter((item) => !item.active && !item.pinned && !(item.kind === "criterion" && item.criterion.category === "related")).sort(sortItems);
     return [
       { label: "Active", items: active },
       { label: "Pinned", items: pinned },
+      { label: "Related items", items: related },
       { label: "All filters", items: remaining },
     ].filter((group) => group.items.length > 0);
   }, [customSections, editFilter, filteredCriteria, pinnedIds, search]);
@@ -895,18 +1000,24 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       criterion,
     } : undefined;
   }, [criteria, customSections, editFilter, expandedCriterion, pinnedIds]);
+  const relatedWorkspaceCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type === "related"
+    ? selectedItem.criterion
+    : undefined;
 
-  const cloneActiveFilter = useCallback(() => JSON.parse(activeFilterSignature) as Record<string, unknown>, [activeFilterSignature]);
+  const cloneActiveFilter = useCallback(
+    () => JSON.parse(JSON.stringify(normalizedActiveFilter)) as Record<string, unknown>,
+    [normalizedActiveFilter],
+  );
 
   const focusFirstEditorControl = useCallback(() => {
     window.setTimeout(() => {
       const panel = dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
-      (panel?.querySelector<HTMLElement>("[data-filter-primary-control]")
-        ?? panel?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])"))?.focus();
+      getFirstEditorControl(panel)?.focus();
     }, 0);
   }, []);
 
   const selectNavigatorItem = useCallback((id: string) => {
+    setRelatedWorkspaceSelection(null);
     setExpandedCriterion(id);
     focusFirstEditorControl();
   }, [focusFirstEditorControl]);
@@ -929,6 +1040,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setEditFilter(cloneActiveFilter());
         setSearch("");
         setExpandedCriterion(null);
+        setRelatedWorkspaceSelection(null);
         setNavigatorFocusId(null);
         previousFocusRef.current?.focus();
       }
@@ -941,9 +1053,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       setEditFilter(cloneActiveFilter());
       setSearch("");
       setNavigatorFocusId(null);
-      const firstActive = criteria.find((criterion) => isCriterionValueValid(getCriterionFilterValue(activeFilter, criterion), criterion))?.id
-        ?? (customSections ?? []).find((section) => section.isActive(activeFilter[section.filterKey]))?.id;
-      const nextSelected = preselectCriterion ?? firstActive ?? null;
+      const firstActive = criteria.find((criterion) => isCriterionValueValid(getCriterionFilterValue(normalizedActiveFilter, criterion), criterion))?.id
+        ?? (customSections ?? []).find((section) => section.isActive(normalizedActiveFilter[section.filterKey]))?.id;
+      const nextSelected = typeof preselectCriterion === "string"
+        ? preselectCriterion
+        : preselectCriterion?.criterionId ?? firstActive ?? null;
+      setRelatedWorkspaceSelection(typeof preselectCriterion === "object"
+        ? { facet: preselectCriterion.relatedFacet ?? "mode", nestedCriterionId: preselectCriterion.nestedCriterionId }
+        : null);
       setExpandedCriterion(nextSelected);
       window.setTimeout(() => {
         if (nextSelected && preselectCriterion) focusFirstEditorControl();
@@ -952,12 +1069,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }, 0);
     }
     wasOpenRef.current = true;
-  }, [activeFilter, cloneActiveFilter, criteria, customSections, focusFirstEditorControl, open, preselectCriterion]);
+  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, normalizedActiveFilter, open, preselectCriterion]);
 
   const dismiss = useCallback(() => {
     setEditFilter(cloneActiveFilter());
     setSearch("");
     setExpandedCriterion(null);
+    setRelatedWorkspaceSelection(null);
     setNavigatorFocusId(null);
     onClose();
   }, [cloneActiveFilter, onClose]);
@@ -1018,7 +1136,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     });
   }, []);
 
-  const handleEditChip = useCallback((key: string) => {
+  const handleEditChip = useCallback((target: FilterChipTarget) => {
+    const key = getFilterChipTargetKey(target);
     const customSection = (customSections ?? []).find((section) => section.filterKey === key);
     const criterion = criteria.find((item) => item.id === key
       || item.filterKey === key
@@ -1027,13 +1146,20 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const nextId = customSection?.id ?? criterion?.id;
     if (nextId) {
       setSearch("");
-      selectNavigatorItem(nextId);
+      if (target.kind === "related") {
+        setExpandedCriterion(nextId);
+        setRelatedWorkspaceSelection({ facet: target.facet, nestedCriterionId: target.nestedCriterionId });
+        focusFirstEditorControl();
+      } else {
+        selectNavigatorItem(nextId);
+      }
     }
-  }, [criteria, customSections, selectNavigatorItem]);
+  }, [criteria, customSections, focusFirstEditorControl, selectNavigatorItem]);
 
-  const handleRemoveChip = useCallback((key: string) => {
+  const handleRemoveChip = useCallback((target: FilterChipTarget) => {
+    const key = getFilterChipTargetKey(target);
     const customSection = (customSections ?? []).find((section) => section.filterKey === key);
-    if (customSection) {
+    if (target.kind === "root" && customSection) {
       setEditFilter((current) => {
         const next = { ...current };
         delete next[customSection.filterKey];
@@ -1041,30 +1167,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       });
       return;
     }
-
-    const criterion = criteria.find((item) => item.id === key
-      || item.filterKey === key
-      || item.secondaryFilterKey === key
-      || item.auxiliaryToggleKey === key);
-    if (criterion) {
-      if (criterion.auxiliaryToggleKey === key) {
-        setEditFilter((current) => {
-          const next = { ...current };
-          delete next[key];
-          return next;
-        });
-      } else {
-        handleRemoveCriterion(criterion);
-      }
-      return;
-    }
-
-    setEditFilter((current) => {
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  }, [criteria, customSections, handleRemoveCriterion]);
+    setEditFilter((current) => removeObjectFilterChipTarget(current, criteria, target));
+  }, [criteria, customSections]);
 
   const handleApply = () => {
     onApply(activeEditFilter);
@@ -1074,6 +1178,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const handleClear = () => {
     setEditFilter({});
     setExpandedCriterion(null);
+    setRelatedWorkspaceSelection(null);
     window.setTimeout(() => searchRef.current?.focus(), 0);
   };
 
@@ -1111,13 +1216,38 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         {/* Header */}
         <div className="flex min-h-16 items-center justify-between border-b border-border px-4 pt-[env(safe-area-inset-top)] md:px-6 md:pt-0">
           <div className="flex min-w-0 items-center gap-2">
-            {selectedItem ? (
-              <button type="button" onClick={() => { setExpandedCriterion(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground md:hidden" aria-label="Back to filter criteria">
+            {relatedWorkspaceCriterion ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setExpandedCriterion(null);
+                  setRelatedWorkspaceSelection(null);
+                  window.setTimeout(() => searchRef.current?.focus(), 0);
+                }}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground"
+                aria-label="Back to filters"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            ) : selectedItem ? (
+              <button type="button" data-mobile-only-control onClick={() => { setExpandedCriterion(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground md:hidden" aria-label="Back to filter criteria">
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : null}
-            <h2 id="filter-dialog-title" className="truncate text-lg font-semibold text-foreground">Filters</h2>
-            {selectedItem ? <span className="truncate text-sm text-secondary md:hidden">{selectedItem.label}</span> : null}
+            {relatedWorkspaceCriterion ? (
+              <span
+                aria-label={relatedWorkspaceCriterion.entityType === "performers" ? "Performers" : "Videos"}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent"
+              >
+                {relatedWorkspaceCriterion.entityType === "performers"
+                  ? <Users className="h-4 w-4" />
+                  : <Film className="h-4 w-4" />}
+              </span>
+            ) : null}
+            <h2 id="filter-dialog-title" className="truncate text-lg font-semibold text-foreground">
+              {relatedWorkspaceCriterion ? `Filters / ${relatedWorkspaceCriterion.label}` : "Filters"}
+            </h2>
+            {!relatedWorkspaceCriterion && selectedItem ? <span className="truncate text-sm text-secondary md:hidden">{selectedItem.label}</span> : null}
             {activeCriterionCount > 0 && (
               <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-white" aria-label={`${activeCriterionCount} active filters`}>
                 {activeCriterionCount}
@@ -1129,7 +1259,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           </button>
         </div>
 
-        <ActiveObjectFilterChips
+        {!relatedWorkspaceCriterion ? <ActiveObjectFilterChips
           criteriaDefinitions={criteria}
           objectFilter={activeEditFilter}
           customFilterSections={customSections}
@@ -1138,6 +1268,16 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           onClearAll={handleClear}
           rovingKeyboardAccess
           onFocusFallback={() => {
+            const mobileLayout = typeof window.matchMedia === "function"
+              ? window.matchMedia("(max-width: 767px)").matches
+              : window.innerWidth < 768;
+            if (mobileLayout && expandedCriterion) {
+              const editorControl = getFirstEditorControl(dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']"));
+              if (editorControl) {
+                editorControl.focus();
+                return;
+              }
+            }
             const criterionButton = expandedCriterion ? criterionButtonRefs.current.get(expandedCriterion) : undefined;
             if (criterionButton) criterionButton.focus();
             else searchRef.current?.focus();
@@ -1148,9 +1288,17 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           }}
           ariaLabel="Selected filters"
           className="!mx-0 !mt-0 max-h-[min(12rem,35dvh)] shrink-0 overflow-y-auto !rounded-none !border-x-0 !border-t-0 px-3 py-2 md:px-4"
-        />
+        /> : null}
 
-        <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
+        {relatedWorkspaceCriterion ? (
+          <RelatedFilterWorkspace
+            criterion={relatedWorkspaceCriterion}
+            value={getCriterionFilterValue(editFilter, relatedWorkspaceCriterion) as RelatedFilterCriterion | undefined}
+            onChange={(value) => handleSetCriterion(relatedWorkspaceCriterion, value)}
+            selection={relatedWorkspaceSelection}
+            onSelectionChange={setRelatedWorkspaceSelection}
+          />
+        ) : <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
           <aside className={`${selectedItem ? "hidden md:flex" : "flex"} min-h-0 flex-col border-border md:border-r`} aria-label="Filter criteria">
             <div className="border-b border-border p-3 md:p-4">
               <label className="relative block">
@@ -1304,7 +1452,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               </div>
             )}
           </main>
-        </div>
+        </div>}
 
         {/* Footer */}
         <div className="flex min-h-16 items-center justify-end gap-3 border-t border-border px-4 pb-[env(safe-area-inset-bottom)] md:px-6 md:pb-0">
@@ -1341,6 +1489,8 @@ function CriterionEditor({
   const modifiers = criterion.modifiers ?? TYPE_MODIFIERS[type];
 
   switch (type) {
+    case "related":
+      return null;
     case "bool":
       return <BoolEditor value={value as BoolCriterion | undefined} onChange={onChange} />;
     case "rating":
@@ -1390,6 +1540,346 @@ function CriterionEditor({
     default:
       return null;
   }
+}
+
+// ===== Related-entity Editor =====
+
+function parseSavedFilterObject(value: string | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function RelatedFilterWorkspace({
+  criterion,
+  value,
+  onChange,
+  selection,
+  onSelectionChange,
+}: {
+  criterion: CriterionDefinition;
+  value?: RelatedFilterCriterion;
+  onChange: (v: unknown) => void;
+  selection: { facet: RelatedFilterChipFacet; nestedCriterionId?: string } | null;
+  onSelectionChange: (selection: { facet: RelatedFilterChipFacet; nestedCriterionId?: string } | null) => void;
+}) {
+  const entityType = criterion.entityType!;
+  const singular = entityType === "performers" ? "performer" : "video";
+  const plural = entityType === "performers" ? "performers" : "videos";
+  const resultPlural = entityType === "performers" ? "videos" : "performers";
+  const relativePronoun = entityType === "performers" ? "who" : "that";
+  const EntityIcon = entityType === "performers" ? Users : Film;
+  const nestedCriteria = useMemo(() => criterion.relatedCriteria?.() ?? getRelatedCriteria(entityType), [criterion, entityType]);
+  const [criteriaSearch, setCriteriaSearch] = useState("");
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const criteriaSearchRef = useRef<HTMLInputElement>(null);
+  const savedFilterSelectRef = useRef<HTMLSelectElement>(null);
+  const positiveRelationshipRef = useRef<HTMLButtonElement>(null);
+  const matchAnyRef = useRef<HTMLButtonElement>(null);
+  const initialSelectionRef = useRef(selection);
+  const related = value ?? {};
+  const objectFilter = related.objectFilter && typeof related.objectFilter === "object"
+    ? related.objectFilter as Record<string, unknown>
+    : {};
+  const selectedCriterion = selection?.facet === "criterion"
+    ? nestedCriteria.find((candidate) => candidate.id === selection.nestedCriterionId)
+    : undefined;
+  const editingSearch = selection?.facet === "search";
+  const editingExistence = selection?.facet === "existence";
+  const hasEditor = Boolean(selectedCriterion || editingSearch || editingExistence);
+  const { data: savedFilters = [], isPending: savedFiltersPending, isError: savedFiltersError } = useQuery({
+    queryKey: ["saved-filters", entityType],
+    queryFn: () => savedFiltersApi.list(entityType),
+  });
+  const selectedSavedFilterId = savedFilters.find((savedFilter) => savedFilter.name === related._savedFilterName)?.id ?? "";
+
+  useEffect(() => {
+    const initialSelection = initialSelectionRef.current;
+    if (initialSelection?.facet === "criterion" || initialSelection?.facet === "search") return;
+    const timeout = window.setTimeout(() => {
+      if (initialSelection?.facet === "mode") positiveRelationshipRef.current?.focus();
+      else if (initialSelection?.facet === "existence") matchAnyRef.current?.focus();
+      else savedFilterSelectRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  const update = (patch: Partial<RelatedFilterCriterion>, clearSavedFilterName = false) => {
+    const next: Record<string, unknown> = { ...related, ...patch };
+    if (clearSavedFilterName) delete next._savedFilterName;
+    for (const [key, item] of Object.entries(next)) {
+      if (item === undefined) delete next[key];
+    }
+    onChange(next);
+  };
+
+  const select = (nextSelection: { facet: RelatedFilterChipFacet; nestedCriterionId?: string }) => {
+    onSelectionChange(nextSelection);
+    window.setTimeout(() => {
+      const panel = workspaceRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
+      getFirstEditorControl(panel)?.focus();
+    }, 0);
+  };
+
+  const updateNestedCriterion = (nestedCriterion: CriterionDefinition, nextValue: unknown) => {
+    update({
+      objectFilter: setCriterionFilterValue(objectFilter, nestedCriterion, nextValue),
+      _matchAll: undefined,
+    }, true);
+  };
+
+  const removeNestedCriterion = (nestedCriterion: CriterionDefinition) => {
+    update({ objectFilter: removeCriterionFilterValue(objectFilter, nestedCriterion) }, true);
+  };
+
+  const chooseSavedFilter = (id: string) => {
+    const savedFilter = savedFilters.find((candidate) => String(candidate.id) === id);
+    if (!savedFilter) return;
+    const findFilter = parseSavedFilterObject(savedFilter.findFilter);
+    const savedObjectFilter = parseSavedFilterObject(savedFilter.objectFilter);
+    const q = typeof findFilter.q === "string" ? findFilter.q.trim() : "";
+    const hasObjectFilter = Object.keys(savedObjectFilter).length > 0;
+    onChange({
+      ...(q ? { findFilter: { q } } : {}),
+      ...(hasObjectFilter ? { objectFilter: savedObjectFilter } : {}),
+      ...(related.exclude ? { exclude: true } : {}),
+      _savedFilterName: savedFilter.name,
+      ...(!q && !hasObjectFilter ? { _matchAll: true } : {}),
+    });
+    onSelectionChange(null);
+  };
+
+  const toggleMatchAll = () => {
+    if (related._matchAll) update({ _matchAll: undefined });
+    else onChange({ ...(related.exclude ? { exclude: true } : {}), _matchAll: true });
+  };
+
+  const filteredCriteria = useMemo(() => {
+    const query = criteriaSearch.trim().toLowerCase();
+    return nestedCriteria
+      .filter((candidate) => !query || candidate.label.toLowerCase().includes(query))
+      .slice()
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [criteriaSearch, nestedCriteria]);
+  const activeCriteria = filteredCriteria.filter((candidate) => isCriterionValueValid(getCriterionFilterValue(objectFilter, candidate), candidate));
+  const inactiveCriteria = filteredCriteria.filter((candidate) => !activeCriteria.includes(candidate));
+  const showTextSearch = !criteriaSearch.trim() || "text search".includes(criteriaSearch.trim().toLowerCase());
+
+  const renderCriterionRow = (nestedCriterion: CriterionDefinition) => {
+    const active = isCriterionValueValid(getCriterionFilterValue(objectFilter, nestedCriterion), nestedCriterion);
+    const selected = selectedCriterion?.id === nestedCriterion.id;
+    return (
+      <button
+        key={nestedCriterion.id}
+        type="button"
+        role="tab"
+        aria-selected={selected}
+        data-active={active ? "true" : "false"}
+        onClick={() => select({ facet: "criterion", nestedCriterionId: nestedCriterion.id })}
+        className={`flex min-h-11 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition ${selected ? "border-accent bg-accent/15 text-foreground" : active ? "border-accent/30 bg-accent/5 text-foreground hover:bg-card" : "border-transparent text-secondary hover:border-border hover:bg-card hover:text-foreground"}`}
+      >
+        <span className="min-w-0 flex-1 truncate font-medium">{nestedCriterion.label}</span>
+        {active ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-hidden="true" /> : null}
+      </button>
+    );
+  };
+
+  return (
+    <div ref={workspaceRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">Relationship</h3>
+          <p className="text-xs text-muted">All conditions below must match the same related {singular}.</p>
+        </div>
+        <div role="group" aria-label="Related item match" className="grid shrink-0 gap-2 sm:grid-cols-2">
+          <button
+            ref={positiveRelationshipRef}
+            type="button"
+            aria-pressed={!related.exclude}
+            onClick={() => update({ exclude: undefined })}
+            className={`min-h-10 rounded-lg border px-3 py-2 text-sm ${!related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
+          >
+            At least one matching {singular}
+          </button>
+          <button
+            type="button"
+            aria-pressed={related.exclude === true}
+            onClick={() => update({ exclude: true })}
+            className={`min-h-10 rounded-lg border px-3 py-2 text-sm ${related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
+          >
+            No matching {singular}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
+        <aside className={`${hasEditor ? "hidden md:flex" : "flex"} min-h-0 flex-col border-border md:border-r`} aria-label={`${criterion.label} criteria`}>
+          <div className="space-y-3 border-b border-border p-3 md:p-4">
+            <LabeledControl label={`Saved ${singular} filter`}>
+              <select
+                ref={savedFilterSelectRef}
+                data-filter-primary-control
+                aria-label={`Saved ${singular} filter`}
+                value={selectedSavedFilterId}
+                onChange={(event) => chooseSavedFilter(event.target.value)}
+                className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+              >
+                <option value="">Choose a saved filter…</option>
+                {savedFilters.map((savedFilter) => <option key={savedFilter.id} value={savedFilter.id}>{savedFilter.name}</option>)}
+              </select>
+            </LabeledControl>
+            {savedFiltersPending ? <p className="text-xs text-muted">Loading saved filters…</p> : null}
+            {savedFiltersError ? <p className="text-xs text-red-300">Saved filters are unavailable. You can still build the filter here.</p> : null}
+            <label className="relative block">
+              <span className="sr-only">Search {singular} filter criteria</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+              <input
+                ref={criteriaSearchRef}
+                type="search"
+                aria-label={`Search ${singular} filter criteria`}
+                value={criteriaSearch}
+                onChange={(event) => setCriteriaSearch(event.target.value)}
+                placeholder={`Search ${singular} filters`}
+                className="min-h-11 w-full rounded-lg border border-border bg-input py-2 pl-10 pr-3 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm"
+              />
+            </label>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2 md:p-3" role="tablist" aria-label={`Available ${singular} filters`} aria-orientation="vertical">
+            {showTextSearch ? (
+              <section className="mb-4" aria-label="Quick">
+                <h4 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">Quick</h4>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editingSearch}
+                  data-active={related.findFilter?.q?.trim() ? "true" : "false"}
+                  onClick={() => select({ facet: "search" })}
+                  className={`flex min-h-11 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition ${editingSearch ? "border-accent bg-accent/15 text-foreground" : related.findFilter?.q?.trim() ? "border-accent/30 bg-accent/5 text-foreground hover:bg-card" : "border-transparent text-secondary hover:border-border hover:bg-card hover:text-foreground"}`}
+                >
+                  <Search className="h-4 w-4 shrink-0" />
+                  <span className="font-medium">Text search</span>
+                </button>
+              </section>
+            ) : null}
+            {activeCriteria.length > 0 ? (
+              <section className="mb-4" aria-label="Active">
+                <h4 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">Active</h4>
+                <div className="space-y-1">{activeCriteria.map(renderCriterionRow)}</div>
+              </section>
+            ) : null}
+            {inactiveCriteria.length > 0 ? (
+              <section className="mb-4" aria-label={`All ${singular} filters`}>
+                <h4 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">All {singular} filters</h4>
+                <div className="space-y-1">{inactiveCriteria.map(renderCriterionRow)}</div>
+              </section>
+            ) : null}
+            {!showTextSearch && filteredCriteria.length === 0 ? <div className="px-4 py-10 text-center text-sm text-muted">No filters match “{criteriaSearch}”.</div> : null}
+          </div>
+        </aside>
+
+        <main className={`${hasEditor ? "flex" : "hidden md:flex"} min-h-0 min-w-0 flex-col`}>
+          {hasEditor ? (
+            <div role="tabpanel" aria-label={editingSearch ? "Text search" : editingExistence ? `Any ${singular}` : selectedCriterion?.label} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 md:p-6">
+              <div className="mb-4 flex items-center gap-2 md:hidden">
+                <button
+                  type="button"
+                  data-mobile-only-control
+                  onClick={() => { onSelectionChange(null); window.setTimeout(() => criteriaSearchRef.current?.focus(), 0); }}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground"
+                  aria-label="Back to related filter criteria"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <span className="text-sm font-semibold text-foreground">{editingSearch ? "Text search" : editingExistence ? `Any ${singular}` : selectedCriterion?.label}</span>
+              </div>
+              {editingSearch ? (
+                <div className="max-w-2xl space-y-4">
+                  <div>
+                    <h4 className="text-base font-semibold text-foreground">Search related {plural}</h4>
+                    <p className="mt-1 text-sm text-secondary">Match the related {singular}'s name, title, tags, or other searchable text.</p>
+                  </div>
+                  <LabeledControl label={`Search related ${plural}`}>
+                    <input
+                      data-filter-primary-control
+                      type="search"
+                      aria-label={`Search related ${plural}`}
+                      value={related.findFilter?.q ?? ""}
+                      onChange={(event) => update({
+                        findFilter: event.target.value ? { q: event.target.value } : undefined,
+                        _matchAll: undefined,
+                      }, true)}
+                      placeholder={`Search ${plural}`}
+                      className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm"
+                    />
+                  </LabeledControl>
+                </div>
+              ) : editingExistence ? (
+                <div className="max-w-2xl space-y-4">
+                  <div>
+                    <h4 className="text-base font-semibold text-foreground">Any related {singular}</h4>
+                    <p className="mt-1 text-sm text-secondary">Require at least one related {singular} without adding another condition.</p>
+                  </div>
+                  <button
+                    ref={matchAnyRef}
+                    data-filter-primary-control
+                    type="button"
+                    aria-pressed={related._matchAll === true}
+                    onClick={toggleMatchAll}
+                    className={`min-h-11 w-fit rounded-lg border px-4 py-2 text-sm ${related._matchAll ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:bg-card hover:text-foreground"}`}
+                  >
+                    Match any related {singular}
+                  </button>
+                </div>
+              ) : selectedCriterion ? (
+                <div className="max-w-2xl space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="text-base font-semibold text-foreground">{selectedCriterion.label}</h4>
+                    {isCriterionValueValid(getCriterionFilterValue(objectFilter, selectedCriterion), selectedCriterion) ? (
+                      <button type="button" onClick={() => removeNestedCriterion(selectedCriterion)} className="text-sm text-muted hover:text-foreground">Remove</button>
+                    ) : null}
+                  </div>
+                  <CriterionEditor
+                    criterion={selectedCriterion}
+                    value={getCriterionFilterValue(objectFilter, selectedCriterion)}
+                    auxiliaryToggleChecked={selectedCriterion.auxiliaryToggleKey ? Boolean(objectFilter[selectedCriterion.auxiliaryToggleKey]) : undefined}
+                    onAuxiliaryToggleChange={(checked) => {
+                      if (!selectedCriterion.auxiliaryToggleKey) return;
+                      const nextObjectFilter = { ...objectFilter };
+                      if (checked) nextObjectFilter[selectedCriterion.auxiliaryToggleKey] = true;
+                      else delete nextObjectFilter[selectedCriterion.auxiliaryToggleKey];
+                      update({ objectFilter: nextObjectFilter, _matchAll: undefined }, true);
+                    }}
+                    onChange={(nextValue) => updateNestedCriterion(selectedCriterion, nextValue)}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex flex-1 items-center justify-center p-8 text-center">
+              <div className="max-w-sm">
+                <EntityIcon className="mx-auto mb-3 h-8 w-8 text-muted" />
+                <h4 className="text-lg font-semibold text-foreground">
+                  {related.exclude ? `Find ${resultPlural} without matching ${plural}` : `Find ${resultPlural} by ${singular}`}
+                </h4>
+                <p className="mt-1 text-sm text-secondary">
+                  {related.exclude
+                    ? `Show ${resultPlural} where no ${singular} matches a saved filter, the filters you add here, or both. A ${singular} counts as a match only when all filters match that same ${singular}.`
+                    : `Show ${resultPlural} with a ${singular} ${relativePronoun} matches a saved filter, the filters you add here, or both. All filters must match the same ${singular}.`}
+                </p>
+                {value ? (
+                  <button type="button" onClick={() => onChange(undefined)} className="mt-5 text-sm text-muted hover:text-foreground">Clear related filter</button>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
 }
 
 // ===== Bool Editor =====

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
+import { VIDEO_CRITERIA } from "../components/FilterDialog";
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 
 vi.mock("../hooks/useRegisterKeyboardActionHandler", () => ({
@@ -316,6 +317,30 @@ describe("DetailListToolbar", () => {
 
     expect(onObjectFilterChange).toHaveBeenCalledWith({});
     expect(onFilterChange).toHaveBeenCalledWith({ page: 1, perPage: 24 });
+  });
+
+  it("normalizes a legacy performer-favorite chip before editing or removing it", async () => {
+    const user = userEvent.setup();
+    const onObjectFilterChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={VIDEO_CRITERIA}
+        objectFilter={{ performerFavoriteCriterion: { value: true } }}
+        onObjectFilterChange={onObjectFilterChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit performer filter: Favorite" }));
+    expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({});
   });
 
   it("clears all applied object-filter parameters", async () => {

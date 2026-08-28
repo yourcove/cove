@@ -2273,6 +2273,16 @@ export interface FindFilter {
   seed?: number;
 }
 
+export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>> {
+  findFilter?: Pick<FindFilter, "q">;
+  objectFilter?: TObjectFilter;
+  exclude?: boolean;
+  /** Client-only label retained with a saved-filter snapshot for a readable chip summary. */
+  _savedFilterName?: string;
+  /** Client-only marker for an explicit existence check with no nested conditions. */
+  _matchAll?: boolean;
+}
+
 export interface SavedFilter {
   id: number;
   mode: string;
@@ -2788,6 +2798,7 @@ export interface VideoFilterCriteria {
   galleriesCriterion?: MultiIdCriterion;
   performerTagsCriterion?: MultiIdCriterion;
   performerAgeCriterion?: IntCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   captionsCriterion?: StringCriterion;
   orientationCriterion?: StringCriterion;
   customFieldCriterion?: CustomFieldCriterion;
@@ -2850,6 +2861,7 @@ export interface PerformerFilterCriteria {
   likeCounterCriterion?: IntCriterion;
   groupsCriterion?: MultiIdCriterion;
   tagCountCriterion?: IntCriterion;
+  videoFilterCriterion?: RelatedFilterCriterion<VideoFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -2966,6 +2978,7 @@ export interface GalleryFilterCriteria {
   typicalResolutionCriterion?: IntCriterion;
   videosCriterion?: MultiIdCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -3005,6 +3018,7 @@ export interface ImageFilterCriteria {
   performerAgeCriterion?: IntCriterion;
   orientationCriterion?: StringCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -3039,6 +3053,7 @@ export interface AudioFilterCriteria {
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   tagsCriterion?: MultiIdCriterion;
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
@@ -3074,6 +3089,7 @@ export interface TextFilterCriteria {
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   tagsCriterion?: MultiIdCriterion;
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
