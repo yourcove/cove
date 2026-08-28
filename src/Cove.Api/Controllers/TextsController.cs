@@ -837,13 +837,14 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         var groups = await GetGroupsAsync(text.Id, ct);
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Text, text.Id, ct);
         var contextTagApplications = await GetContextTagApplicationsAsync(text.Id, ct);
+        var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(db, text.TextPerformers.Select(link => link.PerformerId), ct, principalAccessor);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Text, text.Id, ct)).ToList();
-        return MapToDto(text, groups, customFieldValues, contextTagApplications, fieldProvenance);
+        return MapToDto(text, groups, customFieldValues, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private TextDocumentDto MapToDto(TextDocument text, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
+    private TextDocumentDto MapToDto(TextDocument text, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         text.Id,
         text.Title,
         text.Code,
@@ -861,7 +862,12 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performer.Gender?.ToString(),
             performer.Birthdate?.ToString("yyyy-MM-dd"),
             performer.Favorite,
-            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
+            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
+            performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
         text.Files.OrderBy(file => file.Id).Select(file => new TextFileDto(
             file.Id,
             CanReadFiles ? file.Path : string.Empty,

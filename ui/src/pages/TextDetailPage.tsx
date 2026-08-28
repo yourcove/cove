@@ -531,6 +531,7 @@ export function TextDetailPage({ id, onNavigate }: Props) {
                           engagement={performerEngagement.get(performer.id)}
                           onClick={() => onNavigate({ page: "performer", id: performer.id })}
                           onNavigate={onNavigate}
+                          referenceDate={text.date}
                         >
                           {contextTags.length > 0 ? <div className="space-y-2 text-xs text-secondary"><PerformerContextTagList contextTags={contextTags} onNavigate={onNavigate} /></div> : null}
                         </PerformerTile>

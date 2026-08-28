@@ -13,7 +13,7 @@ import { InteractiveRating } from "../components/Rating";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
 import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
-import { PerformerBadgeRow } from "../components/EntityCards";
+import { PerformerTile } from "../components/EntityCards";
 import { EntityHeroLayout, HERO_PRIMARY_ACTION_BUTTON_CLASS, HERO_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
@@ -383,7 +383,11 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
             </div>
 
             {canReadPerformers && gallery.performers.length > 0 ? (
-              <PerformerBadgeRow performers={gallery.performers} onNavigate={onNavigate} className="mt-4" />
+              <div className={`mt-4 grid gap-3 ${gallery.performers.length > 1 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4" : "max-w-[220px]"}`}>
+                {gallery.performers.map((performer) => (
+                  <PerformerTile key={performer.id} performer={performer} onClick={() => onNavigate({ page: "performer", id: performer.id })} onNavigate={onNavigate} referenceDate={gallery.date} />
+                ))}
+              </div>
             ) : null}
 
             {gallery.urls.length > 0 ? (

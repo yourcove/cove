@@ -292,6 +292,29 @@ describe("PerformerTile", () => {
 
     expect(screen.getByTitle("Likes: 4")).toBeInTheDocument();
   });
+
+  it("shows summary counts and an accurate age only for complete dates", () => {
+    const { rerender } = render(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", birthdate: "2000-09-10", tags: [], videoCount: 3, imageCount: 2 }}
+        referenceDate="2026-09-09"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("25 years old")).toBeInTheDocument();
+    expect(screen.getByTitle("Videos")).toHaveTextContent("3");
+    expect(screen.getByTitle("Images")).toHaveTextContent("2");
+
+    rerender(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", birthdate: "2000", tags: [] }}
+        referenceDate="2026-09-09"
+        onClick={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/years old/)).not.toBeInTheDocument();
+  });
 });
 
 describe("GalleryTile", () => {
@@ -582,7 +605,7 @@ describe("DetailsTab performers", () => {
 
     renderWithQueryClient(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
 
-    expect(screen.getByText("24 yrs old")).toBeInTheDocument();
+    expect(screen.getByText("24 years old")).toBeInTheDocument();
 
     const performerGrid = screen.getByText("Performers").nextElementSibling as HTMLElement;
     expect(performerGrid.className).toContain("grid");

@@ -27,7 +27,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
     private static string GetVisibleBasename(string path, string basename) => string.IsNullOrWhiteSpace(basename) ? System.IO.Path.GetFileName(path) : basename;
-    private sealed record PerformerSupplementalCounts(int AudioCount, int TextCount);
 
     [HttpGet]
     [OutputCache(PolicyName = "ShortCache")]
@@ -696,37 +695,18 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Video, video.Id, cancellationToken)).ToList();
-        var performerCounts = await LoadPerformerSupplementalCountsAsync(
+        var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(
+            db,
             video.VideoPerformers
                 .Where(videoPerformer => videoPerformer.Performer != null)
                 .Select(videoPerformer => videoPerformer.Performer!.Id)
                 .Distinct()
                 .ToArray(),
-            cancellationToken);
+            cancellationToken,
+            principalAccessor);
 
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Video, video.Id, cancellationToken);
         return MapToDto(video, customFieldValues, engagement, preferUserSnapshot, effectiveTags, contextTagApplications, fieldProvenance, performerCounts);
-    }
-
-    private async Task<IReadOnlyDictionary<int, PerformerSupplementalCounts>> LoadPerformerSupplementalCountsAsync(IReadOnlyCollection<int> performerIds, CancellationToken cancellationToken)
-    {
-        if (performerIds.Count == 0) return new Dictionary<int, PerformerSupplementalCounts>();
-
-        var audioCounts = await db.Set<AudioPerformer>()
-            .Where(audioPerformer => performerIds.Contains(audioPerformer.PerformerId))
-            .GroupBy(audioPerformer => audioPerformer.PerformerId)
-            .Select(group => new { PerformerId = group.Key, Count = group.Select(audioPerformer => audioPerformer.AudioId).Distinct().Count() })
-            .ToDictionaryAsync(item => item.PerformerId, item => item.Count, cancellationToken);
-
-        var textCounts = await db.Set<TextPerformer>()
-            .Where(textPerformer => performerIds.Contains(textPerformer.PerformerId))
-            .GroupBy(textPerformer => textPerformer.PerformerId)
-            .Select(group => new { PerformerId = group.Key, Count = group.Select(textPerformer => textPerformer.TextDocumentId).Distinct().Count() })
-            .ToDictionaryAsync(item => item.PerformerId, item => item.Count, cancellationToken);
-
-        return performerIds.ToDictionary(
-            id => id,
-            id => new PerformerSupplementalCounts(audioCounts.GetValueOrDefault(id), textCounts.GetValueOrDefault(id)));
     }
 
     private sealed class VideoListEntryKey : CustomFieldSortProjection
@@ -811,7 +791,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             : null;
     }
 
-    private VideoDto MapToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSupplementalCounts>? performerCounts = null) => new(
+    private VideoDto MapToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         s.Id, s.Title, s.Code, s.Details, s.Director,
         s.Date?.ToString("yyyy-MM-dd"),
         s.Organized, s.IsVr, s.StudioId, s.Studio?.Name,
@@ -890,10 +870,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             ? tags
             : video.VideoTags.Where(videoTag => videoTag.Tag != null).Select(videoTag => MapTagDto(videoTag.Tag!)).ToList();
 
-    private PerformerSummaryDto MapPerformerSummary(Performer performer, IReadOnlyDictionary<int, PerformerSupplementalCounts>? supplementalCounts)
+    private PerformerSummaryDto MapPerformerSummary(Performer performer, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts)
     {
-        var supplemental = supplementalCounts != null && supplementalCounts.TryGetValue(performer.Id, out var counts)
-            ? counts
+        var counts = performerCounts != null && performerCounts.TryGetValue(performer.Id, out var summaryCounts)
+            ? summaryCounts
             : null;
         return new PerformerSummaryDto(
             performer.Id,
@@ -903,11 +883,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             performer.Birthdate?.ToString("yyyy-MM-dd"),
             performer.Favorite,
             EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
-            performer.VideoCount,
-            performer.ImageCount,
-            performer.GalleryCount,
-            supplemental?.AudioCount ?? 0,
-            supplemental?.TextCount ?? 0);
+            counts?.VideoCount ?? performer.VideoCount,
+            counts?.ImageCount ?? performer.ImageCount,
+            counts?.GalleryCount ?? performer.GalleryCount,
+            counts?.AudioCount ?? 0,
+            counts?.TextCount ?? 0);
     }
 
     private static IEnumerable<VideoFile> EffectiveFiles(Video video)

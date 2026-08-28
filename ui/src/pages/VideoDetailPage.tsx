@@ -47,6 +47,7 @@ import { ListLoadError } from "../components/ListLoadError";
 import { MediaDetailLayout } from "../components/MediaDetailLayout/MediaDetailLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { PerformerTile, EntityRefBadge } from "../components/EntityCards";
+import { PerformerContextTagList, getPerformerContextTags } from "../components/PerformerContextTags";
 import { trackInteraction } from "../utils/interactionTracking";
 import { formatDateTime } from "../utils/dateFormat";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
@@ -1161,11 +1162,7 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
           <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="performers" block>
             <div className={video.performers.length > 1 ? "grid grid-cols-2 gap-3" : "grid max-w-[220px] gap-3"}>
               {video.performers.map((performer: any) => {
-                const contextTags = (video.contextTagApplications ?? []).filter((application) => application.contextType === "performer" && application.contextId === performer.id);
-                const ageAtVideo = getAgeAtDate(video.date, performer.birthdate);
-                const footer = ageAtVideo || contextTags.length > 0
-                  ? <VideoPerformerTileFooter ageAtVideo={ageAtVideo} contextTags={contextTags} />
-                  : null;
+                const contextTags = getPerformerContextTags(video.contextTagApplications, performer.id);
 
                 return (
                   <PerformerTile
@@ -1174,8 +1171,9 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
                     engagement={performerEngagement.get(performer.id)}
                     onClick={() => onNavigate({ page: "performer", id: performer.id })}
                     onNavigate={onNavigate}
+                    referenceDate={video.date}
                   >
-                    {footer}
+                    {contextTags.length > 0 ? <div className="space-y-2 text-xs text-secondary"><PerformerContextTagList contextTags={contextTags} onNavigate={onNavigate} /></div> : null}
                   </PerformerTile>
                 );
               })}
@@ -1323,48 +1321,6 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
       <CustomFieldsDisplay customFields={video.customFields} entityType="video" />
     </div>
   );
-}
-
-function VideoPerformerTileFooter({ ageAtVideo, contextTags = [] }: { ageAtVideo: number | null; contextTags?: TagApplication[] }) {
-  return <div className="space-y-2 text-xs text-secondary">
-    {ageAtVideo ? <div className="text-center">{ageAtVideo} yrs old</div> : null}
-    <PerformerContextTagList contextTags={contextTags} />
-  </div>;
-}
-
-function getAgeAtDate(videoDate?: string, birthdate?: string) {
-  if (!videoDate || !birthdate) return null;
-
-  const video = new Date(videoDate);
-  const birth = new Date(birthdate);
-  let age = video.getFullYear() - birth.getFullYear();
-  const monthDelta = video.getMonth() - birth.getMonth();
-  if (monthDelta < 0 || (monthDelta === 0 && video.getDate() < birth.getDate())) age--;
-  return age > 0 ? age : null;
-}
-
-function PerformerContextTagList({ contextTags }: { contextTags: TagApplication[] }) {
-  return contextTags.length > 0 ? (
-    <div className="flex flex-wrap gap-1.5">
-      {contextTags.map((application) => (
-        <TagBadge key={application.id} name={application.tag.name} tag={application.tag} provenance={[toTagProvenance(application)]} />
-      ))}
-    </div>
-  ) : null;
-}
-
-function toTagProvenance(application: TagApplication) {
-  return {
-    sourceKey: application.sourceKey,
-    sourceRunId: application.sourceRunId ?? undefined,
-    modelKey: application.modelKey ?? undefined,
-    confidence: application.confidence ?? undefined,
-    appliedAt: application.appliedAt,
-    contextType: application.contextType ?? undefined,
-    contextId: application.contextId ?? undefined,
-    totalDurationSec: application.totalDurationSec ?? undefined,
-    hostDurationSec: application.hostDurationSec ?? undefined,
-  };
 }
 
 // File Info Tab — show every underlying video file rather than only the first one.

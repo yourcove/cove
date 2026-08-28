@@ -291,6 +291,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
 
         var customFieldValues = await _customFields.GetValuesAsync(CustomFieldEntityTypes.Gallery, gallery.Id, cancellationToken);
         var relationshipCounts = await GetRelationshipCountsAsync([gallery.Id], cancellationToken);
+        var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(db, gallery.GalleryPerformers.Select(link => link.PerformerId), cancellationToken, principalAccessor);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Gallery, gallery.Id, cancellationToken)).ToList();
@@ -305,15 +306,16 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             GetRelationshipCount(relationshipCounts.VideoCounts, gallery.Id),
             provenanceLookup,
             fieldProvenance,
+            performerCounts,
             visibleCoverImageId: visibleCoverImageId);
     }
 
-    private GalleryDto MapToDto(Gallery g, Dictionary<string, object>? customFieldValues = null, int? imageCount = null, int? videoCount = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, List<FieldProvenanceDto>? fieldProvenance = null, string? displayName = null, int? visibleCoverImageId = null) => new(
+    private GalleryDto MapToDto(Gallery g, Dictionary<string, object>? customFieldValues = null, int? imageCount = null, int? videoCount = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null, string? displayName = null, int? visibleCoverImageId = null) => new(
         g.Id, g.Title, g.Code, g.Date?.ToString("yyyy-MM-dd"), g.Details, g.Photographer,
         g.Organized, g.StudioId, g.Studio?.Name,
         g.Urls.Select(u => u.Url).ToList(),
         g.GalleryTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!, GetTagProvenance(provenanceLookup, gt.Tag!.Id))).ToList(),
-        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => gp.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
+        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => gp.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
         imageCount ?? g.ImageCount,
         videoCount ?? g.VideoCount,
         g.VideoGalleries?.Select(sg => sg.VideoId).ToList() ?? [],

@@ -1,4 +1,5 @@
 using Cove.Api.Controllers;
+using Cove.Api.Helpers;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Common;
@@ -17,6 +18,60 @@ namespace Cove.Tests;
 
 public class VideoFilterBehaviorTests
 {
+    [Fact]
+    public async Task PerformerSummaryCountsLoader_BatchesCountsAndHonorsHostReadPermissions()
+    {
+        var principals = new CurrentPrincipalAccessor();
+        principals.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "summary-reader",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { Permissions.PerformersRead, Permissions.VideosRead, Permissions.ImagesRead, Permissions.GalleriesRead, Permissions.TextsRead },
+            Roles = new HashSet<string>(),
+        });
+        var options = new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase($"performer-summary-counts-{Guid.NewGuid():N}").Options;
+        await using var context = new TestCoveContext(options, principals);
+        context.Set<VideoPerformer>().AddRange(new VideoPerformer { PerformerId = 7, VideoId = 1 }, new VideoPerformer { PerformerId = 8, VideoId = 2 });
+        context.Set<ImagePerformer>().Add(new ImagePerformer { PerformerId = 7, ImageId = 1 });
+        context.Set<GalleryPerformer>().Add(new GalleryPerformer { PerformerId = 7, GalleryId = 1 });
+        context.Set<AudioPerformer>().Add(new AudioPerformer { PerformerId = 7, AudioId = 1 });
+        context.Set<TextPerformer>().Add(new TextPerformer { PerformerId = 7, TextDocumentId = 1 });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var counts = await PerformerSummaryCountsLoader.LoadAsync(context, [7, 8], TestContext.Current.CancellationToken, principals);
+
+        Assert.Equal(new PerformerSummaryCounts(1, 1, 1, 0, 1), counts[7]);
+        Assert.Equal(new PerformerSummaryCounts(1, 0, 0, 0, 0), counts[8]);
+    }
+
+    [Fact]
+    public async Task VideosController_Find_PreservesCachedPerformerCountsWithoutDetailQueries()
+    {
+        await using var context = CreateContext();
+        var performer = new Performer { Name = "List Performer", VideoCount = 4, ImageCount = 3, GalleryCount = 2 };
+        var video = CreateVideoWithFile("performer-count-list");
+        video.VideoPerformers.Add(new VideoPerformer { Performer = performer });
+        context.Videos.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        performer.VideoCount = 4;
+        performer.ImageCount = 3;
+        performer.GalleryCount = 2;
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var controller = CreateVideosControllerWithRepository(context);
+        var response = await controller.Find(q: null, page: 1, perPage: 25, ct: TestContext.Current.CancellationToken);
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var page = Assert.IsType<PaginatedResponse<VideoDto>>(ok.Value);
+        var summary = Assert.Single(Assert.Single(page.Items).Performers);
+
+        Assert.Equal(4, summary.VideoCount);
+        Assert.Equal(3, summary.ImageCount);
+        Assert.Equal(2, summary.GalleryCount);
+        Assert.Equal(0, summary.AudioCount);
+        Assert.Equal(0, summary.TextCount);
+    }
+
     [Fact]
     public async Task PathCriterion_UnderPath_UsesFolderBoundaries()
     {
