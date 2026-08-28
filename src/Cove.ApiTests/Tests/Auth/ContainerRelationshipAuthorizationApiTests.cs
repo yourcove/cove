@@ -13,11 +13,12 @@ public sealed class ContainerRelationshipAuthorizationApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
-    public async Task GivenRestrictedRelatedMedia_WhenRelationshipViewsAreRead_ThenIdsAndCountsExcludeHiddenVideos()
+    public async Task GivenRestrictedRelatedMedia_WhenRelationshipViewsAreRead_ThenIdsAndCountsExcludeHiddenMedia()
     {
         var owner = AsUser();
         var suffix = Guid.NewGuid().ToString("N");
         var performer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Related performer {suffix}").Build(), TestContext.Current.CancellationToken);
+        var comparisonPerformer = await owner.CreatePerformerAsync(new PerformerBuilder().WithName($"Related comparison performer {suffix}").Build(), TestContext.Current.CancellationToken);
         var studio = await owner.CreateStudioAsync($"Related studio {suffix}", TestContext.Current.CancellationToken);
         var relationTag = await owner.CreateTagAsync($"Related tag {suffix}", TestContext.Current.CancellationToken);
         var hiddenTag = await owner.CreateTagAsync($"Related hidden tag {suffix}", TestContext.Current.CancellationToken);
@@ -33,13 +34,58 @@ public sealed class ContainerRelationshipAuthorizationApiTests(
             .WithPerformers([performer])
             .WithTags([relationTag, hiddenTag])
             .Build(), TestContext.Current.CancellationToken);
+        await owner.CreateAudioAsync(new AudioBuilder()
+            .WithTitle($"Related visible audio {suffix}")
+            .WithPerformer(performer)
+            .Build(), TestContext.Current.CancellationToken);
+        await owner.CreateAudioAsync(new AudioBuilder()
+            .WithTitle($"Related hidden audio {suffix}")
+            .WithPerformer(performer)
+            .WithTag(hiddenTag)
+            .Build(), TestContext.Current.CancellationToken);
+        await owner.CreateAudioAsync(new AudioBuilder()
+            .WithTitle($"Related second hidden audio {suffix}")
+            .WithPerformer(performer)
+            .WithTag(hiddenTag)
+            .Build(), TestContext.Current.CancellationToken);
+        await owner.CreateTextAsync(new TextDocumentBuilder()
+            .WithTitle($"Related visible text {suffix}")
+            .WithPerformer(performer)
+            .Build(), TestContext.Current.CancellationToken);
+        await owner.CreateTextAsync(new TextDocumentBuilder()
+            .WithTitle($"Related hidden text {suffix}")
+            .WithPerformer(performer)
+            .WithTag(hiddenTag)
+            .Build(), TestContext.Current.CancellationToken);
+        await owner.CreateTextAsync(new TextDocumentBuilder()
+            .WithTitle($"Related second hidden text {suffix}")
+            .WithPerformer(performer)
+            .WithTag(hiddenTag)
+            .Build(), TestContext.Current.CancellationToken);
+        for (var index = 1; index <= 2; index++)
+        {
+            await owner.CreateAudioAsync(new AudioBuilder()
+                .WithTitle($"Related comparison audio {index} {suffix}")
+                .WithPerformer(comparisonPerformer)
+                .Build(), TestContext.Current.CancellationToken);
+            await owner.CreateTextAsync(new TextDocumentBuilder()
+                .WithTitle($"Related comparison text {index} {suffix}")
+                .WithPerformer(comparisonPerformer)
+                .Build(), TestContext.Current.CancellationToken);
+        }
         var roleName = $"Restricted relationships {suffix}";
         var role = await owner.CreateRoleAsync(new CreateRoleRequest(
             roleName,
             "Reads relationship projections without hidden media disclosures.",
-            [Permissions.VideosRead, Permissions.PerformersRead, Permissions.StudiosRead, Permissions.TagsRead]), TestContext.Current.CancellationToken);
+            [Permissions.VideosRead, Permissions.AudiosRead, Permissions.TextsRead, Permissions.PerformersRead, Permissions.StudiosRead, Permissions.TagsRead]), TestContext.Current.CancellationToken);
         await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
             role.Id, EntityKinds.Video, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"), TestContext.Current.CancellationToken);
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id, EntityKinds.Audio, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"), TestContext.Current.CancellationToken);
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id, EntityKinds.Text, "deny", "tag", $"{{\"tagId\":{hiddenTag.Id}}}", "read"), TestContext.Current.CancellationToken);
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id, EntityKinds.Performer, "deny", "attribute", "{\"path\":\"favorite\",\"equals\":true}", "read"), TestContext.Current.CancellationToken);
         var username = $"restricted-relationships-{suffix}";
         const string password = "Restricted relationships password 123!";
         await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]), TestContext.Current.CancellationToken);
@@ -54,7 +100,28 @@ public sealed class ContainerRelationshipAuthorizationApiTests(
             FindFilter = new FindFilter { Page = 1, PerPage = 25 },
         }, TestContext.Current.CancellationToken)).Items.Select(video => video.Id).Should().Equal(visible.Id);
 
-        (await user.GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken)).VideoCount.Should().Be(1);
+        var visiblePerformer = await user.GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken);
+        visiblePerformer.VideoCount.Should().Be(1);
+        visiblePerformer.AudioCount.Should().Be(1);
+        visiblePerformer.TextCount.Should().Be(1);
+        var filteredPerformers = await user.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+        {
+            ObjectFilter = new PerformerFilter
+            {
+                AudioCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 1 },
+                TextCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 1 },
+            },
+            FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 25, Sort = "audio_count", Direction = Cove.Core.Enums.SortDirection.Desc },
+        }, TestContext.Current.CancellationToken);
+        filteredPerformers.Items.Should().ContainSingle(item => item.Id == performer.Id);
+        foreach (var sort in new[] { "audio_count", "text_count" })
+        {
+            var sortedPerformers = await user.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+            {
+                FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 25, Sort = sort, Direction = Cove.Core.Enums.SortDirection.Desc },
+            }, TestContext.Current.CancellationToken);
+            sortedPerformers.Items.Select(item => item.Id).Should().Equal(comparisonPerformer.Id, performer.Id);
+        }
         (await user.GetStudioByIdAsync(studio.Id, TestContext.Current.CancellationToken)).VideoCount.Should().Be(1);
         (await user.GetTagByIdAsync(relationTag.Id, TestContext.Current.CancellationToken)).VideoCount.Should().Be(1);
         await user.AssertResponseAsync($"/api/videos/{hidden.Id}", HttpStatusCode.NotFound, TestContext.Current.CancellationToken);

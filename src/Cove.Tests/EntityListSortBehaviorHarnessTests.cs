@@ -221,6 +221,14 @@ public class EntityListSortBehaviorHarnessTests
             fixture => QueryFilteredIdsAsync(fixture.Context, "performers", new PerformerFilter { VideoCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
             _ => [301, 302])];
         yield return [new FilterProbe(
+            "filter:performers:AudioCountCriterion/greater_than",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "performers", new PerformerFilter { AudioCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
+            _ => [301, 302])];
+        yield return [new FilterProbe(
+            "filter:performers:TextCountCriterion/greater_than",
+            fixture => QueryFilteredIdsAsync(fixture.Context, "performers", new PerformerFilter { TextCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
+            _ => [301, 302])];
+        yield return [new FilterProbe(
             "filter:performers:ImageCountCriterion/greater_than",
             fixture => QueryFilteredIdsAsync(fixture.Context, "performers", new PerformerFilter { ImageCountCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 1 } }),
             _ => [301, 302])];
@@ -306,6 +314,49 @@ public class EntityListSortBehaviorHarnessTests
         var expectedIds = ProjectExpectedIds(fixture, entity, sortKey, direction);
 
         Assert.Equal(expectedIds, actualIds);
+    }
+
+    [Theory]
+    [InlineData("audio_count")]
+    [InlineData("text_count")]
+    public async Task PerformerRelationshipCountSortUsesStableIdTieBreakerAcrossPages(string sortKey)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        if (sortKey == "audio_count")
+        {
+            fixture.Context.Set<AudioPerformer>().Add(new AudioPerformer
+            {
+                AudioId = fixture.Audios[0].Id,
+                PerformerId = fixture.Performers[1].Id,
+            });
+        }
+        else
+        {
+            fixture.Context.Set<TextPerformer>().Add(new TextPerformer
+            {
+                TextDocumentId = fixture.Texts[0].Id,
+                PerformerId = fixture.Performers[1].Id,
+            });
+        }
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new PerformerRepository(fixture.Context);
+        var pageIds = new List<int>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var result = await repository.FindAsync(null, new FindFilter
+            {
+                Page = page,
+                PerPage = 1,
+                Sort = sortKey,
+                Direction = CoveSortDirection.Desc,
+            }, TestContext.Current.CancellationToken);
+            pageIds.Add(result.Items.Single().Id);
+        }
+
+        Assert.Equal([fixture.Performers[1].Id, fixture.Performers[0].Id, fixture.Performers[2].Id], pageIds);
     }
 
     [Theory]
@@ -1223,6 +1274,8 @@ public class EntityListSortBehaviorHarnessTests
             "name" => Order(fixture.Performers, performer => performer.Name, descending),
             "rating" => Order(fixture.Performers, performer => fixture.Rating(RatingHostType.Performer, performer.Id), descending),
             "video_count" => Order(fixture.Performers, performer => performer.VideoPerformers.Count, descending),
+            "audio_count" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => fixture.Audios.Count(audio => audio.AudioPerformers.Any(link => link.PerformerId == performer.Id)), descending),
+            "text_count" => OrderWithDirectionalIdTieBreaker(fixture.Performers, performer => fixture.Texts.Count(text => text.TextPerformers.Any(link => link.PerformerId == performer.Id)), descending),
             "image_count" => Order(fixture.Performers, performer => performer.ImagePerformers.Count, descending),
             "gallery_count" => Order(fixture.Performers, performer => performer.GalleryPerformers.Count, descending),
             "latest_video_date" => Order(fixture.Performers, performer => performer.VideoPerformers.Max(link => link.Video!.Date), descending),

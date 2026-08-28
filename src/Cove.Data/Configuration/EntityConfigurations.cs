@@ -208,7 +208,7 @@ public class AudioPerformerConfiguration : IEntityTypeConfiguration<AudioPerform
         builder.ToTable("audio_performers");
         builder.HasKey(link => new { link.AudioId, link.PerformerId });
         builder.HasOne(link => link.Audio).WithMany(audio => audio.AudioPerformers).HasForeignKey(link => link.AudioId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasOne(link => link.Performer).WithMany().HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(link => link.Performer).WithMany(performer => performer.AudioPerformers).HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(link => link.PerformerId);
     }
 }
@@ -268,7 +268,7 @@ public class TextPerformerConfiguration : IEntityTypeConfiguration<TextPerformer
         builder.ToTable("text_performers");
         builder.HasKey(link => new { link.TextDocumentId, link.PerformerId });
         builder.HasOne(link => link.TextDocument).WithMany(text => text.TextPerformers).HasForeignKey(link => link.TextDocumentId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasOne(link => link.Performer).WithMany().HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(link => link.Performer).WithMany(performer => performer.TextPerformers).HasForeignKey(link => link.PerformerId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(link => link.PerformerId);
     }
 }

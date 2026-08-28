@@ -273,6 +273,8 @@ public class PerformerFilter
     public MultiIdCriterion? TagsCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
     public IntCriterion? VideoCountCriterion { get; set; }
+    public IntCriterion? AudioCountCriterion { get; set; }
+    public IntCriterion? TextCountCriterion { get; set; }
     public IntCriterion? StudioCountCriterion { get; set; }
     public IntCriterion? ImageCountCriterion { get; set; }
     public IntCriterion? GalleryCountCriterion { get; set; }

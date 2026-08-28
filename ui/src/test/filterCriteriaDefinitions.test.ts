@@ -79,6 +79,8 @@ describe("filter criteria definitions", () => {
     expect(performerCriteriaById.get("gender")?.multiSelectOptions).toBe(true);
     expect(performerCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
     expect(performerCriteriaById.get("videoCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("audioCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
+    expect(performerCriteriaById.get("textCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("studioCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("imageCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(performerCriteriaById.get("galleryCount")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
