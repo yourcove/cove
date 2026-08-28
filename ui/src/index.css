@@ -159,6 +159,28 @@ select {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
+
+.saved-filter-menu-panel {
+  width: max-content;
+  min-width: min(14rem, calc(100vw - 1rem));
+  max-width: min(32rem, calc(100vw - 1rem));
+}
+
+.saved-filter-name {
+  min-width: 0;
+  max-width: 26rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .saved-filter-name {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
 .styled-dropdown-item {
   padding: 5px 10px;
   font-size: 0.75rem;
