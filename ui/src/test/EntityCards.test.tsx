@@ -605,7 +605,7 @@ describe("DetailsTab performers", () => {
 
     renderWithQueryClient(<DetailsTab video={video as any} onNavigate={vi.fn()} />);
 
-    expect(screen.getByText("24 yrs old")).toBeInTheDocument();
+    expect(screen.getByText("24 years old")).toBeInTheDocument();
 
     const performerGrid = screen.getByText("Performers").nextElementSibling as HTMLElement;
     expect(performerGrid.className).toContain("grid");
