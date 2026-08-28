@@ -216,6 +216,70 @@ public class TagFilterBehaviorTests
     }
 
     [Fact]
+    public async Task ParentsCriterion_WithRecursiveDepth_DeduplicatesMultiplePathsAndHandlesCycles()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        var root = new Tag { Name = "Root" };
+        var left = new Tag { Name = "Left" };
+        var right = new Tag { Name = "Right" };
+        var shared = new Tag { Name = "Shared" };
+        context.Tags.AddRange(root, left, right, shared);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.Set<TagParent>().AddRange(
+            new TagParent { ParentId = root.Id, ChildId = left.Id },
+            new TagParent { ParentId = root.Id, ChildId = right.Id },
+            new TagParent { ParentId = left.Id, ChildId = shared.Id },
+            new TagParent { ParentId = right.Id, ChildId = shared.Id },
+            new TagParent { ParentId = shared.Id, ChildId = root.Id });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new TagRepository(context);
+        var filter = new TagFilter
+        {
+            ParentsCriterion = new MultiIdCriterion
+            {
+                Value = [root.Id],
+                Modifier = CriterionModifier.Includes,
+                Depth = -1,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, totalCount);
+        Assert.Equal(["Left", "Right", "Root", "Shared"], items.Select(tag => tag.Name).ToArray());
+    }
+
+    [Fact]
+    public async Task ParentsCriterion_WithRecursiveDepth_CanReuseFilterWithoutChangingResults()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        var (parent, _, _) = await SeedTagHierarchyAsync(context);
+        var repository = new TagRepository(context);
+        var filter = new TagFilter
+        {
+            ParentsCriterion = new MultiIdCriterion
+            {
+                Value = [parent.Id],
+                Modifier = CriterionModifier.Includes,
+                Depth = -1,
+            },
+        };
+
+        var (firstItems, firstCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
+        var (secondItems, secondCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(firstCount, secondCount);
+        Assert.Equal(firstItems.Select(tag => tag.Id), secondItems.Select(tag => tag.Id));
+        Assert.Equal([parent.Id], filter.ParentsCriterion.Value);
+        Assert.Equal(-1, filter.ParentsCriterion.Depth);
+    }
+
+    [Fact]
     public async Task TagGroupsCriterion_FiltersIncludedAndExcludedGroups()
     {
         await using var scope = await CreateContextAsync();
@@ -332,4 +396,3 @@ public class TagFilterBehaviorTests
         }
     }
 }
-
