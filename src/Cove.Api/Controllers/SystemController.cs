@@ -469,8 +469,29 @@ public class SystemController(
         if (!System.IO.File.Exists(filePath))
             return NotFound();
 
+        var stream = FileReadRace.TryOpenRead(
+            filePath,
+            FileShare.ReadWrite,
+            bufferSize: 16 * 1024,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan,
+            pathWasObserved: true);
+        if (stream == null) return NotFound();
+
+        DateTimeOffset lastModified;
+        try
+        {
+            lastModified = System.IO.File.GetLastWriteTimeUtc(stream.SafeFileHandle);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+
         Response.Headers["Cache-Control"] = "public, max-age=86400";
-        return PhysicalFile(filePath, contentType);
+        var result = File(stream, contentType);
+        result.LastModified = lastModified;
+        return result;
     }
 
     [HttpGet("scrapers")]

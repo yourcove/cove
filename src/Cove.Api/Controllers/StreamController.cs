@@ -74,7 +74,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var path = GetExistingPreviewPath(videoId);
         if (path == null) return NotFound();
 
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         SetPreviewHeaders();
         return File(stream, "video/mp4", enableRangeProcessing: true);
     }
@@ -85,9 +87,12 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var path = GetExistingPreviewPath(videoId);
         if (path == null) return NotFound();
 
+        using var stream = FileReadRace.TryOpenRead(path, pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         SetPreviewHeaders();
         Response.ContentType = "video/mp4";
-        Response.ContentLength = new FileInfo(path).Length;
+        Response.ContentLength = stream.Length;
         return Ok();
     }
 
@@ -121,7 +126,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var path = thumbnailService.GetSpritePath(sourceVideoId.Value);
         if (!System.IO.File.Exists(path)) return NotFound();
 
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
+        var stream = FileReadRace.TryOpenRead(path, bufferSize: 8192, pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         Response.Headers["Cache-Control"] = "public, max-age=86400";
         return File(stream, "image/jpeg");
     }
@@ -135,7 +142,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var path = thumbnailService.GetSpriteVttPath(sourceVideoId.Value);
         if (!System.IO.File.Exists(path)) return NotFound();
 
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
+        var stream = FileReadRace.TryOpenRead(path, bufferSize: 8192, pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         Response.Headers["Cache-Control"] = "public, max-age=86400";
         return File(stream, "text/vtt");
     }
@@ -266,7 +275,9 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         if (!System.IO.File.Exists(captionPath)) return NotFound();
 
         var contentType = caption.CaptionType == "srt" ? "application/x-subrip" : "text/vtt";
-        var stream = new FileStream(captionPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
+        var stream = FileReadRace.TryOpenRead(captionPath, bufferSize: 8192, pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         Response.Headers["Cache-Control"] = "public, max-age=3600";
         return File(stream, contentType);
     }

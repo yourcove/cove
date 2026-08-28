@@ -102,6 +102,37 @@ jobs:
       - name: Test (Integration smoke)
         run: dotnet test src/Cove.Tests/Cove.Tests.csproj -c Release --no-build --verbosity normal --filter "FullyQualifiedName~Cove.Tests.Integration"
 
+  windows-file-read-races:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore src/Cove.Tests/Cove.Tests.csproj
+
+      - name: Build
+        run: dotnet build src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-restore
+
+      - name: Verify Windows file-deletion read semantics
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests" --logger "console;verbosity=normal" -- RunConfiguration.TreatNoTestsAsError=true
+
+      - name: Stress concurrent blob reads and deletion
+        shell: pwsh
+        run: |
+          1..12 | ForEach-Object {
+            dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.BlobServiceTests.ConcurrentGetAndDelete_DoNotExposeLookupOpenRace" --logger "console;verbosity=normal" -- RunConfiguration.TreatNoTestsAsError=true
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+
   api-tests:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}

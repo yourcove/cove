@@ -51,15 +51,17 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
 
         var ext = Path.GetExtension(filePath);
         var contentType = MimeTypes.GetValueOrDefault(ext, "application/octet-stream");
-        var fileInfo = new FileInfo(filePath);
 
         // FileShare.Delete lets the user delete the source file while the player still holds this stream
         // open (e.g. "delete from the video detail page"). Without it, Windows raises a sharing violation
         // ("being used by another process"). The audio stream already does this. On Windows the file is
         // unlinked once the last handle closes (when the player connection ends); on POSIX it unlinks
         // immediately and the open handle keeps serving until closed.
-        var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, useAsync: true);
-        return (stream, contentType, fileInfo.Length);
+        var stream = FileReadRace.TryOpenRead(
+            filePath,
+            FileShare.Read | FileShare.Delete,
+            pathWasObserved: true);
+        return stream == null ? null : (stream, contentType, stream.Length);
     }
 
     public async Task<(Stream stream, string contentType, bool useLongCache)?> GetVideoScreenshot(int videoId, double? seconds, CancellationToken ct = default)
@@ -79,8 +81,9 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
             var tsPath = thumbnailService.GetTimestampedThumbnailPath(sourceVideoId, effectiveSeconds.Value);
             if (File.Exists(tsPath))
             {
-                var stream = new FileStream(tsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
-                return (stream, "image/jpeg", true);
+                var timestampStream = FileReadRace.TryOpenRead(tsPath, bufferSize: 8192, pathWasObserved: true);
+                if (timestampStream != null)
+                    return (timestampStream, "image/jpeg", true);
             }
 
             var spriteFrame = await TryOpenSpriteFrameAsync(sourceVideoId, effectiveSeconds.Value, ct);
@@ -108,8 +111,8 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         var thumbPath = await thumbnailService.GetVideoThumbnailPathAsync(sourceVideoId, ct);
         if (thumbPath == null) return null;
 
-        var defaultStream = new FileStream(thumbPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
-        return (defaultStream, "image/jpeg", true);
+        var defaultStream = FileReadRace.TryOpenRead(thumbPath, bufferSize: 8192, pathWasObserved: true);
+        return defaultStream == null ? null : (defaultStream, "image/jpeg", true);
     }
 
     public async Task<(Stream stream, string contentType, bool useLongCache)?> GetSegmentAnimatedPreview(int videoId, double seconds, CancellationToken ct = default)
@@ -123,8 +126,11 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         if (!File.Exists(previewPath))
             return await TryOpenSpriteFrameAsync(sourceVideoId.Value, seconds, ct);
 
-        Stream stream = new FileStream(previewPath, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, useAsync: true);
-        return (stream, "image/webp", true);
+        var previewStream = FileReadRace.TryOpenRead(previewPath, bufferSize: 8192, pathWasObserved: true);
+        if (previewStream == null)
+            return await TryOpenSpriteFrameAsync(sourceVideoId.Value, seconds, ct);
+
+        return (previewStream, "image/webp", true);
     }
 
     private static async Task<int?> ResolveSourceVideoIdAsync(CoveContext db, int videoId, CancellationToken ct)
@@ -153,7 +159,10 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         var frame = await FindSpriteFrameAsync(vttPath, seconds, ct);
         if (frame == null) return null;
 
-        using var image = await Image.LoadAsync(spritePath, ct);
+        await using var spriteStream = FileReadRace.TryOpenRead(spritePath, bufferSize: 8192, pathWasObserved: true);
+        if (spriteStream == null) return null;
+
+        using var image = await Image.LoadAsync(spriteStream, ct);
         var bounds = new Rectangle(0, 0, image.Width, image.Height);
         var crop = Rectangle.Intersect(bounds, frame.Value.Bounds);
         if (crop.Width <= 0 || crop.Height <= 0) return null;
@@ -192,21 +201,38 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         var fileInfo = new FileInfo(vttPath);
         if (!fileInfo.Exists) return [];
 
+        DateTime lastWriteTimeUtc;
+        long length;
+        try
+        {
+            lastWriteTimeUtc = fileInfo.LastWriteTimeUtc;
+            length = fileInfo.Length;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return [];
+        }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, vttPath))
+        {
+            return [];
+        }
+
         var cacheKey = $"{nameof(StreamService)}:sprite-vtt:{vttPath}";
         if (memoryCache != null
             && memoryCache.TryGetValue(cacheKey, out SpriteFrameCache? cached)
             && cached is not null
-            && cached.LastWriteTimeUtc == fileInfo.LastWriteTimeUtc
-            && cached.Length == fileInfo.Length)
+            && cached.LastWriteTimeUtc == lastWriteTimeUtc
+            && cached.Length == length)
         {
             return cached.Frames;
         }
 
-        var lines = await File.ReadAllLinesAsync(vttPath, ct);
+        var lines = await FileReadRace.TryReadAllLinesAsync(vttPath, ct, pathWasObserved: true);
+        if (lines == null) return [];
         var frames = ParseSpriteFrames(lines);
         memoryCache?.Set(
             cacheKey,
-            new SpriteFrameCache(fileInfo.LastWriteTimeUtc, fileInfo.Length, frames),
+            new SpriteFrameCache(lastWriteTimeUtc, length, frames),
             new MemoryCacheEntryOptions
             {
                 SlidingExpiration = TimeSpan.FromMinutes(20),
@@ -309,4 +335,3 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
     private readonly record struct SpriteFrame(double StartSeconds, double EndSeconds, Rectangle Bounds);
     private sealed record SpriteFrameCache(DateTime LastWriteTimeUtc, long Length, IReadOnlyList<SpriteFrame> Frames);
 }
-

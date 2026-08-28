@@ -211,8 +211,13 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             contentType = file.HasVideoTrack ? "video/mp4" : "audio/mpeg";
         }
 
+        var stream = FileReadRace.TryOpenRead(
+            file.Path,
+            FileShare.ReadWrite | FileShare.Delete,
+            pathWasObserved: true);
+        if (stream == null) return NotFound();
+
         Response.Headers["Accept-Ranges"] = "bytes";
-        var stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 81920, useAsync: true);
         return File(stream, contentType, enableRangeProcessing: true);
     }
 

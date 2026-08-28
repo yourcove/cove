@@ -9,6 +9,7 @@ The About page in the app shows the most recent entries by parsing this file dir
 here. Keep the `## [version] - date` heading format below so the parser can read it.
 
 ## [Unreleased]
+- File-serving paths now treat Windows' access-denied result for a file that disappears during opening as a normal missing-file outcome, without broadly swallowing access failures or changing non-Windows open semantics.
 - Custom fields can now store structured JSON values in PostgreSQL `jsonb`, with validation and formatting in the editor and an indented presentation on entity detail pages. JSON fields can expose multiple typed JSON Pointer paths for filtering and sorting across supported entity lists while keeping the full document non-queryable.
 - Enum values in responses from extension endpoints and other non-controller endpoints, and in the generated `/openapi/v1.json` schema document, are now camel-case strings, matching what controllers and real-time hub messages already send. A client generated from that document reads the permitted value set instead of an undifferentiated number, and can deserialize the host's own responses. Requests may still send either the numeric form or the string form, so existing callers keep working and the accepted input is wider rather than narrower. Extensions that depend on the string form should require the first Cove release that includes this change.
 
