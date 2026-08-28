@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
+using Cove.Api.Helpers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -426,23 +427,24 @@ public class TagsController(
 
         if (dto.Aliases != null)
         {
-            tag.Aliases.Clear();
-            tag.Aliases = dto.Aliases.Select(a => new TagAlias { Alias = a, TagId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.Aliases, dto.Aliases, item => item.Alias, alias => new TagAlias { Alias = alias, TagId = id }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(tag);
         }
         if (dto.ParentIds != null)
         {
-            tag.ParentRelations.Clear();
-            tag.ParentRelations = dto.ParentIds.Select(pid => new TagParent { ParentId = pid, ChildId = id }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.ParentRelations, dto.ParentIds, item => item.ParentId, parentId => new TagParent { ParentId = parentId, ChildId = id }))
+                MetadataCollectionUpdater.Touch(tag);
         }
         if (dto.ChildIds != null)
         {
-            tag.ChildRelations.Clear();
-            tag.ChildRelations = dto.ChildIds.Select(cid => new TagParent { ParentId = id, ChildId = cid }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.ChildRelations, dto.ChildIds, item => item.ChildId, childId => new TagParent { ParentId = id, ChildId = childId }))
+                MetadataCollectionUpdater.Touch(tag);
         }
         if (dto.RemoteIds != null)
         {
-            tag.RemoteIds.Clear();
-            tag.RemoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(remoteId => new TagRemoteId { TagId = id, Endpoint = remoteId.Endpoint, RemoteId = remoteId.RemoteId }).ToList();
+            var remoteIds = NormalizeRemoteIds(dto.RemoteIds).Select(item => (item.Endpoint, item.RemoteId));
+            if (MetadataCollectionUpdater.ReplaceIfChanged(tag.RemoteIds, remoteIds, item => (item.Endpoint, item.RemoteId), key => new TagRemoteId { TagId = id, Endpoint = key.Endpoint, RemoteId = key.RemoteId }))
+                MetadataCollectionUpdater.Touch(tag);
         }
         try
         {
@@ -455,8 +457,14 @@ public class TagsController(
         {
             return Conflict(new { message = exception.Message });
         }
-        if (dto.CustomFields != null)
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, id, dto.CustomFields, ct);
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Tag, id, dto.CustomFields, ct))
+        {
+            MetadataCollectionUpdater.Touch(tag);
+            if (tagRepo != null)
+                await tagRepo.UpdateAsync(tag, ct);
+            else
+                await db.SaveChangesAsync(ct);
+        }
         await EvictSegmentSpanCachesForTagsAsync([id], ct);
         var updated = tagRepo != null
             ? await tagRepo.GetByIdWithRelationsAsync(id, ct)

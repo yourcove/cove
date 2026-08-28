@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Http;
+using Cove.Api.Helpers;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -397,40 +398,43 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
         if (dto.Urls != null)
         {
-            audio.Urls.Clear();
-            audio.Urls = dto.Urls
+            var urls = dto.Urls
                 .Select(url => NormalizeOptionalText(url))
                 .Where(url => !string.IsNullOrWhiteSpace(url))
-                .Select(url => new AudioUrl { AudioId = id, Url = url! })
+                .Select(url => url!)
                 .ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(audio.Urls, urls, item => item.Url, url => new AudioUrl { AudioId = id, Url = url }, StringComparer.Ordinal))
+                MetadataCollectionUpdater.Touch(audio);
         }
 
         if (dto.TagIds != null)
         {
             var tagIds = dto.TagIds.Where(tagId => tagId > 0).Distinct().ToArray();
-            audio.AudioTags.Clear();
-            audio.AudioTags = tagIds.Select(tagId => new AudioTag { AudioId = id, TagId = tagId }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(audio.AudioTags, tagIds, item => item.TagId, tagId => new AudioTag { AudioId = id, TagId = tagId }))
+                MetadataCollectionUpdater.Touch(audio);
             audio.TagIds = tagIds;
         }
 
         if (dto.PerformerIds != null)
         {
             var performerIds = dto.PerformerIds.Where(performerId => performerId > 0).Distinct().ToArray();
-            audio.AudioPerformers.Clear();
-            audio.AudioPerformers = performerIds.Select(performerId => new AudioPerformer { AudioId = id, PerformerId = performerId }).ToList();
+            if (MetadataCollectionUpdater.ReplaceIfChanged(audio.AudioPerformers, performerIds, item => item.PerformerId, performerId => new AudioPerformer { AudioId = id, PerformerId = performerId }))
+                MetadataCollectionUpdater.Touch(audio);
             audio.PerformerIds = performerIds;
         }
 
         if (dto.GroupIds != null)
         {
-            await ReplaceWholeAudioGroupItemsAsync(id, dto.GroupIds, audio.Title, ct);
+            if (await ReplaceWholeAudioGroupItemsAsync(id, dto.GroupIds, audio.Title, ct))
+                MetadataCollectionUpdater.Touch(audio);
         }
 
         await db.SaveChangesAsync(ct);
 
-        if (dto.CustomFields != null)
+        if (dto.CustomFields != null && await customFields.SaveValuesAsync(CustomFieldEntityTypes.Audio, id, dto.CustomFields, ct))
         {
-            await customFields.SaveValuesAsync(CustomFieldEntityTypes.Audio, id, dto.CustomFields, ct);
+            MetadataCollectionUpdater.Touch(audio);
+            await db.SaveChangesAsync(ct);
         }
 
         var updated = await db.Audios.AsNoTracking()
@@ -1048,16 +1052,11 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             .Select(item => new GroupSummaryDto(item.GroupId, item.Group!.Name, 0))
             .ToListAsync(ct);
 
-    private async Task ReplaceWholeAudioGroupItemsAsync(int audioId, IReadOnlyCollection<VideoGroupInputDto> groups, string? audioTitle, CancellationToken ct)
+    private async Task<bool> ReplaceWholeAudioGroupItemsAsync(int audioId, IReadOnlyCollection<VideoGroupInputDto> groups, string? audioTitle, CancellationToken ct)
     {
         var existing = await db.GroupItems
             .Where(item => item.HostType == "audio" && item.HostId == audioId && item.Kind == GroupItemKind.Audio)
             .ToListAsync(ct);
-
-        if (existing.Count > 0)
-        {
-            db.GroupItems.RemoveRange(existing);
-        }
 
         var normalizedGroups = groups
             .Where(group => group is { GroupId: > 0 })
@@ -1065,9 +1064,16 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             .Select((group, index) => new { GroupId = group.Key, OrderIndex = index })
             .ToList();
 
+        if (existing.OrderBy(item => item.OrderIndex).Select(item => (item.GroupId, item.OrderIndex))
+            .SequenceEqual(normalizedGroups.Select(item => (item.GroupId, item.OrderIndex))))
+            return false;
+
+        if (existing.Count > 0)
+            db.GroupItems.RemoveRange(existing);
+
         if (normalizedGroups.Count == 0)
         {
-            return;
+            return true;
         }
 
         db.GroupItems.AddRange(normalizedGroups.Select(group => new GroupItem
@@ -1079,6 +1085,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             HostId = audioId,
             Title = NormalizeOptionalText(audioTitle),
         }));
+        return true;
     }
 
     private static DateOnly? ParseDate(string? value)

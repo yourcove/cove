@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Cove.Core.DTOs;
@@ -281,19 +282,22 @@ public sealed class CustomFieldService(
         return values.TryGetValue(entityId, out var result) ? result : [];
     }
 
-    public async Task SaveValuesAsync(string entityType, int entityId, IDictionary<string, object>? input, CancellationToken ct = default)
+    public async Task<bool> SaveValuesAsync(string entityType, int entityId, IDictionary<string, object>? input, CancellationToken ct = default)
     {
         var normalizedEntityType = RequireEntityType(entityType);
         var existingValues = await _db.CustomFieldValues
             .Where(value => value.EntityType == normalizedEntityType && value.EntityId == entityId)
+            .OrderBy(value => value.DefinitionId)
+            .ThenBy(value => value.Position)
             .ToListAsync(ct);
-        _db.CustomFieldValues.RemoveRange(existingValues);
 
         if (input == null || input.Count == 0)
         {
-            if (existingValues.Count > 0)
-                await _db.SaveChangesAsync(ct);
-            return;
+            if (existingValues.Count == 0)
+                return false;
+            _db.CustomFieldValues.RemoveRange(existingValues);
+            await _db.SaveChangesAsync(ct);
+            return true;
         }
 
         var definitions = await _db.CustomFieldDefinitions
@@ -321,13 +325,94 @@ public sealed class CustomFieldService(
 
         if (values.Count == 0)
         {
-            if (existingValues.Count > 0)
-                await _db.SaveChangesAsync(ct);
-            return;
+            if (existingValues.Count == 0)
+                return false;
+            _db.CustomFieldValues.RemoveRange(existingValues);
+            await _db.SaveChangesAsync(ct);
+            return true;
         }
 
+        values = values.OrderBy(value => value.DefinitionId).ThenBy(value => value.Position).ToList();
+        if (existingValues.Count == values.Count && existingValues.Zip(values).All(pair => SameValue(pair.First, pair.Second)))
+            return false;
+
+        _db.CustomFieldValues.RemoveRange(existingValues);
         _db.CustomFieldValues.AddRange(values);
         await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    private static bool SameValue(CustomFieldValue left, CustomFieldValue right) =>
+        left.DefinitionId == right.DefinitionId
+        && left.Position == right.Position
+        && left.TextValue == right.TextValue
+        && left.LongTextValue == right.LongTextValue
+        && SameNumber(left.NumberValue, right.NumberValue)
+        && left.BoolValue == right.BoolValue
+        && left.DateValue == right.DateValue
+        && SameTimestamp(left.TimestampValue, right.TimestampValue)
+        && left.IntegerValue == right.IntegerValue
+        && SameJson(left.JsonValue, right.JsonValue);
+
+    private static bool SameNumber(decimal? left, decimal? right) =>
+        left.HasValue == right.HasValue
+        && (!left.HasValue || decimal.Round(left.Value, 6, MidpointRounding.AwayFromZero)
+            == decimal.Round(right!.Value, 6, MidpointRounding.AwayFromZero));
+
+    private static bool SameTimestamp(DateTime? left, DateTime? right) =>
+        NormalizeTimestamp(left) == NormalizeTimestamp(right);
+
+    private static DateTime? NormalizeTimestamp(DateTime? value) =>
+        value.HasValue ? value.Value.AddTicks(-(value.Value.Ticks % 10)) : null;
+
+    private static bool SameJson(JsonElement? left, JsonElement? right) =>
+        left.HasValue == right.HasValue
+        && (!left.HasValue || SameJsonValue(left.Value, right!.Value));
+
+    private static bool SameJsonValue(JsonElement left, JsonElement right)
+    {
+        if (left.ValueKind != right.ValueKind)
+            return false;
+        return left.ValueKind switch
+        {
+            JsonValueKind.Object => left.EnumerateObject().Count() == right.EnumerateObject().Count()
+                && left.EnumerateObject().All(property => right.TryGetProperty(property.Name, out var other) && SameJsonValue(property.Value, other)),
+            JsonValueKind.Array => left.GetArrayLength() == right.GetArrayLength()
+                && left.EnumerateArray().Zip(right.EnumerateArray()).All(pair => SameJsonValue(pair.First, pair.Second)),
+            JsonValueKind.String => left.GetString() == right.GetString(),
+            JsonValueKind.Number => NormalizeJsonNumber(left.GetRawText()) == NormalizeJsonNumber(right.GetRawText()),
+            JsonValueKind.True or JsonValueKind.False => left.GetBoolean() == right.GetBoolean(),
+            JsonValueKind.Null or JsonValueKind.Undefined => true,
+            _ => false,
+        };
+    }
+
+    private static (BigInteger Coefficient, int Power) NormalizeJsonNumber(string raw)
+    {
+        var exponentIndex = raw.IndexOfAny(['e', 'E']);
+        var mantissa = exponentIndex >= 0 ? raw[..exponentIndex] : raw;
+        var exponent = exponentIndex >= 0
+            ? int.Parse(raw[(exponentIndex + 1)..], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture)
+            : 0;
+        var negative = mantissa.StartsWith("-", StringComparison.Ordinal);
+        if (negative)
+            mantissa = mantissa[1..];
+        var decimalIndex = mantissa.IndexOf('.');
+        var fractionalDigits = decimalIndex >= 0 ? mantissa.Length - decimalIndex - 1 : 0;
+        var digits = decimalIndex >= 0 ? string.Concat(mantissa.AsSpan(0, decimalIndex), mantissa.AsSpan(decimalIndex + 1)) : mantissa;
+        var coefficient = BigInteger.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
+        if (negative)
+            coefficient = -coefficient;
+        if (coefficient.IsZero)
+            return (BigInteger.Zero, 0);
+
+        var power = exponent - fractionalDigits;
+        while (coefficient % 10 == 0)
+        {
+            coefficient /= 10;
+            power++;
+        }
+        return (coefficient, power);
     }
 
     public async Task DeleteValuesForEntityAsync(string entityType, int entityId, CancellationToken ct = default)

@@ -1573,7 +1573,8 @@ public class GalleryRepository : IGalleryRepository
 
     public async Task UpdateAsync(Gallery entity, CancellationToken ct = default)
     {
-        _db.Galleries.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+            _db.Galleries.Update(entity);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -2233,7 +2234,8 @@ public class ImageRepository : IImageRepository
 
     public async Task UpdateAsync(Image entity, CancellationToken ct = default)
     {
-        _db.Images.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+            _db.Images.Update(entity);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -2834,7 +2836,8 @@ public class GroupRepository : IGroupRepository
 
     public async Task UpdateAsync(Group entity, CancellationToken ct = default)
     {
-        _db.Groups.Update(entity);
+        if (_db.Entry(entity).State == EntityState.Detached)
+            _db.Groups.Update(entity);
         await _db.SaveChangesAsync(ct);
     }
 
