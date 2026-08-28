@@ -1557,6 +1557,53 @@ public class ScanServiceTests
     }
 
     [Fact]
+    public async Task StartScan_ForcedRescanPreservesExistingFingerprints()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "known.mp4");
+            await WriteValidVideoAsync(videoPath);
+            var probe = new StubMediaProbeService(MediaProbeResult.Succeeded(ValidVideoProbeJson));
+
+            await using var environment = await CreateEnvironmentAsync(
+                tempRoot,
+                videoPath,
+                mediaProbeService: probe);
+
+            const string originalMd5 = "0123456789abcdef0123456789abcdef";
+            const string originalPhash = "0123456789abcdef";
+            await using (var seedScope = environment.Services.CreateAsyncScope())
+            {
+                var db = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
+                var file = await db.VideoFiles
+                    .Include(item => item.Fingerprints)
+                    .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+                file.Fingerprints.Add(new FileFingerprint { Type = "md5", Value = originalMd5 });
+                file.Fingerprints.Add(new FileFingerprint { Type = "phash", Value = originalPhash });
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            environment.Service.StartScan(new ScanOperationOptions { Rescan = true });
+
+            Assert.Equal(1, probe.CallCount);
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var rescannedFile = await verificationDb.VideoFiles
+                .Include(item => item.Fingerprints)
+                .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(originalMd5, Assert.Single(rescannedFile.Fingerprints, item => item.Type == "md5").Value);
+            Assert.Equal(originalPhash, Assert.Single(rescannedFile.Fingerprints, item => item.Type == "phash").Value);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task StartScan_ContentChangePreservesExistingAssetsWhenReplacementGenerationFails()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
