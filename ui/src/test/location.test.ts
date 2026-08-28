@@ -114,6 +114,14 @@ describe("route history", () => {
     })).toBe("/videos?q=&filters=%7B%7D");
   });
 
+  it("preserves raw-segment view and display profile state", () => {
+    const url = buildRouteUrl({ page: "segments", segmentsView: "raw", profileId: 7, listView: "list" });
+
+    expect(url).toBe("/segments?view=list&segmentsView=raw&profile=7");
+    window.history.replaceState(null, "", url);
+    expect(parseCurrentRoute()).toEqual({ page: "segments", segmentsView: "raw", profileId: 7 });
+  });
+
   it("keeps back labels aligned with browser back navigation after a popstate-style move", () => {
     window.history.replaceState(null, "", "/performers");
     syncRouteHistory("push");

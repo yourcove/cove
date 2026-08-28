@@ -18,6 +18,7 @@ export interface Route {
   listFilter?: FindFilter;
   listObjectFilter?: Record<string, unknown>;
   listView?: string;
+  segmentsView?: "spans" | "raw";
   compilationItemOrder?: string[];
 }
 
@@ -149,6 +150,9 @@ export function buildRouteUrl(route: Route): string {
   }
   if (route.listView) {
     params.set("view", route.listView);
+  }
+  if (route.segmentsView === "raw") {
+    params.set("segmentsView", "raw");
   }
   if (route.seekTo != null && Number.isFinite(route.seekTo) && route.seekTo >= 0) {
     params.set("t", String(route.seekTo));
@@ -361,6 +365,9 @@ function applyRouteSearch(route: Route, search?: string): Route {
         profileId,
       };
     }
+  }
+  if (params.get("segmentsView") === "raw") {
+    nextRoute = { ...nextRoute, segmentsView: "raw" };
   }
 
   const dqParam = params.get("dq");

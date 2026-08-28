@@ -29,6 +29,12 @@ const { mockHomePageContent, mocks } = vi.hoisted(() => {
       galleriesFindFiltered: vi.fn(async () => emptyPage),
       groupsFind: vi.fn(async () => emptyPage),
       groupsFindFiltered: vi.fn(async () => emptyPage),
+      audiosFind: vi.fn(async () => emptyPage),
+      audiosFindFiltered: vi.fn(async () => emptyPage),
+      textsFind: vi.fn(async () => emptyPage),
+      textsFindFiltered: vi.fn(async () => emptyPage),
+      segmentSpansSearch: vi.fn(async () => ({ ...emptyPage, hasMore: false, page: 1, perPage: 25 })),
+      segmentLibraryList: vi.fn(async () => ({ ...emptyPage, duration: 0, page: 1, perPage: 25 })),
       groupItemsList: vi.fn(async () => []),
       groupItemsPage: vi.fn(async () => ({ ...emptyPage, page: 1, perPage: 12 })),
       savedFiltersGet: vi.fn(),
@@ -42,7 +48,9 @@ vi.mock("../api/client", () => ({
     find: mocks.videosFind,
     findFiltered: mocks.videosFindFiltered,
     screenshotUrl: (id: number) => `/api/stream/video/${id}/screenshot`,
+    streamUrl: (id: number) => `/api/stream/video/${id}`,
   },
+  entityImages: { segmentCoverUrl: (id: number) => `/api/segments/${id}/cover` },
   performers: { find: mocks.performersFind, findFiltered: mocks.performersFindFiltered },
   studios: { find: mocks.studiosFind, findFiltered: mocks.studiosFindFiltered },
   tags: { find: mocks.tagsFind, findFiltered: mocks.tagsFindFiltered },
@@ -52,6 +60,11 @@ vi.mock("../api/client", () => ({
     findFiltered: mocks.groupsFindFiltered,
     items: { list: mocks.groupItemsList, page: mocks.groupItemsPage },
   },
+  audios: { find: mocks.audiosFind, findFiltered: mocks.audiosFindFiltered, streamUrl: (id: number) => `/api/audios/${id}/stream` },
+  texts: { find: mocks.textsFind, findFiltered: mocks.textsFindFiltered },
+  faces: { list: vi.fn(async () => ({ items: [], totalCount: 0 })) },
+  segmentSpans: { search: mocks.segmentSpansSearch },
+  segmentLibrary: { list: mocks.segmentLibraryList },
   savedFilters: { get: mocks.savedFiltersGet, list: vi.fn(async () => []) },
   dashboards: {
     bootstrap: vi.fn(async (widgets) => {
@@ -333,5 +346,107 @@ describe("HomePage random rows", () => {
       listFilter: { q: "", page: 1, perPage: 40, sort: "date", direction: "desc" },
       listObjectFilter: {},
     });
+  });
+
+  it.each([
+    { mode: "audios", name: "Saved Audio", find: mocks.audiosFindFiltered, item: { id: 201, title: "Audio result", files: [], tracks: [], performers: [], tags: [], groups: [] } },
+    { mode: "texts", name: "Saved Text", find: mocks.textsFindFiltered, item: { id: 202, title: "Text result", files: [], performers: [], tags: [], groups: [] } },
+  ])("renders filtered $mode rows and restores their saved list state", async ({ mode, name, find, item }) => {
+    const onNavigate = vi.fn();
+    mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 10 }]);
+    mocks.savedFiltersGet.mockResolvedValue({
+      id: 10,
+      mode,
+      name,
+      findFilter: JSON.stringify({ q: "saved", sort: "date", direction: "asc" }),
+      objectFilter: JSON.stringify({ organizedCriterion: { modifier: "EQUALS", value: true } }),
+      uiOptions: JSON.stringify({ displayMode: "list" }),
+    });
+    find.mockResolvedValueOnce({ items: [item], totalCount: 1 });
+
+    renderHomePage(onNavigate);
+
+    expect(await screen.findByText(name)).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: `${mode === "audios" ? "Audio" : "Text"} result` })).toHaveAttribute("href", mode === "audios" ? "/audio/201" : "/text/202");
+    expect(find).toHaveBeenCalledWith({
+      findFilter: expect.objectContaining({ q: "saved", page: 1, perPage: 25, sort: "date", direction: "asc" }),
+      objectFilter: { organizedCriterion: { modifier: "EQUALS", value: true } },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "View All" }));
+    expect(onNavigate).toHaveBeenCalledWith({
+      page: mode,
+      listFilter: { q: "saved", page: 1, sort: "date", direction: "asc" },
+      listObjectFilter: { organizedCriterion: { modifier: "EQUALS", value: true } },
+      listView: "list",
+    });
+  });
+
+  it("loads a derived-segment row with its saved display profile", async () => {
+    const onNavigate = vi.fn();
+    mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 11 }]);
+    mocks.savedFiltersGet.mockResolvedValue({
+      id: 11,
+      mode: "segments",
+      name: "Saved Spans",
+      findFilter: JSON.stringify({ q: "span", sort: "updated_at", direction: "desc" }),
+      objectFilter: JSON.stringify({
+        rawKindCriterion: { modifier: "EQUALS", value: "chapter" },
+        videoTagsCriterion: { modifier: "INCLUDES", value: [4], depth: -1 },
+        derivedSpanQuery: { operator: "intersection", operands: [{ tagIds: [9], performerIds: [], faceIds: [] }] },
+      }),
+      uiOptions: JSON.stringify({ displayMode: "list", profileId: 7 }),
+    });
+    mocks.segmentSpansSearch.mockResolvedValueOnce({
+      items: [{ videoId: 21, videoTitle: "Video result", profileId: 7, span: { spanKey: "span-1", startSec: 2, endSec: 8, segmentIds: [31], tagName: "Span result" } }],
+      totalCount: 1,
+      hasMore: false,
+      page: 1,
+      perPage: 25,
+    });
+
+    renderHomePage(onNavigate);
+
+    expect(await screen.findByText("Saved Spans")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /Span result/ })).toHaveAttribute("href", expect.stringContaining("/video/21/span/span-1"));
+    expect(mocks.segmentSpansSearch).toHaveBeenCalledWith(expect.objectContaining({
+      profile: 7,
+      q: "span",
+      kind: "chapter",
+      page: 1,
+      perPage: 25,
+      videoTagIds: [4],
+      videoTagDepth: -1,
+      derivedQuery: expect.objectContaining({ operator: "intersection", operands: [expect.objectContaining({ tagIds: [9] })] }),
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "View All" }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ page: "segments", profileId: 7, listView: "list" }));
+  });
+
+  it("loads raw segments and opens View All in raw mode", async () => {
+    const onNavigate = vi.fn();
+    mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 12 }]);
+    mocks.savedFiltersGet.mockResolvedValue({
+      id: 12,
+      mode: "rawsegments",
+      name: "Saved Raw Segments",
+      findFilter: JSON.stringify({ sort: "random", direction: "asc" }),
+      objectFilter: JSON.stringify({ rawTagsCriterion: { modifier: "INCLUDES", value: [5], depth: -1 } }),
+      uiOptions: JSON.stringify({ displayMode: "grid" }),
+    });
+    mocks.segmentLibraryList.mockResolvedValueOnce({
+      items: [{ id: 32, hostId: 22, hostTitle: "Video result", title: "Raw result", startSec: 3, endSec: 6 }],
+      totalCount: 1,
+      duration: 3,
+      page: 1,
+      perPage: 25,
+    });
+
+    renderHomePage(onNavigate);
+
+    expect(await screen.findByText("Saved Raw Segments")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /Raw result/ })).toHaveAttribute("href", "/segment/32");
+    expect(mocks.segmentLibraryList).toHaveBeenCalledWith(expect.objectContaining({ tagIds: "5", tagDepth: -1, page: 1, perPage: 25, sort: "random", direction: "asc", seed: expect.any(Number) }));
+    fireEvent.click(screen.getByRole("button", { name: "View All" }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ page: "segments", segmentsView: "raw" }));
   });
 });

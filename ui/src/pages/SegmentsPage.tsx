@@ -126,11 +126,12 @@ export function SegmentsPage({ onNavigate }: Props) {
   const defaultState = useMemo(() => {
     const saved = getDefaultFilter(segmentFilterMode(initialContentView));
     const savedDisplayMode = saved?.uiOptions?.displayMode;
+    const routeProfileId = Number(new URLSearchParams(window.location.search).get("profile"));
     return {
       filter: saved?.findFilter ?? DEFAULT_SEGMENT_FILTER,
       objectFilter: saved?.objectFilter ?? {},
       displayMode: savedDisplayMode === "list" ? "list" as DisplayMode : "grid" as DisplayMode,
-      profileId: typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined,
+      profileId: Number.isInteger(routeProfileId) && routeProfileId > 0 ? routeProfileId : typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined,
     };
   }, [initialContentView]);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, replaceState } = useListUrlState({
@@ -454,6 +455,7 @@ export function SegmentsPage({ onNavigate }: Props) {
       videoTagIds: videoTagIds.length > 0 ? videoTagIds.join(",") : undefined,
       videoTagDepth,
       tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds.join(",") : undefined,
+      tagDepth: combinedRawSegmentFilter.tagDepth,
       kind: combinedRawSegmentFilter.kind,
       sourceKey: combinedRawSegmentFilter.sourceKey,
       sourceCategory: combinedRawSegmentFilter.sourceCategory,
