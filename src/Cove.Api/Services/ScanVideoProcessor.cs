@@ -88,6 +88,7 @@ internal sealed class ScanVideoProcessor(
                     existing, path,
                     phashEnabled: scanOptions?.GeneratePhashes == true,
                     md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
+                    moveIndex,
                     ct);
             }
 
@@ -126,7 +127,7 @@ internal sealed class ScanVideoProcessor(
                     VideoId = match.VideoId,
                 };
                 db.VideoFiles.Add(duplicateFile);
-                await EnrichVideoFileAsync(duplicateFile, path, ct, captionFilesByDir, videoProbeJson);
+                await EnrichVideoFileAsync(duplicateFile, path, ct, captionFilesByDir, videoProbeJson, moveIndex);
                 logger.LogTrace("Attached duplicate video file {NewPath} to existing video {VideoId}", path, match.VideoId);
                 return (duplicateFile, true, false);
             }
@@ -160,7 +161,7 @@ internal sealed class ScanVideoProcessor(
             db.VideoFiles.Add(videoFile);
         }
 
-        await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir, videoProbeJson);
+        await EnrichVideoFileAsync(videoFile, path, ct, captionFilesByDir, videoProbeJson, moveIndex);
 
         logger.LogTrace("Added video file for {Path}", path);
         return (videoFile, false, false);
@@ -171,7 +172,8 @@ internal sealed class ScanVideoProcessor(
         string path,
         CancellationToken ct,
         ConcurrentDictionary<string, IReadOnlyList<string>>? captionFilesByDir = null,
-        string? videoProbeJson = null)
+        string? videoProbeJson = null,
+        MoveDetectionIndex? moveIndex = null)
     {
         // Probe with FFprobe for metadata
         if (videoProbeJson != null)
@@ -180,7 +182,7 @@ internal sealed class ScanVideoProcessor(
             await ProbeVideoAsync(videoFile, path, ct);
 
         // Compute oshash fingerprint
-        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, ct);
+        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, moveIndex, ct);
         if (oshash != null)
         {
             videoFile.Fingerprints.Add(new FileFingerprint

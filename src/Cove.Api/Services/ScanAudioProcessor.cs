@@ -50,7 +50,7 @@ internal sealed class ScanAudioProcessor(
             existing.Path = BaseFileEntity.ComputePath(dirPath, basename);
 
             var existingAudio = existing.Audio ?? throw new InvalidOperationException($"Audio file {path} is not attached to an audio entity");
-            await EnrichAudioFileAsync(existingAudio, existing, path, ct, mediaProbeJson);
+            await EnrichAudioFileAsync(existingAudio, existing, path, ct, mediaProbeJson, moveIndex);
             // A re-encode invalidates the stored phash; blank it so the generation phase recomputes it.
             if (contentChanged && scanOptions?.GenerateAudioPhashes == true)
                 ScanFileIdentityService.BlankFingerprint(existing, "phash");
@@ -84,7 +84,7 @@ internal sealed class ScanAudioProcessor(
                         Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
                     };
                     parentAudio.Files.Add(duplicateFile);
-                    await EnrichAudioFileAsync(parentAudio, duplicateFile, path, ct, mediaProbeJson);
+                    await EnrichAudioFileAsync(parentAudio, duplicateFile, path, ct, mediaProbeJson, moveIndex);
                     RefreshAudioSummary(parentAudio);
                     logger.LogTrace("Attached duplicate audio file {NewPath} to existing audio {AudioId}", path, matchedAudioId);
                     return (parentAudio, true, false);
@@ -123,7 +123,7 @@ internal sealed class ScanAudioProcessor(
             db.Audios.Add(audio);
         }
 
-        await EnrichAudioFileAsync(audio, audioFile, path, ct, mediaProbeJson);
+        await EnrichAudioFileAsync(audio, audioFile, path, ct, mediaProbeJson, moveIndex);
         RefreshAudioSummary(audio);
 
         logger.LogTrace("Added audio for {Path}", path);
@@ -131,7 +131,13 @@ internal sealed class ScanAudioProcessor(
     }
 
 
-    private async Task EnrichAudioFileAsync(Audio audio, AudioFile audioFile, string path, CancellationToken ct, string? mediaProbeJson = null)
+    private async Task EnrichAudioFileAsync(
+        Audio audio,
+        AudioFile audioFile,
+        string path,
+        CancellationToken ct,
+        string? mediaProbeJson = null,
+        MoveDetectionIndex? moveIndex = null)
     {
         var metadata = mediaProbeJson == null
             ? await ProbeAudioAsync(audioFile, path, ct)
@@ -142,7 +148,7 @@ internal sealed class ScanAudioProcessor(
             audio.Title = metadata.Title ?? fallbackTitle;
 
         // Always-on identity fingerprint so a later scan can recognise this file if it moves/renames.
-        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, ct);
+        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, moveIndex, ct);
         if (oshash != null)
             ScanFileIdentityService.UpsertFingerprint(audioFile, "oshash", oshash);
 
