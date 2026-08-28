@@ -84,6 +84,28 @@ public static class EngagementQueryHelpers
                 .FirstOrDefault());
     }
 
+    public static IQueryable<T> ApplyFavoriteCriterion<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, BoolCriterion? criterion)
+        where T : class
+    {
+        if (criterion == null)
+            return query;
+
+        if (userId is not int selectedUserId)
+            return criterion.Value ? query.Where(_ => false) : query;
+
+        return criterion.Value
+            ? query.Where(entity => db.UserEntityAffinities.Any(affinity =>
+                affinity.UserId == selectedUserId &&
+                affinity.HostType == hostType &&
+                affinity.HostId == EF.Property<int>(entity, "Id") &&
+                affinity.IsFavorite))
+            : query.Where(entity => !db.UserEntityAffinities.Any(affinity =>
+                affinity.UserId == selectedUserId &&
+                affinity.HostType == hostType &&
+                affinity.HostId == EF.Property<int>(entity, "Id") &&
+                affinity.IsFavorite));
+    }
+
     public static IQueryable<T> ApplyAffinityDoubleAsIntCriterion<T>(CoveContext db, IQueryable<T> query, int? userId, AffinityHostType hostType, string propertyName, IntCriterion? criterion)
         where T : class
     {

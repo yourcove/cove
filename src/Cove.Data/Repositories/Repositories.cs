@@ -1615,6 +1615,7 @@ public class GalleryRepository : IGalleryRepository
 
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Gallery, filter.RatingCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Gallery, filter.FavoriteCriterion);
             query = FilterHelpers.ApplyInt(query, filter.ImageCountCriterion, g => g.ImageCount);
             query = FilterHelpers.ApplyInt(query, filter.LikeCounterCriterion, gallery =>
                 (gallery.ImageGalleries.Select(link => _db.UserEntityAffinities
@@ -2400,6 +2401,7 @@ public class ImageRepository : IImageRepository
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Image, filter.RatingCriterion);
         if (filter.LikeCounterCriterion != null)
             query = EngagementQueryHelpers.ApplyAffinityIntCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Image, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Image, filter.FavoriteCriterion);
         if (filter.OrganizedCriterion != null)
             query = query.Where(i => i.Organized == filter.OrganizedCriterion.Value);
         if (filter.ResolutionCriterion != null)
@@ -2874,6 +2876,7 @@ public class GroupRepository : IGroupRepository
 
             // Advanced criteria
             query = EngagementQueryHelpers.ApplyRatingCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Group, filter.RatingCriterion);
+            query = EngagementQueryHelpers.ApplyFavoriteCriterion(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Group, filter.FavoriteCriterion);
             query = FilterHelpers.ApplyInt(query, filter.DurationCriterion, g => g.Duration ?? 0);
 
             if (filter.KindCriterion != null)

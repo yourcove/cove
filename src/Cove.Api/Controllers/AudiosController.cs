@@ -749,6 +749,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             return query;
 
         query = EngagementQueryHelpers.ApplyRatingCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), RatingHostType.Audio, filter.RatingCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, filter.FavoriteCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
         query = EngagementQueryHelpers.ApplyAffinityDoubleAsIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.TotalConsumedSec), filter.PlayDurationCriterion);

@@ -1294,6 +1294,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
         query = FilterHelpers.ApplyString(query, filter.TitleCriterion, audio => audio.Title);
         query = EngagementQueryHelpers.ApplyRatingCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), RatingHostType.Audio, filter.RatingCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, filter.FavoriteCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
         query = EngagementQueryHelpers.ApplyAffinityDoubleAsIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Audio, nameof(UserEntityAffinity.TotalConsumedSec), filter.PlayDurationCriterion);
@@ -1339,6 +1340,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
         query = FilterHelpers.ApplyString(query, filter.TitleCriterion, text => text.Title);
         query = EngagementQueryHelpers.ApplyRatingCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), RatingHostType.Text, filter.RatingCriterion);
+        query = EngagementQueryHelpers.ApplyFavoriteCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, filter.FavoriteCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.ViewCount), filter.PlayCountCriterion);
         query = EngagementQueryHelpers.ApplyAffinityIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.LikeCount), filter.LikeCounterCriterion);
         query = EngagementQueryHelpers.ApplyAffinityDoubleAsIntCriterion(db, query, EngagementQueryHelpers.CurrentUserId(db), AffinityHostType.Text, nameof(UserEntityAffinity.TotalConsumedSec), filter.PlayDurationCriterion);

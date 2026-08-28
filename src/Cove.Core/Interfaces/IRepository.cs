@@ -204,6 +204,7 @@ public class VideoFilter
     // Advanced criteria
     public IntCriterion? RatingCriterion { get; set; }
     public IntCriterion? LikeCounterCriterion { get; set; }
+    public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? DurationCriterion { get; set; }
     public IntCriterion? ResolutionCriterion { get; set; }
     public IntCriterion? PlayCountCriterion { get; set; }
@@ -412,6 +413,7 @@ public class GalleryFilter
     public MultiIdCriterion? StudiosCriterion { get; set; }
     public IntCriterion? ImageCountCriterion { get; set; }
     public IntCriterion? LikeCounterCriterion { get; set; }
+    public BoolCriterion? FavoriteCriterion { get; set; }
     public TimestampCriterion? LastLikedAtCriterion { get; set; }
     public StringCriterion? TitleCriterion { get; set; }
     public DateCriterion? DateCriterion { get; set; }
@@ -456,6 +458,7 @@ public class ImageFilter
     public MultiIdCriterion? GalleriesCriterion { get; set; }
     public StringCriterion? TitleCriterion { get; set; }
     public IntCriterion? LikeCounterCriterion { get; set; }
+    public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? ResolutionCriterion { get; set; }
     public StringCriterion? PathCriterion { get; set; }
     public FingerprintCriterion? FingerprintCriterion { get; set; }
@@ -482,6 +485,7 @@ public class ImageFilter
 public class AudioFilter
 {
     public IntCriterion? RatingCriterion { get; set; }
+    public BoolCriterion? FavoriteCriterion { get; set; }
     public StringCriterion? TitleCriterion { get; set; }
     public StringCriterion? CodeCriterion { get; set; }
     public StringCriterion? DetailsCriterion { get; set; }
@@ -522,6 +526,7 @@ public class AudioFilter
 public class TextDocumentFilter
 {
     public IntCriterion? RatingCriterion { get; set; }
+    public BoolCriterion? FavoriteCriterion { get; set; }
     public StringCriterion? TitleCriterion { get; set; }
     public StringCriterion? CodeCriterion { get; set; }
     public StringCriterion? DetailsCriterion { get; set; }
@@ -562,6 +567,7 @@ public class GroupFilter
     public List<int>? TagIds { get; set; }
     // Advanced criteria
     public IntCriterion? RatingCriterion { get; set; }
+    public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? DurationCriterion { get; set; }
     public StringCriterion? NameCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
