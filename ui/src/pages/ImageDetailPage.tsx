@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { entityImages, faces, images, playback, fileOps, galleries } from "../api/client";
 import { formatDate, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { EntityRefBadge, StudioHeaderImage } from "../components/EntityCards";
+import { EntityRefBadge, PerformerTile, StudioHeaderImage } from "../components/EntityCards";
 import { Check, Clapperboard, Download, Eye, FolderOpen, Image as ImageIcon, ImageOff, Layers, Link as LinkIcon, Loader2, Maximize, MoreVertical, RefreshCw, Scissors, Search, Sparkles, ThumbsUp, Trash2, UserRound, UserX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
@@ -365,13 +365,15 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
             <FieldProvenanceHover fieldProvenance={currentImage.fieldProvenance} fieldKey="performers" block className="mt-3">
               <div className={currentImage.performers.length > 1 ? "grid grid-cols-2 gap-3" : "grid max-w-[220px] gap-3"}>
                 {currentImage.performers.map((performer) => (
-                  <ImagePerformerCard
+                  <PerformerTile
                     key={performer.id}
                     performer={performer}
-                    contextTags={getPerformerContextTags(currentImage.contextTagApplications, performer.id)}
                     onClick={() => onNavigate({ page: "performer", id: performer.id })}
                     onNavigate={onNavigate}
-                  />
+                    referenceDate={currentImage.date}
+                  >
+                    {getPerformerContextTags(currentImage.contextTagApplications, performer.id).length > 0 ? <div className="space-y-2 text-xs text-secondary"><PerformerContextTagList contextTags={getPerformerContextTags(currentImage.contextTagApplications, performer.id)} onNavigate={onNavigate} /></div> : null}
+                  </PerformerTile>
                 ))}
               </div>
             </FieldProvenanceHover>
@@ -913,29 +915,6 @@ function ImageCoverTargetActions({ targets, pending, error, onSelect }: { target
 function formatImageFaceSummary(face: FaceHostFace) {
   const confidence = face.topConfidence != null ? `${Math.round(face.topConfidence <= 1 ? face.topConfidence * 100 : face.topConfidence)}%` : null;
   return confidence || "AI face";
-}
-
-function ImagePerformerCard({ performer, contextTags = [], onClick, onNavigate }: { performer: { name: string; imagePath?: string | null; disambiguation?: string | null }; contextTags?: TagApplication[]; onClick: () => void; onNavigate: (route: any) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-accent/60"
-    >
-      <div className="flex aspect-[2/3] items-center justify-center bg-gradient-to-b from-card to-surface">
-        {performer.imagePath ? (
-          <img src={performer.imagePath} alt={performer.name} className="h-full w-full object-cover" loading="lazy" />
-        ) : (
-          <UserRound className="h-12 w-12 text-muted" />
-        )}
-      </div>
-      <div className="p-3">
-        <p className="line-clamp-2 text-sm font-medium text-foreground group-hover:text-accent">{performer.name}</p>
-        {performer.disambiguation ? <p className="mt-1 truncate text-xs text-secondary">{performer.disambiguation}</p> : null}
-        {contextTags.length > 0 ? <div className="mt-2"><PerformerContextTagList contextTags={contextTags} onNavigate={onNavigate} /></div> : null}
-      </div>
-    </button>
-  );
 }
 
 function DetailField({ label, value }: { label: string; value: React.ReactNode }) {

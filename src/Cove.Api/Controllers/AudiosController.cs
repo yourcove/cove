@@ -874,13 +874,14 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Audio, audio.Id, ct);
         var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Audio, [audio.Id], ct);
         var contextTagApplications = await GetContextTagApplicationsAsync(audio.Id, ct);
+        var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(db, audio.AudioPerformers.Select(link => link.PerformerId), ct, principalAccessor);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Audio, audio.Id, ct)).ToList();
-        return MapToDto(audio, groups, customFieldValues, effectiveTags, contextTagApplications, fieldProvenance);
+        return MapToDto(audio, groups, customFieldValues, effectiveTags, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private AudioDto MapToDto(Audio audio, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByAudioId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null) => new(
+    private AudioDto MapToDto(Audio audio, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByAudioId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         audio.Id,
         audio.Title,
         audio.Code,
@@ -898,7 +899,12 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             performer.Gender?.ToString(),
             performer.Birthdate?.ToString("yyyy-MM-dd"),
             performer.Favorite,
-            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
+            EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
+            performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0,
+            performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
         audio.Tracks.OrderBy(track => track.OrderIndex).ThenBy(track => track.Id).Select(track => new AudioTrackDto(track.Id, track.OrderIndex, track.Title, track.StartSec, track.EndSec)).ToList(),
         audio.Files.OrderBy(file => file.Id).Select(file => new AudioFileDto(
             file.Id,

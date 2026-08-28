@@ -1,4 +1,5 @@
 using Cove.Api.Controllers;
+using Cove.Api.Helpers;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Common;
@@ -17,6 +18,33 @@ namespace Cove.Tests;
 
 public class VideoFilterBehaviorTests
 {
+    [Fact]
+    public async Task PerformerSummaryCountsLoader_BatchesCountsAndHonorsHostReadPermissions()
+    {
+        var principals = new CurrentPrincipalAccessor();
+        principals.Set(new CovePrincipal
+        {
+            UserId = 1,
+            Username = "summary-reader",
+            Kind = PrincipalKind.User,
+            Permissions = new HashSet<string> { Permissions.PerformersRead, Permissions.VideosRead, Permissions.ImagesRead, Permissions.GalleriesRead, Permissions.TextsRead },
+            Roles = new HashSet<string>(),
+        });
+        var options = new DbContextOptionsBuilder<CoveContext>().UseInMemoryDatabase($"performer-summary-counts-{Guid.NewGuid():N}").Options;
+        await using var context = new TestCoveContext(options, principals);
+        context.Set<VideoPerformer>().AddRange(new VideoPerformer { PerformerId = 7, VideoId = 1 }, new VideoPerformer { PerformerId = 8, VideoId = 2 });
+        context.Set<ImagePerformer>().Add(new ImagePerformer { PerformerId = 7, ImageId = 1 });
+        context.Set<GalleryPerformer>().Add(new GalleryPerformer { PerformerId = 7, GalleryId = 1 });
+        context.Set<AudioPerformer>().Add(new AudioPerformer { PerformerId = 7, AudioId = 1 });
+        context.Set<TextPerformer>().Add(new TextPerformer { PerformerId = 7, TextDocumentId = 1 });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var counts = await PerformerSummaryCountsLoader.LoadAsync(context, [7, 8], TestContext.Current.CancellationToken, principals);
+
+        Assert.Equal(new PerformerSummaryCounts(1, 1, 1, 0, 1), counts[7]);
+        Assert.Equal(new PerformerSummaryCounts(1, 0, 0, 0, 0), counts[8]);
+    }
+
     [Fact]
     public async Task PathCriterion_UnderPath_UsesFolderBoundaries()
     {

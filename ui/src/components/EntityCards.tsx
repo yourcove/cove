@@ -1018,9 +1018,10 @@ interface PerformerTileProps {
   selected?: boolean;
   onSelect?: (options?: MultiSelectToggleOptions) => void;
   selecting?: boolean;
+  referenceDate?: string;
 }
 
-export function PerformerTile({ performer, engagement, onClick, onNavigate, children, selected, onSelect, selecting }: PerformerTileProps & { engagement?: EntityEngagement }) {
+export function PerformerTile({ performer, engagement, onClick, onNavigate, children, selected, onSelect, selecting, referenceDate }: PerformerTileProps & { engagement?: EntityEngagement }) {
   const imageFit = useConfiguredImageFit();
   const videoCount = performer.videoCount ?? 0;
   const imageCount = performer.imageCount ?? 0;
@@ -1031,6 +1032,7 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
   const likeCount = performer.likeCount ?? 0;
   const performerImageUrl = performer.imagePath || null;
   const hasFooter = (performer.tags?.length ?? 0) > 0 || videoCount > 0 || imageCount > 0 || galleryCount > 0 || audioCount > 0 || textCount > 0 || groupCount > 0 || likeCount > 0;
+  const age = getAgeAtDate(referenceDate, performer.birthdate);
 
   return (
     <EntityTileFrame
@@ -1062,7 +1064,7 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
               <div className="flex h-full w-full items-center justify-center"><User className="h-12 w-12 text-muted" /></div>
             )}
           />
-          <RatingBanner rating={engagement?.rating} />
+          {engagement ? <RatingBanner rating={engagement.rating} /> : null}
           {performer.favorite ? <Heart className="absolute right-1.5 top-1.5 z-[5] h-4 w-4 fill-red-500 text-red-500 drop-shadow-md" /> : null}
         </>
       )}
@@ -1070,9 +1072,10 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
         <>
           <p className="card-title line-clamp-2 font-semibold text-foreground group-hover:text-accent">{performer.name}</p>
           {(performer.country || performer.birthdate) ? (
-            <div className="flex items-center gap-2 text-[11px] text-muted">
-              {performer.country ? <span>{performer.country}</span> : null}
-              {performer.birthdate ? <span>{performer.birthdate}</span> : null}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+              {performer.country ? <span className="whitespace-nowrap">{performer.country}</span> : null}
+              {performer.birthdate ? <span className="whitespace-nowrap">{performer.birthdate}</span> : null}
+              {age != null ? <span className="whitespace-nowrap">{age} years old</span> : null}
             </div>
           ) : null}
         </>
@@ -1128,6 +1131,17 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
       {children}
     </EntityTileFrame>
   );
+}
+
+export function getAgeAtDate(referenceDate?: string, birthdate?: string) {
+  if (!referenceDate || !birthdate || !/^\d{4}-\d{2}-\d{2}$/.test(referenceDate) || !/^\d{4}-\d{2}-\d{2}$/.test(birthdate)) return null;
+  const reference = new Date(`${referenceDate}T00:00:00Z`);
+  const birth = new Date(`${birthdate}T00:00:00Z`);
+  if (Number.isNaN(reference.getTime()) || Number.isNaN(birth.getTime()) || reference.toISOString().slice(0, 10) !== referenceDate || birth.toISOString().slice(0, 10) !== birthdate || reference < birth) return null;
+  let age = reference.getUTCFullYear() - birth.getUTCFullYear();
+  const monthDelta = reference.getUTCMonth() - birth.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && reference.getUTCDate() < birth.getUTCDate())) age--;
+  return age >= 0 ? age : null;
 }
 
 // ===== StudioTile =====

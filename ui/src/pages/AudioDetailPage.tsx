@@ -475,6 +475,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
                           engagement={performerEngagement.get(performer.id)}
                           onClick={() => onNavigate({ page: "performer", id: performer.id })}
                           onNavigate={onNavigate}
+                          referenceDate={audio.date}
                         >
                           {contextTags.length > 0 ? <div className="space-y-2 text-xs text-secondary"><PerformerContextTagList contextTags={contextTags} onNavigate={onNavigate} /></div> : null}
                         </PerformerTile>
