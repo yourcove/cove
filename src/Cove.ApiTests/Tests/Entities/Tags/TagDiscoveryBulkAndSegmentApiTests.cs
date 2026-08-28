@@ -62,6 +62,58 @@ public sealed class TagDiscoveryBulkAndSegmentApiTests(
     }
 
     [Fact]
+    [CoversEndpoint("POST", "/api/tags/find")]
+    public async Task GivenDeepTagHierarchy_WhenMemberIncludesSubTags_ThenEveryDescendantIsReturned()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var greatGrandchild = await owner.CreateTagAsync($"Great-grandchild filter tag {suffix}", TestContext.Current.CancellationToken);
+        var grandchild = await owner.CreateTagAsync(new TagBuilder()
+            .WithName($"Grandchild filter tag {suffix}")
+            .WithChild(greatGrandchild)
+            .Build(), TestContext.Current.CancellationToken);
+        var child = await owner.CreateTagAsync(new TagBuilder()
+            .WithName($"Child filter tag {suffix}")
+            .WithChild(grandchild)
+            .Build(), TestContext.Current.CancellationToken);
+        var parent = await owner.CreateTagAsync(new TagBuilder()
+            .WithName($"Parent filter tag {suffix}")
+            .WithChild(child)
+            .Build(), TestContext.Current.CancellationToken);
+
+        var direct = await AsUser(ApiTestUsers.Eva).FindTagsAsync(new FilteredQueryRequest<TagFilter>
+        {
+            ObjectFilter = new TagFilter
+            {
+                ParentsCriterion = new MultiIdCriterion
+                {
+                    Value = [parent.Id],
+                    Modifier = CriterionModifier.Includes,
+                },
+            },
+            FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 10, Sort = "name" },
+        }, TestContext.Current.CancellationToken);
+        var recursive = await AsUser(ApiTestUsers.Eva).FindTagsAsync(new FilteredQueryRequest<TagFilter>
+        {
+            ObjectFilter = new TagFilter
+            {
+                ParentsCriterion = new MultiIdCriterion
+                {
+                    Value = [parent.Id],
+                    Modifier = CriterionModifier.Includes,
+                    Depth = -1,
+                },
+            },
+            FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 10, Sort = "name" },
+        }, TestContext.Current.CancellationToken);
+
+        direct.Items.Should().ContainSingle().Which.Id.Should().Be(child.Id);
+        recursive.TotalCount.Should().Be(3);
+        recursive.Items.Select(tag => tag.Id).Should().BeEquivalentTo([child.Id, grandchild.Id, greatGrandchild.Id]);
+        recursive.Items.Should().NotContain(tag => tag.Id == parent.Id);
+    }
+
+    [Fact]
     [CoversEndpoint("POST", "/api/tags/graph")]
     public async Task GivenRelatedTags_WhenMemberReadsFilteredGraph_ThenNodesAndLinksAreScopedToMatches()
     {

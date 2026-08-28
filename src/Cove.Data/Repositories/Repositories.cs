@@ -787,6 +787,20 @@ public class TagRepository : ITagRepository
 
     public async Task<(IReadOnlyList<Tag> Items, int TotalCount)> FindAsync(TagFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
+        ExpandedHierarchyCriterion? expandedParents = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.ParentsCriterion))
+        {
+            expandedParents = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.ParentsCriterion!, ct);
+        }
+        var parentsCriterion = expandedParents?.Criterion ?? filter?.ParentsCriterion;
+
+        ExpandedHierarchyCriterion? expandedChildren = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.ChildrenCriterion))
+        {
+            expandedChildren = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.ChildrenCriterion!, ct);
+        }
+        var childrenCriterion = expandedChildren?.Criterion ?? filter?.ChildrenCriterion;
+
         var query = _db.Tags.AsQueryable();
 
         if (filter != null)
@@ -807,8 +821,8 @@ public class TagRepository : ITagRepository
                 query = query.Where(t => t.Favorite == filter.FavoriteCriterion.Value);
 
             // Multi-ID criteria
-            query = FilterHelpers.ApplyMultiId(query, filter.ParentsCriterion, t => t.ParentRelations.Select(tp => tp.ParentId));
-            query = FilterHelpers.ApplyMultiId(query, filter.ChildrenCriterion, t => t.ChildRelations.Select(tp => tp.ChildId));
+            query = FilterHelpers.ApplyMultiId(query, parentsCriterion, t => t.ParentRelations.Select(tp => tp.ParentId), expandedParents?.ValueGroups, expandedParents?.RequiredIdGroups);
+            query = FilterHelpers.ApplyMultiId(query, childrenCriterion, t => t.ChildRelations.Select(tp => tp.ChildId), expandedChildren?.ValueGroups, expandedChildren?.RequiredIdGroups);
             query = FilterHelpers.ApplyStudioCriterion(query, filter.TagGroupsCriterion, t => t.TagGroupId);
 
             // Timestamp criteria
