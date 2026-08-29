@@ -17,6 +17,7 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 Stronger access boundaries, safer metadata workflows, and more reliable face and media operations.
 
+- Unraid Docker templates are published for `cove-app`: Cove-CPU, Cove-NVIDIA, and Cove-VAAPI. They map appdata and media and accept an external PostgreSQL/pgvector connection string.
 - Tag, performer, and studio merges now share documented transfer rules for Cove-owned relationships, metadata, JSON references, engagement, security, artwork, and extension safeguards. Foreign keys in extension-owned tables block source deletion, uninspectable locations fail closed, and opaque non-foreign-key data remains the extension's responsibility.
 - Metadata-server, scraper, Stash, and Cove metadata-import paths now use the enforced performer and studio identity rules. Normalized duplicate Stash identities collapse deterministically without losing mapped relationships, Cove metadata JSON restores run transactionally, and non-unique performer aliases are never treated as identity keys.
 - Tag metadata refreshes preserve the local canonical name and skip newly supplied aliases when those remote claims belong to another tag, saving the remaining metadata and reporting the omitted claims as warnings instead of failing the entire refresh.

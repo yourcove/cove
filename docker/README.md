@@ -4,7 +4,7 @@ Cove provides two Docker images to suit different deployment needs. Both use Pos
 
 ## Option 1: All-in-one (recommended for simple setups)
 
-A single container with PostgreSQL, pgvector, FFmpeg, and Cove. Best for UnRAID, Synology, and users who want minimal configuration.
+A single container with PostgreSQL, pgvector, FFmpeg, and Cove. Best for Synology and users who want minimal configuration.
 
 ```bash
 docker compose --file docker-compose.allinone.yml up --detach
@@ -31,6 +31,25 @@ Separate containers for the app and database. Easier to manage, upgrade, and bac
 ```bash
 docker compose up --detach
 ```
+
+### Unraid
+
+Unraid templates for the app image live in `docker/unraid/` and run `ghcr.io/yourcove/cove-app:latest`. They expect a PostgreSQL 18 server with pgvector that you provide. Appdata defaults to `/mnt/user/appdata/cove/`.
+
+| Template | Use when |
+|----------|----------|
+| [`cove-cpu.xml`](unraid/cove-cpu.xml) | CPU only |
+| [`cove-nvidia.xml`](unraid/cove-nvidia.xml) | NVIDIA NVENC (`--runtime=nvidia`) |
+| [`cove-vaapi.xml`](unraid/cove-vaapi.xml) | Intel/AMD VAAPI or QSV (`/dev/dri`) |
+
+1. Copy the matching XML file to `/boot/config/plugins/dockerMan/templates-user/` on the Unraid flash drive (as `my-Cove-CPU.xml`, `my-Cove-NVIDIA.xml`, or `my-Cove-VAAPI.xml`), **or** add `https://github.com/yourcove/cove` as a template repository under **Settings → Docker**.
+2. Run PostgreSQL 18 with pgvector (for example `pgvector/pgvector:pg18`) before starting Cove.
+3. Open the **Docker** tab, choose **Add Container**, and select **Cove-CPU**, **Cove-NVIDIA**, or **Cove-VAAPI**.
+4. Set the PostgreSQL connection string. On a custom Docker network, `Host` is the database container name. On the default `bridge` network, set `Host` to your Unraid server IP and publish PostgreSQL port `5432`.
+5. Set **Media** to your library share (default `/mnt/user/media`). Add extra Path mappings for additional shares.
+6. Apply, then open the WebUI on port `5073` and complete first-run setup. Enter `/media` as the library path in Cove.
+
+The NVIDIA template requires the Nvidia-Driver plugin. Do not add `--gpus all`. The VAAPI template maps `/dev/dri`; switch hardware acceleration to `qsv` in Cove if you want Intel Quick Sync. The app runs as uid `1000`; if it cannot write to `/config`, run `chown -R 1000:1000 /mnt/user/appdata/cove`.
 
 ## Mounting your media
 
