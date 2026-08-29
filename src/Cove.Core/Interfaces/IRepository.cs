@@ -15,8 +15,8 @@ public interface IRepository<T> where T : class
 
 public interface IVideoRepository : IRepository<Video>
 {
-    Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
-    Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null);
+    Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null);
     Task<Video?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns VideoPerformer join rows (with Performer.RemoteIds included) for the given video IDs.</summary>
     Task<IReadOnlyList<VideoPerformer>> GetVideoPerformersAsync(IReadOnlyList<int> videoIds, CancellationToken ct = default);
@@ -193,6 +193,28 @@ public class RelatedFilterCriterion<TFilter> where TFilter : class
     public FindFilter? FindFilter { get; set; }
     public TFilter? ObjectFilter { get; set; }
     public bool Exclude { get; set; }
+    /// <summary>Optional age of the related performer on the host entity's date. Currently supported by video performer relationships.</summary>
+    public IntCriterion? AgeAtHostDateCriterion { get; set; }
+}
+
+public enum FilterExpressionOperator
+{
+    And,
+    Or,
+}
+
+/// <summary>A recursively composable boolean expression over partial entity filters.</summary>
+public class FilterExpression<TFilter> where TFilter : class
+{
+    public FilterExpressionOperator Operator { get; set; } = FilterExpressionOperator.And;
+    public List<FilterExpressionNode<TFilter>> Children { get; set; } = [];
+}
+
+/// <summary>Exactly one of Filter or Group must be supplied.</summary>
+public class FilterExpressionNode<TFilter> where TFilter : class
+{
+    public TFilter? Filter { get; set; }
+    public FilterExpression<TFilter>? Group { get; set; }
 }
 
 public class VideoFilter

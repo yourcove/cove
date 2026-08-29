@@ -95,6 +95,7 @@ export interface ListPageProps {
   customFilterSections?: FilterDialogCustomSection[];
   showClearAllObjectFilters?: boolean;
   showCustomFilterDivider?: boolean;
+  supportsFilterExpressions?: boolean;
 }
 const DEFAULT_ZOOM_LEVEL = 1;
 const RELEVANCE_SORT_OPTION = { value: "relevance", label: "Relevance" } as const;
@@ -733,6 +734,7 @@ export function ListPage({
   customFilterSections,
   showClearAllObjectFilters = true,
   showCustomFilterDivider = true,
+  supportsFilterExpressions = false,
 }: ListPageProps) {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
@@ -1404,6 +1406,7 @@ export function ListPage({
           activeFilter={editorObjectFilter}
           customSections={mergedCustomFilterSections}
           showCustomSectionDivider={showCustomFilterDivider}
+          supportsFilterExpressions={supportsFilterExpressions}
           onApply={(f) => {
             if (pageKey) {
               trackInteraction({

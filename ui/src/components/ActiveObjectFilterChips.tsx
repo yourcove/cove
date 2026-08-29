@@ -394,6 +394,12 @@ export function removeObjectFilterChipTarget(
   } else if (target.facet === "existence") {
     delete related._matchAll;
   } else if (target.facet === "criterion" && target.nestedKey) {
+    const contextDefinition = findCriterionDefinition(parentDefinition.relatedContextCriteria ?? [], target.nestedKey);
+    if (contextDefinition) {
+      delete related[contextDefinition.filterKey];
+      if (contextDefinition.secondaryFilterKey) delete related[contextDefinition.secondaryFilterKey];
+      if (contextDefinition.auxiliaryToggleKey) delete related[contextDefinition.auxiliaryToggleKey];
+    } else {
     const nestedObjectFilter = related.objectFilter && typeof related.objectFilter === "object"
       ? { ...(related.objectFilter as Record<string, unknown>) }
       : {};
@@ -407,13 +413,15 @@ export function removeObjectFilterChipTarget(
     }
     if (Object.keys(nestedObjectFilter).length > 0) related.objectFilter = nestedObjectFilter;
     else delete related.objectFilter;
+    }
   }
 
   const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string"
     ? (related.findFilter as { q: string }).q.trim()
     : "";
   const hasConditions = Boolean(related.objectFilter && typeof related.objectFilter === "object" && Object.keys(related.objectFilter as Record<string, unknown>).length > 0);
-  if (!q && !hasConditions && related._matchAll !== true) delete next[target.parentKey];
+  const hasContextConditions = (parentDefinition.relatedContextCriteria ?? []).some((criterion) => Object.hasOwn(related, criterion.filterKey));
+  if (!q && !hasConditions && !hasContextConditions && related._matchAll !== true) delete next[target.parentKey];
   else next[target.parentKey] = related;
   return next;
 }
@@ -548,6 +556,17 @@ function relatedFallbackLabel(key: string): string {
     .replace(/^./, (character) => character.toUpperCase());
 }
 
+function countFilterExpressionLeaves(value: unknown): number {
+  if (!value || typeof value !== "object") return 0;
+  const children = (value as { children?: unknown }).children;
+  if (!Array.isArray(children)) return 0;
+  return children.reduce((count, child) => {
+    if (!child || typeof child !== "object") return count;
+    const node = child as { filter?: unknown; group?: unknown };
+    return count + (node.filter ? 1 : countFilterExpressionLeaves(node.group));
+  }, 0);
+}
+
 function RelatedFilterChipGroup({
   parentKey,
   def,
@@ -588,8 +607,10 @@ function RelatedFilterChipGroup({
     _savedFilterName?: string;
     _matchAll?: boolean;
   } : {};
-  const nestedCriteria = def.relatedCriteria?.() ?? [];
-  const nestedEntries = getLogicalFilterEntries(nestedCriteria, related.objectFilter ?? {});
+  const contextCriteria = def.relatedContextCriteria ?? [];
+  const nestedCriteria = [...contextCriteria, ...(def.relatedCriteria?.() ?? [])];
+  const contextFilter = Object.fromEntries(contextCriteria.flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, (related as Record<string, unknown>)[criterion.filterKey]]] : []));
+  const nestedEntries = getLogicalFilterEntries(nestedCriteria, { ...contextFilter, ...(related.objectFilter ?? {}) });
   const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
   const EntityIcon = def.entityType === "performers" ? Users : Film;
   const modeLabel = related.exclude ? `No ${singular} matching all` : `At least one ${singular} matching all`;
@@ -822,7 +843,8 @@ function ActiveObjectFilterChipsContent({
       {rovingKeyboardAccess ? <span id={instructionsId} className="sr-only">Use Left and Right Arrow to review filters, Enter to edit, and Delete or Backspace to remove.</span> : null}
       {logicalEntries.map(({ key, value, endpointValue, customSection, def }) => {
         const isAuxiliaryToggle = def?.auxiliaryToggleKey === key;
-        const label = customSection?.label ?? (isAuxiliaryToggle ? def.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
+        const isFilterExpression = key === "_filterExpression";
+        const label = isFilterExpression ? "Advanced filter" : customSection?.label ?? (isAuxiliaryToggle ? def.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
         if (!customSection && def?.type === "related") {
           return (
             <RelatedFilterChipGroup
@@ -856,7 +878,10 @@ function ActiveObjectFilterChipsContent({
           );
         }
         const nameMap = def?.entityType ? entityNameMaps[def.entityType] : undefined;
-        const displayValue = def?.type === "remoteId"
+        const expressionLeafCount = isFilterExpression ? countFilterExpressionLeaves(value) : 0;
+        const displayValue = isFilterExpression
+          ? `${expressionLeafCount} ${expressionLeafCount === 1 ? "condition" : "conditions"}`
+          : def?.type === "remoteId"
           ? formatRemoteIdFilterChipValue(value, endpointValue, metadataServers)
           : customSection?.summarize?.(value) ?? (isAuxiliaryToggle && typeof value === "boolean" ? (value ? "Yes" : "No") : formatFilterChipValue(def, value, nameMap, ratingOptions));
         const displayContent = !customSection && def?.type === "rating"

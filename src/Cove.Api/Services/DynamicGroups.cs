@@ -613,7 +613,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         var findFilter = BuildFindFilter(entityConfig.FindFilter, 0, 1);
         return entityConfig.EntityType switch
         {
-            "video" => (await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct)).TotalCount,
+            "video" => (await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct, DeserializeExpression<VideoFilter>(entityConfig.ObjectFilter))).TotalCount,
             "image" => (await imageRepository.FindAsync(DeserializeFilter<ImageFilter>(entityConfig.ObjectFilter) ?? new ImageFilter(), findFilter, ct)).TotalCount,
             "audio" => await CountAudiosAsync(entityConfig, findFilter, ct),
             "text" => await CountTextsAsync(entityConfig, findFilter, ct),
@@ -651,7 +651,7 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
 
     private async Task<DynamicGroupResolveResult> ResolveVideosAsync(FilterEntityConfig entityConfig, FindFilter findFilter, int localOffset, int localLimit, CancellationToken ct)
     {
-        var (videos, totalCount) = await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct);
+        var (videos, totalCount) = await videoRepository.FindAsync(DeserializeFilter<VideoFilter>(entityConfig.ObjectFilter) ?? new VideoFilter(), findFilter, ct, DeserializeExpression<VideoFilter>(entityConfig.ObjectFilter));
         if (localLimit <= 0 || localOffset >= totalCount)
             return new DynamicGroupResolveResult([], totalCount);
 
@@ -934,6 +934,24 @@ public sealed class FilterDynamicGroupSource(CoveContext db, IVideoRepository vi
         catch (JsonException)
         {
             return default;
+        }
+    }
+
+    private static FilterExpression<TFilter>? DeserializeExpression<TFilter>(JsonElement? objectFilter) where TFilter : class
+    {
+        if (!objectFilter.HasValue || objectFilter.Value.ValueKind != JsonValueKind.Object
+            || !objectFilter.Value.TryGetProperty("_filterExpression", out var expression))
+            return null;
+        try
+        {
+            var result = expression.Deserialize<FilterExpression<TFilter>>(JsonOptions);
+            if (!FilterExpressionQuery.TryValidate(result, out var error))
+                throw new InvalidOperationException($"Invalid saved filter expression: {error}");
+            return result;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

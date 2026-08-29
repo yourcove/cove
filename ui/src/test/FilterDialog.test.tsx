@@ -1738,4 +1738,76 @@ describe("FilterDialog", () => {
       }),
     }));
   });
+
+  it("adds a second instance of the same criterion as an AND expression", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ urlCriterion: { modifier: "INCLUDES", value: "foo" } }}
+        onApply={onApply}
+        preselectCriterion="url"
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add another URL" }));
+    const values = screen.getAllByLabelText("Value");
+    fireEvent.click(screen.getAllByRole("button", { name: "Excludes" })[1]);
+    fireEvent.change(values[1], { target: { value: "bar" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      _filterExpression: {
+        operator: "AND",
+        children: [
+          { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
+          { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
+        ],
+      },
+    });
+  });
+
+  it("offers age on video date inside a related performer condition", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(<FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />);
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    fireEvent.click(screen.getByRole("tab", { name: "Age on video date" }));
+    fireEvent.click(screen.getByRole("button", { name: "Between" }));
+    const values = screen.getAllByRole("spinbutton");
+    fireEvent.change(values[0], { target: { value: "20" } });
+    fireEvent.change(values[1], { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        ageAtHostDateCriterion: { modifier: "BETWEEN", value: 20, value2: 30 },
+      },
+    });
+  });
+
+  it("preserves page-specific filter keys when switching to an expression", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ includeCompilationGroups: { value: true } }}
+        onApply={onApply}
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Group operator" }), { target: { value: "OR" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      includeCompilationGroups: { value: true },
+    });
+  });
 });

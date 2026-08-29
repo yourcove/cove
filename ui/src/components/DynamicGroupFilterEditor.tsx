@@ -291,6 +291,7 @@ export function DynamicGroupFilterEditor({ queryJson, onChange }: DynamicGroupFi
           onClose={() => setFilterOpenFor(null)}
           criteria={openCriteriaDefinitions}
           activeFilter={objectFilters[filterOpenFor] ?? {}}
+          supportsFilterExpressions={filterOpenFor === "video"}
           onApply={(next) => updateObjectFilter(filterOpenFor, next)}
         />
       ) : null}

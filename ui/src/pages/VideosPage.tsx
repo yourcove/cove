@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { entityEngagement, entityImages, videos } from "../api/client";
-import type { BoolCriterion, EntityEngagement, FindFilter, Group, Video, VideoCreate, VideoFilterCriteria, VideoListEntry } from "../api/types";
+import type { BoolCriterion, EntityEngagement, FilterExpression, FindFilter, Group, Video, VideoCreate, VideoFilterCriteria, VideoListEntry } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { EntityCardGrid } from "../components/EntityCardGrid";
@@ -12,7 +12,7 @@ import { VideoTagger } from "../components/VideoTagger";
 import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { CustomFieldsEditor, formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
-import { VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
+import { FILTER_EXPRESSION_STATE_KEY, VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import { CreateModalActions, EditModal, Field, TextArea, TextInput } from "../components/EditModal";
 import { Film, Eye, Loader2, Search, Play, Pause, Layers, Maximize2, Minimize2, Volume2, VolumeX, ThumbsUp, Heart, Shuffle } from "lucide-react";
 import { useVideoQueue } from "../state/VideoQueueContext";
@@ -61,7 +61,7 @@ const VERTICAL_PORTRAIT_FILTER_KEY = "orientationCriterion";
 const MOBILE_VIEWER_MEDIA_QUERY = "(max-width: 767px), (hover: none) and (pointer: coarse)";
 const VIDEO_FILTER_CRITERIA: CriterionDefinition[] = [
   ...VIDEO_CRITERIA,
-  { id: "includeCompilations", label: "Include Compilations", type: "bool", filterKey: INCLUDE_COMPILATIONS_FILTER_KEY },
+  { id: "includeCompilations", label: "Include Compilations", type: "bool", filterKey: INCLUDE_COMPILATIONS_FILTER_KEY, expressionSupported: false },
 ];
 
 function isMobileViewerViewport() {
@@ -260,14 +260,15 @@ export function VideosPage({ onNavigate }: Props) {
     return { ...objectFilter, [INCLUDE_COMPILATIONS_FILTER_KEY]: { value: includeValue } satisfies BoolCriterion };
   }, [objectFilter]);
 
+  const filterExpression = normalizedObjectFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<VideoFilterCriteria> | undefined;
   const backendObjectFilter = useMemo(() => Object.fromEntries(
-    Object.entries(normalizedObjectFilter).filter(([key]) => key !== INCLUDE_COMPILATIONS_FILTER_KEY),
+    Object.entries(normalizedObjectFilter).filter(([key]) => key !== INCLUDE_COMPILATIONS_FILTER_KEY && key !== FILTER_EXPRESSION_STATE_KEY),
   ), [normalizedObjectFilter]);
-  const hasObjectFilter = Object.keys(backendObjectFilter).length > 0;
+  const hasObjectFilter = Object.keys(backendObjectFilter).length > 0 || Boolean(filterExpression?.children.length);
   const compilationBlockingObjectFilter = useMemo(() => Object.fromEntries(
     Object.entries(backendObjectFilter).filter(([key, value]) => key !== IS_VR_FILTER_KEY || getBoolCriterionValue(value) !== false),
   ), [backendObjectFilter]);
-  const hasCompilationBlockingObjectFilter = Object.keys(compilationBlockingObjectFilter).length > 0;
+  const hasCompilationBlockingObjectFilter = Object.keys(compilationBlockingObjectFilter).length > 0 || Boolean(filterExpression?.children.length);
   const videoVrFilterValue = getBoolCriterionValue(backendObjectFilter[IS_VR_FILTER_KEY]);
   const compilationQueryExtra = useMemo(() => videoVrFilterValue === false ? { isVr: false } : undefined, [videoVrFilterValue]);
   const visualSearchActive = visualSimilarityAvailable && searchMode === "visual" && Boolean(filter.q?.trim());
@@ -359,10 +360,11 @@ export function VideosPage({ onNavigate }: Props) {
 
   const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
   const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
-    queryKey: ["videos", "aggregate", aggregateFilter, backendObjectFilter],
+    queryKey: ["videos", "aggregate", aggregateFilter, backendObjectFilter, filterExpression],
     queryFn: () => videos.aggregate({
       findFilter: aggregateFilter,
       objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+      filterExpression,
     }),
     enabled: !visualSearchActive && !canShowCompilationGroups,
   });
@@ -384,17 +386,18 @@ export function VideosPage({ onNavigate }: Props) {
   }, [filter, includeCompilationGroups, setFilter]);
 
   const { data, isLoading, error: pageError, refetch: refetchPage } = useQuery({
-    queryKey: ["videos", filter, backendObjectFilter, searchMode],
+    queryKey: ["videos", filter, backendObjectFilter, filterExpression, searchMode],
     queryFn: () => {
       if (visualSearchActive) {
         return visualSimilarity.searchVideos({
           findFilter: filter,
           objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+          filterExpression,
         });
       }
 
       return hasObjectFilter
-        ? videos.findFiltered({ findFilter: filter, objectFilter: backendObjectFilter as VideoFilterCriteria })
+        ? videos.findFiltered({ findFilter: filter, objectFilter: backendObjectFilter as VideoFilterCriteria, filterExpression })
         : videos.find(filter);
     },
     enabled: !infinitePageSize && !canShowCompilationGroups,
@@ -410,7 +413,7 @@ export function VideosPage({ onNavigate }: Props) {
   });
 
   const infiniteVideosQuery = usePaginatedInfiniteQuery<Video>({
-    queryKey: ["videos", "infinite", infiniteFilterKey, backendObjectFilter, searchMode],
+    queryKey: ["videos", "infinite", infiniteFilterKey, backendObjectFilter, filterExpression, searchMode],
     enabled: infinitePageSize,
     chunkSize: infiniteChunkSize,
     queryFn: (page, perPage) => {
@@ -419,11 +422,12 @@ export function VideosPage({ onNavigate }: Props) {
         return visualSimilarity.searchVideos({
           findFilter: nextFilter,
           objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+          filterExpression,
         });
       }
 
       return hasObjectFilter
-        ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria })
+        ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria, filterExpression })
         : videos.find(nextFilter);
     },
   });
@@ -502,7 +506,7 @@ export function VideosPage({ onNavigate }: Props) {
     const file = video.files[0];
     return file?.width && file.height ? file.height / file.width : 9 / 16;
   });
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter: backendObjectFilter, searchMode }), [backendObjectFilter, infiniteFilterKey, searchMode]);
+  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter: backendObjectFilter, filterExpression, searchMode }), [backendObjectFilter, filterExpression, infiniteFilterKey, searchMode]);
   const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const selecting = selectedIds.size > 0;
   const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
@@ -517,10 +521,11 @@ export function VideosPage({ onNavigate }: Props) {
       return visualSimilarity.searchVideos({
         findFilter: nextFilter,
         objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+        filterExpression,
       });
     }
     return hasObjectFilter
-      ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria })
+      ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria, filterExpression })
       : videos.find(nextFilter);
   }, [backendObjectFilter, hasObjectFilter, visualSearchActive, visualSimilarity]);
   const { openVideo: navigateToVideo, navigateFromList: navigateFromVideoList } = useVideoQueueNavigation({
@@ -539,9 +544,10 @@ export function VideosPage({ onNavigate }: Props) {
         ? await visualSimilarity.searchVideos({
           findFilter: randomFilter,
           objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+          filterExpression,
         })
         : hasObjectFilter
-          ? await videos.findFiltered({ findFilter: randomFilter, objectFilter: backendObjectFilter as VideoFilterCriteria })
+          ? await videos.findFiltered({ findFilter: randomFilter, objectFilter: backendObjectFilter as VideoFilterCriteria, filterExpression })
           : await videos.find(randomFilter);
       return result.items[0] ?? null;
     },
@@ -568,11 +574,12 @@ export function VideosPage({ onNavigate }: Props) {
           return visualSimilarity.searchVideos({
             findFilter: nextFilter,
             objectFilter: hasObjectFilter ? backendObjectFilter as VideoFilterCriteria : undefined,
+            filterExpression,
           });
         }
 
         return hasObjectFilter
-          ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria })
+          ? videos.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as VideoFilterCriteria, filterExpression })
           : videos.find(nextFilter);
       });
       selectIds(ids);
@@ -629,6 +636,7 @@ export function VideosPage({ onNavigate }: Props) {
       allowInfinitePageSize
       infinitePageSizeOnly={infiniteOnlyDisplayMode}
       criteriaDefinitions={VIDEO_FILTER_CRITERIA}
+      supportsFilterExpressions
       objectFilter={normalizedObjectFilter}
       onObjectFilterChange={setObjectFilter}
       wallColumnCount={wallColumnCount}

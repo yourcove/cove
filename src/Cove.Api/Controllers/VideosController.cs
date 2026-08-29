@@ -240,8 +240,10 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     /// <summary>POST-based filtered query supporting advanced criteria (JSON body).</summary>
     [HttpPost("find")]
-    public async Task<IActionResult> FindPost([FromBody] FilteredQueryRequest<VideoFilter> req, CancellationToken ct)
+    public async Task<IActionResult> FindPost([FromBody] VideoFilteredQueryRequest req, CancellationToken ct)
     {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
         var cacheKey = $"videos_find_{JsonSerializer.Serialize(req)}";
         if (memoryCache.TryGetValue(cacheKey, out PaginatedResponse<VideoDto>? cachedResult) && cachedResult != null)
         {
@@ -250,7 +252,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
         var findFilter = req.FindFilter ?? new FindFilter();
         var filter = req.ObjectFilter ?? new VideoFilter();
-        var (items, totalCount) = await videoRepo.FindAsync(filter, findFilter, ct);
+        var (items, totalCount) = await videoRepo.FindAsync(filter, findFilter, ct, req.FilterExpression);
         var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Video, items.Select(video => video.Id), ct);
         var engagement = await engagementService.GetVideoSnapshotsAsync(items.Select(video => video.Id), ct);
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Video, items.Select(video => video.Id), ct);
@@ -262,8 +264,12 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     [HttpPost("aggregate")]
-    public async Task<ActionResult<VideoAggregate>> Aggregate([FromBody] FilteredQueryRequest<VideoFilter> req, CancellationToken ct)
-        => Ok(await videoRepo.AggregateAsync(req.ObjectFilter, req.FindFilter, ct));
+    public async Task<ActionResult<VideoAggregate>> Aggregate([FromBody] VideoFilteredQueryRequest req, CancellationToken ct)
+    {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
+        return Ok(await videoRepo.AggregateAsync(req.ObjectFilter, req.FindFilter, ct, req.FilterExpression));
+    }
 
     [HttpGet("{id:int}")]
     [AllowShareLinkAccess]
