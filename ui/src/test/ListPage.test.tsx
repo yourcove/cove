@@ -213,6 +213,87 @@ describe("ListPage active filter chips", () => {
     expect(onObjectFilterChange).toHaveBeenCalledWith({});
   });
 
+  it("opens and removes one parameter inside a related-performer filter group", async () => {
+    const user = userEvent.setup();
+    const onObjectFilterChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["saved-filters", "performers"], []);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              performerFilterCriterion: {
+                findFilter: { q: "example" },
+                objectFilter: {
+                  favoriteCriterion: { value: true },
+                  ratingCriterion: { value: 100, modifier: "EQUALS" },
+                },
+              },
+            }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const group = screen.getByRole("group", { name: "Related Performers filters" });
+    expect(group.querySelectorAll(".lucide-users")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "Edit performer filter: Favorite" }));
+    expect(screen.getByRole("dialog", { name: "Filters / Related Performers" })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        findFilter: { q: "example" },
+        objectFilter: { ratingCriterion: { value: 100, modifier: "EQUALS" } },
+      },
+    });
+  });
+
+  it("normalizes the legacy performer-favorite chip before editing or removing it", async () => {
+    const user = userEvent.setup();
+    const onObjectFilterChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["saved-filters", "performers"], []);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ performerFavoriteCriterion: { value: true } }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText("performerFavoriteCriterion")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit performer filter: Favorite" }));
+    expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({});
+  });
+
   it.each([
     [
       "hash algorithms",

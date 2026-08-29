@@ -5,7 +5,7 @@ import { ExtensionSlot } from "../router/RouteRegistry";
 import { getDefaultFilter, SavedFilterMenu } from "./SavedFilterMenu";
 import { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
 import { IsoDateInput } from "./IsoDateInput";
-import { FilterDialog, FilterButton, type CriterionDefinition, type CriterionType, type EntityType, type FilterDialogCustomSection } from "./FilterDialog";
+import { FilterDialog, FilterButton, migrateLegacyPerformerFavoriteCriterion, type CriterionDefinition, type CriterionType, type EntityType, type FilterDialogCustomSection, type FilterDialogPreselection } from "./FilterDialog";
 import { EntityReferenceSelector, getEntityReferenceLabel, isEntityReferenceType, parseEntityReferenceId } from "./EntityReferenceSelector";
 import { useResolvedKeybindingOverrides } from "../hooks/useResolvedKeybindingOverrides";
 import { useKeySequence } from "../hooks/useKeySequence";
@@ -21,7 +21,7 @@ import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from 
 import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
-import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
+import { ActiveObjectFilterChips, countActiveObjectFilters, getFilterChipTargetKey, removeObjectFilterChipTarget } from "./ActiveObjectFilterChips";
 import { collapseExtensionCriteria, executableExtensionFilterKey, expandExtensionCriteria, unavailableExtensionCriterionDefinitions } from "../extensions/extensionListFilters";
 import { QueryState } from "./QueryState";
 import { resolveQueryLoadState, type QueryLoadState } from "../utils/queryLoadState";
@@ -735,7 +735,7 @@ export function ListPage({
   showCustomFilterDivider = true,
 }: ListPageProps) {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
-  const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
+  const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
   const cardSizeEntityType = requestedCardSizeEntityType ?? filterMode ?? pageKey;
   const resolvedSavedFilterScope = savedFilterScope ?? filterMode;
   const [zoomLevel, setZoomLevel] = useEntityCardSize(cardSizeEntityType, pageKey, DEFAULT_ZOOM_LEVEL);
@@ -785,7 +785,10 @@ export function ListPage({
     const merged = [...(criteriaDefinitions ?? []), ...extensionCriteriaDefinitions, ...unavailableExtensionCriteria];
     return merged.length > 0 ? merged : undefined;
   }, [criteriaDefinitions, extensionCriteriaDefinitions, unavailableExtensionCriteria]);
-  const editorObjectFilter = useMemo(() => expandExtensionCriteria(objectFilter ?? {}), [objectFilter]);
+  const editorObjectFilter = useMemo(
+    () => migrateLegacyPerformerFavoriteCriterion(expandExtensionCriteria(objectFilter ?? {}), mergedCriteriaDefinitions ?? []),
+    [mergedCriteriaDefinitions, objectFilter],
+  );
   const extensionSortOptions = useMemo(
     () => getListSortsForEntity(listEntityType).map(createExtensionSortOption).filter((item): item is { value: string; label: string } => item != null),
     [getListSortsForEntity, listEntityType]
@@ -1299,27 +1302,21 @@ export function ListPage({
           criteriaDefinitions={mergedCriteriaDefinitions}
           objectFilter={editorObjectFilter}
           customFilterSections={mergedCustomFilterSections}
-          onEdit={(key) => {
+          onEdit={(target) => {
+            const key = getFilterChipTargetKey(target);
             const criterion = mergedCriteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
-            const customSection = mergedCustomFilterSections?.find((section) => section.filterKey === key);
-            setFilterDialogPreselect(customSection?.id ?? criterion?.id ?? key);
+            const customSection = target.kind === "root" ? mergedCustomFilterSections?.find((section) => section.filterKey === key) : undefined;
+            setFilterDialogPreselect(target.kind === "related"
+              ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
+              : customSection?.id ?? criterion?.id ?? key);
             setFilterDialogOpen(true);
           }}
-          onRemove={(key) => {
+          onRemove={(target) => {
+            const key = getFilterChipTargetKey(target);
             if (pageKey) {
               trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", criteriaKeys: [key] } });
             }
-            const next = { ...editorObjectFilter };
-            const criterion = mergedCriteriaDefinitions.find((item) => item.id === key
-              || item.filterKey === key
-              || item.secondaryFilterKey === key
-              || item.auxiliaryToggleKey === key);
-            if (criterion && criterion.auxiliaryToggleKey !== key) {
-              delete next[criterion.filterKey];
-              if (criterion.secondaryFilterKey) delete next[criterion.secondaryFilterKey];
-            } else {
-              delete next[key];
-            }
+            const next = removeObjectFilterChipTarget(editorObjectFilter, mergedCriteriaDefinitions, target);
             onObjectFilterChange(collapseExtensionCriteria(next, objectFilter));
             onFilterChange({ ...filter, page: 1 });
           }}

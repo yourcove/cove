@@ -5,10 +5,10 @@ import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthP
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
-import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
+import { FilterButton, FilterDialog, migrateLegacyPerformerFavoriteCriterion, type CriterionDefinition, type FilterDialogPreselection } from "./FilterDialog";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
-import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
+import { ActiveObjectFilterChips, countActiveObjectFilters, getFilterChipTargetKey, removeObjectFilterChipTarget } from "./ActiveObjectFilterChips";
 import { ListSearchControl } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
 import { WallSizeControl } from "./WallSizeControl";
@@ -132,7 +132,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const start = totalCount > 0 ? (infinitePageSize ? 1 : (clampedPage - 1) * effectivePerPage + 1) : 0;
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
-  const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
+  const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
   useRegisterKeyboardActionHandler("list.filters", () => setFilterDialogOpen(true), {
     enabled: Boolean(criteriaDefinitions && onObjectFilterChange),
     surface: "list",
@@ -173,7 +173,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
     }
   };
 
-  const activeObjectFilter = objectFilter ?? {};
+  const activeObjectFilter = useMemo(
+    () => migrateLegacyPerformerFavoriteCriterion(objectFilter ?? {}, criteriaDefinitions ?? []),
+    [criteriaDefinitions, objectFilter],
+  );
 
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
   // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
@@ -314,23 +317,16 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
           criteriaDefinitions={criteriaDefinitions}
           objectFilter={activeObjectFilter}
           className="mb-2"
-          onEdit={(key) => {
+          onEdit={(target) => {
+            const key = getFilterChipTargetKey(target);
             const criterion = criteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
-            setFilterDialogPreselect(criterion?.id ?? key);
+            setFilterDialogPreselect(target.kind === "related"
+              ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
+              : criterion?.id ?? key);
             setFilterDialogOpen(true);
           }}
-          onRemove={(key) => {
-            const next = { ...activeObjectFilter };
-            const criterion = criteriaDefinitions.find((item) => item.id === key
-              || item.filterKey === key
-              || item.secondaryFilterKey === key
-              || item.auxiliaryToggleKey === key);
-            if (criterion && criterion.auxiliaryToggleKey !== key) {
-              delete next[criterion.filterKey];
-              if (criterion.secondaryFilterKey) delete next[criterion.secondaryFilterKey];
-            } else {
-              delete next[key];
-            }
+          onRemove={(target) => {
+            const next = removeObjectFilterChipTarget(activeObjectFilter, criteriaDefinitions, target);
             onObjectFilterChange(next);
             onFilterChange({ ...filter, page: 1 });
           }}

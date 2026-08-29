@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Film, Users, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { groups, performers, studios, tagGroups, tags } from "../api/client";
 import { formatHumanDuration } from "../utils/durationFormat";
 import type { CriterionDefinition, FilterDialogCustomSection } from "./FilterDialog";
@@ -9,6 +9,18 @@ import type { MetadataServer, RatingSystemOptions } from "../api/types";
 import { convertToRatingFormat, formatDisplayRating, normalizeRatingOptions, RatingStars, useRatingOptions } from "./Rating";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
+
+export type RelatedFilterChipFacet = "criterion" | "search" | "existence" | "mode";
+
+export type FilterChipTarget =
+  | { kind: "root"; key: string }
+  | {
+      kind: "related";
+      parentKey: string;
+      facet: RelatedFilterChipFacet;
+      nestedKey?: string;
+      nestedCriterionId?: string;
+    };
 
 const CHIP_MODIFIER_LABELS: Record<string, string> = {
   EQUALS: "=",
@@ -329,8 +341,8 @@ function RatingFilterChipDisplay({ value, options, fallback }: { value: unknown;
 interface ActiveObjectFilterChipsProps {
   criteriaDefinitions: CriterionDefinition[];
   objectFilter: Record<string, unknown>;
-  onRemove: (key: string) => void;
-  onEdit: (key: string) => void;
+  onRemove: (target: FilterChipTarget) => void;
+  onEdit: (target: FilterChipTarget) => void;
   onClearAll?: () => void;
   customFilterSections?: FilterDialogCustomSection[];
   className?: string;
@@ -345,6 +357,65 @@ function findCriterionDefinition(criteriaDefinitions: CriterionDefinition[], key
     || item.filterKey === key
     || item.secondaryFilterKey === key
     || item.auxiliaryToggleKey === key);
+}
+
+export function getFilterChipTargetKey(target: FilterChipTarget): string {
+  return target.kind === "root" ? target.key : target.parentKey;
+}
+
+export function removeObjectFilterChipTarget(
+  objectFilter: Record<string, unknown>,
+  criteriaDefinitions: CriterionDefinition[],
+  target: FilterChipTarget,
+): Record<string, unknown> {
+  const next = { ...objectFilter };
+  if (target.kind === "root") {
+    const criterion = findCriterionDefinition(criteriaDefinitions, target.key);
+    if (criterion && criterion.auxiliaryToggleKey !== target.key) {
+      delete next[criterion.filterKey];
+      if (criterion.secondaryFilterKey) delete next[criterion.secondaryFilterKey];
+      if (criterion.auxiliaryToggleKey) delete next[criterion.auxiliaryToggleKey];
+    } else {
+      delete next[target.key];
+    }
+    return next;
+  }
+
+  const parentDefinition = findCriterionDefinition(criteriaDefinitions, target.parentKey);
+  const rawRelated = next[target.parentKey];
+  if (!parentDefinition || parentDefinition.type !== "related" || !rawRelated || typeof rawRelated !== "object") {
+    return next;
+  }
+
+  const related = { ...(rawRelated as Record<string, unknown>) };
+  delete related._savedFilterName;
+  if (target.facet === "search") {
+    delete related.findFilter;
+  } else if (target.facet === "existence") {
+    delete related._matchAll;
+  } else if (target.facet === "criterion" && target.nestedKey) {
+    const nestedObjectFilter = related.objectFilter && typeof related.objectFilter === "object"
+      ? { ...(related.objectFilter as Record<string, unknown>) }
+      : {};
+    const nestedDefinition = findCriterionDefinition(parentDefinition.relatedCriteria?.() ?? [], target.nestedKey);
+    if (nestedDefinition && nestedDefinition.auxiliaryToggleKey !== target.nestedKey) {
+      delete nestedObjectFilter[nestedDefinition.filterKey];
+      if (nestedDefinition.secondaryFilterKey) delete nestedObjectFilter[nestedDefinition.secondaryFilterKey];
+      if (nestedDefinition.auxiliaryToggleKey) delete nestedObjectFilter[nestedDefinition.auxiliaryToggleKey];
+    } else {
+      delete nestedObjectFilter[target.nestedKey];
+    }
+    if (Object.keys(nestedObjectFilter).length > 0) related.objectFilter = nestedObjectFilter;
+    else delete related.objectFilter;
+  }
+
+  const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string"
+    ? (related.findFilter as { q: string }).q.trim()
+    : "";
+  const hasConditions = Boolean(related.objectFilter && typeof related.objectFilter === "object" && Object.keys(related.objectFilter as Record<string, unknown>).length > 0);
+  if (!q && !hasConditions && related._matchAll !== true) delete next[target.parentKey];
+  else next[target.parentKey] = related;
+  return next;
 }
 
 export function countActiveObjectFilters(criteriaDefinitions: CriterionDefinition[], objectFilter: Record<string, unknown>): number {
@@ -366,27 +437,35 @@ export function countActiveObjectFilters(criteriaDefinitions: CriterionDefinitio
 
 export function ActiveObjectFilterChips(props: ActiveObjectFilterChipsProps) {
   const { criteriaDefinitions, objectFilter } = props;
-  const activeEntityTypes = useMemo(() => {
+  const dependencies = useMemo(() => {
     const types = new Set<string>();
-    for (const key of Object.keys(objectFilter)) {
-      const def = findCriterionDefinition(criteriaDefinitions, key);
-      if ((def?.type === "multiId" || def?.type === "tagDuration") && def.entityType) types.add(def.entityType);
-    }
-    return types;
+    let hasRemoteId = false;
+    const inspect = (definitions: CriterionDefinition[], filter: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(filter)) {
+        const def = findCriterionDefinition(definitions, key);
+        if ((def?.type === "multiId" || def?.type === "tagDuration") && def.entityType) types.add(def.entityType);
+        if (def?.type === "remoteId") hasRemoteId = true;
+        if (def?.type === "related" && value && typeof value === "object") {
+          const nestedFilter = (value as { objectFilter?: unknown }).objectFilter;
+          if (nestedFilter && typeof nestedFilter === "object") inspect(def.relatedCriteria?.() ?? [], nestedFilter as Record<string, unknown>);
+        }
+      }
+    };
+    inspect(criteriaDefinitions, objectFilter);
+    return { activeEntityTypes: types, hasRemoteId };
   }, [criteriaDefinitions, objectFilter]);
-  const hasRemoteIdFilter = Object.keys(objectFilter).some((key) => findCriterionDefinition(criteriaDefinitions, key)?.type === "remoteId");
 
   if (Object.keys(objectFilter).length === 0) return null;
 
-  if (hasRemoteIdFilter) {
-    return <ActiveObjectFilterChipsWithMetadata {...props} activeEntityTypes={activeEntityTypes} />;
+  if (dependencies.hasRemoteId) {
+    return <ActiveObjectFilterChipsWithMetadata {...props} activeEntityTypes={dependencies.activeEntityTypes} />;
   }
 
-  if (activeEntityTypes.size === 0) {
+  if (dependencies.activeEntityTypes.size === 0) {
     return <ActiveObjectFilterChipsContent {...props} entityNameMaps={{}} metadataServers={[]} />;
   }
 
-  return <ActiveObjectFilterChipsWithEntityNames {...props} activeEntityTypes={activeEntityTypes} metadataServers={[]} />;
+  return <ActiveObjectFilterChipsWithEntityNames {...props} activeEntityTypes={dependencies.activeEntityTypes} metadataServers={[]} />;
 }
 
 function ActiveObjectFilterChipsWithMetadata(props: ActiveObjectFilterChipsProps & { activeEntityTypes: Set<string> }) {
@@ -421,6 +500,229 @@ function ActiveObjectFilterChipsWithEntityNames(props: ActiveObjectFilterChipsPr
   return <ActiveObjectFilterChipsContent {...props} entityNameMaps={entityNameMaps} />;
 }
 
+type LogicalFilterEntry = {
+  key: string;
+  value: unknown;
+  endpointValue?: unknown;
+  customSection?: FilterDialogCustomSection;
+  def?: CriterionDefinition;
+};
+
+function getLogicalFilterEntries(
+  criteriaDefinitions: CriterionDefinition[],
+  objectFilter: Record<string, unknown>,
+  customFilterSections?: FilterDialogCustomSection[],
+): LogicalFilterEntry[] {
+  const processedKeys = new Set<string>();
+  const entries: LogicalFilterEntry[] = [];
+
+  for (const [objectKey, value] of Object.entries(objectFilter)) {
+    if (processedKeys.has(objectKey)) continue;
+    const customSection = customFilterSections?.find((section) => section.filterKey === objectKey);
+    const def = findCriterionDefinition(criteriaDefinitions, objectKey);
+    if (def?.type === "remoteId" && def.secondaryFilterKey) {
+      const primaryKey = def.filterKey;
+      const secondaryKey = def.secondaryFilterKey;
+      processedKeys.add(primaryKey);
+      processedKeys.add(secondaryKey);
+      entries.push({
+        key: Object.hasOwn(objectFilter, primaryKey) ? primaryKey : secondaryKey,
+        value: objectFilter[primaryKey],
+        endpointValue: objectFilter[secondaryKey],
+        def,
+      });
+      continue;
+    }
+
+    processedKeys.add(objectKey);
+    entries.push({ key: objectKey, value, customSection, def });
+  }
+
+  return entries;
+}
+
+function relatedFallbackLabel(key: string): string {
+  return key
+    .replace(/Criterion$|Interval$/i, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function RelatedFilterChipGroup({
+  parentKey,
+  def,
+  value,
+  entityNameMaps,
+  metadataServers,
+  ratingOptions,
+  onEdit,
+  onRemove,
+  rovingKeyboardAccess,
+  focused,
+  onFocus,
+  onKeyDown,
+  buttonRef,
+  removeGroup,
+  onGroupRemoved,
+}: {
+  parentKey: string;
+  def: CriterionDefinition;
+  value: unknown;
+  entityNameMaps: Record<string, Map<number, string>>;
+  metadataServers: MetadataServer[];
+  ratingOptions: RatingSystemOptions;
+  onEdit: (target: FilterChipTarget) => void;
+  onRemove: (target: FilterChipTarget) => void;
+  rovingKeyboardAccess: boolean;
+  focused: boolean;
+  onFocus: () => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  buttonRef: (element: HTMLButtonElement | null) => void;
+  removeGroup: () => void;
+  onGroupRemoved: () => void;
+}) {
+  const related = value && typeof value === "object" ? value as {
+    findFilter?: { q?: string };
+    objectFilter?: Record<string, unknown>;
+    exclude?: boolean;
+    _savedFilterName?: string;
+    _matchAll?: boolean;
+  } : {};
+  const nestedCriteria = def.relatedCriteria?.() ?? [];
+  const nestedEntries = getLogicalFilterEntries(nestedCriteria, related.objectFilter ?? {});
+  const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
+  const EntityIcon = def.entityType === "performers" ? Users : Film;
+  const modeLabel = related.exclude ? `No ${singular} matching all` : `At least one ${singular} matching all`;
+  const q = related.findFilter?.q?.trim();
+  const groupRef = useRef<HTMLDivElement>(null);
+
+  const removeNestedFilter = (target: FilterChipTarget) => {
+    onRemove(target);
+    window.setTimeout(() => {
+      const groupEditButton = groupRef.current?.querySelector<HTMLButtonElement>("button[data-active-filter-key]");
+      if (groupEditButton) groupEditButton.focus();
+      else onGroupRemoved();
+    }, 0);
+  };
+
+  const renderNestedChip = (
+    key: string,
+    label: string,
+    displayContent: ReactNode,
+    displayValue: string,
+    target: FilterChipTarget,
+    editable = true,
+  ) => (
+    <div key={key} className="flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border/80 bg-surface text-xs text-foreground">
+      {editable ? (
+        <button
+          type="button"
+          onClick={() => onEdit(target)}
+          className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-2 text-left hover:bg-card"
+          title={`${label}: ${displayValue}`}
+          aria-label={`Edit ${singular} filter: ${label}`}
+        >
+          <EntityIcon className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+          <span className="text-muted">{label}:</span>
+          <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
+        </button>
+      ) : (
+        <span
+          className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-2 text-left"
+          title={`${label}: ${displayValue}`}
+          aria-label={`${singular} filter: ${label} (read only)`}
+        >
+          <EntityIcon className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+          <span className="text-muted">{label}:</span>
+          <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => removeNestedFilter(target)}
+        className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300"
+        title={`Remove ${singular} filter: ${label}`}
+        aria-label={`Remove ${singular} filter: ${label}`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+
+  return (
+    <div ref={groupRef} role="group" aria-label={`${def.label} filters`} className="flex max-w-full flex-wrap items-center gap-1 rounded-md border border-accent/40 bg-card/70 p-1 text-xs text-foreground">
+      <div className="flex min-h-[28px] max-w-full items-stretch overflow-hidden rounded-md bg-accent/10">
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={() => onEdit({ kind: "related", parentKey, facet: "mode" })}
+          onFocus={rovingKeyboardAccess ? onFocus : undefined}
+          onKeyDown={onKeyDown}
+          tabIndex={rovingKeyboardAccess ? (focused ? 0 : -1) : undefined}
+          aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home End Delete Backspace" : undefined}
+          data-active-filter-key={parentKey}
+          className="flex min-w-0 items-center gap-1.5 px-2 text-left font-medium hover:bg-accent/10"
+          aria-label={`Edit filter: ${def.label}`}
+        >
+          <span>{modeLabel}</span>
+          {related._savedFilterName?.trim() ? <span className="truncate font-normal text-muted">· Saved: {related._savedFilterName.trim()}</span> : null}
+        </button>
+        <button
+          type="button"
+          tabIndex={rovingKeyboardAccess ? -1 : undefined}
+          onClick={removeGroup}
+          className="flex w-7 shrink-0 items-center justify-center border-l border-accent/30 text-muted hover:bg-red-500/10 hover:text-red-300"
+          title={`Remove filter: ${def.label}`}
+          aria-label={`Remove filter: ${def.label}`}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      {q ? renderNestedChip(
+        `${parentKey}:search`,
+        "Text search",
+        <>“{q}”</>,
+        `“${q}”`,
+        { kind: "related", parentKey, facet: "search" },
+      ) : null}
+      {related._matchAll ? renderNestedChip(
+        `${parentKey}:existence`,
+        `Any ${singular}`,
+        <>Yes</>,
+        "Yes",
+        { kind: "related", parentKey, facet: "existence" },
+      ) : null}
+      {nestedEntries.map(({ key, value: nestedValue, endpointValue, def: nestedDef }) => {
+        const customFieldAggregate = key === "customFieldCriteria" && Array.isArray(nestedValue);
+        const label = nestedDef?.auxiliaryToggleKey === key
+          ? nestedDef.auxiliaryToggleLabel ?? nestedDef.label
+          : nestedDef?.label ?? (customFieldAggregate ? "Custom field conditions" : relatedFallbackLabel(key));
+        const nameMap = nestedDef?.entityType ? entityNameMaps[nestedDef.entityType] : undefined;
+        const displayValue = customFieldAggregate
+          ? `${nestedValue.length} ${nestedValue.length === 1 ? "condition" : "conditions"}`
+          : nestedDef?.type === "remoteId"
+          ? formatRemoteIdFilterChipValue(nestedValue, endpointValue, metadataServers)
+          : nestedDef?.auxiliaryToggleKey === key && typeof nestedValue === "boolean"
+          ? (nestedValue ? "Yes" : "No")
+          : formatFilterChipValue(nestedDef, nestedValue, nameMap, ratingOptions);
+        const displayContent = nestedDef?.type === "rating"
+          ? <RatingFilterChipDisplay value={nestedValue} options={ratingOptions} fallback={displayValue} />
+          : nestedDef?.type === "multiId"
+          ? <MultiIdFilterChipDisplay def={nestedDef} value={nestedValue} nameMap={nameMap} fallback={displayValue} />
+          : displayValue;
+        return renderNestedChip(
+          `${parentKey}:${key}`,
+          label,
+          displayContent,
+          displayValue,
+          { kind: "related", parentKey, facet: "criterion", nestedKey: key, nestedCriterionId: nestedDef?.id },
+          Boolean(nestedDef),
+        );
+      })}
+    </div>
+  );
+}
+
 function ActiveObjectFilterChipsContent({
   criteriaDefinitions,
   objectFilter,
@@ -437,40 +739,10 @@ function ActiveObjectFilterChipsContent({
   metadataServers,
 }: ActiveObjectFilterChipsProps & { entityNameMaps: Record<string, Map<number, string>>; metadataServers: MetadataServer[] }) {
   const ratingOptions = useRatingOptions();
-  const logicalEntries = useMemo(() => {
-    const processedKeys = new Set<string>();
-    const entries: Array<{
-      key: string;
-      value: unknown;
-      endpointValue?: unknown;
-      customSection?: FilterDialogCustomSection;
-      def?: CriterionDefinition;
-    }> = [];
-
-    for (const [objectKey, value] of Object.entries(objectFilter)) {
-      if (processedKeys.has(objectKey)) continue;
-      const customSection = customFilterSections?.find((section) => section.filterKey === objectKey);
-      const def = findCriterionDefinition(criteriaDefinitions, objectKey);
-      if (def?.type === "remoteId" && def.secondaryFilterKey) {
-        const primaryKey = def.filterKey;
-        const secondaryKey = def.secondaryFilterKey;
-        processedKeys.add(primaryKey);
-        processedKeys.add(secondaryKey);
-        entries.push({
-          key: Object.hasOwn(objectFilter, primaryKey) ? primaryKey : secondaryKey,
-          value: objectFilter[primaryKey],
-          endpointValue: objectFilter[secondaryKey],
-          def,
-        });
-        continue;
-      }
-
-      processedKeys.add(objectKey);
-      entries.push({ key: objectKey, value, customSection, def });
-    }
-
-    return entries;
-  }, [criteriaDefinitions, customFilterSections, objectFilter]);
+  const logicalEntries = useMemo(
+    () => getLogicalFilterEntries(criteriaDefinitions, objectFilter, customFilterSections),
+    [criteriaDefinitions, customFilterSections, objectFilter],
+  );
   const keys = logicalEntries.map((entry) => entry.key);
   const keysSignature = keys.join("\u0000");
   const [focusedKey, setFocusedKey] = useState<string | null>(() => keys[0] ?? null);
@@ -520,13 +792,13 @@ function ActiveObjectFilterChipsContent({
       event.preventDefault();
       const nextKey = keys[index + 1] ?? keys[index - 1] ?? null;
       if (!nextKey) {
-        onRemove(key);
+        onRemove({ kind: "root", key });
         window.setTimeout(() => onFocusFallback?.(), 0);
         return;
       }
       pendingRemovalRef.current = { key: nextKey, label };
       setFocusedKey(nextKey);
-      onRemove(key);
+      onRemove({ kind: "root", key });
       window.setTimeout(() => onFocusKey?.(nextKey), 0);
     }
   };
@@ -535,13 +807,13 @@ function ActiveObjectFilterChipsContent({
     const index = keys.indexOf(key);
     const nextKey = keys[index + 1] ?? keys[index - 1] ?? null;
     if (!nextKey) {
-      onRemove(key);
+      onRemove({ kind: "root", key });
       window.setTimeout(() => onFocusFallback?.(), 0);
       return;
     }
     pendingRemovalRef.current = { key: nextKey, label };
     setFocusedKey(nextKey);
-    onRemove(key);
+    onRemove({ kind: "root", key });
     window.setTimeout(() => onFocusKey?.(nextKey), 0);
   };
 
@@ -551,6 +823,38 @@ function ActiveObjectFilterChipsContent({
       {logicalEntries.map(({ key, value, endpointValue, customSection, def }) => {
         const isAuxiliaryToggle = def?.auxiliaryToggleKey === key;
         const label = customSection?.label ?? (isAuxiliaryToggle ? def.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
+        if (!customSection && def?.type === "related") {
+          return (
+            <RelatedFilterChipGroup
+              key={key}
+              parentKey={key}
+              def={def}
+              value={value}
+              entityNameMaps={entityNameMaps}
+              metadataServers={metadataServers}
+              ratingOptions={ratingOptions}
+              onEdit={onEdit}
+              onRemove={onRemove}
+              rovingKeyboardAccess={rovingKeyboardAccess}
+              focused={focusedKey === key || (!focusedKey && key === keys[0])}
+              onFocus={() => setFocusedKey(key)}
+              onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
+              buttonRef={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
+              removeGroup={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })}
+              onGroupRemoved={() => {
+                const index = keys.indexOf(key);
+                const nextKey = keys[index + 1] ?? keys[index - 1] ?? null;
+                if (nextKey) {
+                  setFocusedKey(nextKey);
+                  buttonRefs.current.get(nextKey)?.focus();
+                  onFocusKey?.(nextKey);
+                } else {
+                  onFocusFallback?.();
+                }
+              }}
+            />
+          );
+        }
         const nameMap = def?.entityType ? entityNameMaps[def.entityType] : undefined;
         const displayValue = def?.type === "remoteId"
           ? formatRemoteIdFilterChipValue(value, endpointValue, metadataServers)
@@ -565,7 +869,7 @@ function ActiveObjectFilterChipsContent({
             <button
               ref={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
               type="button"
-              onClick={() => onEdit(key)}
+              onClick={() => onEdit({ kind: "root", key })}
               onFocus={rovingKeyboardAccess ? () => setFocusedKey(key) : undefined}
               onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
               tabIndex={rovingKeyboardAccess ? (focusedKey === key || (!focusedKey && key === keys[0]) ? 0 : -1) : undefined}
@@ -578,7 +882,7 @@ function ActiveObjectFilterChipsContent({
               <span className="text-muted">{label}:</span>
               <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
             </button>
-            <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(key)} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+            <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
               <X className="h-3 w-3" />
             </button>
           </div>
