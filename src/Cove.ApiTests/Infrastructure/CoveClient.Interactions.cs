@@ -249,4 +249,15 @@ public sealed partial class CoveClient
             WithCacheNonce($"/api/engagement/{hostType}/{hostId}"),
             payload: null,
             cancellationToken);
+
+    public Task<EntityEngagementDto> SetEntityFavoriteAsync(
+        AffinityHostType hostType,
+        int hostId,
+        bool isFavorite,
+        CancellationToken cancellationToken = default)
+        => SendAsync<EntityEngagementDto>(
+            HttpMethod.Put,
+            $"/api/engagement/{hostType}/{hostId}/favorite",
+            new EntityFavoriteDto(isFavorite),
+            cancellationToken);
 }

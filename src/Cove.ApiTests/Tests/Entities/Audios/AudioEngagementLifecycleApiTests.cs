@@ -15,6 +15,36 @@ public sealed class AudioEngagementLifecycleApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    [CoversEndpoint("PUT", "/api/engagement/{hostType}/{hostId:int}/favorite")]
+    [CoversEndpoint("POST", "/api/audios/find")]
+    public async Task GivenUserScopedAudioFavorite_WhenFilteringFavorites_ThenOnlyThatUsersFavoriteMatches()
+    {
+        var owner = AsUser();
+        var eva = AsUser(ApiTestUsers.Eva);
+        var suffix = Guid.NewGuid().ToString("N");
+        var favorite = await owner.CreateAudioAsync($"Favorite audio {suffix}", TestContext.Current.CancellationToken);
+        var control = await owner.CreateAudioAsync($"Control audio {suffix}", TestContext.Current.CancellationToken);
+
+        (await eva.SetEntityFavoriteAsync(AffinityHostType.Audio, favorite.Id, true, TestContext.Current.CancellationToken)).IsFavorite.Should().BeTrue();
+
+        var request = new FilteredQueryRequest<AudioFilter>
+        {
+            Ids = [favorite.Id, control.Id],
+            FindFilter = new FindFilter { Page = 1, PerPage = 10 },
+            ObjectFilter = new AudioFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
+        };
+        (await eva.FindAudiosAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().Equal(favorite.Id);
+        (await owner.FindAudiosAsync(request, TestContext.Current.CancellationToken)).Items.Should().BeEmpty();
+
+        request.ObjectFilter.FavoriteCriterion.Value = false;
+        (await eva.FindAudiosAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().Equal(control.Id);
+        (await owner.FindAudiosAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().BeEquivalentTo([favorite.Id, control.Id]);
+
+        (await eva.SetEntityFavoriteAsync(AffinityHostType.Audio, favorite.Id, false, TestContext.Current.CancellationToken)).IsFavorite.Should().BeFalse();
+        (await eva.FindAudiosAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().BeEquivalentTo([favorite.Id, control.Id]);
+    }
+
+    [Fact]
     [CoversEndpoint("GET", "/api/audios/{id:int}/history")]
     [CoversEndpoint("POST", "/api/audios/{id:int}/like")]
     [CoversEndpoint("POST", "/api/audios/{id:int}/like/historical")]

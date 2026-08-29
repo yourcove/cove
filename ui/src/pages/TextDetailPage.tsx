@@ -162,6 +162,9 @@ export function TextDetailPage({ id, onNavigate }: Props) {
   const trackTextActivity = canEngageText && trackingEnabled;
   const {
     engagement: textEngagement,
+    favorite: textFavorite,
+    setFavorite: setTextFavorite,
+    favoritePending: textFavoritePending,
     rating: textRating,
     setRating: setTextRating,
   } = useEntityEngagement("text", id, {
@@ -355,6 +358,9 @@ export function TextDetailPage({ id, onNavigate }: Props) {
       onTabChange={(key) => setActiveTab(key as TextTab)}
       engagement={{
         primaryContent: <InteractiveRating value={textRating} onChange={(value) => setTextRating(value)} readOnly={!canEngageText} />,
+        favorite: canEngageText ? textFavorite : undefined,
+        favoritePending: textFavoritePending,
+        onFavoriteChange: setTextFavorite,
         additionalMetrics: [
           {
             label: "Likes",

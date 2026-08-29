@@ -3,6 +3,7 @@ using System.Net;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 using Cove.Core.Entities.Auth;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
@@ -13,6 +14,36 @@ public sealed class TextEngagementAndRescanApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
+    [Fact]
+    [CoversEndpoint("PUT", "/api/engagement/{hostType}/{hostId:int}/favorite")]
+    [CoversEndpoint("POST", "/api/texts/find")]
+    public async Task GivenUserScopedTextFavorite_WhenFilteringFavorites_ThenOnlyThatUsersFavoriteMatches()
+    {
+        var owner = AsUser();
+        var eva = AsUser(ApiTestUsers.Eva);
+        var suffix = Guid.NewGuid().ToString("N");
+        var favorite = await owner.CreateTextAsync($"Favorite text {suffix}", TestContext.Current.CancellationToken);
+        var control = await owner.CreateTextAsync($"Control text {suffix}", TestContext.Current.CancellationToken);
+
+        (await eva.SetEntityFavoriteAsync(AffinityHostType.Text, favorite.Id, true, TestContext.Current.CancellationToken)).IsFavorite.Should().BeTrue();
+
+        var request = new FilteredQueryRequest<TextDocumentFilter>
+        {
+            Ids = [favorite.Id, control.Id],
+            FindFilter = new FindFilter { Page = 1, PerPage = 10 },
+            ObjectFilter = new TextDocumentFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
+        };
+        (await eva.FindTextsAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().Equal(favorite.Id);
+        (await owner.FindTextsAsync(request, TestContext.Current.CancellationToken)).Items.Should().BeEmpty();
+
+        request.ObjectFilter.FavoriteCriterion.Value = false;
+        (await eva.FindTextsAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().Equal(control.Id);
+        (await owner.FindTextsAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().BeEquivalentTo([favorite.Id, control.Id]);
+
+        (await eva.SetEntityFavoriteAsync(AffinityHostType.Text, favorite.Id, false, TestContext.Current.CancellationToken)).IsFavorite.Should().BeFalse();
+        (await eva.FindTextsAsync(request, TestContext.Current.CancellationToken)).Items.Select(item => item.Id).Should().BeEquivalentTo([favorite.Id, control.Id]);
+    }
+
     [Fact]
     [CoversEndpoint("GET", "/api/texts/{id:int}/history")]
     [CoversEndpoint("POST", "/api/texts/{id:int}/like")]
