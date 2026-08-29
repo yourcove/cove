@@ -1566,6 +1566,8 @@ function RelatedFilterWorkspace({
   const entityType = criterion.entityType!;
   const singular = entityType === "performers" ? "performer" : "video";
   const plural = entityType === "performers" ? "performers" : "videos";
+  const resultPlural = entityType === "performers" ? "videos" : "performers";
+  const relativePronoun = entityType === "performers" ? "who" : "that";
   const EntityIcon = entityType === "performers" ? Users : Film;
   const nestedCriteria = useMemo(() => criterion.relatedCriteria?.() ?? getRelatedCriteria(entityType), [criterion, entityType]);
   const [criteriaSearch, setCriteriaSearch] = useState("");
@@ -1856,18 +1858,16 @@ function RelatedFilterWorkspace({
             <div className="flex flex-1 items-center justify-center p-8 text-center">
               <div className="max-w-sm">
                 <EntityIcon className="mx-auto mb-3 h-8 w-8 text-muted" />
-                <h4 className="text-lg font-semibold text-foreground">Choose a {singular} filter</h4>
-                <p className="mt-1 text-sm text-secondary">Select a criterion on the left. Every condition will apply to the same related {singular}.</p>
-                <button
-                  type="button"
-                  aria-pressed={related._matchAll === true}
-                  onClick={toggleMatchAll}
-                  className={`mt-5 min-h-11 rounded-lg border px-4 py-2 text-sm ${related._matchAll ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:bg-card hover:text-foreground"}`}
-                >
-                  Match any related {singular}
-                </button>
+                <h4 className="text-lg font-semibold text-foreground">
+                  {related.exclude ? `Find ${resultPlural} without matching ${plural}` : `Find ${resultPlural} by ${singular}`}
+                </h4>
+                <p className="mt-1 text-sm text-secondary">
+                  {related.exclude
+                    ? `Show ${resultPlural} where no ${singular} matches a saved filter, the filters you add here, or both. A ${singular} counts as a match only when all filters match that same ${singular}.`
+                    : `Show ${resultPlural} with a ${singular} ${relativePronoun} matches a saved filter, the filters you add here, or both. All filters must match the same ${singular}.`}
+                </p>
                 {value ? (
-                  <button type="button" onClick={() => onChange(undefined)} className="mt-3 block w-full text-sm text-muted hover:text-foreground">Clear related filter</button>
+                  <button type="button" onClick={() => onChange(undefined)} className="mt-5 text-sm text-muted hover:text-foreground">Clear related filter</button>
                 ) : null}
               </div>
             </div>
