@@ -105,6 +105,7 @@ public class ConfigService
             FrameExtractionMode = cfg.FrameExtractionMode,
             FfmpegPath = cfg.FfmpegPath,
             FfprobePath = cfg.FfprobePath,
+            FlareSolverrUrl = cfg.FlareSolverrUrl,
             MaxStreamingTranscodeSize = cfg.MaxStreamingTranscodeSize,
             HardwareAcceleration = cfg.HardwareAcceleration,
             HardwareEncodeSessionLimit = cfg.HardwareEncodeSessionLimit,
@@ -327,6 +328,7 @@ public class ConfigService
         cfg.FrameExtractionMode = string.Equals(dto.FrameExtractionMode, "managed", StringComparison.OrdinalIgnoreCase) ? "managed" : "external";
         cfg.FfmpegPath = string.IsNullOrWhiteSpace(dto.FfmpegPath) ? null : dto.FfmpegPath;
         cfg.FfprobePath = string.IsNullOrWhiteSpace(dto.FfprobePath) ? null : dto.FfprobePath;
+        cfg.FlareSolverrUrl = string.IsNullOrWhiteSpace(dto.FlareSolverrUrl) ? null : dto.FlareSolverrUrl;
         cfg.MaxStreamingTranscodeSize = dto.MaxStreamingTranscodeSize;
         // Unified hardware acceleration. Use the new field when present; otherwise migrate the legacy
         // EnableFfmpegHwAccel + TranscodeHardwareAcceleration pair from an older saved config.

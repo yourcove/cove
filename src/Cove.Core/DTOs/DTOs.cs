@@ -1315,6 +1315,7 @@ public record CoveConfigDto
     public bool CalculateMd5 { get; init; }
     public string FrameExtractionMode { get; init; } = "external";
     public string? FfmpegPath { get; init; }
+    public string? FlareSolverrUrl { get; init; }
     public string? FfprobePath { get; init; }
     public int MaxStreamingTranscodeSize { get; init; }
     // Unified hardware-acceleration policy: "off" | "auto" | "nvenc" | "qsv" | "vaapi" | "amf" | "videotoolbox".

@@ -29,6 +29,7 @@ public partial class ScraperService
     private readonly ILogger<ScraperService> _logger;
     private readonly IDeserializer _deserializer;
     private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ExtensionManager _extensionManager;
     private readonly Lock _sync = new();
     private IReadOnlyList<ScraperSummaryDto> _cached = [];
@@ -85,6 +86,7 @@ public partial class ScraperService
         _config = config;
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient("scraper");
+        _httpClientFactory = httpClientFactory;
         _extensionManager = extensionManager;
         _deserializer = new DeserializerBuilder()
             .IgnoreUnmatchedProperties()
@@ -1984,6 +1986,13 @@ public partial class ScraperService
                 var content = await response.Content.ReadAsStringAsync(ct);
                 TraceFetchCompleted((int)response.StatusCode, content.Length, attempt);
 
+                if (IsCloudflareChallenge(response, content))
+                {
+                    var solved = await TrySolveWithFlareSolverrAsync(requestUrl, ct);
+                    if (solved != null)
+                        return solved;
+                }
+
                 if (!response.IsSuccessStatusCode)
                 {
                     if (!string.IsNullOrWhiteSpace(content))
@@ -2037,6 +2046,85 @@ public partial class ScraperService
             _ => false,
         };
         }
+
+    /// <summary>
+    /// Heuristic for a Cloudflare anti-bot challenge response: 403/503 from a cloudflare
+    /// server, or a body carrying the well-known challenge markers. Ordinary 403s from
+    /// non-Cloudflare origins are left alone so the existing behavior is unchanged.
+    /// </summary>
+    private static bool IsCloudflareChallenge(HttpResponseMessage response, string? content)
+    {
+        var status = (int)response.StatusCode;
+        if (status != 403 && status != 503)
+            return false;
+
+        if (response.Headers.Server.Any(s => (s.Product?.Name ?? string.Empty).Contains("cloudflare", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        if (string.IsNullOrEmpty(content))
+            return false;
+
+        return content.Contains("cf-browser-verification", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("challenge-platform", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("_cf_chl_opt", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Just a moment", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Attention Required! | Cloudflare", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Retries a Cloudflare-challenged fetch through the configured FlareSolverr-compatible
+    /// solver (FlareSolverr, Byparr, TRAWL, ...). Returns the solved page HTML, or null when
+    /// no solver is configured or the solve failed — callers fall back to normal handling.
+    /// </summary>
+    private async Task<string?> TrySolveWithFlareSolverrAsync(string url, CancellationToken ct)
+    {
+        var solverUrl = _config.FlareSolverrUrl;
+        if (string.IsNullOrWhiteSpace(solverUrl))
+            return null;
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient("flaresolverr");
+            var endpoint = solverUrl.TrimEnd('/') + "/v1";
+            var payload = new StringContent(
+                JsonSerializer.Serialize(new { cmd = "request.get", url, maxTimeout = 60000 }),
+                Encoding.UTF8,
+                "application/json");
+            using var response = await client.PostAsync(endpoint, payload, ct);
+            response.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("status", out var status)
+                || !string.Equals(status.GetString(), "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "FlareSolverr returned non-ok status for {Url}: {Message}",
+                    url,
+                    root.TryGetProperty("message", out var msg) ? msg.GetString() : "unknown");
+                return null;
+            }
+
+            if (root.TryGetProperty("solution", out var solution)
+                && solution.TryGetProperty("response", out var body)
+                && body.ValueKind == JsonValueKind.String)
+            {
+                _logger.LogInformation("Cloudflare challenge on {Url} solved via FlareSolverr.", url);
+                return body.GetString();
+            }
+
+            return null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "FlareSolverr fallback failed for {Url}; using direct response.", url);
+            return null;
+        }
+    }
 
     private static string? BuildCookieHeader(ScraperManifest manifest, string requestUrl)
     {
