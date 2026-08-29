@@ -2277,10 +2277,20 @@ export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>>
   findFilter?: Pick<FindFilter, "q">;
   objectFilter?: TObjectFilter;
   exclude?: boolean;
+  ageAtHostDateCriterion?: IntCriterion;
   /** Client-only label retained with a saved-filter snapshot for a readable chip summary. */
   _savedFilterName?: string;
   /** Client-only marker for an explicit existence check with no nested conditions. */
   _matchAll?: boolean;
+}
+
+export type FilterExpressionNode<TFilter = Record<string, unknown>> =
+  | { filter: TFilter; group?: never }
+  | { group: FilterExpression<TFilter>; filter?: never };
+
+export interface FilterExpression<TFilter = Record<string, unknown>> {
+  operator: "AND" | "OR";
+  children: FilterExpressionNode<TFilter>[];
 }
 
 export interface SavedFilter {
@@ -3149,6 +3159,10 @@ export interface FilteredQueryRequest<T = Record<string, unknown>> {
   findFilter?: FindFilter;
   objectFilter?: T;
   ids?: number[];
+}
+
+export interface VideoFilteredQueryRequest extends FilteredQueryRequest<VideoFilterCriteria> {
+  filterExpression?: FilterExpression<VideoFilterCriteria>;
 }
 
 export interface ImageAggregate { count: number; fileSize: number }

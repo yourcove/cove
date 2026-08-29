@@ -397,6 +397,93 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task FilterExpression_RepeatsCriteriaAndComposesNestedBooleanGroups()
+    {
+        await using var context = CreateContext();
+        var fooOnly = CreateVideoWithFile("foo-only");
+        fooOnly.Urls.Add(new VideoUrl { Url = "https://example.test/foo" });
+        var fooAndBar = CreateVideoWithFile("foo-and-bar");
+        fooAndBar.Urls.Add(new VideoUrl { Url = "https://example.test/foo/bar" });
+        var baz = CreateVideoWithFile("baz");
+        baz.Urls.Add(new VideoUrl { Url = "https://example.test/baz" });
+        context.Videos.AddRange(fooOnly, fooAndBar, baz);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var expression = new FilterExpression<VideoFilter>
+        {
+            Operator = FilterExpressionOperator.Or,
+            Children =
+            [
+                new()
+                {
+                    Group = new FilterExpression<VideoFilter>
+                    {
+                        Children =
+                        [
+                            new() { Filter = new VideoFilter { UrlCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "foo" } } },
+                            new() { Filter = new VideoFilter { UrlCriterion = new StringCriterion { Modifier = CriterionModifier.Excludes, Value = "bar" } } },
+                        ],
+                    },
+                },
+                new() { Filter = new VideoFilter { UrlCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "baz" } } },
+            ],
+        };
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            TestContext.Current.CancellationToken,
+            expression);
+
+        Assert.Equal(2, count);
+        Assert.Equal(["baz", "foo-only"], items.Select(video => video.Title!).ToArray());
+    }
+
+    [Fact]
+    public async Task RelatedPerformerExpression_CorrelatesGenderAndAgeAtVideoDatePerClause()
+    {
+        await using var context = CreateContext();
+        var youngMan = CreatePerformer("Young Man", new DateOnly(2000, 6, 1));
+        youngMan.Gender = GenderEnum.Male;
+        var olderWoman = CreatePerformer("Older Woman", new DateOnly(1990, 6, 1));
+        olderWoman.Gender = GenderEnum.Female;
+        var wrongWoman = CreatePerformer("Young Woman", new DateOnly(2000, 6, 1));
+        wrongWoman.Gender = GenderEnum.Female;
+
+        var matches = CreateVideoWithFile("matches", videoDate: new DateOnly(2025, 6, 2));
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = youngMan });
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = olderWoman });
+        var doesNotMatch = CreateVideoWithFile("does-not-match", videoDate: new DateOnly(2025, 6, 2));
+        doesNotMatch.VideoPerformers.Add(new VideoPerformer { Performer = youngMan });
+        doesNotMatch.VideoPerformers.Add(new VideoPerformer { Performer = wrongWoman });
+        context.Videos.AddRange(matches, doesNotMatch);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        RelatedFilterCriterion<PerformerFilter> Related(string gender, int low, int high) => new()
+        {
+            ObjectFilter = new PerformerFilter { GenderCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = gender } },
+            AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.Between, Value = low, Value2 = high },
+        };
+        var expression = new FilterExpression<VideoFilter>
+        {
+            Children =
+            [
+                new() { Filter = new VideoFilter { PerformerFilterCriterion = Related("Male", 20, 30) } },
+                new() { Filter = new VideoFilter { PerformerFilterCriterion = Related("Female", 30, 40) } },
+            ],
+        };
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken,
+            expression);
+
+        Assert.Equal(1, count);
+        Assert.Equal("matches", Assert.Single(items).Title);
+    }
+
+    [Fact]
     public async Task PerformerTagsCriterion_Includes_MatchesVideosByPerformerOccurrenceTag()
     {
         await using var context = CreateContext();
@@ -1655,13 +1742,13 @@ public class VideoFilterBehaviorTests
     {
         public FindFilter? LastFindFilter { get; private set; }
 
-        public Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+        public Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null)
         {
             LastFindFilter = findFilter;
             return Task.FromResult<(IReadOnlyList<Video>, int)>((Array.Empty<Video>(), 0));
         }
 
-        public Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+        public Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null)
             => Task.FromResult(new VideoAggregate(0, 0, 0));
 
         public Task<Video?> GetByIdAsync(int id, CancellationToken ct = default) => throw new NotSupportedException();

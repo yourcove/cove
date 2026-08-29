@@ -133,6 +133,8 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
+  const [filterDialogInitialView, setFilterDialogInitialView] = useState<"simple" | "advanced">("simple");
+  const [filterDialogExpressionPath, setFilterDialogExpressionPath] = useState<number[] | undefined>();
   useRegisterKeyboardActionHandler("list.filters", () => setFilterDialogOpen(true), {
     enabled: Boolean(criteriaDefinitions && onObjectFilterChange),
     surface: "list",
@@ -319,10 +321,12 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
           className="mb-2"
           onEdit={(target) => {
             const key = getFilterChipTargetKey(target);
+            setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
             const criterion = criteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
-            setFilterDialogPreselect(target.kind === "related"
+            setFilterDialogPreselect(target.kind === "expression" ? undefined : target.kind === "related"
               ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
               : criterion?.id ?? key);
+            setFilterDialogInitialView(key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple");
             setFilterDialogOpen(true);
           }}
           onRemove={(target) => {
@@ -364,7 +368,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
       {criteriaDefinitions && onObjectFilterChange ? (
         <FilterDialog
           open={filterDialogOpen}
-          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); }}
+          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); setFilterDialogInitialView("simple"); setFilterDialogExpressionPath(undefined); }}
           criteria={criteriaDefinitions}
           activeFilter={activeObjectFilter}
           onApply={(nextFilter) => {
@@ -372,6 +376,9 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             onFilterChange({ ...filter, page: 1 });
           }}
           preselectCriterion={filterDialogPreselect}
+          initialView={filterDialogInitialView}
+          initialExpressionPath={filterDialogExpressionPath}
+          supportsFilterExpressions={Boolean(activeObjectFilter._filterExpression)}
         />
       ) : null}
     </>
