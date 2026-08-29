@@ -220,7 +220,8 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             throw new InvalidOperationException(
-                $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}");
+                $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}{Environment.NewLine}"
+                + $"API process output:{Environment.NewLine}{FormatOutput(_output)}");
         }
         _metadataService.Reset();
         _downloadSource.Reset();
@@ -318,7 +319,11 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 using var client = CreateLifecycleClient();
                 using var response = await client.PostAsync("/health/test-shutdown", content: null);
                 if (response.StatusCode is not HttpStatusCode.Accepted)
-                    throw new InvalidOperationException($"The API test host rejected graceful shutdown with {(int)response.StatusCode}.");
+                {
+                    throw new InvalidOperationException(
+                        $"The API test host rejected graceful shutdown with {(int)response.StatusCode}.{Environment.NewLine}"
+                        + $"API process output:{Environment.NewLine}{FormatOutput(_output)}");
+                }
 
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 await _process.WaitForExitAsync(timeout.Token);

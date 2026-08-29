@@ -89,10 +89,11 @@ public sealed partial class CoveClient
             cancellationToken);
 
     public Task<FfmpegCapabilitiesResponse> GetFfmpegCapabilitiesAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool refresh = false)
         => SendForExpectedStatusAsync<FfmpegCapabilitiesResponse>(
             HttpMethod.Get,
-            WithCacheNonce("/api/system/ffmpeg-capabilities"),
+            WithCacheNonce($"/api/system/ffmpeg-capabilities?refresh={refresh.ToString().ToLowerInvariant()}"),
             payload: null,
             System.Net.HttpStatusCode.OK,
             cancellationToken);

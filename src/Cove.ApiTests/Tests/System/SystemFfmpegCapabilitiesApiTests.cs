@@ -22,8 +22,11 @@ public sealed class SystemFfmpegCapabilitiesApiTests(
         var forbidden = () => noReadSession.Client.GetFfmpegCapabilitiesAsync();
         await forbidden.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 403 (Forbidden)*");
 
-        var first = await AsUser().GetFfmpegCapabilitiesAsync(TestContext.Current.CancellationToken);
-        var second = await AsUser().GetFfmpegCapabilitiesAsync(TestContext.Current.CancellationToken);
+        var first = await AsUser().GetFfmpegCapabilitiesAsync(
+            refresh: true,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var second = await AsUser().GetFfmpegCapabilitiesAsync(
+            cancellationToken: TestContext.Current.CancellationToken);
 
         second.Should().BeEquivalentTo(first);
         first.ProbedAtUtc.Should().BeOnOrBefore(DateTime.UtcNow).And.BeAfter(DateTime.UtcNow.AddMinutes(-5));
