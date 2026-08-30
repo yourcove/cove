@@ -924,6 +924,151 @@ public class ScanServiceTests
     }
 
     [Fact]
+    public async Task StartScan_ConfiguredExcludePatternsSupportGlobsAndLiteralFragments()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        var nestedRoot = Path.Combine(tempRoot, "nested");
+        Directory.CreateDirectory(nestedRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "included.mp4"));
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "._root.mp4"));
+            await WriteValidVideoAsync(Path.Combine(nestedRoot, "._nested.mp4"));
+            await WriteValidVideoAsync(Path.Combine(nestedRoot, "Sample-vacation-photo.mp4"));
+            await WriteValidVideoAsync(Path.Combine(nestedRoot, "literal-fragment.mp4"));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Config.ExcludePatterns =
+            [
+                "._*",
+                "**/Sample-vacation-p*",
+                "literal-fragment",
+            ];
+
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var file = await verificationDb.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal("included.mp4", file.Basename);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ConfiguredImageExcludeGlobDoesNotExcludeOtherMediaTypes()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            await WriteValidImageAsync(Path.Combine(tempRoot, "matched.jpg"));
+            await WriteValidVideoAsync(Path.Combine(tempRoot, "matched.mp4"));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Config.ExcludeImagePatterns = ["**/match*"];
+
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Empty(await verificationDb.ImageFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal("matched.mp4", (await verificationDb.VideoFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Basename);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("._*", "nested/deeper/._hidden.mp4", true)]
+    [InlineData("*/._*", "nested/._hidden.mp4", true)]
+    [InlineData("*/._*", "nested/deeper/._hidden.mp4", false)]
+    [InlineData("**/._*", "._hidden.mp4", true)]
+    [InlineData("**/._*", "nested/deeper/._hidden.mp4", true)]
+    [InlineData("nested\\*.mp4", "nested/FILE.mp4", true)]
+    [InlineData("nested/file?.mp4", "nested/file1.mp4", true)]
+    [InlineData("nested/file?.mp4", "nested/file10.mp4", false)]
+    [InlineData("   ", "nested/file.mp4", false)]
+    public void ConfiguredScanPatternMatcher_UsesPathAwareCaseInsensitiveGlobSemantics(
+        string pattern,
+        string relativePath,
+        bool expected)
+    {
+        var config = new CoveConfiguration { ExcludePatterns = [pattern] };
+        var matcher = new ConfiguredScanPatternMatcher(config);
+        var fullPath = Path.Combine(Path.GetPathRoot(Environment.CurrentDirectory)!, "library", relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+        Assert.Equal(expected, matcher.IsGloballyExcluded(fullPath, relativePath));
+    }
+
+    [Fact]
+    public async Task StartScan_ConfiguredExcludeGlobAppliesToSelectedFileTarget()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        var nestedRoot = Path.Combine(tempRoot, "nested");
+        Directory.CreateDirectory(nestedRoot);
+
+        try
+        {
+            var excludedPath = Path.Combine(nestedRoot, "selected.mp4");
+            await WriteValidVideoAsync(excludedPath);
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Config.ExcludePatterns = ["nested/*.mp4"];
+
+            environment.Service.StartScan(new ScanOperationOptions { Paths = [excludedPath] });
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Empty(await verificationDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ConfiguredExcludeGlobUsesLibraryRootForSelectedDirectoryTarget()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        var nestedRoot = Path.Combine(tempRoot, "nested");
+        Directory.CreateDirectory(nestedRoot);
+
+        try
+        {
+            await WriteValidVideoAsync(Path.Combine(nestedRoot, "selected.mp4"));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Config.ExcludePatterns = ["nested/*.mp4"];
+
+            environment.Service.StartScan(new ScanOperationOptions { Paths = [nestedRoot] });
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Empty(await verificationDb.VideoFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConfiguredScanPatternMatcher_AppliesGalleryGlobsOnlyToGalleryExtensions()
+    {
+        var config = new CoveConfiguration { ExcludeGalleryPatterns = ["**/match*"] };
+        var matcher = new ConfiguredScanPatternMatcher(config);
+        var fullPath = Path.Combine(Path.GetPathRoot(Environment.CurrentDirectory)!, "library", "nested", "matched.zip");
+
+        Assert.True(matcher.IsMediaTypeExcluded(fullPath, "nested/matched.zip", ".zip", ImageExtensions, GalleryExtensions));
+        Assert.False(matcher.IsMediaTypeExcluded(fullPath, "nested/matched.jpg", ".jpg", ImageExtensions, GalleryExtensions));
+    }
+
+    [Fact]
     public async Task StartScan_SelectiveScanCheckpointDoesNotHideFilesFromLaterFullScan()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
