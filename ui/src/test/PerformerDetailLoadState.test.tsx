@@ -162,4 +162,17 @@ describe("PerformerDetailPage load state", () => {
     expect(await screen.findByText("Performer not found")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("shows a deceased performer's age beside the death date instead of the birth date", async () => {
+    mockPerformers.get.mockResolvedValue({
+      ...buildPerformer(),
+      birthdate: "1994-08-23",
+      deathDate: "2017-12-05",
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("1994-08-23")).toBeInTheDocument();
+    expect(screen.getByText("2017-12-05 (age 23)")).toBeInTheDocument();
+  });
 });

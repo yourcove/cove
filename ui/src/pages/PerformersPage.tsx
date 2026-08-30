@@ -29,6 +29,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { getApiValidationFailureDetail } from "../utils/requestFailure";
+import { getPerformerAge } from "../utils/performerAge";
 
 /** Convert 2-letter ISO country code to flag emoji */
 function countryToFlag(code: string): string {
@@ -246,9 +247,7 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
       </thead>
       <tbody>
         {items.map((p) => {
-          const age = p.birthdate
-            ? Math.floor((Date.now() - new Date(p.birthdate).getTime()) / 31557600000)
-            : null;
+          const age = getPerformerAge(p.birthdate, p.deathDate);
           const engagement = engagementById.get(p.id);
           const favorite = engagement?.isFavorite ?? p.favorite;
           const rating = engagement?.rating;

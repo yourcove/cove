@@ -19,6 +19,7 @@ import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { EntityMedia, TagMediaHover } from "./EntityMedia";
 import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
+import { getAgeAtDate } from "../utils/performerAge";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
@@ -1133,44 +1134,7 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
   );
 }
 
-type CalendarDate = { year: number; month: number; day: number };
-
-function compareCalendarDates(left: CalendarDate, right: CalendarDate) {
-  return left.year - right.year || left.month - right.month || left.day - right.day;
-}
-
-function ageOnDate(reference: CalendarDate, birth: CalendarDate) {
-  let age = reference.year - birth.year;
-  if (reference.month < birth.month || (reference.month === birth.month && reference.day < birth.day)) age--;
-  return age;
-}
-
-function parsePartialDateBounds(value: string): { earliest: CalendarDate; latest: CalendarDate } | null {
-  const match = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(value);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = match[2] ? Number(match[2]) : null;
-  const day = match[3] ? Number(match[3]) : null;
-  if (year < 1 || year > 9999 || (month !== null && (month < 1 || month > 12))) return null;
-  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const daysInMonth = month === null ? null : [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
-  if (day !== null && (day < 1 || day > daysInMonth!)) return null;
-  return {
-    earliest: { year, month: month ?? 1, day: day ?? 1 },
-    latest: { year, month: month ?? 12, day: day ?? daysInMonth ?? 31 },
-  };
-}
-
-export function getAgeAtDate(referenceDate?: string, birthdate?: string): number | string | null {
-  if (!referenceDate || !birthdate) return null;
-  const reference = parsePartialDateBounds(referenceDate);
-  const birth = parsePartialDateBounds(birthdate);
-  if (!reference || !birth || compareCalendarDates(reference.latest, birth.earliest) < 0) return null;
-  const minimumAge = Math.max(0, ageOnDate(reference.earliest, birth.latest));
-  const maximumAge = ageOnDate(reference.latest, birth.earliest);
-  if (maximumAge < 0) return null;
-  return minimumAge === maximumAge ? minimumAge : `${minimumAge}–${maximumAge}`;
-}
+export { getAgeAtDate };
 
 // ===== StudioTile =====
 
