@@ -60,6 +60,8 @@ public async Task GivenPerformerAndTag_WhenTagIsLinked_ThenPerformerHasTag()
 dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
 ```
 
+The default local command and eligible GitHub CI jobs run the suite without collecting code coverage. To collect coverage when using it to guide test work, run one of the explicit opt-in commands below. In GitHub, start the **CI** workflow manually and enable **Collect API coverage and enforce the controller coverage baseline**.
+
 The automatic worker count is suitable for typical local and hosted environments. Override it when benchmarking a known machine, for example `COVE_API_TEST_WORKERS=6 dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj`. Higher values increase PostgreSQL connections and memory-intensive password work; do not raise the eight-worker ceiling without measuring those limits.
 
 The PostgreSQL account must be able to create and drop databases and install the `vector` extension. Set `COVE_API_TEST_PG_ADMIN_CONNECTION_STRING`, or configure `COVE_API_TEST_PG_HOST`, `COVE_API_TEST_PG_PORT`, `COVE_API_TEST_PG_USER`, `COVE_API_TEST_PG_PASSWORD`, and `COVE_API_TEST_PG_ADMIN_DB`. Host, port, and password fall back to `PGHOST`, `PGPORT`, and `PGPASSWORD`; other defaults are user `postgres`, database `postgres`, and no password.

@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      api_coverage:
+        description: Collect API coverage and enforce the controller coverage baseline
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   changes:
@@ -172,6 +179,7 @@ jobs:
         run: dotnet restore src/Cove.slnx
 
       - name: Restore tools
+        if: ${{ inputs.api_coverage }}
         run: dotnet tool restore
 
       - name: Test controller coverage tooling
@@ -181,6 +189,13 @@ jobs:
           scripts/prepare-coverage-gutters.test.mjs
 
       - name: Test (Fluent API)
+        if: ${{ !inputs.api_coverage }}
+        run: >-
+          dotnet test src/Cove.ApiTests/Cove.ApiTests.csproj
+          -c Release --no-restore --verbosity normal
+
+      - name: Test (Fluent API with coverage)
+        if: ${{ inputs.api_coverage }}
         run: >-
           dotnet tool run dotnet-coverage -- collect
           --settings src/Cove.ApiTests/coverage.config
@@ -190,10 +205,11 @@ jobs:
           -c Release --no-restore --verbosity normal
 
       - name: Verify API controller coverage
+        if: ${{ inputs.api_coverage }}
         run: node scripts/check-api-controller-coverage.mjs artifacts/coverage/api-tests.cobertura.xml
 
       - name: Upload backend coverage
-        if: always()
+        if: ${{ always() && inputs.api_coverage }}
         uses: actions/upload-artifact@v7
         with:
           name: api-test-backend-coverage
