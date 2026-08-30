@@ -293,7 +293,7 @@ describe("PerformerTile", () => {
     expect(screen.getByTitle("Likes: 4")).toBeInTheDocument();
   });
 
-  it("shows summary counts and an accurate age only for complete dates", () => {
+  it("shows exact ages for complete dates and possible ranges for partial dates", () => {
     const { rerender } = render(
       <PerformerTile
         performer={{ id: 7, name: "Summary Performer", birthdate: "2000-09-10", tags: [], videoCount: 3, imageCount: 2 }}
@@ -313,7 +313,16 @@ describe("PerformerTile", () => {
         onClick={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/years old/)).not.toBeInTheDocument();
+    expect(screen.getByText("25–26 years old")).toBeInTheDocument();
+
+    rerender(
+      <PerformerTile
+        performer={{ id: 7, name: "Summary Performer", birthdate: "2000-09", tags: [] }}
+        referenceDate="2026-09"
+        onClick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("25–26 years old")).toBeInTheDocument();
   });
 });
 
