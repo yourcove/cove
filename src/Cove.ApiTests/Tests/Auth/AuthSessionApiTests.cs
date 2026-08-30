@@ -11,6 +11,19 @@ public sealed class AuthSessionApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    public async Task GivenTestSessionEndpoint_WhenResetTokenIsMissing_ThenEndpointIsHidden()
+    {
+        using var client = new HttpClient { BaseAddress = ApiUri };
+
+        using var response = await client.PostAsync(
+            $"/health/test-session/{ApiTestUsers.Eva}",
+            content: null,
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     [CoversEndpoint("GET", "/api/auth/bootstrap-status")]
     [CoversEndpoint("GET", "/api/auth/external/providers")]
     [CoversEndpoint("GET", "/api/auth/external/links")]

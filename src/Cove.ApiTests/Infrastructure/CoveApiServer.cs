@@ -244,7 +244,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                     ApiTestUsers.Password,
                     DisplayName: displayName,
                     Roles: [BuiltinRoles.Member]), cancellationToken);
-                var member = await LoginAsync(username, ApiTestUsers.Password, cancellationToken);
+                var member = await CreateTestSessionAsync(username, cancellationToken);
                 users.Add(member.Username, member);
             }
             return users;
@@ -284,23 +284,21 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         return new CoveClient(ApiTestUsers.Owner, BaseAddress, login.Token);
     }
 
-    private async Task<CoveClient> LoginAsync(
+    private async Task<CoveClient> CreateTestSessionAsync(
         string username,
-        string password,
         CancellationToken cancellationToken)
     {
-        using var client = new HttpClient { BaseAddress = BaseAddress };
-        using var response = await client.PostAsJsonAsync(
-            "/api/auth/login",
-            new { username, password },
-            ApiJson.Options,
+        using var client = CreateLifecycleClient();
+        using var response = await client.PostAsync(
+            $"/health/test-session/{Uri.EscapeDataString(username)}",
+            content: null,
             cancellationToken);
         var login = await ApiResponse.ReadAsync<AuthenticationResponse>(
             response,
-            "POST /api/auth/login",
+            "POST /health/test-session/{username}",
             cancellationToken);
         if (string.IsNullOrWhiteSpace(login.Token))
-            throw new InvalidOperationException($"The login response for '{username}' did not contain an access token.");
+            throw new InvalidOperationException($"The test session response for '{username}' did not contain an access token.");
         return new CoveClient(username, BaseAddress, login.Token);
     }
 

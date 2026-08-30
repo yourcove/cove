@@ -13,6 +13,8 @@ using Serilog;
 using Serilog.Events;
 using Cove.Api.Hubs;
 using Cove.Api.Services;
+using Cove.Core.Auth;
+using Cove.Core.DTOs;
 using Cove.Core.Entities.Galleries;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
@@ -715,6 +717,35 @@ try
             }
 
             return Results.NoContent();
+        }).AllowAnonymous();
+
+        app.MapPost("/health/test-session/{username}", async (
+            string username,
+            HttpContext httpContext,
+            IUserService users,
+            ITokenService tokens,
+            CancellationToken cancellationToken) =>
+        {
+            var expectedToken = builder.Configuration["Cove:IntegrationTestResetToken"];
+            if (string.IsNullOrWhiteSpace(expectedToken)
+                || !httpContext.Request.Headers.TryGetValue("X-Cove-Test-Reset-Token", out var suppliedToken)
+                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(expectedToken),
+                    System.Text.Encoding.UTF8.GetBytes(suppliedToken.ToString())))
+            {
+                return Results.NotFound();
+            }
+
+            var user = await users.FindByUsernameAsync(username, cancellationToken);
+            if (user is null)
+                return Results.NotFound();
+
+            var pair = await tokens.IssueForUserAsync(
+                user.Id,
+                httpContext.Connection.RemoteIpAddress?.ToString(),
+                httpContext.Request.Headers.UserAgent.ToString(),
+                cancellationToken);
+            return Results.Ok(new LoginResponse(pair.AccessToken, pair.User.Username));
         }).AllowAnonymous();
 
         app.MapPost("/health/test-shutdown", (
