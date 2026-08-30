@@ -616,6 +616,43 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task TextsController_GetById_OrdersEffectiveTagsByName()
+    {
+        await using var context = CreateContext();
+        var first = new Tag { Name = "Alpha" };
+        var middle = new Tag { Name = "Middle" };
+        var last = new Tag { Name = "Zulu" };
+        var text = CreateTextDocument("tag-order-text");
+        text.TextTags.Add(new TextTag { Tag = last });
+        text.TextTags.Add(new TextTag { Tag = first });
+
+        context.Tags.Add(middle);
+        context.TextDocuments.Add(text);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.Add(new TagApplication
+        {
+            HostType = AffinityHostType.Text,
+            HostId = text.Id,
+            TagId = middle.Id,
+            SourceKey = "ext:test.import",
+            SourceRunId = "run-text-tag-order",
+            ModelKey = "test-model",
+            Confidence = 0.9f,
+        });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var controller = new TextsController(context, new CustomFieldService(context), null!, null!, null!, null!, null);
+        var response = await controller.GetById(text.Id, TestContext.Current.CancellationToken);
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var dto = Assert.IsType<TextDocumentDto>(ok.Value);
+
+        Assert.Equal(["Alpha", "Middle", "Zulu"], dto.Tags.Select(tag => tag.Name).ToArray());
+        Assert.True(dto.Tags[1].IsDerived);
+        Assert.False(dto.Tags[1].CanRemove);
+    }
+
+    [Fact]
     public async Task TagDurationCriterion_AppliesAllClauses()
     {
         await using var context = CreateContext();

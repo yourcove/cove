@@ -132,7 +132,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         var items = await LoadListItemsAsync(pagedIds, ct);
 
-        var dtos = items.Select(text => MapToDto(text, null, null)).ToList();
+        var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Text, items.Select(text => text.Id), ct);
+        var dtos = items.Select(text => MapToDto(text, null, null, effectiveTags)).ToList();
         return Ok(new PaginatedResponse<TextDocumentDto>(dtos, totalCount, page, perPage));
     }
 
@@ -184,7 +185,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         var items = await LoadListItemsAsync(pagedIds, ct);
 
-        var dtos = items.Select(text => MapToDto(text, null, null)).ToList();
+        var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Text, items.Select(text => text.Id), ct);
+        var dtos = items.Select(text => MapToDto(text, null, null, effectiveTags)).ToList();
         return Ok(new PaginatedResponse<TextDocumentDto>(dtos, totalCount, page, perPage));
     }
 
@@ -852,15 +854,16 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     {
         var groups = await GetGroupsAsync(text.Id, ct);
         var customFieldValues = await customFields.GetValuesAsync(CustomFieldEntityTypes.Text, text.Id, ct);
+        var effectiveTags = await EffectiveTagDtoLoader.LoadAsync(db, AffinityHostType.Text, [text.Id], ct);
         var contextTagApplications = await GetContextTagApplicationsAsync(text.Id, ct);
         var performerCounts = await PerformerSummaryCountsLoader.LoadAsync(db, text.TextPerformers.Select(link => link.PerformerId), ct, principalAccessor);
         var fieldProvenance = fieldProvenanceService == null
             ? null
             : (await fieldProvenanceService.GetForHostAsync(AffinityHostType.Text, text.Id, ct)).ToList();
-        return MapToDto(text, groups, customFieldValues, contextTagApplications, fieldProvenance, performerCounts);
+        return MapToDto(text, groups, customFieldValues, effectiveTags, contextTagApplications, fieldProvenance, performerCounts);
     }
 
-    private TextDocumentDto MapToDto(TextDocument text, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
+    private TextDocumentDto MapToDto(TextDocument text, List<GroupSummaryDto>? groups, Dictionary<string, object>? customFieldValues, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByTextId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         text.Id,
         text.Title,
         text.Code,
@@ -870,7 +873,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         text.Studio?.Name,
         text.Date?.ToString("yyyy-MM-dd"),
         text.Urls.Select(url => url.Url).ToList(),
-        text.TextTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).ToList(),
+        GetEffectiveTags(text, effectiveTagsByTextId),
         text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(
             performer.Id,
             performer.Name,
@@ -903,6 +906,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         text.ImageBlobId != null ? EntityImageUrls.Text(ControllerContext.HttpContext, text.Id, text.UpdatedAt) : null,
         contextTagApplications,
         fieldProvenance);
+
+    private static List<TagDto> GetEffectiveTags(TextDocument text, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByTextId)
+        => effectiveTagsByTextId != null && effectiveTagsByTextId.TryGetValue(text.Id, out var tags)
+            ? tags
+            : text.TextTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).ToList();
 
     private async Task<List<TagApplicationDto>?> GetContextTagApplicationsAsync(int textId, CancellationToken ct)
     {
