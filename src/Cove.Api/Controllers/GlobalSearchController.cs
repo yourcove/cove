@@ -259,7 +259,10 @@ public sealed class GlobalSearchController(
         var text = FullTextSearchHelpers.Apply(db, query, term,
             performer => performer.Name, performer => performer.Disambiguation, performer => performer.Details, performer => performer.SearchText);
         var lower = term.ToLowerInvariant();
-        var aliases = text.Concat(query.Where(performer => performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
+        var aliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            text,
+            query.Where(performer => performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
         return FullTextSearchHelpers.ApplyRelationalMatches(aliases, query, term,
             tagSelectors: [performer => performer.PerformerTags.Where(link => link.Tag != null).Select(link => link.Tag!)]);
     }
@@ -268,7 +271,10 @@ public sealed class GlobalSearchController(
     {
         var text = FullTextSearchHelpers.Apply(db, query, term, studio => studio.Name, studio => studio.Details, studio => studio.SearchText);
         var lower = term.ToLowerInvariant();
-        var aliases = text.Concat(query.Where(studio => studio.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
+        var aliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            text,
+            query.Where(studio => studio.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
         return FullTextSearchHelpers.ApplyRelationalMatches(aliases, query, term,
             tagSelectors: [studio => studio.StudioTags.Where(link => link.Tag != null).Select(link => link.Tag!)]);
     }
@@ -277,7 +283,10 @@ public sealed class GlobalSearchController(
     {
         var text = FullTextSearchHelpers.Apply(db, query, term, tag => tag.Name, tag => tag.SortName, tag => tag.Description, tag => tag.SearchText);
         var lower = term.ToLowerInvariant();
-        return text.Concat(query.Where(tag => tag.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower)))).Distinct();
+        return FullTextSearchHelpers.UnionMatchesById(
+            query,
+            text,
+            query.Where(tag => tag.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))));
     }
 
     private IQueryable<Gallery> ApplyGallerySearch(IQueryable<Gallery> query, string term)
@@ -288,9 +297,12 @@ public sealed class GlobalSearchController(
             tagSelectors: [gallery => gallery.GalleryTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
             performerSelectors: [gallery => gallery.GalleryPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
         var path = term.ToLowerInvariant().Replace('\\', '/');
-        return relational.Concat(query.Where(gallery =>
-            gallery.Files.Any(file => file.Path.ToLower().Contains(path))
-            || (gallery.Folder != null && gallery.Folder.Path.ToLower().Contains(path)))).Distinct();
+        return FullTextSearchHelpers.UnionMatchesById(
+            query,
+            relational,
+            query.Where(gallery =>
+                gallery.Files.Any(file => file.Path.ToLower().Contains(path))
+                || (gallery.Folder != null && gallery.Folder.Path.ToLower().Contains(path))));
     }
 
     private IQueryable<Image> ApplyImageSearch(IQueryable<Image> query, string term)

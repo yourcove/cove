@@ -15,7 +15,7 @@ import { useCustomFieldDefinitions } from "../hooks/useCustomFieldDefinitions";
 import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
-import { getSortClauses } from "../utils/sortClauses";
+import { defaultSortDirection, getSortClauses } from "../utils/sortClauses";
 import { trackInteraction } from "../utils/interactionTracking";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
 import { PageSizeSelect } from "./PageSizeSelect";
@@ -97,6 +97,8 @@ export interface ListPageProps {
   showCustomFilterDivider?: boolean;
 }
 const DEFAULT_ZOOM_LEVEL = 1;
+const RELEVANCE_SORT_OPTION = { value: "relevance", label: "Relevance" } as const;
+const RELEVANCE_SORT_ENTITY_TYPES = new Set(["video", "image", "audio", "text", "gallery", "performer", "tag", "group", "studio"]);
 const CUSTOM_FIELD_ENTITY_BY_FILTER_MODE: Record<string, CustomFieldEntityType> = {
   videos: "video",
   audios: "audio",
@@ -807,6 +809,7 @@ export function ListPage({
   );
 
   const perPage = filter.perPage ?? 25;
+  const previousSearchSortRef = useRef<Pick<FindFilter, "sort" | "direction" | "sorts" | "seed"> | null>(null);
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
   const page = filter.page ?? 1;
   const effectivePerPage = infinitePageSize ? Math.max(totalCount, 1) : perPage;
@@ -821,14 +824,15 @@ export function ListPage({
           : `custom:${definition.type}:${definition.key}`,
         label: `Custom: ${definition.label || definition.key}`,
       }));
-    const mergedOptions = [...(sortOptions ?? []), ...extensionSortOptions, ...customSortOptions];
+    const relevanceOptions = RELEVANCE_SORT_ENTITY_TYPES.has(listEntityType) && Boolean(filter.q?.trim()) ? [RELEVANCE_SORT_OPTION] : [];
+    const mergedOptions = [...relevanceOptions, ...(sortOptions ?? []), ...extensionSortOptions, ...customSortOptions];
     const knownValues = new Set(mergedOptions.map((option) => option.value));
     const unavailableCustomSortOptions = getSortClauses(filter)
       .filter((clause) => (clause.key.startsWith("custom:") || clause.key.startsWith("custom-json:")) && !knownValues.has(clause.key))
       .map((clause) => createUnavailableCustomSortOption(clause.key));
     mergedOptions.push(...unavailableCustomSortOptions);
     return mergedOptions.length > 0 ? mergedOptions.sort((left, right) => left.label.localeCompare(right.label)) : undefined;
-  }, [customFieldDefinitions, extensionSortOptions, filter, sortOptions]);
+  }, [customFieldDefinitions, extensionSortOptions, filter, listEntityType, sortOptions]);
   const slotContext = { pageKey, title, filter, onFilterChange, totalCount, isLoading };
   const selecting = selectedIds && selectedIds.size > 0;
   const showSelectionBar = Boolean(selectedIds && selecting);
@@ -961,8 +965,33 @@ export function ListPage({
       });
     }
 
+    const currentQuery = filter.q?.trim();
+    if (query && !currentQuery && RELEVANCE_SORT_ENTITY_TYPES.has(listEntityType)) {
+      previousSearchSortRef.current = {
+        sort: filter.sort,
+        direction: filter.direction,
+        sorts: filter.sorts,
+        seed: filter.seed,
+      };
+      onFilterChange({ ...filter, q: query, page: 1, sort: "relevance", direction: "desc", sorts: undefined, seed: undefined });
+      return;
+    }
+
+    if (!query && currentQuery && filter.sort === "relevance") {
+      const fallbackSort = sortOptions?.find((option) => option.value !== "relevance")?.value;
+      const previousSort = previousSearchSortRef.current ?? {
+        sort: fallbackSort,
+        direction: fallbackSort ? defaultSortDirection(fallbackSort) : undefined,
+        sorts: undefined,
+        seed: undefined,
+      };
+      previousSearchSortRef.current = null;
+      onFilterChange({ ...filter, ...previousSort, q: undefined, page: 1 });
+      return;
+    }
+
     onFilterChange({ ...filter, q: query, page: 1 });
-  }, [filter, objectFilter, onFilterChange, pageKey]);
+  }, [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions]);
 
   const goTo = useCallback(
     (p: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, p)) }),

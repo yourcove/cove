@@ -66,7 +66,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
 
         query = ApplySort(query, sort, descending, seed, sortClauses);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, q, sort))
-            query = FullTextSearchHelpers.OrderByRelevance(db, query, q);
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, q, audio => audio.Title);
 
         var totalCount = await query.CountAsync(ct);
         var pagedIds = await query
@@ -119,7 +119,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
-            query = FullTextSearchHelpers.OrderByRelevance(db, query, findFilter.Q);
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, findFilter.Q, audio => audio.Title);
 
         var totalCount = await query.CountAsync(ct);
         var pagedIds = await query

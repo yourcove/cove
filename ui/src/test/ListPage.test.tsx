@@ -1003,6 +1003,70 @@ describe("ListPage active filter chips", () => {
     expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: "random", direction: "asc", seed: 12345 }));
   });
 
+  it("uses relevance for a new search and restores the previous sort when cleared", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    const renderPage = (filter: { page: number; perPage: number; sort: string; direction: "asc" | "desc"; q?: string }) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filter={filter}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[{ value: "date", label: "Date" }]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(renderPage({ page: 3, perPage: 40, sort: "date", direction: "desc" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search list" }), { target: { value: "needle" } });
+    await vi.advanceTimersByTimeAsync(350);
+
+    const searchedFilter = onFilterChange.mock.lastCall?.[0];
+    expect(searchedFilter).toEqual(expect.objectContaining({ q: "needle", page: 1, sort: "relevance", direction: "desc" }));
+
+    rerender(renderPage(searchedFilter));
+    expect(screen.getByRole("combobox", { name: "Primary sort" })).toHaveValue("relevance");
+    expect(screen.queryByRole("button", { name: /Sort (ascending|descending)/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(onFilterChange.mock.lastCall?.[0]).toEqual(expect.objectContaining({ q: undefined, page: 1, sort: "date", direction: "desc" }));
+    vi.useRealTimers();
+  });
+
+  it("restores a valid fallback when clearing a deep-linked relevance search", () => {
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            pageKey="videos"
+            filter={{ page: 1, perPage: 40, q: "needle", sort: "relevance", direction: "desc" }}
+            onFilterChange={onFilterChange}
+            totalCount={0}
+            isLoading={false}
+            sortOptions={[{ value: "date", label: "Date" }]}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ q: undefined, sort: "date", direction: "desc" }));
+  });
+
   it("keeps one sort compact and progressively reveals ordered additional sorts", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
