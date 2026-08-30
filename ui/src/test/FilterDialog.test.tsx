@@ -92,14 +92,14 @@ describe("FilterDialog", () => {
     });
   });
 
-  it("focuses the saved-filter selector when entering a related workspace", async () => {
+  it("focuses criteria search when entering a related workspace", async () => {
     renderWithQueryClient(
       <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
     );
 
     fireEvent.click(screen.getByText("Related Performers"));
 
-    await waitFor(() => expect(screen.getByLabelText("Saved performer filter")).toHaveFocus());
+    await waitFor(() => expect(screen.getByLabelText("Search performer filter criteria")).toHaveFocus());
   });
 
   it("navigates related filter criteria with vertical arrow keys", () => {

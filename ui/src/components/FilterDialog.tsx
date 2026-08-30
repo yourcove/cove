@@ -2679,7 +2679,6 @@ function RelatedFilterWorkspace({
   const workspaceRef = useRef<HTMLDivElement>(null);
   const criteriaSearchRef = useRef<HTMLInputElement>(null);
   const criterionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
-  const savedFilterSelectRef = useRef<HTMLSelectElement>(null);
   const relationshipModeRef = useRef<HTMLSelectElement>(null);
   const matchAnyRef = useRef<HTMLButtonElement>(null);
   const initialSelectionRef = useRef(selection);
@@ -2707,7 +2706,7 @@ function RelatedFilterWorkspace({
     const timeout = window.setTimeout(() => {
       if (initialSelection?.facet === "mode") relationshipModeRef.current?.focus();
       else if (initialSelection?.facet === "existence") matchAnyRef.current?.focus();
-      else savedFilterSelectRef.current?.focus();
+      else criteriaSearchRef.current?.focus();
     }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
@@ -2885,7 +2884,6 @@ function RelatedFilterWorkspace({
           <div className="space-y-3 border-b border-border p-3 md:p-4">
             <LabeledControl label={`Saved ${singular} filter`}>
               <select
-                ref={savedFilterSelectRef}
                 data-filter-primary-control
                 aria-label={`Saved ${singular} filter`}
                 value={selectedSavedFilterId}
