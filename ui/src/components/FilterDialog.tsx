@@ -1852,6 +1852,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               buttons.forEach((button) => { button.tabIndex = button === target ? 0 : -1; });
             }}
             onKeyDownCapture={(event) => {
+              if (event.key === "ArrowDown" && event.target instanceof HTMLButtonElement) {
+                event.preventDefault();
+                event.stopPropagation();
+                searchRef.current?.focus();
+                return;
+              }
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
               const buttons = Array.from(selectedFiltersToolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
               const current = event.target instanceof HTMLButtonElement ? event.target : undefined;
@@ -1869,7 +1875,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               buttons[nextIndex].focus();
             }}
           >
-            <span id={selectedFiltersInstructionsId} className="sr-only">Use Left and Right Arrow to move between selected filter parts, Clear all, and Combine filters. Press Enter to activate the focused control.</span>
+            <span id={selectedFiltersInstructionsId} className="sr-only">Use Left and Right Arrow to move between selected filter parts, Clear all, and Combine filters. Press Down Arrow to move to filter search. Press Enter to activate the focused control.</span>
             {validSimpleExpressionEntries.map(({ child, index }) => (
               <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
                 <button type="button" onClick={() => openSimpleExpressionCondition([index])} data-simple-return-focus={`expression-${index}`} className="min-w-0 px-3 text-left hover:bg-background/40" aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
@@ -1992,6 +1998,19 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   onKeyDown={(event) => {
+                    if (event.key === "ArrowUp") {
+                      const toolbar = selectedFiltersToolbarRef.current;
+                      const buttons = Array.from(toolbar?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+                      const rememberedButton = selectedFiltersLastFocusedRef.current && toolbar?.contains(selectedFiltersLastFocusedRef.current)
+                        ? selectedFiltersLastFocusedRef.current
+                        : undefined;
+                      const toolbarTarget = rememberedButton ?? buttons.find((button) => button.tabIndex === 0) ?? buttons[0];
+                      if (toolbarTarget) {
+                        event.preventDefault();
+                        toolbarTarget.focus();
+                      }
+                      return;
+                    }
                     if (event.key !== "ArrowDown" || visibleNavigatorItems.length === 0) return;
                     event.preventDefault();
                     criterionButtonRefs.current.get(visibleNavigatorItems[0].id)?.focus();

@@ -939,6 +939,11 @@ describe("FilterDialog", () => {
     removeSearch.focus();
     await user.keyboard("{ArrowLeft}");
     expect(editSearch).toHaveFocus();
+
+    await user.keyboard("{ArrowDown}");
+    expect(criterionSearch).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(editSearch).toHaveFocus();
   });
 
   it("places Clear all after selected filters and returns focus to criterion search", async () => {
