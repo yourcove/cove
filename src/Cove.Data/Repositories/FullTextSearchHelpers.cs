@@ -126,7 +126,7 @@ public static class FullTextSearchHelpers
     /// character (space, _, -, ., +, /, …) as a separator. Matches how <see cref="BuildPrefixQuery"/>
     /// tokenizes for full-text search, so file-path matching and title matching stay consistent.
     /// </summary>
-    private static List<string> TokenizeSearchTerms(string search)
+    internal static List<string> TokenizeSearchTerms(string search)
     {
         var tokens = new List<string>();
         var token = new StringBuilder();
