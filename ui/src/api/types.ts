@@ -2276,6 +2276,9 @@ export interface FindFilter {
 export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>> {
   findFilter?: Pick<FindFilter, "q">;
   objectFilter?: TObjectFilter;
+  mode?: "atLeastOne" | "every" | "none";
+  conditionOperator?: "and" | "or";
+  /** Legacy negative mode retained when loading older saved filters. */
   exclude?: boolean;
   ageAtHostDateCriterion?: IntCriterion;
   /** Client-only label retained with a saved-filter snapshot for a readable chip summary. */
@@ -2289,7 +2292,7 @@ export type FilterExpressionNode<TFilter = Record<string, unknown>> =
   | { group: FilterExpression<TFilter>; filter?: never };
 
 export interface FilterExpression<TFilter = Record<string, unknown>> {
-  operator: "AND" | "OR";
+  operator: "AND" | "OR" | "NOT";
   children: FilterExpressionNode<TFilter>[];
 }
 

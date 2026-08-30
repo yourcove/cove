@@ -14,7 +14,7 @@ import { CountryLabel } from "./Country";
 export type RelatedFilterChipFacet = "criterion" | "search" | "existence" | "mode";
 
 export type FilterChipTarget =
-  | { kind: "root"; key: string }
+  | { kind: "root"; key: string; path?: number[] }
   | { kind: "expression"; parentKey: "_filterExpression"; path: number[] }
   | {
       kind: "related";
@@ -173,6 +173,7 @@ export function formatFilterChipValue(def: CriterionDefinition | undefined, valu
     _selectedValues?: string[];
     findFilter?: { q?: string };
     objectFilter?: Record<string, unknown>;
+    mode?: "atLeastOne" | "every" | "none";
     exclude?: boolean;
     _savedFilterName?: string;
     _matchAll?: boolean;
@@ -190,7 +191,10 @@ export function formatFilterChipValue(def: CriterionDefinition | undefined, valu
     const details = criterion._savedFilterName?.trim()
       || [q ? `search “${q}”` : "", conditionCount > 0 ? `${conditionCount} ${conditionCount === 1 ? "condition" : "conditions"}` : ""].filter(Boolean).join(" · ")
       || (criterion._matchAll ? `any ${singular}` : `matching ${singular}`);
-    return criterion.exclude ? `No match · ${details}` : details;
+    const mode = criterion.mode ?? (criterion.exclude ? "none" : "atLeastOne");
+    if (mode === "every") return `Every ${singular} · ${details}`;
+    if (mode === "none") return `No ${singular} matches · ${details}`;
+    return details;
   }
 
   if (def?.type === "tagDuration") {
@@ -360,6 +364,7 @@ interface ActiveObjectFilterChipsProps {
   rovingKeyboardAccess?: boolean;
   onFocusFallback?: () => void;
   onFocusKey?: (key: string) => void;
+  expressionReturnFocusKeys?: boolean;
 }
 
 function findCriterionDefinition(criteriaDefinitions: CriterionDefinition[], key: string) {
@@ -664,7 +669,7 @@ function ExpressionLeafSummary({
           const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
           return (
             <span key={key} className="inline-flex min-w-0 flex-wrap items-center gap-1" aria-label={`${def.label} condition`}>
-              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.exclude ? `No ${def.label}` : def.label}</span>
+              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label}{related.conditionOperator === "or" ? " · any condition" : ""}</span>
               {q ? <span className="rounded bg-card px-1.5 py-0.5">Search “{q}”</span> : null}
               {nestedEntries.map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => (
                 <span key={nestedKey} className="rounded bg-card px-1.5 py-0.5">
@@ -696,6 +701,7 @@ function FilterExpressionChipDisplay({
   nested = false,
   path = [],
   onEdit,
+  expressionReturnFocusKeys = false,
 }: {
   expression: ChipFilterExpression;
   criteriaDefinitions: CriterionDefinition[];
@@ -705,21 +711,24 @@ function FilterExpressionChipDisplay({
   nested?: boolean;
   path?: number[];
   onEdit?: (target: FilterChipTarget) => void;
+  expressionReturnFocusKeys?: boolean;
 }) {
-  const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
+  const rawOperator = expression.operator?.toUpperCase();
+  const operator = rawOperator === "OR" || rawOperator === "NOT" ? rawOperator : "AND";
   return (
     <span data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
       {onEdit ? (
-        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression" })} className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/25" aria-label={`Edit ${operator} group in advanced filters`}>{operator}</button>
+        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/25" aria-label={`Edit ${operator} group in Combine Filters`}>{operator}</button>
       ) : <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span>}
       {(expression.children ?? []).map((child, index) => child.group ? (
-        <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} />
+        <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} />
       ) : child.filter ? (
         onEdit ? (
           <button
             key={index}
             type="button"
             onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path: [...path, index] })}
+            data-simple-return-focus={expressionReturnFocusKeys ? `expression-${[...path, index].join(".")}` : undefined}
             className="min-w-0 rounded-md text-left hover:bg-background/40"
             aria-label={`Edit filter: ${filterExpressionAccessibleSummary({ operator: "AND", children: [{ filter: child.filter }] }, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^AND group: /, "")}`}
           >
@@ -746,9 +755,11 @@ function filterExpressionAccessibleSummary(
     const contextObject = Object.fromEntries((def.relatedContextCriteria ?? []).flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, related[criterion.filterKey]]] : []));
     const nested = getLogicalFilterEntries(nestedCriteria, { ...contextObject, ...nestedObject }).map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => `${nestedDef?.label ?? relatedFallbackLabel(nestedKey)} ${expressionEntrySummary(nestedDef, nestedValue, nestedEndpoint, entityNameMaps, metadataServers, ratingOptions)}`);
     const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
-    return [related.exclude ? `No ${def.label}` : def.label, q ? `search ${q}` : "", ...nested].filter(Boolean).join(", ");
+    const separator = related.conditionOperator === "or" ? " OR " : ", ";
+    return [related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label, [q ? `search ${q}` : "", ...nested].filter(Boolean).join(separator)].filter(Boolean).join(", ");
   }).join(", ");
-  const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
+  const rawOperator = expression.operator?.toUpperCase();
+  const operator = rawOperator === "OR" || rawOperator === "NOT" ? rawOperator : "AND";
   const children = (expression.children ?? []).map((child) => child.group
     ? filterExpressionAccessibleSummary(child.group, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)
     : child.filter ? summarizeFilter(child.filter) : "").filter(Boolean);
@@ -791,6 +802,8 @@ function RelatedFilterChipGroup({
   const related = value && typeof value === "object" ? value as {
     findFilter?: { q?: string };
     objectFilter?: Record<string, unknown>;
+    mode?: "atLeastOne" | "every" | "none";
+    conditionOperator?: "and" | "or";
     exclude?: boolean;
     _savedFilterName?: string;
     _matchAll?: boolean;
@@ -801,7 +814,13 @@ function RelatedFilterChipGroup({
   const nestedEntries = getLogicalFilterEntries(nestedCriteria, { ...contextFilter, ...(related.objectFilter ?? {}) });
   const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
   const EntityIcon = def.entityType === "performers" ? Users : Film;
-  const modeLabel = related.exclude ? `No ${singular} matching all` : `At least one ${singular} matching all`;
+  const relationshipMode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
+  const conditionWord = related.conditionOperator === "or" ? "any" : "all";
+  const modeLabel = relationshipMode === "every"
+    ? `Every ${singular} matches ${conditionWord}`
+    : relationshipMode === "none"
+      ? `No ${singular} matches ${conditionWord}`
+      : `At least one ${singular} matching ${conditionWord}`;
   const q = related.findFilter?.q?.trim();
   const groupRef = useRef<HTMLDivElement>(null);
 
@@ -945,6 +964,7 @@ function ActiveObjectFilterChipsContent({
   rovingKeyboardAccess = false,
   onFocusFallback,
   onFocusKey,
+  expressionReturnFocusKeys,
   metadataServers,
 }: ActiveObjectFilterChipsProps & { entityNameMaps: Record<string, Map<number, string>>; metadataServers: MetadataServer[] }) {
   const ratingOptions = useRatingOptions();
@@ -1037,7 +1057,7 @@ function ActiveObjectFilterChipsContent({
         const isAuxiliaryToggle = def?.auxiliaryToggleKey === key;
         const isFilterExpression = key === "_filterExpression";
         const isExpressionLeaf = Boolean(expressionPath);
-        const label = isFilterExpression ? "Advanced filter" : customSection?.label ?? (isAuxiliaryToggle ? def?.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
+        const label = isFilterExpression ? "Combine Filters" : customSection?.label ?? (isAuxiliaryToggle ? def?.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
         if (!isExpressionLeaf && !customSection && def?.type === "related") {
           return (
             <RelatedFilterChipGroup
@@ -1106,6 +1126,7 @@ function ActiveObjectFilterChipsContent({
                   metadataServers={metadataServers}
                   ratingOptions={ratingOptions}
                   onEdit={onEdit}
+                  expressionReturnFocusKeys={expressionReturnFocusKeys}
                 />
               </div>
               <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>

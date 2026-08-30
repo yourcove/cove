@@ -440,6 +440,105 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task FilterExpression_NotNegatesOneConditionOrNestedGroup()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            CreateVideoWithFile("foo-only"),
+            CreateVideoWithFile("foo-bar"),
+            CreateVideoWithFile("foo-baz"),
+            CreateVideoWithFile("other"));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var expression = new FilterExpression<VideoFilter>
+        {
+            Children =
+            [
+                new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "foo" } } },
+                new()
+                {
+                    Group = new FilterExpression<VideoFilter>
+                    {
+                        Operator = FilterExpressionOperator.Not,
+                        Children =
+                        [
+                            new()
+                            {
+                                Group = new FilterExpression<VideoFilter>
+                                {
+                                    Operator = FilterExpressionOperator.Or,
+                                    Children =
+                                    [
+                                        new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "bar" } } },
+                                        new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "baz" } } },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            TestContext.Current.CancellationToken,
+            expression);
+
+        Assert.Equal(1, count);
+        Assert.Equal("foo-only", Assert.Single(items).Title);
+
+        var doubleNegation = new FilterExpression<VideoFilter>
+        {
+            Operator = FilterExpressionOperator.Not,
+            Children =
+            [
+                new()
+                {
+                    Group = new FilterExpression<VideoFilter>
+                    {
+                        Operator = FilterExpressionOperator.Not,
+                        Children =
+                        [
+                            new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "foo" } } },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        var (doubleNegatedItems, doubleNegatedCount) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            TestContext.Current.CancellationToken,
+            doubleNegation);
+
+        Assert.Equal(3, doubleNegatedCount);
+        Assert.Equal(["foo-bar", "foo-baz", "foo-only"], doubleNegatedItems.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public void FilterExpression_NotRequiresExactlyOneChild()
+    {
+        var empty = new FilterExpression<VideoFilter> { Operator = FilterExpressionOperator.Not };
+        var multiple = new FilterExpression<VideoFilter>
+        {
+            Operator = FilterExpressionOperator.Not,
+            Children =
+            [
+                new() { Filter = new VideoFilter() },
+                new() { Filter = new VideoFilter() },
+            ],
+        };
+
+        Assert.False(FilterExpressionQuery.TryValidate(empty, out var emptyError));
+        Assert.Equal("NOT filter-expression groups must contain exactly one child.", emptyError);
+        Assert.False(FilterExpressionQuery.TryValidate(multiple, out var multipleError));
+        Assert.Equal("NOT filter-expression groups must contain exactly one child.", multipleError);
+    }
+
+    [Fact]
     public async Task RelatedPerformerExpression_CorrelatesGenderAndAgeAtVideoDatePerClause()
     {
         await using var context = CreateContext();
@@ -481,6 +580,108 @@ public class VideoFilterBehaviorTests
 
         Assert.Equal(1, count);
         Assert.Equal("matches", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerEveryModeAppliesAgeAtVideoDateToEveryPerformer()
+    {
+        await using var context = CreateContext();
+        var age25a = CreatePerformer("Age 25 A", new DateOnly(2000, 6, 1));
+        var age25b = CreatePerformer("Age 25 B", new DateOnly(2000, 1, 1));
+        var age35 = CreatePerformer("Age 35", new DateOnly(1990, 6, 1));
+        var matches = CreateVideoWithFile("all-match", videoDate: new DateOnly(2025, 6, 2));
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = age25a });
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = age25b });
+        var mixed = CreateVideoWithFile("mixed", videoDate: new DateOnly(2025, 6, 2));
+        mixed.VideoPerformers.Add(new VideoPerformer { Performer = age25a });
+        mixed.VideoPerformers.Add(new VideoPerformer { Performer = age35 });
+        var empty = CreateVideoWithFile("empty", videoDate: new DateOnly(2025, 6, 2));
+        context.Videos.AddRange(matches, mixed, empty);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.Between, Value = 20, Value2 = 30 },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("all-match", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerEveryModeCanMatchAgeAtVideoDateOrFavorite()
+    {
+        await using var context = CreateContext();
+        var age19 = CreatePerformer("Age 19", new DateOnly(2006, 1, 1));
+        var favoriteAge28 = CreatePerformer("Favorite age 28", new DateOnly(1997, 1, 1));
+        favoriteAge28.Favorite = true;
+        var age28 = CreatePerformer("Age 28", new DateOnly(1997, 1, 1));
+        var matches = CreateVideoWithFile("age-or-favorite", videoDate: new DateOnly(2025, 6, 2));
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = age19 });
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = favoriteAge28 });
+        var fails = CreateVideoWithFile("neither", videoDate: new DateOnly(2025, 6, 2));
+        fails.VideoPerformers.Add(new VideoPerformer { Performer = age19 });
+        fails.VideoPerformers.Add(new VideoPerformer { Performer = age28 });
+        context.Videos.AddRange(matches, fails, CreateVideoWithFile("empty", videoDate: new DateOnly(2025, 6, 2)));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    ConditionOperator = RelatedFilterConditionOperator.Or,
+                    ObjectFilter = new PerformerFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
+                    AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.Between, Value = 18, Value2 = 20 },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("age-or-favorite", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerEveryModeCanMatchUnknownAgeAtVideoDateOrFavorite()
+    {
+        await using var context = CreateContext();
+        var unknownAge = CreatePerformer("Unknown age", null);
+        var favorite = CreatePerformer("Favorite", new DateOnly(1990, 1, 1));
+        favorite.Favorite = true;
+        var knownNonFavorite = CreatePerformer("Known non-favorite", new DateOnly(1990, 1, 1));
+        var matches = CreateVideoWithFile("unknown-or-favorite", videoDate: new DateOnly(2025, 6, 2));
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = unknownAge });
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = favorite });
+        var fails = CreateVideoWithFile("known-neither", videoDate: new DateOnly(2025, 6, 2));
+        fails.VideoPerformers.Add(new VideoPerformer { Performer = knownNonFavorite });
+        context.Videos.AddRange(matches, fails);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    ConditionOperator = RelatedFilterConditionOperator.Or,
+                    ObjectFilter = new PerformerFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
+                    AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.IsNull },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("unknown-or-favorite", Assert.Single(items).Title);
     }
 
     [Fact]
@@ -1551,7 +1752,7 @@ public class VideoFilterBehaviorTests
         return video;
     }
 
-    private static Performer CreatePerformer(string name, DateOnly birthdate, params Tag[] tags)
+    private static Performer CreatePerformer(string name, DateOnly? birthdate, params Tag[] tags)
     {
         var performer = new Performer
         {

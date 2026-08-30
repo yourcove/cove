@@ -742,6 +742,7 @@ export function ListPage({
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
   const [filterDialogInitialView, setFilterDialogInitialView] = useState<"simple" | "advanced">("simple");
   const [filterDialogExpressionPath, setFilterDialogExpressionPath] = useState<number[] | undefined>();
+  const [filterDialogOpenAtRoot, setFilterDialogOpenAtRoot] = useState(false);
   const cardSizeEntityType = requestedCardSizeEntityType ?? filterMode ?? pageKey;
   const resolvedSavedFilterScope = savedFilterScope ?? filterMode;
   const [zoomLevel, setZoomLevel] = useEntityCardSize(cardSizeEntityType, pageKey, DEFAULT_ZOOM_LEVEL);
@@ -1048,7 +1049,7 @@ export function ListPage({
       { id: "list.page.last", keys: "Ctrl+End", surface: "list" as const, action: () => goTo(totalPages) },
     ] : []),
     // Filter dialog
-    ...(mergedCriteriaDefinitions && onObjectFilterChange ? [{ id: "list.filters", keys: "", surface: "list" as const, action: () => { setFilterDialogInitialView("simple"); setFilterDialogOpen(true); } }] : []),
+    ...(mergedCriteriaDefinitions && onObjectFilterChange ? [{ id: "list.filters", keys: "", surface: "list" as const, action: () => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); } }] : []),
     // Zoom
     { id: "list.zoom.in", keys: "+", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v + 0.25)) },
     { id: "list.zoom.out", keys: "-", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v - 0.25)) },
@@ -1128,7 +1129,7 @@ export function ListPage({
         {mergedCriteriaDefinitions && onObjectFilterChange && (
           <FilterButton
             activeCount={countActiveObjectFilters(mergedCriteriaDefinitions, editorObjectFilter)}
-            onClick={() => { setFilterDialogInitialView("simple"); setFilterDialogOpen(true); }}
+            onClick={() => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); }}
           />
         )}
 
@@ -1321,6 +1322,7 @@ export function ListPage({
               ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
               : customSection?.id ?? criterion?.id ?? key);
             setFilterDialogInitialView(key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple");
+            setFilterDialogOpenAtRoot(false);
             setFilterDialogOpen(true);
           }}
           onRemove={(target) => {
@@ -1411,12 +1413,13 @@ export function ListPage({
       {mergedCriteriaDefinitions && onObjectFilterChange && (
         <FilterDialog
           open={filterDialogOpen}
-          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); setFilterDialogInitialView("simple"); setFilterDialogExpressionPath(undefined); }}
+          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); setFilterDialogInitialView("simple"); setFilterDialogExpressionPath(undefined); setFilterDialogOpenAtRoot(false); }}
           criteria={mergedCriteriaDefinitions}
           activeFilter={editorObjectFilter}
           customSections={mergedCustomFilterSections}
           showCustomSectionDivider={showCustomFilterDivider}
           supportsFilterExpressions={supportsFilterExpressions}
+          subjectLabel={title.toLowerCase()}
           onApply={(f) => {
             if (pageKey) {
               trackInteraction({
@@ -1435,6 +1438,7 @@ export function ListPage({
           preselectCriterion={filterDialogPreselect}
           initialView={filterDialogInitialView}
           initialExpressionPath={filterDialogExpressionPath}
+          openAtRoot={filterDialogOpenAtRoot}
         />
       )}
     </div>

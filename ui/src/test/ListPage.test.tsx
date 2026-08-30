@@ -381,6 +381,12 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Filters, 1 active" }));
+    const rootDialog = screen.getByRole("dialog", { name: "Filters" });
+    expect(rootDialog).toBeInTheDocument();
+    expect(within(rootDialog).getByRole("group", { name: "Related Performers filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
     expect(onObjectFilterChange).toHaveBeenCalledWith({
       performerFilterCriterion: {
@@ -489,6 +495,9 @@ describe("ListPage active filter chips", () => {
                     { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
                     { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
                   ] } },
+                  { group: { operator: "NOT", children: [
+                    { filter: { directorCriterion: { modifier: "INCLUDES", value: "blocked" } } },
+                  ] } },
                 ],
               },
             }}
@@ -503,11 +512,14 @@ describe("ListPage active filter chips", () => {
     expect(await screen.findByText("Example Tag")).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit OR group in advanced filters" })).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="NOT"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: Tags Example Tag" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit AND group in advanced filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit AND group in Combine Filters" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit NOT group in Combine Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: Director Includes blocked" })).toBeInTheDocument();
   });
 
   it("opens nested expression leaves in their standard filter editors", async () => {
@@ -551,8 +563,8 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByRole("group", { name: "Performer Occurrence Tags condition 1" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit OR group in advanced filters" }));
-    expect(screen.getByRole("heading", { name: "Advanced filter" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit OR group in Combine Filters" }));
+    expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
   });
 
   it("normalizes the legacy performer-favorite chip before editing or removing it", async () => {

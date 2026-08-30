@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, Layers3 } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
@@ -38,6 +38,7 @@ import type {
   MetadataServer,
   RelatedFilterCriterion,
   FilterExpression,
+  RatingSystemOptions,
 } from "../api/types";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { rankByLabel } from "../utils/searchRanking";
@@ -45,6 +46,7 @@ import { useOptionalAppConfig } from "../state/AppConfigContext";
 import {
   ActiveObjectFilterChips,
   formatFilterChipValue,
+  formatRemoteIdFilterChipValue,
   getFilterChipTargetKey,
   removeObjectFilterChipTarget,
   type FilterChipTarget,
@@ -435,7 +437,9 @@ function sanitizeFilterExpression(expression: FilterExpression<Record<string, un
     const filter = sanitizeFilterCriteria(child.filter, criteria);
     if (Object.keys(filter).length > 0) children.push({ filter });
   }
-  return children.length > 0 ? { operator: expression.operator === "OR" ? "OR" : "AND", children } : undefined;
+  const operator = expression.operator === "OR" ? "OR" : expression.operator === "NOT" ? "NOT" : "AND";
+  if (operator === "NOT" && children.length !== 1) return undefined;
+  return children.length > 0 ? { operator, children } : undefined;
 }
 
 function filterToExpression(filter: Record<string, unknown>, criteria: CriterionDefinition[]): FilterExpression<Record<string, unknown>> {
@@ -466,7 +470,7 @@ function countFilterExpressionConditions(expression: FilterExpression<Record<str
 }
 
 export function isComplexFilterExpression(expression: FilterExpression<Record<string, unknown>> | undefined): boolean {
-  return Boolean(expression && (expression.operator === "OR" || expression.children.some((child) => child.group)));
+  return Boolean(expression && (expression.operator !== "AND" || expression.children.some((child) => child.group)));
 }
 
 function mergeFilterExpressionWithSimpleCriteria(
@@ -494,6 +498,20 @@ function replaceExpressionGroup(
   const children = root.children.slice();
   children[index] = { group: replaceExpressionGroup(child.group, rest, update) };
   return { ...root, children };
+}
+
+function removeExpressionGroup(
+  root: FilterExpression<Record<string, unknown>>,
+  groupPath: number[],
+): FilterExpression<Record<string, unknown>> | undefined {
+  if (groupPath.length === 0) return undefined;
+  const parentPath = groupPath.slice(0, -1);
+  const groupIndex = groupPath.at(-1);
+  if (groupIndex === undefined) return root;
+  return replaceExpressionGroup(root, parentPath, (parent) => ({
+    ...parent,
+    children: parent.children.filter((_, index) => index !== groupIndex),
+  }));
 }
 
 function getExpressionLeaf(
@@ -909,6 +927,8 @@ function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefi
   const objectFilter = sanitizeFilterCriteria(rawObjectFilter, nestedCriteria, unknownValues);
   const q = raw.findFilter?.q?.trim();
   const matchAll = raw._matchAll === true;
+  const mode = raw.mode === "every" || raw.mode === "none" ? raw.mode : undefined;
+  const conditionOperator = raw.conditionOperator === "or" ? "or" : undefined;
   const contextValues = (criterion.relatedContextCriteria ?? []).reduce<Record<string, unknown>>((result, contextCriterion) => {
     const contextValue = (raw as Record<string, unknown>)[contextCriterion.filterKey];
     if (isCriterionValueValid(contextValue, contextCriterion)) result[contextCriterion.filterKey] = contextValue;
@@ -919,6 +939,8 @@ function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefi
   return {
     ...(q ? { findFilter: { q } } : {}),
     ...(Object.keys(objectFilter).length > 0 ? { objectFilter } : {}),
+    ...(mode ? { mode } : {}),
+    ...(conditionOperator ? { conditionOperator } : {}),
     ...(raw.exclude ? { exclude: true } : {}),
     ...(raw._savedFilterName?.trim() ? { _savedFilterName: raw._savedFilterName.trim() } : {}),
     ...(matchAll ? { _matchAll: true } : {}),
@@ -968,6 +990,8 @@ interface FilterDialogProps {
   supportsFilterExpressions?: boolean;
   initialView?: "simple" | "advanced";
   initialExpressionPath?: number[];
+  subjectLabel?: string;
+  openAtRoot?: boolean;
 }
 
 export interface FilterDialogCustomSection {
@@ -1004,7 +1028,7 @@ interface ExpressionConditionDraft {
   returnView: "simple" | "expression";
 }
 
-export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, preselectCriterion, customSections, showCustomSectionDivider = true, supportsFilterExpressions = false, initialView = "simple", initialExpressionPath }: FilterDialogProps) {
+export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, preselectCriterion, customSections, showCustomSectionDivider = true, supportsFilterExpressions = false, initialView = "simple", initialExpressionPath, subjectLabel = "items", openAtRoot = false }: FilterDialogProps) {
   const supportsExpressions = supportsFilterExpressions;
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
   const [dialogView, setDialogView] = useState<FilterDialogView>(() => initialView === "advanced" && isComplexFilterExpression(activeFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined) ? "expression" : "simple");
@@ -1095,7 +1119,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const expressionConditionCount = countFilterExpressionConditions(expression);
   const hasComplexExpression = isComplexFilterExpression(expression);
   const simpleExpressionChildren = expression && !hasComplexExpression ? expression.children : [];
-  const directlyEditableExpressionChildren = expression ? getExpressionGroup(expression, simpleExpressionGroupPath)?.children ?? [] : [];
+  const directlyEditableExpressionGroup = expression ? getExpressionGroup(expression, simpleExpressionGroupPath) : undefined;
+  const directlyEditableExpressionChildren = directlyEditableExpressionGroup?.children ?? [];
+  const directlyEditingNotGroup = directlyEditableExpressionGroup?.operator === "NOT";
   const validSimpleExpressionEntries = simpleExpressionChildren.flatMap((child, index) => child.filter
     && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? [{ child, index }] : []);
   const expressionEligibleCount = useMemo(() => criteria.filter((criterion) => criterion.expressionSupported !== false
@@ -1275,7 +1301,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         ?? (customSections ?? []).find((section) => section.isActive(normalizedActiveFilter[section.filterKey]))?.id;
       const nextSelected = openingLeafCriterion?.id ?? (typeof preselectCriterion === "string"
         ? preselectCriterion
-        : preselectCriterion?.criterionId ?? firstActive ?? null);
+        : preselectCriterion?.criterionId ?? (openAtRoot ? null : firstActive) ?? null);
       setRelatedWorkspaceSelection(typeof preselectCriterion === "object"
         ? { facet: preselectCriterion.relatedFacet ?? "mode", nestedCriterionId: preselectCriterion.nestedCriterionId }
         : null);
@@ -1292,7 +1318,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }, 0);
     }
     wasOpenRef.current = true;
-  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, initialExpressionPath, initialView, normalizedActiveFilter, open, preselectCriterion]);
+  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, initialExpressionPath, initialView, normalizedActiveFilter, open, openAtRoot, preselectCriterion]);
 
   const dismiss = useCallback(() => {
     setEditFilter(cloneActiveFilter());
@@ -1338,7 +1364,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }, 0), 0);
   }, [criteria]);
 
-  const enterExpression = useCallback((returnFocusKey?: string) => {
+  const enterExpression = useCallback((returnFocusKey?: string, groupPath?: number[]) => {
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     simpleReturnFocusKeyRef.current = returnFocusKey ?? viewReturnFocusRef.current?.dataset.simpleReturnFocus ?? null;
     setEditFilter((current) => {
@@ -1349,7 +1375,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setRelatedWorkspaceSelection(null);
     setInlineStackReturnsToExpression(false);
     setDialogView("expression");
-    window.setTimeout(() => backButtonRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      const pathKey = groupPath?.join(".");
+      const groupControl = groupPath
+        ? dialogRef.current?.querySelector<HTMLElement>(`[data-expression-group-control="${pathKey}"]`)
+        : null;
+      (groupControl ?? backButtonRef.current)?.focus();
+    }, 0);
   }, [criteria]);
 
   const cancelExpressionCondition = useCallback(() => {
@@ -1494,7 +1526,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const addInlineCondition = (criterion: CriterionDefinition) => {
     setEditFilter((current) => {
       const base = mergeFilterExpressionWithSimpleCriteria(current, criteria) ?? { operator: "AND" as const, children: [] };
+      if (countFilterExpressionConditions(base) >= MAX_FILTER_EXPRESSION_CONDITIONS) return current;
       const group = getExpressionGroup(base, simpleExpressionGroupPath);
+      if (!group || group.operator === "NOT") return current;
       const index = group?.children.length ?? 0;
       pendingInlineConditionFocusRef.current = index;
       return {
@@ -1510,6 +1544,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   };
 
   const addConditionToComplexExpression = (criterion: CriterionDefinition) => {
+    if (expressionConditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS) return;
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     expressionReturnFocusKeyRef.current = "add-";
     setEditFilter((current) => {
@@ -1557,6 +1592,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   };
 
   const openNewExpressionCondition = (criterionId?: string, parentPath: number[] = []) => {
+    if (expression && getExpressionGroup(expression, parentPath)?.operator === "NOT") return;
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (dialogView === "simple") simpleReturnFocusKeyRef.current = criterionId ? `repeat-${criterionId}` : null;
     else expressionReturnFocusKeyRef.current = `add-${parentPath.join(".")}`;
@@ -1610,6 +1646,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     if (Object.keys(sanitized).length === 0) return;
     setEditFilter((current) => {
       const base = mergeFilterExpressionWithSimpleCriteria(current, criteria) ?? { operator: "AND" as const, children: [] };
+      if (conditionDraft.isNew && countFilterExpressionConditions(base) >= MAX_FILTER_EXPRESSION_CONDITIONS) return current;
+      if (conditionDraft.isNew && getExpressionGroup(base, conditionDraft.parentPath)?.operator === "NOT") return current;
       const next = conditionDraft.isNew
         ? replaceExpressionGroup(base, conditionDraft.parentPath, (group) => ({ ...group, children: [...group.children, { filter: sanitized }] }))
         : updateExpressionLeaf(base, conditionDraft.path ?? [], sanitized);
@@ -1625,6 +1663,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       if (!currentExpression) return current;
       const group = getExpressionGroup(currentExpression, parentPath);
       if (!group) return current;
+      if (group.operator === "NOT" && group.children.length === 1) {
+        const nextExpression = removeExpressionGroup(currentExpression, parentPath);
+        const next = { ...current };
+        if (nextExpression) next[FILTER_EXPRESSION_STATE_KEY] = nextExpression;
+        else delete next[FILTER_EXPRESSION_STATE_KEY];
+        return next;
+      }
       const children = group.children.filter((_, candidate) => candidate !== index);
       const next = { ...current };
       if (parentPath.length === 0 && children.length === 0) delete next[FILTER_EXPRESSION_STATE_KEY];
@@ -1713,8 +1758,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 }}
                 className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground"
                 aria-label={conditionDraft
-                  ? conditionDraft?.returnView === "simple" ? "Back to filters" : "Back to advanced filter"
-                  : inlineStackReturnsToExpression ? "Back to advanced filter"
+                  ? conditionDraft?.returnView === "simple" ? "Back to filters" : "Back to Combine Filters"
+                  : inlineStackReturnsToExpression ? "Back to Combine Filters"
                   : dialogView === "expression" ? "Back to simple filters" : "Back to filters"}
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -1735,7 +1780,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               </span>
             ) : null}
             <h2 id="filter-dialog-title" className="truncate text-lg font-semibold text-foreground">
-              {conditionDraft ? conditionTitle : dialogView === "expression" ? "Advanced filter" : relatedWorkspaceCriterion ? `Filters / ${relatedWorkspaceCriterion.label}` : "Filters"}
+              {conditionDraft ? conditionTitle : dialogView === "expression" ? "Combine Filters" : relatedWorkspaceCriterion ? `Filters / ${relatedWorkspaceCriterion.label}` : "Filters"}
             </h2>
             {dialogView === "simple" && !relatedWorkspaceCriterion && selectedItem ? <span className="truncate text-sm text-secondary md:hidden">{selectedItem.label}</span> : null}
             {dialogView === "simple" && displayedActiveCount > 0 && (
@@ -1764,61 +1809,21 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               </div>
             ))}
             {hasComplexExpression ? (
-              <div className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
-                {expression?.operator === "OR" && directlyEditableExpressionChildren.length > 0 ? (
-                  <div className="flex min-w-0 flex-wrap items-center gap-1 bg-accent/5 p-1" role="group" aria-label="OR filter group">
-                    <button
-                      type="button"
-                      onClick={() => enterExpression("advanced")}
-                      data-simple-return-focus="advanced"
-                      className="min-h-7 rounded bg-accent/15 px-2 text-xs font-semibold text-accent hover:bg-accent/25"
-                      aria-label="Edit OR group in advanced filters"
-                    >OR</button>
-                    {directlyEditableExpressionChildren.map((child, index) => child.filter ? (
-                      <div key={index} className="flex min-h-7 max-w-full items-stretch overflow-hidden rounded border border-border/80 bg-card text-xs">
-                        <button
-                          type="button"
-                          onClick={() => openSimpleExpressionCondition([index])}
-                          data-simple-return-focus={`expression-${index}`}
-                          className="min-w-0 px-2 text-left hover:bg-background/40"
-                          aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter, criteria)}`}
-                        >
-                          <span className="truncate">{summarizeExpressionCondition(child.filter, criteria)}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeSimpleExpressionCondition(index)}
-                          className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300"
-                          aria-label={`Remove filter: ${summarizeExpressionCondition(child.filter, criteria)}`}
-                        ><X className="h-3 w-3" /></button>
-                      </div>
-                    ) : null)}
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => enterExpression("advanced")} data-simple-return-focus="advanced" className="flex min-w-0 items-center gap-2 px-3 text-left hover:bg-background/40" aria-label="Edit advanced filter">
-                    <Layers3 className="h-4 w-4 shrink-0 text-accent" />
-                    <span className="truncate">Advanced filter · {expressionConditionCount} {expressionConditionCount === 1 ? "condition" : "conditions"}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditFilter((current) => {
-                      const next = { ...current };
-                      delete next[FILTER_EXPRESSION_STATE_KEY];
-                      return next;
-                    });
-                    window.setTimeout(() => {
-                      const firstActiveFilter = dialogRef.current?.querySelector<HTMLElement>("button[data-active-filter-key]");
-                      (firstActiveFilter ?? searchRef.current)?.focus();
-                    }, 0);
-                  }}
-                  className="flex w-9 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300"
-                  aria-label="Remove advanced filter"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+              <ActiveObjectFilterChips
+                criteriaDefinitions={criteria}
+                objectFilter={{ [FILTER_EXPRESSION_STATE_KEY]: expression }}
+                onEdit={(target) => {
+                  if (target.kind === "expression") openSimpleExpressionCondition(target.path);
+                  else if (target.kind === "root" && target.key === FILTER_EXPRESSION_STATE_KEY) {
+                    const path = target.path ?? [];
+                    enterExpression(`expression-group-${path.join(".") || "root"}`, path);
+                  } else handleEditChip(target);
+                }}
+                onRemove={handleRemoveChip}
+                expressionReturnFocusKeys
+                ariaLabel="Selected expression filters"
+                className="!m-0 !border-0 !bg-transparent !p-0"
+              />
             ) : null}
             {Object.keys(activeEditFilter).length > 0 ? <ActiveObjectFilterChips
               criteriaDefinitions={criteria}
@@ -1863,6 +1868,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             onChange={(value) => setEditFilter((current) => ({ ...expressionPassthroughFilter(current, criteria), [FILTER_EXPRESSION_STATE_KEY]: value }))}
             onAddCondition={openNewExpressionCondition}
             onEditCondition={openExpressionCondition}
+            subjectLabel={subjectLabel}
           />
         ) : relatedWorkspaceCriterion ? (
           <RelatedFilterWorkspace
@@ -2041,9 +2047,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                     ))}
                     <button
                       type="button"
+                      disabled={directlyEditingNotGroup || expressionConditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS}
                       onClick={() => addInlineCondition(selectedItem.criterion)}
                       data-inline-add-condition
-                      className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground"
+                      className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
                     >
                       <Plus className="h-4 w-4" /> Add another {selectedItem.criterion.label}
                     </button>
@@ -2071,11 +2078,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                     />
                     {!conditionDraft && supportsExpressions && selectedItem.active && selectedItem.criterion.expressionSupported !== false ? <button
                       type="button"
+                      disabled={expressionConditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS}
                       onClick={() => hasComplexExpression ? addConditionToComplexExpression(selectedItem.criterion) : addInlineCondition(selectedItem.criterion)}
                       data-simple-return-focus={`repeat-${selectedItem.criterion.id}`}
-                      className="mt-6 inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground"
+                      className="mt-6 inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
                     >
-                      <Plus className="h-4 w-4" /> Add another {selectedItem.criterion.label}{hasComplexExpression ? " in Advanced…" : ""}
+                      <Plus className="h-4 w-4" /> Add another {selectedItem.criterion.label}{hasComplexExpression ? " in Combine Filters…" : ""}
                     </button> : null}
                   </>
                 )}
@@ -2191,30 +2199,53 @@ function FilterExpressionEditor({
   onChange,
   onAddCondition,
   onEditCondition,
+  subjectLabel,
 }: {
   criteria: CriterionDefinition[];
   value: FilterExpression<Record<string, unknown>>;
   onChange: (value: FilterExpression<Record<string, unknown>>) => void;
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
   onEditCondition: (path: number[]) => void;
+  subjectLabel: string;
 }) {
+  const [explanationOpen, setExplanationOpen] = useState(false);
+  const conditionCount = countFilterExpressionConditions(value);
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-5">
       <div className="mx-auto max-w-4xl space-y-3">
-        <div>
-          <p className="text-sm text-secondary">Select sibling conditions to group them. Full filter controls open only when you edit a condition.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="max-w-2xl text-sm text-secondary">Select sibling conditions to put them in a group. Each group combines its direct conditions with one operator.</p>
+          <button
+            type="button"
+            aria-expanded={explanationOpen}
+            aria-controls="filter-expression-explanation"
+            onClick={() => setExplanationOpen((current) => !current)}
+            className="min-h-10 rounded-lg border border-border px-3 text-sm text-secondary hover:bg-card hover:text-foreground"
+          >Explain this search</button>
         </div>
-        <ExpressionGroupEditor group={value} groupPath={[]} criteria={criteria} root onChange={onChange} onAddCondition={onAddCondition} onEditCondition={onEditCondition} />
+        {explanationOpen ? (
+          <section id="filter-expression-explanation" aria-labelledby="filter-expression-explanation-title" className="rounded-xl border border-accent/30 bg-accent/5 p-4">
+            <h3 id="filter-expression-explanation-title" className="text-sm font-semibold text-foreground">What this search does</h3>
+            <FilterExpressionExplanation expression={value} criteria={criteria} subjectLabel={subjectLabel} />
+          </section>
+        ) : null}
+        <div data-expression-tree>
+          <ExpressionGroupEditor group={value} groupPath={[]} criteria={criteria} root conditionCount={conditionCount} onChange={onChange} onAddCondition={onAddCondition} onEditCondition={onEditCondition} />
+        </div>
       </div>
     </div>
   );
 }
+
+const MAX_FILTER_EXPRESSION_DEPTH = 8;
+const MAX_FILTER_EXPRESSION_CONDITIONS = 100;
 
 function ExpressionGroupEditor({
   group,
   groupPath,
   criteria,
   root = false,
+  conditionCount,
   onChange,
   onAddCondition,
   onEditCondition,
@@ -2223,13 +2254,25 @@ function ExpressionGroupEditor({
   groupPath: number[];
   criteria: CriterionDefinition[];
   root?: boolean;
+  conditionCount: number;
   onChange: (value: FilterExpression<Record<string, unknown>>) => void;
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
   onEditCondition: (path: number[]) => void;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
   const childFocusRefs = useRef(new Map<number, HTMLElement>());
   const addConditionRef = useRef<HTMLButtonElement>(null);
+  const groupMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const groupAndRef = useRef<HTMLButtonElement>(null);
+  const groupOrRef = useRef<HTMLButtonElement>(null);
+  const groupNotRef = useRef<HTMLButtonElement>(null);
+  const groupPathKey = groupPath.join(".");
+  const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
+  useEffect(() => {
+    setSelected(new Set());
+  }, [group]);
   const focusChildAfterChange = (index: number) => {
     window.setTimeout(() => window.setTimeout(() => {
       (childFocusRefs.current.get(index) ?? addConditionRef.current)?.focus();
@@ -2245,16 +2288,29 @@ function ExpressionGroupEditor({
     onChange({ ...group, children: group.children.filter((_, candidate) => candidate !== index) });
     focusChildAfterChange(Math.min(index, group.children.length - 2));
   };
+  const moveChild = (index: number, offset: -1 | 1) => {
+    const target = index + offset;
+    if (target < 0 || target >= group.children.length) return;
+    const children = group.children.slice();
+    [children[index], children[target]] = [children[target], children[index]];
+    setSelected((current) => new Set([...current].map((candidate) => candidate === index ? target : candidate === target ? index : candidate)));
+    onChange({ ...group, children });
+    focusChildAfterChange(target);
+  };
   const ungroupChild = (index: number) => {
     const child = group.children[index];
     if (!child?.group) return;
+    if (group.operator === "NOT" && child.group.children.length !== 1) {
+      setAnnouncement("A NOT group must contain exactly one item.");
+      return;
+    }
     setSelected(new Set());
     onChange({ ...group, children: [...group.children.slice(0, index), ...child.group.children, ...group.children.slice(index + 1)] });
     focusChildAfterChange(index);
   };
-  const groupSelected = (operator: "AND" | "OR") => {
+  const groupSelected = (operator: "AND" | "OR" | "NOT") => {
     const indexes = [...selected].sort((a, b) => a - b);
-    if (indexes.length < 2) return;
+    if (operator === "NOT" ? indexes.length !== 1 : indexes.length < 2) return;
     const selectedChildren = indexes.map((index) => group.children[index]);
     const first = indexes[0];
     const selectedSet = new Set(indexes);
@@ -2262,42 +2318,122 @@ function ExpressionGroupEditor({
       ? [{ group: { operator, children: selectedChildren } }]
       : selectedSet.has(index) ? [] : [child]);
     setSelected(new Set());
+    setGroupMenuOpen(false);
     onChange({ ...group, children });
     focusChildAfterChange(first);
   };
+  const openGroupMenu = () => {
+    if (selected.size < 1) {
+      setAnnouncement("Select at least one item in the same group.");
+      return;
+    }
+    if (!canCreateNestedGroup) {
+      setAnnouncement(`Groups may not be nested more than ${MAX_FILTER_EXPRESSION_DEPTH} levels.`);
+      return;
+    }
+    setGroupMenuOpen(true);
+    window.setTimeout(() => (selected.size === 1 ? groupNotRef.current : groupAndRef.current)?.focus(), 0);
+  };
+  const focusStructuralNode = (element: HTMLElement, direction: "previous" | "next") => {
+    const tree = element.closest<HTMLElement>("[data-expression-tree]");
+    const nodes = Array.from(tree?.querySelectorAll<HTMLElement>("[data-expression-node-focus]") ?? []);
+    const index = nodes.indexOf(element);
+    nodes[index + (direction === "next" ? 1 : -1)]?.focus();
+  };
+  const handleStructuralKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>, index: number, isGroup: boolean) => {
+    const path = [...groupPath, index];
+    const pathKey = path.join(".");
+    const tree = event.currentTarget.closest<HTMLElement>("[data-expression-tree]");
+    if (event.altKey && event.key === "ArrowUp") {
+      event.preventDefault();
+      moveChild(index, -1);
+      return;
+    }
+    if (event.altKey && event.key === "ArrowDown") {
+      event.preventDefault();
+      moveChild(index, 1);
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "g" && isGroup) {
+      event.preventDefault();
+      ungroupChild(index);
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "g") {
+      event.preventDefault();
+      openGroupMenu();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusStructuralNode(event.currentTarget, "previous");
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusStructuralNode(event.currentTarget, "next");
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      const parent = groupPathKey
+        ? tree?.querySelector<HTMLElement>(`[data-expression-node-path="${groupPathKey}"]`)
+        : tree?.querySelector<HTMLElement>("[data-expression-group-control='']");
+      parent?.focus();
+      return;
+    }
+    if (event.key === "ArrowRight" && isGroup) {
+      event.preventDefault();
+      tree?.querySelector<HTMLElement>(`[data-expression-node-parent="${pathKey}"]`)?.focus();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (isGroup) tree?.querySelector<HTMLElement>(`[data-expression-group-control="${pathKey}"]`)?.focus();
+      else onEditCondition(path);
+    }
+  };
 
   return (
-    <section className={`rounded-xl border ${root ? "border-accent/40 bg-accent/5" : "border-border bg-card/40"}`} aria-label={`${group.operator} group`}>
+    <section className={`rounded-xl border ${root ? "border-accent/40 bg-accent/5" : "border-border bg-card/40 shadow-sm"}`} aria-label={`${group.operator} group`}>
       <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-2">
-        <span className="text-sm font-medium text-secondary">Match</span>
+        <span className="text-sm font-medium text-secondary">Combine with</span>
         <select
           aria-label="Group operator"
+          data-expression-group-control={groupPathKey}
           value={group.operator}
-          onChange={(event) => onChange({ ...group, operator: event.target.value as "AND" | "OR" })}
+          onChange={(event) => onChange({ ...group, operator: event.target.value as "AND" | "OR" | "NOT" })}
           className="min-h-10 rounded-lg border border-border bg-input px-3 text-sm text-foreground"
         >
-          <option value="AND">all (AND)</option>
-          <option value="OR">any (OR)</option>
+          <option value="AND">All (AND)</option>
+          <option value="OR">Any (OR)</option>
+          <option value="NOT" disabled={group.children.length !== 1}>Not (NOT)</option>
         </select>
         <span className="text-xs text-muted">{countFilterExpressionConditions(group)} {countFilterExpressionConditions(group) === 1 ? "condition" : "conditions"}</span>
       </div>
-      <div className="space-y-2 p-2">
-        {group.children.map((child, index) => child.group ? (
-          <div key={index} className="space-y-1">
+      <div className="p-2">
+        {group.children.map((child, index) => (
+          <div key={index}>
+            {index > 0 ? <div className="flex h-8 items-center gap-2 px-3" aria-hidden="true"><span className="h-px flex-1 bg-border/70" /><span className="rounded bg-surface px-2 py-0.5 text-[11px] font-semibold tracking-wide text-accent">{group.operator}</span><span className="h-px flex-1 bg-border/70" /></div> : null}
+            {child.group ? (
+          <div className="space-y-1">
             <div className="flex items-center gap-2 px-1">
               <input ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }} type="checkbox" checked={selected.has(index)} onChange={(event) => setSelected((current) => {
                 const next = new Set(current);
                 if (event.target.checked) next.add(index); else next.delete(index);
                 return next;
-              })} aria-label={`Select group ${index + 1}`} className="h-4 w-4 accent-accent" />
-              <span className="text-xs font-medium uppercase tracking-wide text-muted">Nested group</span>
-              <button type="button" onClick={() => ungroupChild(index)} className="ml-auto min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground">Ungroup</button>
+              })} onKeyDown={(event) => handleStructuralKeyDown(event, index, true)} data-expression-node-focus data-expression-node-path={[...groupPath, index].join(".")} data-expression-node-parent={groupPathKey} aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Enter Alt+ArrowUp Alt+ArrowDown Control+G Meta+G Control+Shift+G Meta+Shift+G" aria-label={`Select group ${index + 1}`} className="h-4 w-4 accent-accent" />
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">Group</span>
+              <button type="button" onClick={() => moveChild(index, -1)} disabled={index === 0} className="ml-auto min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40" aria-label={`Move group ${index + 1} up`}>↑</button>
+              <button type="button" onClick={() => moveChild(index, 1)} disabled={index === group.children.length - 1} className="min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40" aria-label={`Move group ${index + 1} down`}>↓</button>
+              <button type="button" onClick={() => ungroupChild(index)} disabled={group.operator === "NOT" && child.group.children.length !== 1} className="min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Ungroup</button>
             </div>
-            <div className="ml-3 border-l border-border pl-2">
+            <div className="ml-2 border-l-2 border-accent/25 pl-2 md:ml-4 md:pl-3">
               <ExpressionGroupEditor
                 group={child.group}
                 groupPath={[...groupPath, index]}
                 criteria={criteria}
+                conditionCount={conditionCount}
                 onChange={(next) => updateChild(index, { group: next })}
                 onAddCondition={onAddCondition}
                 onEditCondition={onEditCondition}
@@ -2305,30 +2441,60 @@ function ExpressionGroupEditor({
             </div>
           </div>
         ) : (
-          <div key={index} className="flex min-h-11 items-stretch overflow-hidden rounded-lg border border-border bg-surface">
+          <div className="flex min-h-11 items-stretch overflow-hidden rounded-lg border border-border bg-surface">
             <label className="flex w-10 shrink-0 items-center justify-center border-r border-border" title={`Select condition ${index + 1}`}>
               <input ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }} type="checkbox" checked={selected.has(index)} onChange={(event) => setSelected((current) => {
                 const next = new Set(current);
                 if (event.target.checked) next.add(index); else next.delete(index);
                 return next;
-              })} aria-label={`Select condition ${index + 1}`} className="h-4 w-4 accent-accent" />
+              })} onKeyDown={(event) => handleStructuralKeyDown(event, index, false)} data-expression-node-focus data-expression-node-path={[...groupPath, index].join(".")} data-expression-node-parent={groupPathKey} aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft Enter Alt+ArrowUp Alt+ArrowDown Control+G Meta+G" aria-label={`Select condition ${index + 1}`} className="h-4 w-4 accent-accent" />
             </label>
             <button type="button" onClick={() => onEditCondition([...groupPath, index])} data-expression-return-focus={`edit-${[...groupPath, index].join(".")}`} className="min-w-0 flex-1 px-3 py-2 text-left text-sm text-foreground hover:bg-card" aria-label={`Edit condition ${index + 1}: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
               {summarizeExpressionCondition(child.filter ?? {}, criteria)}
             </button>
-            <button type="button" onClick={() => removeChild(index)} className="w-10 shrink-0 border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" aria-label={`Remove condition ${index + 1}`}><X className="mx-auto h-4 w-4" /></button>
+            <button type="button" onClick={() => moveChild(index, -1)} disabled={index === 0} className="w-9 shrink-0 border-l border-border text-muted hover:bg-card hover:text-foreground disabled:opacity-30" aria-label={`Move condition ${index + 1} up`}>↑</button>
+            <button type="button" onClick={() => moveChild(index, 1)} disabled={index === group.children.length - 1} className="w-9 shrink-0 border-l border-border text-muted hover:bg-card hover:text-foreground disabled:opacity-30" aria-label={`Move condition ${index + 1} down`}>↓</button>
+            <button type="button" onClick={() => removeChild(index)} disabled={group.operator === "NOT" && group.children.length === 1} className="w-10 shrink-0 border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40" aria-label={`Remove condition ${index + 1}`}><X className="mx-auto h-4 w-4" /></button>
+          </div>
+        )}
           </div>
         ))}
         {group.children.length === 0 ? <p className="px-3 py-5 text-center text-sm text-muted">No conditions in this group.</p> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-border/70 px-3 py-2">
-        <button ref={addConditionRef} type="button" onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-secondary hover:bg-card hover:text-foreground"><Plus className="h-4 w-4" /> Add condition</button>
-        {selected.size >= 2 ? (
-          <>
-            <button type="button" onClick={() => groupSelected("AND")} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground">Group selected as AND</button>
-            <button type="button" onClick={() => groupSelected("OR")} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground">Group selected as OR</button>
-          </>
+        <button ref={addConditionRef} type="button" disabled={group.operator === "NOT" || conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /> Add condition</button>
+        {selected.size >= 1 ? (
+          <div className="relative">
+            <button ref={groupMenuButtonRef} type="button" disabled={!canCreateNestedGroup} aria-expanded={groupMenuOpen} aria-describedby={!canCreateNestedGroup ? `group-depth-limit-${groupPathKey || "root"}` : undefined} onClick={openGroupMenu} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Group selected…</button>
+            {groupMenuOpen ? (
+              <div role="menu" aria-label="Group selected conditions" onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.stopPropagation();
+                  setGroupMenuOpen(false);
+                  groupMenuButtonRef.current?.focus();
+                } else if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  (document.activeElement === groupAndRef.current ? groupOrRef.current : groupAndRef.current)?.focus();
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  (document.activeElement === groupOrRef.current ? groupAndRef.current : groupOrRef.current)?.focus();
+                }
+              }} className="absolute bottom-full left-0 z-10 mb-1 min-w-48 rounded-lg border border-border bg-surface p-1 shadow-xl">
+                {selected.size === 1 ? (
+                  <button ref={groupNotRef} role="menuitem" type="button" onClick={() => groupSelected("NOT")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Not (NOT)</button>
+                ) : (
+                  <>
+                    <button ref={groupAndRef} role="menuitem" type="button" onClick={() => groupSelected("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">All (AND)</button>
+                    <button ref={groupOrRef} role="menuitem" type="button" onClick={() => groupSelected("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Any (OR)</button>
+                  </>
+                )}
+              </div>
+            ) : null}
+            {!canCreateNestedGroup ? <span id={`group-depth-limit-${groupPathKey || "root"}`} className="ml-2 text-xs text-muted">Maximum nesting depth reached.</span> : null}
+          </div>
         ) : null}
+        {conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS ? <span className="text-xs text-muted">Maximum of {MAX_FILTER_EXPRESSION_CONDITIONS} conditions reached.</span> : null}
+        <span className="sr-only" role="status">{announcement}</span>
       </div>
     </section>
   );
@@ -2356,7 +2522,125 @@ function summarizeExpressionCondition(filter: Record<string, unknown>, criteria:
   if (query) details.unshift(`Search: ${query}`);
   if (related._savedFilterName) details.unshift(`Saved filter: ${related._savedFilterName}`);
   if (related._matchAll) details.unshift("Any related item");
-  return `${selected.label}${details.length > 0 ? ` — ${details.join(" · ")}` : ""}`;
+  const singular = selected.entityType === "performers" ? "performer" : selected.entityType === "videos" ? "video" : "related item";
+  const mode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
+  const relationship = mode === "every" ? `Every ${singular}` : mode === "none" ? `No ${singular}` : `At least one ${singular}`;
+  const separator = related.conditionOperator === "or" ? " OR " : " AND ";
+  return `${relationship}${details.length > 0 ? ` — ${details.join(separator)}` : ""}`;
+}
+
+interface FilterExplanationNode {
+  text: string;
+  children?: FilterExplanationNode[];
+}
+
+function naturalList(values: string[], conjunction = "and") {
+  if (values.length <= 1) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} ${conjunction} ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, ${conjunction} ${values.at(-1)}`;
+}
+
+function explainCriterionValue(criterion: CriterionDefinition, value: unknown, ratingOptions: RatingSystemOptions, metadataServers: MetadataServer[]): string {
+  if (!value || typeof value !== "object") return `${criterion.label} is ${String(value ?? "not set")}`;
+  if (criterion.type === "remoteId") {
+    const remote = value as StringCriterion & { endpoint?: string };
+    return `${criterion.label}: ${formatRemoteIdFilterChipValue(remote, { value: remote.endpoint, modifier: remote.modifier }, metadataServers)}`;
+  }
+  if (["multiId", "rating", "duration", "careerLength", "resolution", "enum", "hash", "tagDuration"].includes(criterion.type)) {
+    return `${criterion.label}: ${formatFilterChipValue(criterion, value, undefined, ratingOptions)}`;
+  }
+  const clause = value as { value?: unknown; value2?: unknown; modifier?: string; _names?: Record<string, string>; _selectedValues?: string[] };
+  const displayScalar = (candidate: unknown) => {
+    if (typeof candidate === "boolean") return candidate ? "yes" : "no";
+    if (typeof candidate === "number") return clause._names?.[String(candidate)] ?? String(candidate);
+    return String(candidate ?? "");
+  };
+  const rawValues = Array.isArray(clause.value)
+    ? clause.value.map(displayScalar)
+    : clause._selectedValues?.length ? clause._selectedValues : [displayScalar(clause.value)];
+  const values = rawValues.filter(Boolean);
+  const first = values[0] ?? formatFilterChipValue(criterion, value);
+  const second = displayScalar(clause.value2);
+  switch (clause.modifier) {
+    case "EQUALS": return `${criterion.label} is ${first}`;
+    case "NOT_EQUALS": return `${criterion.label} is not ${first}`;
+    case "GREATER_THAN": return `${criterion.label} is greater than ${first}`;
+    case "LESS_THAN": return `${criterion.label} is less than ${first}`;
+    case "BETWEEN": return `${criterion.label} is between ${first} and ${second}`;
+    case "NOT_BETWEEN": return `${criterion.label} is not between ${first} and ${second}`;
+    case "INCLUDES": return `${criterion.label} includes ${naturalList(values, "or")}`;
+    case "INCLUDES_ALL": return `${criterion.label} includes all of ${naturalList(values)}`;
+    case "EXCLUDES": return `${criterion.label} excludes ${naturalList(values, "or")}`;
+    case "EXCLUDES_ALL": return `${criterion.label} does not include all of ${naturalList(values)}`;
+    case "MATCHES_REGEX": return `${criterion.label} matches the pattern ${first}`;
+    case "NOT_MATCHES_REGEX": return `${criterion.label} does not match the pattern ${first}`;
+    case "IS_NULL": return `${criterion.label} is not set`;
+    case "NOT_NULL": return `${criterion.label} is set`;
+    case "UNDER_PATH": return `${criterion.label} is under ${first}`;
+    case "NOT_UNDER_PATH": return `${criterion.label} is not under ${first}`;
+    default: return `${criterion.label} is ${formatFilterChipValue(criterion, value)}`;
+  }
+}
+
+function explainExpressionLeaf(filter: Record<string, unknown>, criteria: CriterionDefinition[], ratingOptions: RatingSystemOptions, metadataServers: MetadataServer[]): FilterExplanationNode {
+  const selected = getExpressionConditionCriterion(filter, criteria);
+  if (!selected) return { text: "Unknown filter condition" };
+  const value = getCriterionFilterValue(filter, selected);
+  if (selected.type !== "related") return { text: explainCriterionValue(selected, value, ratingOptions, metadataServers) };
+
+  const related = value && typeof value === "object" ? value as RelatedFilterCriterion : {};
+  const objectFilter = related.objectFilter && typeof related.objectFilter === "object" ? related.objectFilter as Record<string, unknown> : {};
+  const contextCriteria = selected.relatedContextCriteria ?? [];
+  const nestedCriteria = [...contextCriteria, ...(selected.relatedCriteria?.() ?? getRelatedCriteria(selected.entityType!))];
+  const children = nestedCriteria.flatMap((criterion): FilterExplanationNode[] => {
+    const nestedValue = contextCriteria.some((candidate) => candidate.id === criterion.id)
+      ? (related as Record<string, unknown>)[criterion.filterKey]
+      : getCriterionFilterValue(objectFilter, criterion);
+    return isCriterionValueValid(nestedValue, criterion) ? [{ text: explainCriterionValue(criterion, nestedValue, ratingOptions, metadataServers) }] : [];
+  });
+  const query = related.findFilter?.q?.trim();
+  if (query) children.unshift({ text: `Text search contains “${query}”` });
+  const singular = selected.entityType === "performers" ? "performer" : selected.entityType === "videos" ? "video" : "related item";
+  const mode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
+  if (children.length === 0) {
+    if (mode === "none") return { text: `No ${singular} matches` };
+    return { text: `There is at least one ${singular}` };
+  }
+  const quantifier = mode === "every" ? `Every ${singular}` : mode === "none" ? `No ${singular}` : `At least one ${singular}`;
+  const join = related.conditionOperator === "or" ? "any" : "all";
+  const savedFilter = related._savedFilterName?.trim() ? ` from saved filter “${related._savedFilterName.trim()}”` : "";
+  return { text: `${quantifier} matches ${join} of the following${savedFilter}`, children };
+}
+
+function explainExpressionGroup(expression: FilterExpression<Record<string, unknown>>, criteria: CriterionDefinition[], ratingOptions: RatingSystemOptions, metadataServers: MetadataServer[]): FilterExplanationNode {
+  return {
+    text: expression.operator === "OR" ? "Any of the following" : expression.operator === "NOT" ? "Not the following" : "All of the following",
+    children: expression.children.map((child) => child.group
+      ? explainExpressionGroup(child.group, criteria, ratingOptions, metadataServers)
+      : explainExpressionLeaf(child.filter ?? {}, criteria, ratingOptions, metadataServers)),
+  };
+}
+
+function ExplanationNode({ node }: { node: FilterExplanationNode }) {
+  return (
+    <li className="space-y-1">
+      <span>{node.text}</span>
+      {node.children?.length ? <ul className="ml-4 list-disc space-y-1 border-l border-border pl-4 text-secondary">{node.children.map((child, index) => <ExplanationNode key={index} node={child} />)}</ul> : null}
+    </li>
+  );
+}
+
+function FilterExpressionExplanation({ expression, criteria, subjectLabel }: { expression: FilterExpression<Record<string, unknown>>; criteria: CriterionDefinition[]; subjectLabel: string }) {
+  const ratingOptions = useRatingOptions();
+  const appConfig = useOptionalAppConfig();
+  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
+  const explanation = explainExpressionGroup(expression, criteria, ratingOptions, metadataServers);
+  return (
+    <div className="mt-2 text-sm text-secondary">
+      <p>Find {subjectLabel} where:</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5"><ExplanationNode node={explanation} /></ul>
+    </div>
+  );
 }
 
 // ===== Related-entity Editor =====
@@ -2398,10 +2682,12 @@ function RelatedFilterWorkspace({
   const workspaceRef = useRef<HTMLDivElement>(null);
   const criteriaSearchRef = useRef<HTMLInputElement>(null);
   const savedFilterSelectRef = useRef<HTMLSelectElement>(null);
-  const positiveRelationshipRef = useRef<HTMLButtonElement>(null);
+  const relationshipModeRef = useRef<HTMLSelectElement>(null);
   const matchAnyRef = useRef<HTMLButtonElement>(null);
   const initialSelectionRef = useRef(selection);
   const related = value ?? {};
+  const relationshipMode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
+  const conditionOperator = related.conditionOperator === "or" ? "or" : "and";
   const objectFilter = related.objectFilter && typeof related.objectFilter === "object"
     ? related.objectFilter as Record<string, unknown>
     : {};
@@ -2421,7 +2707,7 @@ function RelatedFilterWorkspace({
     const initialSelection = initialSelectionRef.current;
     if (initialSelection?.facet === "criterion" || initialSelection?.facet === "search") return;
     const timeout = window.setTimeout(() => {
-      if (initialSelection?.facet === "mode") positiveRelationshipRef.current?.focus();
+      if (initialSelection?.facet === "mode") relationshipModeRef.current?.focus();
       else if (initialSelection?.facet === "existence") matchAnyRef.current?.focus();
       else savedFilterSelectRef.current?.focus();
     }, 0);
@@ -2478,6 +2764,8 @@ function RelatedFilterWorkspace({
     onChange({
       ...(q ? { findFilter: { q } } : {}),
       ...(hasObjectFilter ? { objectFilter: savedObjectFilter } : {}),
+      ...(related.mode ? { mode: related.mode } : {}),
+      ...(related.conditionOperator ? { conditionOperator: related.conditionOperator } : {}),
       ...(related.exclude ? { exclude: true } : {}),
       _savedFilterName: savedFilter.name,
       ...(!q && !hasObjectFilter ? { _matchAll: true } : {}),
@@ -2487,7 +2775,12 @@ function RelatedFilterWorkspace({
 
   const toggleMatchAll = () => {
     if (related._matchAll) update({ _matchAll: undefined });
-    else onChange({ ...(related.exclude ? { exclude: true } : {}), _matchAll: true });
+    else onChange({
+      ...(related.mode ? { mode: related.mode } : {}),
+      ...(related.conditionOperator ? { conditionOperator: related.conditionOperator } : {}),
+      ...(related.exclude ? { exclude: true } : {}),
+      _matchAll: true,
+    });
   };
 
   const filteredCriteria = useMemo(() => {
@@ -2499,6 +2792,8 @@ function RelatedFilterWorkspace({
   }, [criteriaSearch, nestedCriteria]);
   const activeCriteria = filteredCriteria.filter((candidate) => isCriterionValueValid(getNestedValue(candidate), candidate));
   const inactiveCriteria = filteredCriteria.filter((candidate) => !activeCriteria.includes(candidate));
+  const activeConditionCount = nestedCriteria.filter((candidate) => isCriterionValueValid(getNestedValue(candidate), candidate)).length
+    + (related.findFilter?.q?.trim() ? 1 : 0);
   const showTextSearch = !criteriaSearch.trim() || "text search".includes(criteriaSearch.trim().toLowerCase());
 
   const renderCriterionRow = (nestedCriterion: CriterionDefinition) => {
@@ -2525,26 +2820,34 @@ function RelatedFilterWorkspace({
       <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">Relationship</h3>
-          <p className="text-xs text-muted">All conditions below must match the same related {singular}.</p>
+          <p className="text-xs text-muted">{conditionOperator === "or" ? "At least one condition below" : "All conditions below"} must match the same related {singular}.</p>
         </div>
-        <div role="group" aria-label="Related item match" className="grid shrink-0 gap-2 sm:grid-cols-2">
-          <button
-            ref={positiveRelationshipRef}
-            type="button"
-            aria-pressed={!related.exclude}
-            onClick={() => update({ exclude: undefined })}
-            className={`min-h-10 rounded-lg border px-3 py-2 text-sm ${!related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <select
+            ref={relationshipModeRef}
+            aria-label="Relationship match mode"
+            value={relationshipMode}
+            onChange={(event) => {
+              const mode = event.target.value as RelatedFilterCriterion["mode"];
+              update({ mode: mode === "atLeastOne" ? undefined : mode, exclude: undefined });
+            }}
+            className="min-h-11 shrink-0 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
           >
-            At least one matching {singular}
-          </button>
-          <button
-            type="button"
-            aria-pressed={related.exclude === true}
-            onClick={() => update({ exclude: true })}
-            className={`min-h-10 rounded-lg border px-3 py-2 text-sm ${related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
-          >
-            No matching {singular}
-          </button>
+            <option value="atLeastOne">At least one matching {singular}</option>
+            <option value="every">Every {singular} matches</option>
+            <option value="none">No {singular} matches</option>
+          </select>
+          {activeConditionCount >= 2 || conditionOperator === "or" ? (
+            <select
+              aria-label="Related condition operator"
+              value={conditionOperator}
+              onChange={(event) => update({ conditionOperator: event.target.value === "or" ? "or" : undefined }, true)}
+              className="min-h-11 shrink-0 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+            >
+              <option value="and">Match all conditions</option>
+              <option value="or">Match any condition</option>
+            </select>
+          ) : null}
         </div>
       </div>
 
@@ -2695,12 +2998,14 @@ function RelatedFilterWorkspace({
               <div className="max-w-sm">
                 <EntityIcon className="mx-auto mb-3 h-8 w-8 text-muted" />
                 <h4 className="text-lg font-semibold text-foreground">
-                  {related.exclude ? `Find ${resultPlural} without matching ${plural}` : `Find ${resultPlural} by ${singular}`}
+                  {relationshipMode === "every" ? `Find ${resultPlural} where every ${singular} matches` : relationshipMode === "none" ? `Find ${resultPlural} where no ${singular} matches` : `Find ${resultPlural} by ${singular}`}
                 </h4>
                 <p className="mt-1 text-sm text-secondary">
-                  {related.exclude
-                    ? `Show ${resultPlural} where no ${singular} matches a saved filter, the filters you add here, or both. A ${singular} counts as a match only when all filters match that same ${singular}.`
-                    : `Show ${resultPlural} with a ${singular} ${relativePronoun} matches a saved filter, the filters you add here, or both. All filters must match the same ${singular}.`}
+                  {relationshipMode === "every"
+                    ? `Show ${resultPlural} with at least one ${singular}, where every related ${singular} matches all filters.`
+                    : relationshipMode === "none"
+                      ? `Show ${resultPlural} with at least one ${singular}, where no related ${singular} matches all filters.`
+                      : `Show ${resultPlural} with a ${singular} ${relativePronoun} matches a saved filter, the filters you add here, or both. All filters must match the same ${singular}.`}
                 </p>
                 {value ? (
                   <button type="button" onClick={() => onChange(undefined)} className="mt-5 text-sm text-muted hover:text-foreground">Clear related filter</button>
