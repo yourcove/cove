@@ -2,6 +2,8 @@ using System.Linq.Expressions;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
+using Cove.Core.Helpers;
 using Cove.Data;
 using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +37,7 @@ public sealed class GlobalSearchController(
         public string? FallbackTitle { get; init; }
         public string? Subtitle { get; init; }
         public DateOnly? Date { get; init; }
+        public DatePrecision DatePrecision { get; init; }
         public string? Alias { get; init; }
     }
 
@@ -64,6 +67,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = video.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = video.Studio != null ? video.Studio.Name : null,
                 Date = video.Date,
+                DatePrecision = video.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Performer>(
@@ -114,6 +118,7 @@ public sealed class GlobalSearchController(
                     ?? (gallery.Folder != null ? gallery.Folder.Path : null),
                 Subtitle = gallery.Studio != null ? gallery.Studio.Name : null,
                 Date = gallery.Date,
+                DatePrecision = gallery.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Image>(
@@ -127,6 +132,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = image.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = image.Studio != null ? image.Studio.Name : null,
                 Date = image.Date,
+                DatePrecision = image.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Group>(
@@ -139,6 +145,7 @@ public sealed class GlobalSearchController(
                 Title = group.Name,
                 Subtitle = group.Studio != null ? group.Studio.Name : null,
                 Date = group.Date,
+                DatePrecision = group.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<Audio>(
@@ -152,6 +159,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = audio.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = audio.Studio != null ? audio.Studio.Name : null,
                 Date = audio.Date,
+                DatePrecision = audio.DatePrecision,
             }, groups, failedTypes, ct);
 
         await AddGroupAsync<TextDocument>(
@@ -165,6 +173,7 @@ public sealed class GlobalSearchController(
                 FallbackTitle = text.Files.OrderBy(file => file.Id).Select(file => file.Basename).FirstOrDefault(),
                 Subtitle = text.Studio != null ? text.Studio.Name : null,
                 Date = text.Date,
+                DatePrecision = text.DatePrecision,
             }, groups, failedTypes, ct);
 
         return Ok(new GlobalSearchResponseDto(groups, failedTypes));
@@ -203,7 +212,7 @@ public sealed class GlobalSearchController(
                 FirstNonEmpty(row.Title, LeafName(row.FallbackTitle)) ?? $"{TitleFor(type)} {row.Id}",
                 !string.IsNullOrWhiteSpace(row.Alias)
                     ? $"Aliases: {row.Alias}"
-                    : FirstNonEmpty(row.Subtitle, row.Date?.ToString("yyyy-MM-dd")))).ToList();
+                    : FirstNonEmpty(row.Subtitle, PartialDate.Format(row.Date, row.DatePrecision)))).ToList();
             groups.Add(new GlobalSearchGroupDto(type, items));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

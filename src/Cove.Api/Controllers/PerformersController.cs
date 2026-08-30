@@ -8,6 +8,7 @@ using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
+using Cove.Core.Helpers;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
@@ -210,15 +211,20 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     [RequiresPermission(Permissions.PerformersWrite)]
     public async Task<ActionResult<PerformerDto>> Create([FromBody] PerformerCreateDto dto, CancellationToken ct)
     {
+        var birthdate = PartialDate.Parse(dto.Birthdate);
+        var deathDate = PartialDate.Parse(dto.DeathDate);
+        var careerStart = PartialDate.Parse(dto.CareerStart);
+        var careerEnd = PartialDate.Parse(dto.CareerEnd);
         var performer = new Performer
         {
             Name = dto.Name, Disambiguation = dto.Disambiguation,
-            Gender = ParseEnum<GenderEnum>(dto.Gender), Birthdate = ParseDate(dto.Birthdate),
-            DeathDate = ParseDate(dto.DeathDate), Ethnicity = dto.Ethnicity, Country = dto.Country,
+            Gender = ParseEnum<GenderEnum>(dto.Gender), Birthdate = birthdate.Value, BirthdatePrecision = birthdate.Precision,
+            DeathDate = deathDate.Value, DeathDatePrecision = deathDate.Precision, Ethnicity = dto.Ethnicity, Country = dto.Country,
             EyeColor = dto.EyeColor, HairColor = dto.HairColor, HeightCm = dto.HeightCm,
             Weight = dto.Weight, Measurements = dto.Measurements, FakeTits = dto.FakeTits,
             PenisLength = dto.PenisLength, Circumcised = ParseEnum<CircumcisedEnum>(dto.Circumcised),
-            CareerStart = ParseDate(dto.CareerStart), CareerEnd = ParseDate(dto.CareerEnd),
+            CareerStart = careerStart.Value, CareerStartPrecision = careerStart.Precision,
+            CareerEnd = careerEnd.Value, CareerEndPrecision = careerEnd.Precision,
             Tattoos = dto.Tattoos, Piercings = dto.Piercings,
             Favorite = dto.Favorite, Details = dto.Details
         };
@@ -254,8 +260,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.Name != null) p.Name = dto.Name;
         if (dto.Disambiguation != null) p.Disambiguation = dto.Disambiguation;
         if (dto.Gender != null) p.Gender = ParseEnum<GenderEnum>(dto.Gender);
-        if (dto.Birthdate != null) p.Birthdate = ParseDate(dto.Birthdate);
-        if (dto.DeathDate != null) p.DeathDate = ParseDate(dto.DeathDate);
+        if (dto.Birthdate != null) { var date = PartialDate.Parse(dto.Birthdate); p.Birthdate = date.Value; p.BirthdatePrecision = date.Precision; }
+        if (dto.DeathDate != null) { var date = PartialDate.Parse(dto.DeathDate); p.DeathDate = date.Value; p.DeathDatePrecision = date.Precision; }
         if (dto.Ethnicity != null) p.Ethnicity = dto.Ethnicity;
         if (dto.Country != null) p.Country = dto.Country;
         if (dto.EyeColor != null) p.EyeColor = dto.EyeColor;
@@ -266,8 +272,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         if (dto.FakeTits != null) p.FakeTits = dto.FakeTits;
         if (dto.PenisLength.HasValue) p.PenisLength = dto.PenisLength;
         if (dto.Circumcised != null) p.Circumcised = ParseEnum<CircumcisedEnum>(dto.Circumcised);
-        if (dto.CareerStart != null) p.CareerStart = ParseDate(dto.CareerStart);
-        if (dto.CareerEnd != null) p.CareerEnd = ParseDate(dto.CareerEnd);
+        if (dto.CareerStart != null) { var date = PartialDate.Parse(dto.CareerStart); p.CareerStart = date.Value; p.CareerStartPrecision = date.Precision; }
+        if (dto.CareerEnd != null) { var date = PartialDate.Parse(dto.CareerEnd); p.CareerEnd = date.Value; p.CareerEndPrecision = date.Precision; }
         if (dto.Tattoos != null) p.Tattoos = dto.Tattoos;
         if (dto.Piercings != null) p.Piercings = dto.Piercings;
         if (dto.Favorite.HasValue) p.Favorite = dto.Favorite.Value;
@@ -614,7 +620,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         group.Id,
         group.Name,
         group.Aliases,
-        group.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(group.Date, group.DatePrecision),
         group.StudioId,
         group.Studio?.Name,
         group.Director,
@@ -646,10 +652,10 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
 
     private PerformerDto MapToDto(Performer p, PerformerUsageCounts? usageCounts = null, Dictionary<string, object>? customFieldValues = null, List<FieldProvenanceDto>? fieldProvenance = null, int faceCount = 0) => new(
         p.Id, p.Name, p.Disambiguation, p.Gender?.ToString(),
-        p.Birthdate?.ToString("yyyy-MM-dd"), p.DeathDate?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(p.Birthdate, p.BirthdatePrecision), PartialDate.Format(p.DeathDate, p.DeathDatePrecision),
         p.Ethnicity, p.Country, p.EyeColor, p.HairColor, p.HeightCm, p.Weight,
         p.Measurements, p.FakeTits, p.PenisLength, p.Circumcised?.ToString(),
-        p.CareerStart?.ToString("yyyy-MM-dd"), p.CareerEnd?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(p.CareerStart, p.CareerStartPrecision), PartialDate.Format(p.CareerEnd, p.CareerEndPrecision),
         p.Tattoos, p.Piercings, p.Favorite, p.Details,
         p.Urls.Select(u => u.Url).ToList(),
         p.Aliases.Select(a => a.Alias).ToList(),
@@ -767,7 +773,6 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
                 likeCounts.GetValueOrDefault(id)));
     }
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
     private static T? ParseEnum<T>(string? value) where T : struct, Enum => Enum.TryParse<T>(value, true, out var e) ? e : null;
 
     private async Task<List<int>> ResolveSelectedPerformerIdsAsync(MetadataServerPerformerBatchTagRequestDto dto, CancellationToken ct)

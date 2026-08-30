@@ -11,6 +11,7 @@ using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
+using Cove.Core.Helpers;
 
 namespace Cove.Api.Controllers;
 
@@ -83,10 +84,11 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     [RequiresEntityAccess(EntityKinds.Tag, Permissions.TagsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "TagIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GroupDto>> Create([FromBody] GroupCreateDto dto, CancellationToken ct)
     {
+        var date = PartialDate.Parse(dto.Date);
         var group = new Group
         {
             Name = dto.Name, Aliases = dto.Aliases,
-            Date = ParseDate(dto.Date), StudioId = dto.StudioId,
+            Date = date.Value, DatePrecision = date.Precision, StudioId = dto.StudioId,
             Director = dto.Director, Synopsis = dto.Description,
             Kind = dto.Kind ?? GroupKind.Static,
             QuerySourceKey = dto.Kind == GroupKind.Dynamic ? NormalizeOptionalText(dto.QuerySourceKey) : null,
@@ -120,7 +122,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
 
         if (dto.Name != null) group.Name = dto.Name;
         if (dto.Aliases != null) group.Aliases = dto.Aliases;
-        if (dto.Date != null) group.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); group.Date = date.Value; group.DatePrecision = date.Precision; }
         if (dto.StudioId.HasValue) group.StudioId = dto.StudioId;
         if (dto.Director != null) group.Director = dto.Director;
         if (dto.Description != null) group.Synopsis = dto.Description;
@@ -219,7 +221,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             if (clearFields.Contains("director")) g.Director = null;
             if (clearFields.Contains("description") || clearFields.Contains("synopsis")) g.Synopsis = null;
             if (dto.StudioId.HasValue) g.StudioId = dto.StudioId;
-            if (dto.Date != null) g.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); g.Date = date.Value; g.DatePrecision = date.Precision; }
             if (dto.Director != null) g.Director = dto.Director;
             if (dto.Description != null) g.Synopsis = dto.Description;
 
@@ -471,7 +473,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
         var itemCount = g.Kind == GroupKind.Dynamic ? dynamicCounts?.ItemCount ?? g.CachedItemCount ?? counts.ItemCount : g.GroupItems.Count;
 
         return new GroupDto(
-            g.Id, g.Name, g.Aliases, g.Date?.ToString("yyyy-MM-dd"),
+            g.Id, g.Name, g.Aliases, PartialDate.Format(g.Date, g.DatePrecision),
             g.StudioId, g.Studio?.Name, g.Director, g.Synopsis,
             g.Urls.Select(u => u.Url).ToList(),
             g.GroupTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!)).ToList(),
@@ -696,7 +698,6 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
     private static Dictionary<string, object>? GetCustomFields(IReadOnlyDictionary<int, Dictionary<string, object>> lookup, int id)
         => lookup.TryGetValue(id, out var values) && values.Count > 0 ? values : null;
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -136,9 +136,10 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     [RequiresEntityAccess(EntityKinds.Video, Permissions.VideosRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "VideoIds", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<GalleryDto>> Create([FromBody] GalleryCreateDto dto, CancellationToken ct)
     {
+        var date = PartialDate.Parse(dto.Date);
         var gallery = new Gallery
         {
-            Title = dto.Title, Code = dto.Code, Date = ParseDate(dto.Date),
+            Title = dto.Title, Code = dto.Code, Date = date.Value, DatePrecision = date.Precision,
             Details = dto.Details, Photographer = dto.Photographer,
             Organized = dto.Organized, StudioId = dto.StudioId
         };
@@ -177,7 +178,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
 
         if (dto.Title != null) gallery.Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title;
         if (dto.Code != null) gallery.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
-        if (dto.Date != null) gallery.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); gallery.Date = date.Value; gallery.DatePrecision = date.Precision; }
         if (dto.Details != null) gallery.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
         if (dto.Photographer != null) gallery.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
         if (dto.Organized.HasValue) gallery.Organized = dto.Organized.Value;
@@ -311,11 +312,11 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     }
 
     private GalleryDto MapToDto(Gallery g, Dictionary<string, object>? customFieldValues = null, int? imageCount = null, int? videoCount = null, IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null, string? displayName = null, int? visibleCoverImageId = null) => new(
-        g.Id, g.Title, g.Code, g.Date?.ToString("yyyy-MM-dd"), g.Details, g.Photographer,
+        g.Id, g.Title, g.Code, PartialDate.Format(g.Date, g.DatePrecision), g.Details, g.Photographer,
         g.Organized, g.StudioId, g.Studio?.Name,
         g.Urls.Select(u => u.Url).ToList(),
         g.GalleryTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!, GetTagProvenance(provenanceLookup, gt.Tag!.Id))).ToList(),
-        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => gp.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
+        g.GalleryPerformers.Where(gp => gp.Performer != null).Select(gp => gp.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
         imageCount ?? g.ImageCount,
         videoCount ?? g.VideoCount,
         g.VideoGalleries?.Select(sg => sg.VideoId).ToList() ?? [],
@@ -476,7 +477,6 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
     private static List<TagProvenanceDto> GetTagProvenance(IReadOnlyDictionary<int, List<TagProvenanceDto>>? provenanceLookup, int tagId)
         => provenanceLookup != null && provenanceLookup.TryGetValue(tagId, out var provenance) ? provenance : [];
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 
     // ===== Image Management =====
 
@@ -609,7 +609,7 @@ public class GalleriesController(IGalleryRepository galleryRepo, Data.CoveContex
             if (clearFields.Contains("photographer")) gallery.Photographer = null;
             if (dto.Organized.HasValue) gallery.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) gallery.StudioId = dto.StudioId;
-            if (dto.Date != null) gallery.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); gallery.Date = date.Value; gallery.DatePrecision = date.Precision; }
             if (dto.Code != null) gallery.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
             if (dto.Details != null) gallery.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
             if (dto.Photographer != null) gallery.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;

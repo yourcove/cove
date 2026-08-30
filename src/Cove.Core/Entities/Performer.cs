@@ -10,7 +10,9 @@ public class Performer : BaseEntity
     public string IdentityKey { get; set; } = string.Empty;
     public GenderEnum? Gender { get; set; }
     public DateOnly? Birthdate { get; set; }
+    public DatePrecision BirthdatePrecision { get; set; }
     public DateOnly? DeathDate { get; set; }
+    public DatePrecision DeathDatePrecision { get; set; }
     public string? Ethnicity { get; set; }
     public string? Country { get; set; }
     public string? EyeColor { get; set; }
@@ -22,7 +24,9 @@ public class Performer : BaseEntity
     public double? PenisLength { get; set; }
     public CircumcisedEnum? Circumcised { get; set; }
     public DateOnly? CareerStart { get; set; }
+    public DatePrecision CareerStartPrecision { get; set; }
     public DateOnly? CareerEnd { get; set; }
+    public DatePrecision CareerEndPrecision { get; set; }
     public string? Tattoos { get; set; }
     public string? Piercings { get; set; }
     public bool Favorite { get; set; }

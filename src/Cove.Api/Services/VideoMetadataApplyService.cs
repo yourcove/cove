@@ -1,5 +1,6 @@
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -60,6 +61,7 @@ public class VideoMetadataApplyService(CoveContext db, IEventBus eventBus, IVide
         if (ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             video.Date = parsedDate;
+            video.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = parsedDate.ToString("yyyy-MM-dd");
         }
 

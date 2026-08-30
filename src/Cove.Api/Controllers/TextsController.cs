@@ -312,6 +312,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     {
         var tagIds = dto.TagIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
         var performerIds = dto.PerformerIds?.Where(performerId => performerId > 0).Distinct().ToArray() ?? [];
+        var date = PartialDate.Parse(dto.Date);
         var text = new TextDocument
         {
             Title = NormalizeOptionalText(dto.Title),
@@ -319,7 +320,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             Details = NormalizeOptionalText(dto.Details),
             Organized = dto.Organized,
             StudioId = dto.StudioId,
-            Date = ParseDate(dto.Date),
+            Date = date.Value,
+            DatePrecision = date.Precision,
             TagIds = tagIds,
             PerformerIds = performerIds,
             Urls = dto.Urls?.Select(NormalizeOptionalText).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => new TextUrl { Url = url! }).ToList() ?? [],
@@ -413,7 +415,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         if (dto.Details != null) text.Details = NormalizeOptionalText(dto.Details);
         if (dto.Organized.HasValue) text.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) text.StudioId = dto.StudioId;
-        if (dto.Date != null) text.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); text.Date = date.Value; text.DatePrecision = date.Precision; }
         if (clearFields.Contains("studioId")) text.StudioId = null;
 
         if (dto.Urls != null)
@@ -492,7 +494,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             if (clearFields.Contains("details")) text.Details = null;
             if (dto.Organized.HasValue) text.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) text.StudioId = dto.StudioId;
-            if (dto.Date != null) text.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); text.Date = date.Value; text.DatePrecision = date.Precision; }
             if (dto.Code != null) text.Code = NormalizeOptionalText(dto.Code);
             if (dto.Details != null) text.Details = NormalizeOptionalText(dto.Details);
 
@@ -871,7 +873,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         text.Organized,
         text.StudioId,
         text.Studio?.Name,
-        text.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(text.Date, text.DatePrecision),
         text.Urls.Select(url => url.Url).ToList(),
         GetEffectiveTags(text, effectiveTagsByTextId),
         text.TextPerformers.Where(link => link.Performer != null).Select(link => link.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(
@@ -879,7 +881,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performer.Name,
             performer.Disambiguation,
             performer.Gender?.ToString(),
-            performer.Birthdate?.ToString("yyyy-MM-dd"),
+            PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision),
             performer.Favorite,
             EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
             performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0,
@@ -979,9 +981,6 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         }));
         return true;
     }
-
-    private static DateOnly? ParseDate(string? value)
-        => DateOnly.TryParse(value, out var parsed) ? parsed : null;
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
