@@ -319,6 +319,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     {
         var tagIds = dto.TagIds?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
         var performerIds = dto.PerformerIds?.Where(performerId => performerId > 0).Distinct().ToArray() ?? [];
+        var date = PartialDate.Parse(dto.Date);
         var audio = new Audio
         {
             Title = NormalizeOptionalText(dto.Title),
@@ -326,7 +327,8 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             Details = NormalizeOptionalText(dto.Details),
             Organized = dto.Organized,
             StudioId = dto.StudioId,
-            Date = ParseDate(dto.Date),
+            Date = date.Value,
+            DatePrecision = date.Precision,
             TagIds = tagIds,
             PerformerIds = performerIds,
             Urls = dto.Urls?.Select(NormalizeOptionalText).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => new AudioUrl { Url = url! }).ToList() ?? [],
@@ -398,7 +400,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         if (dto.Details != null) audio.Details = NormalizeOptionalText(dto.Details);
         if (dto.Organized.HasValue) audio.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) audio.StudioId = dto.StudioId;
-        if (dto.Date != null) audio.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); audio.Date = date.Value; audio.DatePrecision = date.Precision; }
         if (clearFields.Contains("studioId")) audio.StudioId = null;
 
         if (dto.Urls != null)
@@ -478,7 +480,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             if (clearFields.Contains("details")) audio.Details = null;
             if (dto.Organized.HasValue) audio.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) audio.StudioId = dto.StudioId;
-            if (dto.Date != null) audio.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); audio.Date = date.Value; audio.DatePrecision = date.Precision; }
             if (dto.Code != null) audio.Code = NormalizeOptionalText(dto.Code);
             if (dto.Details != null) audio.Details = NormalizeOptionalText(dto.Details);
 
@@ -895,7 +897,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         audio.Organized,
         audio.StudioId,
         audio.Studio?.Name,
-        audio.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(audio.Date, audio.DatePrecision),
         audio.Urls.Select(url => url.Url).ToList(),
         GetEffectiveTags(audio, effectiveTagsByAudioId),
         audio.AudioPerformers.Where(link => link.Performer != null).Select(link => link.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(
@@ -903,7 +905,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             performer.Name,
             performer.Disambiguation,
             performer.Gender?.ToString(),
-            performer.Birthdate?.ToString("yyyy-MM-dd"),
+            PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision),
             performer.Favorite,
             EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
             performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0,
@@ -1099,9 +1101,6 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         }));
         return true;
     }
-
-    private static DateOnly? ParseDate(string? value)
-        => DateOnly.TryParse(value, out var parsed) ? parsed : null;
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

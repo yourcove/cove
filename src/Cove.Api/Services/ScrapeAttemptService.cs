@@ -2,8 +2,10 @@ using System.Text.Json;
 using System.Text;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
+using Cove.Core.Helpers;
 using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
@@ -242,7 +244,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         {
             var date = GetString(root, "Date", "ReleaseDate");
             if (ScrapedVideoDateParser.TryParse(date, out var parsedDate))
+            {
                 video.Date = parsedDate;
+                video.DatePrecision = DatePrecision.Day;
+            }
         }
 
         if (replaceFields.Contains("image"))
@@ -312,7 +317,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             code = video.Code,
             details = video.Details,
             director = video.Director,
-            date = video.Date?.ToString("yyyy-MM-dd"),
+            date = PartialDate.Format(video.Date, video.DatePrecision),
             urls = video.Urls.Select(item => item.Url).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
             studio = video.Studio?.Name,
             tags = video.VideoTags.Where(item => item.Tag != null).Select(item => item.Tag!.Name).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -341,7 +346,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             title = audio.Title,
             code = audio.Code,
             details = audio.Details,
-            date = audio.Date?.ToString("yyyy-MM-dd"),
+            date = PartialDate.Format(audio.Date, audio.DatePrecision),
             urls = audio.Urls.Select(item => item.Url).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
             studio = audio.Studio?.Name,
             tags = audio.AudioTags.Where(item => item.Tag != null).Select(item => item.Tag!.Name).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -370,7 +375,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             title = textDocument.Title,
             code = textDocument.Code,
             details = textDocument.Details,
-            date = textDocument.Date?.ToString("yyyy-MM-dd"),
+            date = PartialDate.Format(textDocument.Date, textDocument.DatePrecision),
             urls = textDocument.Urls.Select(item => item.Url).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
             studio = textDocument.Studio?.Name,
             tags = textDocument.TextTags.Where(item => item.Tag != null).Select(item => item.Tag!.Name).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -400,7 +405,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             code = image.Code,
             details = image.Details,
             photographer = image.Photographer,
-            date = image.Date?.ToString("yyyy-MM-dd"),
+            date = PartialDate.Format(image.Date, image.DatePrecision),
             urls = image.Urls.Select(item => item.Url).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
             studio = image.Studio?.Name,
             tags = image.ImageTags.Where(item => item.Tag != null).Select(item => item.Tag!.Name).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -430,7 +435,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             code = gallery.Code,
             details = gallery.Details,
             photographer = gallery.Photographer,
-            date = gallery.Date?.ToString("yyyy-MM-dd"),
+            date = PartialDate.Format(gallery.Date, gallery.DatePrecision),
             urls = gallery.Urls.Select(item => item.Url).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
             studio = gallery.Studio?.Name,
             tags = gallery.GalleryTags.Where(item => item.Tag != null).Select(item => item.Tag!.Name).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -458,7 +463,7 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
             name = group.Name,
             aliases = SplitTextValues(group.Aliases),
             duration = group.Duration,
-            date = group.Date?.ToString("yyyy-MM-dd"),
+            date = PartialDate.Format(group.Date, group.DatePrecision),
             director = group.Director,
             details = group.Synopsis,
             urls = group.Urls.Select(item => item.Url).OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -520,7 +525,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         {
             var date = GetString(root, "Date", "ReleaseDate");
             if (ScrapedVideoDateParser.TryParse(date, out var parsedDate))
+            {
                 audio.Date = parsedDate;
+                audio.DatePrecision = DatePrecision.Day;
+            }
         }
 
         var sourceKey = BuildScraperSourceKey(attempt.ScraperId);
@@ -597,7 +605,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         {
             var date = GetString(root, "Date", "ReleaseDate");
             if (ScrapedVideoDateParser.TryParse(date, out var parsedDate))
+            {
                 textDocument.Date = parsedDate;
+                textDocument.DatePrecision = DatePrecision.Day;
+            }
         }
 
         var sourceKey = BuildScraperSourceKey(attempt.ScraperId);
@@ -681,7 +692,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         {
             var date = GetString(root, "Date", "ReleaseDate");
             if (ScrapedVideoDateParser.TryParse(date, out var parsedDate))
+            {
                 image.Date = parsedDate;
+                image.DatePrecision = DatePrecision.Day;
+            }
         }
 
         var sourceKey = BuildScraperSourceKey(attempt.ScraperId);
@@ -765,7 +779,10 @@ public class ScrapeAttemptService(CoveContext db, ScraperService scraperService,
         {
             var date = GetString(root, "Date", "ReleaseDate");
             if (ScrapedVideoDateParser.TryParse(date, out var parsedDate))
+            {
                 gallery.Date = parsedDate;
+                gallery.DatePrecision = DatePrecision.Day;
+            }
         }
 
         var sourceKey = BuildScraperSourceKey(attempt.ScraperId);

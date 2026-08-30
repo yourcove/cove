@@ -92,6 +92,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
     [RequiresEntityAccess(EntityKinds.Group, Permissions.GroupsRead, RouteValueName = null, ActionArgumentName = "dto", PropertyName = "GroupIds.GroupId", DeniedBehavior = EntityAccessDeniedBehavior.Forbidden)]
     public async Task<ActionResult<ImageDto>> Create([FromBody] ImageCreateDto dto, CancellationToken ct)
     {
+        var date = PartialDate.Parse(dto.Date);
         var image = new Image
         {
             Title = dto.Title,
@@ -100,7 +101,8 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             Photographer = dto.Photographer,
             Organized = dto.Organized,
             StudioId = dto.StudioId,
-            Date = ParseDate(dto.Date)
+            Date = date.Value,
+            DatePrecision = date.Precision
         };
 
         if (dto.Urls?.Count > 0)
@@ -149,7 +151,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         if (dto.Photographer != null) image.Photographer = string.IsNullOrWhiteSpace(dto.Photographer) ? null : dto.Photographer;
         if (dto.Organized.HasValue) image.Organized = dto.Organized.Value;
         if (dto.StudioId.HasValue) image.StudioId = dto.StudioId;
-        if (dto.Date != null) image.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); image.Date = date.Value; image.DatePrecision = date.Precision; }
         if (clearFields.Contains("date")) image.Date = null;
         if (clearFields.Contains("studioId")) image.StudioId = null;
 
@@ -260,13 +262,13 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         i.Id, i.Title, i.Code, i.Details, i.Photographer,
         i.Organized,
         i.StudioId, i.Studio?.Name,
-        i.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(i.Date, i.DatePrecision),
         i.Urls.Select(u => u.Url).ToList(),
         i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!, GetTagProvenance(provenanceLookup, it.Tag!.Id))).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
         galleryCount ?? i.GalleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
-        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],
+        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, PartialDate.Format(ig.Gallery.Date, ig.Gallery.DatePrecision))).ToList() ?? [],
         groups ?? [],
         i.Files?.Select(f => new ImageFileDto(
             f.Id,
@@ -298,13 +300,13 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         i.Id, i.Title, i.Code, i.Details, i.Photographer,
         i.Organized,
         i.StudioId, i.Studio?.Name,
-        i.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(i.Date, i.DatePrecision),
         i.Urls.Select(u => u.Url).ToList(),
         i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!)).ToList(),
-        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), performer.Birthdate?.ToString("yyyy-MM-dd"), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
+        i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
         galleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
-        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, ig.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList() ?? [],
+        i.ImageGalleries?.Where(ig => ig.Gallery != null).Select(ig => new GallerySummaryDto(ig.GalleryId, ig.Gallery!.Title, PartialDate.Format(ig.Gallery.Date, ig.Gallery.DatePrecision))).ToList() ?? [],
         groups ?? [],
         i.Files?.Select(f => new ImageFileDto(
             f.Id,
@@ -450,7 +452,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             if (clearFields.Contains("photographer")) image.Photographer = null;
             if (dto.Organized.HasValue) image.Organized = dto.Organized.Value;
             if (dto.StudioId.HasValue) image.StudioId = dto.StudioId;
-            if (dto.Date != null) image.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); image.Date = date.Value; image.DatePrecision = date.Precision; }
             if (dto.Code != null) image.Code = dto.Code;
             if (dto.Details != null) image.Details = dto.Details;
             if (dto.Photographer != null) image.Photographer = dto.Photographer;
@@ -523,7 +525,6 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return Ok(new BulkUpdateResult(images.Select(image => image.Id).ToList()));
     }
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 
     private async Task<List<GroupSummaryDto>> GetGroupsAsync(int imageId, CancellationToken ct)
         => await db.GroupItems.AsNoTracking()

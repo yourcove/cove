@@ -11,6 +11,29 @@ public sealed class PerformerUpdateApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
+    [Theory]
+    [InlineData("1986", "1986")]
+    [InlineData("1986-02", "1986-02")]
+    public async Task GivenPartialBirthdate_WhenPerformerIsUpdated_ThenPrecisionIsPreserved(string birthdate, string expected)
+    {
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build(), TestContext.Current.CancellationToken);
+
+        var updated = await AsUser().UpdatePerformerAsync(performer.Id, new { birthdate }, TestContext.Current.CancellationToken);
+
+        updated.Birthdate.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task GivenInvalidBirthdate_WhenPerformerIsUpdated_ThenBadRequestIsReturned()
+    {
+        var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build(), TestContext.Current.CancellationToken);
+
+        var action = () => AsUser().UpdatePerformerAsync(performer.Id, new { birthdate = "1986-13" });
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 400 (BadRequest)*");
+    }
+
     [Fact]
     [CoversEndpoint("PUT", "/api/performers/{id:int}")]
     public async Task GivenPerformer_WhenPartiallyUpdated_ThenSuppliedMetadataChangesAndOtherMetadataIsPreserved()

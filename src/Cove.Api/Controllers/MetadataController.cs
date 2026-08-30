@@ -515,7 +515,9 @@ public class MetadataController(
     {
         target.Gender = source.Gender;
         target.Birthdate = source.Birthdate;
+        target.BirthdatePrecision = source.BirthdatePrecision;
         target.DeathDate = source.DeathDate;
+        target.DeathDatePrecision = source.DeathDatePrecision;
         target.Ethnicity = source.Ethnicity;
         target.Country = source.Country;
         target.EyeColor = source.EyeColor;
@@ -527,7 +529,9 @@ public class MetadataController(
         target.PenisLength = source.PenisLength;
         target.Circumcised = source.Circumcised;
         target.CareerStart = source.CareerStart;
+        target.CareerStartPrecision = source.CareerStartPrecision;
         target.CareerEnd = source.CareerEnd;
+        target.CareerEndPrecision = source.CareerEndPrecision;
         target.Tattoos = source.Tattoos;
         target.Piercings = source.Piercings;
         target.Details = source.Details;

@@ -12,6 +12,39 @@ public sealed class PerformerCreationApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
+    [Theory]
+    [InlineData("1986", "1986")]
+    [InlineData("1986-02", "1986-02")]
+    [InlineData("1986-02-14", "1986-02-14")]
+    public async Task GivenPartialBirthdate_WhenPerformerIsCreated_ThenPrecisionIsPreserved(string birthdate, string expected)
+    {
+        var request = new PerformerBuilder()
+            .WithBirthdate(birthdate)
+            .Build();
+
+        var performer = await AsUser().CreatePerformerAsync(request, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser().GetPerformerByIdAsync(performer.Id, TestContext.Current.CancellationToken);
+
+        performer.Birthdate.Should().Be(expected);
+        retrieved.Birthdate.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("1986-13")]
+    [InlineData("1986-02-30")]
+    [InlineData("not-a-date")]
+    public async Task GivenInvalidBirthdate_WhenPerformerIsCreated_ThenBadRequestIsReturned(string birthdate)
+    {
+        var request = new PerformerBuilder()
+            .WithBirthdate(birthdate)
+            .Build();
+
+        var action = () => AsUser().CreatePerformerAsync(request);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*returned 400 (BadRequest)*");
+    }
+
     [Fact]
     public async Task GivenPerformer_WhenPerformerWithDuplicateNameIsCreated_ThenConflictIsReturned()
     {

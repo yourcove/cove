@@ -2,6 +2,7 @@ using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Enums;
 using Cove.Core.Interfaces;
+using Cove.Core.Helpers;
 using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.EntityFrameworkCore;
@@ -111,8 +112,9 @@ public class PerformerScrapeService(
 
         if (ShouldApplyField("birthdate", "birthDate") && !string.IsNullOrWhiteSpace(scraped.Birthdate) && TryParseDate(scraped.Birthdate, out var birthdate))
         {
-            performer.Birthdate = birthdate;
-            fieldProvenance["birthdate"] = birthdate.ToString("yyyy-MM-dd");
+            performer.Birthdate = birthdate.Value;
+            performer.BirthdatePrecision = birthdate.Precision;
+            fieldProvenance["birthdate"] = birthdate.ToString();
         }
 
         if (ShouldApplyField("country") && !string.IsNullOrWhiteSpace(scraped.Country))
@@ -662,14 +664,20 @@ public class PerformerScrapeService(
         return trimmedUrl;
     }
 
-    private static bool TryParseDate(string value, out DateOnly parsed)
+    private static bool TryParseDate(string value, out PartialDate parsed)
     {
-        if (DateOnly.TryParseExact(value, ["yyyy-MM-dd", "yyyyMMdd", "MM/dd/yyyy"], out parsed))
+        if (PartialDate.TryParse(value, out parsed) && parsed.Value.HasValue)
             return true;
+
+        if (DateOnly.TryParseExact(value, ["yyyyMMdd", "MM/dd/yyyy"], out var exactDate))
+        {
+            parsed = new PartialDate(exactDate, DatePrecision.Day);
+            return true;
+        }
 
         if (DateTime.TryParse(value, out var dateTime))
         {
-            parsed = DateOnly.FromDateTime(dateTime);
+            parsed = new PartialDate(DateOnly.FromDateTime(dateTime), DatePrecision.Day);
             return true;
         }
 

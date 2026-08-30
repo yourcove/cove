@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Cove.Core.Enums;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Core.Helpers;
 
 namespace Cove.Core.DTOs;
 
@@ -46,7 +47,7 @@ public record VideoRemoteIdDto(string Endpoint, string RemoteId);
 public record VideoGroupInputDto(int GroupId, int VideoIndex = 0);
 public record VideoCreateDto(
     string? Title, string? Code, string? Details, string? Director,
-    string? Date, int? Rating, bool Organized, int? StudioId,
+    [param: PartialDate] string? Date, int? Rating, bool Organized, int? StudioId,
     string? Captions,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<VideoGroupInputDto>? Groups, List<VideoRemoteIdDto>? RemoteIds = null, Dictionary<string, object>? CustomFields = null,
@@ -54,7 +55,7 @@ public record VideoCreateDto(
 
 public record VideoUpdateDto(
     string? Title, string? Code, string? Details, string? Director,
-    string? Date, int? Rating, bool? Organized, int? StudioId,
+    [param: PartialDate] string? Date, int? Rating, bool? Organized, int? StudioId,
     string? Captions,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<VideoGroupInputDto>? Groups, List<VideoRemoteIdDto>? RemoteIds, Dictionary<string, object>? CustomFields,
@@ -64,10 +65,10 @@ public record VideoUpdateDto(
 // ===== PERFORMER DTOs =====
 public record PerformerDto(
     int Id, string Name, string? Disambiguation, string? Gender,
-    string? Birthdate, string? DeathDate, string? Ethnicity, string? Country,
+    [param: PartialDate] string? Birthdate, [param: PartialDate] string? DeathDate, string? Ethnicity, string? Country,
     string? EyeColor, string? HairColor, int? HeightCm, int? Weight,
     string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
-    string? CareerStart, string? CareerEnd, string? Tattoos, string? Piercings,
+    [param: PartialDate] string? CareerStart, [param: PartialDate] string? CareerEnd, string? Tattoos, string? Piercings,
     bool Favorite, string? Details,
     List<string> Urls, List<string> Aliases, List<TagDto> Tags,
     List<PerformerRemoteIdDto> RemoteIds,
@@ -83,19 +84,19 @@ public record GallerySummaryDto(int Id, string? Title, string? Date);
 
 public record PerformerCreateDto(
     string Name, string? Disambiguation, string? Gender,
-    string? Birthdate, string? DeathDate, string? Ethnicity, string? Country,
+    [param: PartialDate] string? Birthdate, [param: PartialDate] string? DeathDate, string? Ethnicity, string? Country,
     string? EyeColor, string? HairColor, int? HeightCm, int? Weight,
     string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
-    string? CareerStart, string? CareerEnd, string? Tattoos, string? Piercings,
+    [param: PartialDate] string? CareerStart, [param: PartialDate] string? CareerEnd, string? Tattoos, string? Piercings,
     bool Favorite, int? Rating, string? Details,
     List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<PerformerRemoteIdDto>? RemoteIds = null, Dictionary<string, object>? CustomFields = null);
 
 public record PerformerUpdateDto(
     string? Name, string? Disambiguation, string? Gender,
-    string? Birthdate, string? DeathDate, string? Ethnicity, string? Country,
+    [param: PartialDate] string? Birthdate, [param: PartialDate] string? DeathDate, string? Ethnicity, string? Country,
     string? EyeColor, string? HairColor, int? HeightCm, int? Weight,
     string? Measurements, string? FakeTits, double? PenisLength, string? Circumcised,
-    string? CareerStart, string? CareerEnd, string? Tattoos, string? Piercings,
+    [param: PartialDate] string? CareerStart, [param: PartialDate] string? CareerEnd, string? Tattoos, string? Piercings,
     bool? Favorite, int? Rating, string? Details,
     List<string>? Urls, List<string>? Aliases, List<int>? TagIds, List<PerformerRemoteIdDto>? RemoteIds,
     Dictionary<string, object>? CustomFields, List<string>? ClearFields = null);
@@ -323,10 +324,10 @@ public record GalleryDto(int Id, string? Title, string? Code, string? Date, stri
 
 public record GalleryFileInfoDto(int Id, string Path, long Size, string ModTime, List<FingerprintDto> Fingerprints);
 
-public record GalleryCreateDto(string? Title, string? Code, string? Date, string? Details, string? Photographer,
+public record GalleryCreateDto(string? Title, string? Code, [param: PartialDate] string? Date, string? Details, string? Photographer,
     int? Rating, bool Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? VideoIds, Dictionary<string, object>? CustomFields = null);
 
-public record GalleryUpdateDto(string? Title, string? Code, string? Date, string? Details, string? Photographer,
+public record GalleryUpdateDto(string? Title, string? Code, [param: PartialDate] string? Date, string? Details, string? Photographer,
     int? Rating, bool? Organized, int? StudioId, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
     List<int>? VideoIds, Dictionary<string, object>? CustomFields, List<string>? ClearFields = null);
 
@@ -341,11 +342,11 @@ public record ImageDto(int Id, string? Title, string? Code, string? Details, str
 public record ImageFileDto(int Id, string Path, string Basename, string Format, int Width, int Height, long Size);
 
 public record ImageCreateDto(string? Title, string? Code, string? Details, string? Photographer,
-    int? Rating, bool Organized, int? StudioId, string? Date,
+    int? Rating, bool Organized, int? StudioId, [param: PartialDate] string? Date,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds, List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields = null);
 
 public record ImageUpdateDto(string? Title, string? Code, string? Details, string? Photographer,
-    int? Rating, bool? Organized, int? StudioId, string? Date,
+    int? Rating, bool? Organized, int? StudioId, [param: PartialDate] string? Date,
     List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds, List<int>? GalleryIds,
     List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields, List<string>? ClearFields = null);
 
@@ -369,12 +370,12 @@ public record AudioTrackDto(int Id, int OrderIndex, string? Title, double StartS
 
 public record AudioCreateDto(
     string? Title, string? Code, string? Details, bool Organized, int? StudioId,
-    string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
+    [param: PartialDate] string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
     List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields = null);
 
 public record AudioUpdateDto(
     string? Title, string? Code, string? Details, bool? Organized, int? StudioId,
-    string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
+    [param: PartialDate] string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
     List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields,
     List<string>? ClearFields = null);
 
@@ -397,12 +398,12 @@ public record TextContentDto(string Format, string RenderMode, string Content);
 
 public record TextDocumentCreateDto(
     string? Title, string? Code, string? Details, bool Organized, int? StudioId,
-    string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
+    [param: PartialDate] string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
     List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields = null);
 
 public record TextDocumentUpdateDto(
     string? Title, string? Code, string? Details, bool? Organized, int? StudioId,
-    string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
+    [param: PartialDate] string? Date, List<string>? Urls, List<int>? TagIds, List<int>? PerformerIds,
     List<VideoGroupInputDto>? GroupIds, Dictionary<string, object>? CustomFields,
     List<string>? ClearFields = null);
 
@@ -516,7 +517,7 @@ public record GroupPlaybackManifestItemDto(
 
 public record GroupPlaybackManifestDto(List<GroupPlaybackManifestItemDto> Items);
 
-public record GroupCreateDto(string Name, string? Aliases, string? Date,
+public record GroupCreateDto(string Name, string? Aliases, [param: PartialDate] string? Date,
     int? Rating, int? StudioId, string? Director, string? Description,
     List<string>? Urls, List<int>? TagIds, Dictionary<string, object>? CustomFields = null,
     GroupKind? Kind = null,
@@ -526,7 +527,7 @@ public record GroupCreateDto(string Name, string? Aliases, string? Date,
     List<string>? AllowedHostTypes = null,
     int? SortOrder = null);
 
-public record GroupUpdateDto(string? Name, string? Aliases, string? Date,
+public record GroupUpdateDto(string? Name, string? Aliases, [param: PartialDate] string? Date,
     int? Rating, int? StudioId, string? Director, string? Description,
     List<string>? Urls, List<int>? TagIds, Dictionary<string, object>? CustomFields,
     GroupKind? Kind = null,
@@ -2023,6 +2024,7 @@ public record BulkVideoUpdateDto
     public bool? Organized { get; init; }
     public bool? IsVr { get; init; }
     public int? StudioId { get; init; }
+    [PartialDate]
     public string? Date { get; init; }
     public string? Code { get; init; }
     public string? Director { get; init; }
@@ -2054,6 +2056,7 @@ public record BulkImageUpdateDto
     public int? Rating { get; init; }
     public bool? Organized { get; init; }
     public int? StudioId { get; init; }
+    [PartialDate]
     public string? Date { get; init; }
     public string? Code { get; init; }
     public string? Details { get; init; }
@@ -2073,6 +2076,7 @@ public record BulkGalleryUpdateDto
     public int? Rating { get; init; }
     public bool? Organized { get; init; }
     public int? StudioId { get; init; }
+    [PartialDate]
     public string? Date { get; init; }
     public string? Code { get; init; }
     public string? Details { get; init; }
@@ -2089,6 +2093,7 @@ public record BulkAudioUpdateDto
     public List<string>? ClearFields { get; init; }
     public bool? Organized { get; init; }
     public int? StudioId { get; init; }
+    [PartialDate]
     public string? Date { get; init; }
     public string? Code { get; init; }
     public string? Details { get; init; }
@@ -2104,6 +2109,7 @@ public record BulkTextDocumentUpdateDto
     public List<string>? ClearFields { get; init; }
     public bool? Organized { get; init; }
     public int? StudioId { get; init; }
+    [PartialDate]
     public string? Date { get; init; }
     public string? Code { get; init; }
     public string? Details { get; init; }
@@ -2149,6 +2155,7 @@ public record BulkGroupUpdateDto
     public List<string>? ClearFields { get; init; }
     public int? Rating { get; init; }
     public int? StudioId { get; init; }
+    [PartialDate]
     public string? Date { get; init; }
     public string? Director { get; init; }
     public string? Description { get; init; }

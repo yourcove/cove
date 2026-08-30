@@ -11,6 +11,7 @@ using Cove.Core.Auth;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Helpers;
 using Cove.Core.Interfaces;
@@ -292,11 +293,13 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             dto = dto with { ClipStartSec = parentResolution.ClipStartSec, ClipEndSec = parentResolution.ClipEndSec };
         }
 
-        var parsedDate = ParseDate(dto.Date);
+        var parsedDate = PartialDate.Parse(dto.Date);
         var video = new Video
         {
             Title = dto.Title, Code = dto.Code, Details = dto.Details, Director = dto.Director,
-            Date = parsedDate ?? parentVideo?.Date, Organized = dto.Organized, IsVr = dto.IsVr, StudioId = dto.StudioId ?? parentVideo?.StudioId,
+            Date = parsedDate.Value ?? parentVideo?.Date,
+            DatePrecision = parsedDate.Value.HasValue ? parsedDate.Precision : parentVideo?.DatePrecision ?? DatePrecision.Day,
+            Organized = dto.Organized, IsVr = dto.IsVr, StudioId = dto.StudioId ?? parentVideo?.StudioId,
             Captions = dto.Captions,
             ParentVideoId = parentVideo?.Id, ClipStartSec = dto.ClipStartSec, ClipEndSec = dto.ClipEndSec,
         };
@@ -371,7 +374,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         if (dto.Code != null) video.Code = string.IsNullOrWhiteSpace(dto.Code) ? null : dto.Code;
         if (dto.Details != null) video.Details = string.IsNullOrWhiteSpace(dto.Details) ? null : dto.Details;
         if (dto.Director != null) video.Director = string.IsNullOrWhiteSpace(dto.Director) ? null : dto.Director;
-        if (dto.Date != null) video.Date = ParseDate(dto.Date);
+        if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); video.Date = date.Value; video.DatePrecision = date.Precision; }
         if (dto.Organized.HasValue) video.Organized = dto.Organized.Value;
         if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
         if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
@@ -755,7 +758,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     private GroupDto MapCompilationGroupToDto(Group group) => new(
-        group.Id, group.Name, group.Aliases, group.Date?.ToString("yyyy-MM-dd"),
+        group.Id, group.Name, group.Aliases, PartialDate.Format(group.Date, group.DatePrecision),
         group.StudioId, group.Studio?.Name, group.Director, group.Synopsis,
         group.Urls.Select(url => url.Url).ToList(),
         group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).ToList(),
@@ -793,7 +796,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     private VideoDto MapToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null, List<TagApplicationDto>? contextTagApplications = null, List<FieldProvenanceDto>? fieldProvenance = null, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts = null) => new(
         s.Id, s.Title, s.Code, s.Details, s.Director,
-        s.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(s.Date, s.DatePrecision),
         s.Organized, s.IsVr, s.StudioId, s.Studio?.Name,
         s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
@@ -815,7 +818,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             f.Fingerprints.Select(fp => new FingerprintDto(fp.Type, fp.Value)).ToList(),
             f.Captions.Select(c => new CaptionDto(c.Id, c.LanguageCode, c.CaptionType, c.Filename)).ToList())).ToList(),
         MapWholeVideoGroups(s),
-        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, sg.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList(),
+        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, PartialDate.Format(sg.Gallery.Date, sg.Gallery.DatePrecision))).ToList(),
         s.RemoteIds.Select(remoteId => new VideoRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         customFieldValues,
         s.CreatedAt.ToString("o"), s.UpdatedAt.ToString("o"),
@@ -831,7 +834,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
 
     private VideoDto MapListToDto(Video s, Dictionary<string, object>? customFieldValues = null, UserEngagementSnapshot? engagement = null, bool preferUserSnapshot = false, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId = null) => new(
         s.Id, s.Title, s.Code, s.Details, s.Director,
-        s.Date?.ToString("yyyy-MM-dd"),
+        PartialDate.Format(s.Date, s.DatePrecision),
         s.Organized, s.IsVr, s.StudioId, s.Studio?.Name,
         s.Captions,
         s.Urls.Select(u => u.Url).ToList(),
@@ -853,7 +856,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             [],
             [])).ToList(),
         MapWholeVideoGroups(s),
-        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, sg.Gallery.Date?.ToString("yyyy-MM-dd"))).ToList(),
+        s.VideoGalleries.Where(sg => sg.Gallery != null).Select(sg => new GallerySummaryDto(sg.Gallery!.Id, sg.Gallery.Title, PartialDate.Format(sg.Gallery.Date, sg.Gallery.DatePrecision))).ToList(),
         s.RemoteIds.Select(remoteId => new VideoRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         customFieldValues,
         s.CreatedAt.ToString("o"), s.UpdatedAt.ToString("o"),
@@ -880,7 +883,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             performer.Name,
             performer.Disambiguation,
             performer.Gender?.ToString(),
-            performer.Birthdate?.ToString("yyyy-MM-dd"),
+            PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision),
             performer.Favorite,
             EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer),
             counts?.VideoCount ?? performer.VideoCount,
@@ -1595,7 +1598,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             if (dto.Organized.HasValue) video.Organized = dto.Organized.Value;
             if (dto.IsVr.HasValue) video.IsVr = dto.IsVr.Value;
             if (dto.StudioId.HasValue) video.StudioId = dto.StudioId;
-            if (dto.Date != null) video.Date = ParseDate(dto.Date);
+            if (dto.Date != null) { var date = PartialDate.Parse(dto.Date); video.Date = date.Value; video.DatePrecision = date.Precision; }
             if (dto.Code != null) video.Code = dto.Code;
             if (dto.Director != null) video.Director = dto.Director;
 
@@ -1977,7 +1980,6 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     private void PublishVideoEvent(EventType type, int id)
         => eventBus.Publish(new EntityEvent(type, "Video", id));
 
-    private static DateOnly? ParseDate(string? date) => DateOnly.TryParse(date, out var d) ? d : null;
 }
 
 public record GenerateScreenshotDto(double? AtSeconds = null);

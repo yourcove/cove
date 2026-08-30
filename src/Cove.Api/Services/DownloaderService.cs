@@ -3,6 +3,7 @@ using System.Text.Json;
 using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Plugins;
@@ -1097,6 +1098,7 @@ public partial class DownloaderService(
         if (ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             audio.Date = parsedDate;
+            audio.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = parsedDate.ToString("yyyy-MM-dd");
         }
 
@@ -1185,6 +1187,7 @@ public partial class DownloaderService(
         if (ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             image.Date = parsedDate;
+            image.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = parsedDate.ToString("yyyy-MM-dd");
         }
 
@@ -1272,6 +1275,7 @@ public partial class DownloaderService(
         if (ScrapedVideoDateParser.TryParse(metadata.Date, out var parsedDate))
         {
             textDocument.Date = parsedDate;
+            textDocument.DatePrecision = DatePrecision.Day;
             fieldProvenance["date"] = parsedDate.ToString("yyyy-MM-dd");
         }
 

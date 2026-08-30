@@ -9,6 +9,7 @@ public class Image : BaseEntity
     public bool Organized { get; set; }
     public int? StudioId { get; set; }
     public DateOnly? Date { get; set; }
+    public Cove.Core.Enums.DatePrecision DatePrecision { get; set; }
 
     // Denormalized M2M id sets, GIN-indexed. See Video.TagIds for rationale.
     public int[] TagIds { get; set; } = [];
@@ -73,4 +74,3 @@ public class ImageGallery
     public Image? Image { get; set; }
     public Gallery? Gallery { get; set; }
 }
-
