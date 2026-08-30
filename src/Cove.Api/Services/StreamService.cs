@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
+using Cove.Core.Common;
 using Cove.Core.Interfaces;
 using Cove.Data;
 
@@ -37,15 +38,11 @@ public class StreamService(IServiceScopeFactory scopeFactory, IThumbnailService 
         var sourceVideoId = await ResolveSourceVideoIdAsync(db, videoId, ct);
         if (!sourceVideoId.HasValue) return null;
 
-        var videoFile = await db.VideoFiles
-            .Include(f => f.ParentFolder)
-            .FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
+        var videoFile = await db.VideoFiles.FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
 
         if (videoFile == null) return null;
 
-        var filePath = videoFile.ParentFolder != null
-            ? Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename)
-            : videoFile.Basename;
+        var filePath = FilesystemPaths.ToNativePath(videoFile.Path);
 
         if (!File.Exists(filePath)) return null;
 

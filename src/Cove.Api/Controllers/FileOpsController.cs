@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Events;
@@ -30,7 +31,12 @@ public class FileOpsController(
     [RequiresEntityAccess(EntityKinds.File, Permissions.FilesWrite, ActionArgumentName = "dto", PropertyName = "FileIds")]
     public async Task<IActionResult> MoveFiles([FromBody] MoveFilesDto dto, CancellationToken ct)
     {
-        if (!Directory.Exists(dto.DestinationPath))
+        var normalizedDestination = TryNormalizeMoveDestination(dto.DestinationPath);
+        if (normalizedDestination == null)
+            return BadRequest("Destination directory does not exist");
+
+        var (destinationPath, storedDestinationPath) = normalizedDestination.Value;
+        if (!Directory.Exists(destinationPath))
             return BadRequest("Destination directory does not exist");
 
         using var moveLease = await _physicalFileCoordinator.AcquireReadAsync(ct);
@@ -43,8 +49,10 @@ public class FileOpsController(
         var movedFiles = new List<BaseFileEntity>();
         foreach (var file in files)
         {
-            var oldPath = Path.Combine(file.ParentFolder?.Path ?? "", file.Basename);
-            var newPath = Path.Combine(dto.DestinationPath, file.Basename);
+            var oldPath = FilesystemPaths.ToNativePath(!string.IsNullOrWhiteSpace(file.Path)
+                ? file.Path
+                : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename));
+            var newPath = Path.Combine(destinationPath, file.Basename);
 
             if (!System.IO.File.Exists(oldPath))
             {
@@ -61,10 +69,10 @@ public class FileOpsController(
             System.IO.File.Move(oldPath, newPath);
 
             // Update folder reference
-            var newFolder = await db.Folders.FirstOrDefaultAsync(f => f.Path == dto.DestinationPath, ct);
+            var newFolder = await db.Folders.FirstOrDefaultAsync(f => f.Path == storedDestinationPath, ct);
             if (newFolder == null)
             {
-                newFolder = new Folder { Path = dto.DestinationPath, ModTime = DateTime.UtcNow };
+                newFolder = new Folder { Path = storedDestinationPath, ModTime = DateTime.UtcNow };
                 db.Folders.Add(newFolder);
                 await db.SaveChangesAsync(ct);
             }
@@ -76,6 +84,23 @@ public class FileOpsController(
         await db.SaveChangesAsync(ct);
         PublishOwnerUpdates(movedFiles);
         return Ok(new { moved = movedCount, total = files.Count });
+    }
+
+    internal static (string NativePath, string StoredPath)? TryNormalizeMoveDestination(string path)
+    {
+        try
+        {
+            var nativePath = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(nativePath);
+            var normalizedNativePath = !string.IsNullOrEmpty(root) && string.Equals(nativePath, root, StringComparison.OrdinalIgnoreCase)
+                ? nativePath
+                : nativePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return (normalizedNativePath, FilesystemPaths.ToStoredPath(normalizedNativePath));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void PublishOwnerUpdates(IEnumerable<BaseFileEntity> files)
@@ -114,9 +139,10 @@ public class FileOpsController(
         {
             if (dto.DeleteFromDisk)
             {
-                physicalPaths.Add(!string.IsNullOrWhiteSpace(file.Path)
+                var storedPath = !string.IsNullOrWhiteSpace(file.Path)
                     ? file.Path
-                    : Path.Combine(file.ParentFolder?.Path ?? "", file.Basename));
+                    : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename);
+                physicalPaths.Add(storedPath);
             }
 
             db.Set<BaseFileEntity>().Remove(file);
@@ -171,9 +197,10 @@ public class FileOpsController(
             .FirstOrDefaultAsync(f => f.Id == id, ct);
         if (file == null) return NotFound();
 
-        var filePath = NormalizeLocalPath(!string.IsNullOrWhiteSpace(file.Path)
+        var storedPath = !string.IsNullOrWhiteSpace(file.Path)
             ? file.Path
-            : Path.Combine(file.ParentFolder?.Path ?? "", file.Basename));
+            : BaseFileEntity.ComputePath(file.ParentFolder?.Path, file.Basename);
+        var filePath = NormalizeLocalPath(FilesystemPaths.ToNativePath(storedPath));
         if (!System.IO.File.Exists(filePath))
             return NotFound("File does not exist on disk");
 

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Cove.Api.Services;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -393,15 +394,11 @@ public class StreamController(IStreamService streamService, IThumbnailService th
         var sourceVideoId = await ResolveSourceVideoIdAsync(videoId, ct);
         if (!sourceVideoId.HasValue) return null;
 
-        var videoFile = await db.VideoFiles
-            .Include(f => f.ParentFolder)
-            .FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
+        var videoFile = await db.VideoFiles.FirstOrDefaultAsync(f => f.VideoId == sourceVideoId.Value, ct);
 
         if (videoFile == null) return null;
 
-        var filePath = videoFile.ParentFolder != null
-            ? Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename)
-            : videoFile.Basename;
+        var filePath = FilesystemPaths.ToNativePath(videoFile.Path);
 
         return System.IO.File.Exists(filePath) ? filePath : null;
     }

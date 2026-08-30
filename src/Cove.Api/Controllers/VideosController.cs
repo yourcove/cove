@@ -1939,11 +1939,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             .FirstOrDefaultAsync(video => video.Id == id, ct);
         if (video == null) return NotFound();
 
-        var filePath = video.Files.FirstOrDefault()?.ParentFolder != null 
-            ? Path.Combine(video.Files.First().ParentFolder!.Path, video.Files.First().Basename)
-            : video.Files.FirstOrDefault()?.Basename;
-        
-        if (string.IsNullOrEmpty(filePath)) return BadRequest("Video has no files");
+        var file = video.Files.FirstOrDefault();
+        if (file == null) return BadRequest("Video has no files");
+        var filePath = FilesystemPaths.ToNativePath(file.Path);
 
         var jobId = scanService.StartScan(new ScanOperationOptions
         {

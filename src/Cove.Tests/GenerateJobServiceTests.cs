@@ -91,12 +91,38 @@ public class GenerateJobServiceTests
     [InlineData("/library", "/library", true)]
     [InlineData("/library-other/video.mp4", "/library", false)]
     [InlineData("/LIBRARY/video.mp4", "/library", true)]
+    [InlineData("\\library\\video.mp4", "/library", true)]
+    [InlineData("C:\\library\\video.mp4", "C:/library", true)]
+    [InlineData("C:/library/video.mp4", "C:\\library", true)]
+    [InlineData("C:/library-other/video.mp4", "C:/library", false)]
+    [InlineData("/library/nested/video.mp4", "/library/nested", true)]
+    [InlineData("/library/nested-other/video.mp4", "/library/nested", false)]
+    [InlineData("/library/video.mp4", "/", true)]
+    [InlineData("relative/library/video.mp4", "relative/library", true)]
+    [InlineData("relative/library-other/video.mp4", "relative/library", false)]
     public void IsUnderAnyPath_UsesDirectorySegmentBoundaries(
         string candidate,
         string filter,
         bool expected)
     {
         Assert.Equal(expected, GeneratePathFilter.Contains(candidate, [filter]));
+    }
+
+    [Theory]
+    [InlineData("/canonical/video.mp4", "/stale", "wrong.mp4")]
+    [InlineData("C:/canonical/video.mp4", "C:/stale", "wrong.mp4")]
+    [InlineData("//server/share/video.mp4", "//other/share", "wrong.mp4")]
+    public void Resolve_UsesTheCanonicalFilePathInsteadOfNavigationData(string storedPath, string folderPath, string basename)
+    {
+        var file = new VideoFile
+        {
+            Path = storedPath,
+            Basename = basename,
+            ParentFolder = new Folder { Path = folderPath },
+        };
+
+        var expected = OperatingSystem.IsWindows() ? storedPath.Replace('/', '\\') : storedPath;
+        Assert.Equal(expected, GeneratePathFilter.Resolve(file));
     }
 
     [Fact]
@@ -181,6 +207,7 @@ public class GenerateJobServiceTests
             {
                 Id = file.Id,
                 Basename = file.Basename,
+                Path = BaseFileEntity.ComputePath(file.Folder, file.Basename),
                 ParentFolder = new Folder { Path = file.Folder },
             });
         }

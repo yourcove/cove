@@ -1,3 +1,4 @@
+using Cove.Core.Common;
 using Cove.Core.Entities;
 
 namespace Cove.Api.Services;
@@ -28,9 +29,7 @@ internal static class GeneratePathFilter
     }
 
     public static string Resolve(BaseFileEntity file)
-        => file.ParentFolder is not null
-            ? Path.Combine(file.ParentFolder.Path, file.Basename)
-            : file.Basename;
+        => FilesystemPaths.ToNativePath(file.Path);
 
     private static string NormalizePath(string path)
         => path.Trim().Replace('\\', '/').TrimEnd('/');
