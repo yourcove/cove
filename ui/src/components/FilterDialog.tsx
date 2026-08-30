@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, Layers3 } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
@@ -1344,7 +1344,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }, 0), 0);
   }, [criteria]);
 
-  const enterExpression = useCallback((returnFocusKey?: string) => {
+  const enterExpression = useCallback((returnFocusKey?: string, groupPath?: number[]) => {
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     simpleReturnFocusKeyRef.current = returnFocusKey ?? viewReturnFocusRef.current?.dataset.simpleReturnFocus ?? null;
     setEditFilter((current) => {
@@ -1355,7 +1355,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setRelatedWorkspaceSelection(null);
     setInlineStackReturnsToExpression(false);
     setDialogView("expression");
-    window.setTimeout(() => backButtonRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      const pathKey = groupPath?.join(".");
+      const groupControl = groupPath
+        ? dialogRef.current?.querySelector<HTMLElement>(`[data-expression-group-control="${pathKey}"]`)
+        : null;
+      (groupControl ?? backButtonRef.current)?.focus();
+    }, 0);
   }, [criteria]);
 
   const cancelExpressionCondition = useCallback(() => {
@@ -1773,61 +1779,21 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               </div>
             ))}
             {hasComplexExpression ? (
-              <div className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
-                {expression?.operator === "OR" && directlyEditableExpressionChildren.length > 0 ? (
-                  <div className="flex min-w-0 flex-wrap items-center gap-1 bg-accent/5 p-1" role="group" aria-label="OR filter group">
-                    <button
-                      type="button"
-                      onClick={() => enterExpression("advanced")}
-                      data-simple-return-focus="advanced"
-                      className="min-h-7 rounded bg-accent/15 px-2 text-xs font-semibold text-accent hover:bg-accent/25"
-                      aria-label="Edit OR group in Combine Filters"
-                    >OR</button>
-                    {directlyEditableExpressionChildren.map((child, index) => child.filter ? (
-                      <div key={index} className="flex min-h-7 max-w-full items-stretch overflow-hidden rounded border border-border/80 bg-card text-xs">
-                        <button
-                          type="button"
-                          onClick={() => openSimpleExpressionCondition([index])}
-                          data-simple-return-focus={`expression-${index}`}
-                          className="min-w-0 px-2 text-left hover:bg-background/40"
-                          aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter, criteria)}`}
-                        >
-                          <span className="truncate">{summarizeExpressionCondition(child.filter, criteria)}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeSimpleExpressionCondition(index)}
-                          className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300"
-                          aria-label={`Remove filter: ${summarizeExpressionCondition(child.filter, criteria)}`}
-                        ><X className="h-3 w-3" /></button>
-                      </div>
-                    ) : null)}
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => enterExpression("advanced")} data-simple-return-focus="advanced" className="flex min-w-0 items-center gap-2 px-3 text-left hover:bg-background/40" aria-label="Open Combine Filters">
-                    <Layers3 className="h-4 w-4 shrink-0 text-accent" />
-                    <span className="truncate">Combine Filters · {expressionConditionCount} {expressionConditionCount === 1 ? "condition" : "conditions"}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditFilter((current) => {
-                      const next = { ...current };
-                      delete next[FILTER_EXPRESSION_STATE_KEY];
-                      return next;
-                    });
-                    window.setTimeout(() => {
-                      const firstActiveFilter = dialogRef.current?.querySelector<HTMLElement>("button[data-active-filter-key]");
-                      (firstActiveFilter ?? searchRef.current)?.focus();
-                    }, 0);
-                  }}
-                  className="flex w-9 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300"
-                  aria-label="Remove Combine Filters"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+              <ActiveObjectFilterChips
+                criteriaDefinitions={criteria}
+                objectFilter={{ [FILTER_EXPRESSION_STATE_KEY]: expression }}
+                onEdit={(target) => {
+                  if (target.kind === "expression") openSimpleExpressionCondition(target.path);
+                  else if (target.kind === "root" && target.key === FILTER_EXPRESSION_STATE_KEY) {
+                    const path = target.path ?? [];
+                    enterExpression(`expression-group-${path.join(".") || "root"}`, path);
+                  } else handleEditChip(target);
+                }}
+                onRemove={handleRemoveChip}
+                expressionReturnFocusKeys
+                ariaLabel="Selected expression filters"
+                className="!m-0 !border-0 !bg-transparent !p-0"
+              />
             ) : null}
             {Object.keys(activeEditFilter).length > 0 ? <ActiveObjectFilterChips
               criteriaDefinitions={criteria}

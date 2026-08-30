@@ -1959,12 +1959,15 @@ describe("FilterDialog", () => {
       />,
     );
 
-    const group = screen.getByRole("group", { name: "OR filter group" });
-    fireEvent.click(within(group).getByRole("button", { name: "Edit OR group in Combine Filters" }));
+    const operatorChip = screen.getByRole("button", { name: "Edit OR group in Combine Filters" });
+    expect(operatorChip).toHaveProperty("tabIndex", 0);
+    fireEvent.click(operatorChip);
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Group operator" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Back to simple filters" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toHaveFocus());
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date: < 2000-01-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
     const second = screen.getByRole("group", { name: "Date condition 2" });
     await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
   });
@@ -2356,8 +2359,20 @@ describe("FilterDialog", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Edit AND group in Combine Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit filter: Title/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit filter: Director/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit filter: Performer Count/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Combine Filters" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Combine Filters" }));
+    const nestedOperatorChip = screen.getByRole("button", { name: "Edit OR group in Combine Filters" });
+    fireEvent.click(nestedOperatorChip);
+    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "Group operator" })[1]).toHaveFocus());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit AND group in Combine Filters" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenCalledWith({
       _filterExpression: {
