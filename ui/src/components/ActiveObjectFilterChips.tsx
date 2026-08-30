@@ -240,8 +240,8 @@ export function formatFilterChipValue(def: CriterionDefinition | undefined, valu
     const values = getMultiEnumOptionValues(def, criterion);
     if (values.length > 0) {
       const labels = values.map((item) => formatOptionLabel(def, item));
-      const prefix = criterion.modifier === "NOT_MATCHES_REGEX" ? "None of" : "Any of";
-      return `${prefix} ${formatNaturalList(labels, "or")}`;
+      const valueList = formatNaturalList(labels, "or");
+      return criterion.modifier === "NOT_MATCHES_REGEX" ? `None of ${valueList}` : valueList;
     }
   }
 
@@ -450,6 +450,16 @@ export function ActiveObjectFilterChips(props: ActiveObjectFilterChipsProps) {
     let hasRemoteId = false;
     const inspect = (definitions: CriterionDefinition[], filter: Record<string, unknown>) => {
       for (const [key, value] of Object.entries(filter)) {
+        if (key === "_filterExpression" && value && typeof value === "object") {
+          const inspectExpression = (expression: ChipFilterExpression) => {
+            for (const child of expression.children ?? []) {
+              if (child.filter) inspect(definitions, child.filter);
+              if (child.group) inspectExpression(child.group);
+            }
+          };
+          inspectExpression(value as ChipFilterExpression);
+          continue;
+        }
         const def = findCriterionDefinition(definitions, key);
         if ((def?.type === "multiId" || def?.type === "tagDuration") && def.entityType) types.add(def.entityType);
         if (def?.type === "remoteId") hasRemoteId = true;
@@ -565,6 +575,126 @@ function countFilterExpressionLeaves(value: unknown): number {
     const node = child as { filter?: unknown; group?: unknown };
     return count + (node.filter ? 1 : countFilterExpressionLeaves(node.group));
   }, 0);
+}
+
+type ChipFilterExpression = {
+  operator?: string;
+  children?: Array<{ filter?: Record<string, unknown>; group?: ChipFilterExpression }>;
+};
+
+function expressionEntrySummary(
+  def: CriterionDefinition | undefined,
+  value: unknown,
+  endpointValue: unknown,
+  entityNameMaps: Record<string, Map<number, string>>,
+  metadataServers: MetadataServer[],
+  ratingOptions: RatingSystemOptions,
+) {
+  const nameMap = def?.entityType ? entityNameMaps[def.entityType] : undefined;
+  return def?.type === "remoteId"
+    ? formatRemoteIdFilterChipValue(value, endpointValue, metadataServers)
+    : formatFilterChipValue(def, value, nameMap, ratingOptions);
+}
+
+function ExpressionLeafSummary({
+  filter,
+  criteriaDefinitions,
+  entityNameMaps,
+  metadataServers,
+  ratingOptions,
+}: {
+  filter: Record<string, unknown>;
+  criteriaDefinitions: CriterionDefinition[];
+  entityNameMaps: Record<string, Map<number, string>>;
+  metadataServers: MetadataServer[];
+  ratingOptions: RatingSystemOptions;
+}) {
+  const entries = getLogicalFilterEntries(criteriaDefinitions, filter);
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border/80 bg-surface px-1.5 py-1">
+      {entries.map(({ key, value, endpointValue, def }) => {
+        if (def?.type === "related") {
+          const related = value && typeof value === "object" ? value as Record<string, unknown> : {};
+          const nestedCriteria = [...(def.relatedContextCriteria ?? []), ...(def.relatedCriteria?.() ?? [])];
+          const nestedObject = related.objectFilter && typeof related.objectFilter === "object" ? related.objectFilter as Record<string, unknown> : {};
+          const contextObject = Object.fromEntries((def.relatedContextCriteria ?? []).flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, related[criterion.filterKey]]] : []));
+          const nestedEntries = getLogicalFilterEntries(nestedCriteria, { ...contextObject, ...nestedObject });
+          const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
+          return (
+            <span key={key} className="inline-flex min-w-0 flex-wrap items-center gap-1" aria-label={`${def.label} condition`}>
+              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.exclude ? `No ${def.label}` : def.label}</span>
+              {q ? <span className="rounded bg-card px-1.5 py-0.5">Search “{q}”</span> : null}
+              {nestedEntries.map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => (
+                <span key={nestedKey} className="rounded bg-card px-1.5 py-0.5">
+                  <span className="text-muted">{nestedDef?.label ?? relatedFallbackLabel(nestedKey)} </span>
+                  {expressionEntrySummary(nestedDef, nestedValue, nestedEndpoint, entityNameMaps, metadataServers, ratingOptions)}
+                </span>
+              ))}
+              {related._matchAll === true && !q && nestedEntries.length === 0 ? <span className="rounded bg-card px-1.5 py-0.5">Any related performer</span> : null}
+            </span>
+          );
+        }
+        return (
+          <span key={key} className="rounded bg-card px-1.5 py-0.5">
+            <span className="text-muted">{def?.label ?? relatedFallbackLabel(key)} </span>
+            {expressionEntrySummary(def, value, endpointValue, entityNameMaps, metadataServers, ratingOptions)}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function FilterExpressionChipDisplay({
+  expression,
+  criteriaDefinitions,
+  entityNameMaps,
+  metadataServers,
+  ratingOptions,
+  nested = false,
+}: {
+  expression: ChipFilterExpression;
+  criteriaDefinitions: CriterionDefinition[];
+  entityNameMaps: Record<string, Map<number, string>>;
+  metadataServers: MetadataServer[];
+  ratingOptions: RatingSystemOptions;
+  nested?: boolean;
+}) {
+  const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
+  return (
+    <span aria-hidden="true" data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
+      <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span>
+      {(expression.children ?? []).map((child, index) => child.group ? (
+        <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested />
+      ) : child.filter ? (
+        <ExpressionLeafSummary key={index} filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
+      ) : null)}
+    </span>
+  );
+}
+
+function filterExpressionAccessibleSummary(
+  expression: ChipFilterExpression,
+  criteriaDefinitions: CriterionDefinition[],
+  entityNameMaps: Record<string, Map<number, string>>,
+  metadataServers: MetadataServer[],
+  ratingOptions: RatingSystemOptions,
+): string {
+  const summarizeFilter = (filter: Record<string, unknown>) => getLogicalFilterEntries(criteriaDefinitions, filter).map(({ key, value, endpointValue, def }) => {
+    if (def?.type !== "related") return `${def?.label ?? relatedFallbackLabel(key)} ${expressionEntrySummary(def, value, endpointValue, entityNameMaps, metadataServers, ratingOptions)}`;
+    const related = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    const nestedCriteria = [...(def.relatedContextCriteria ?? []), ...(def.relatedCriteria?.() ?? [])];
+    const nestedObject = related.objectFilter && typeof related.objectFilter === "object" ? related.objectFilter as Record<string, unknown> : {};
+    const contextObject = Object.fromEntries((def.relatedContextCriteria ?? []).flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, related[criterion.filterKey]]] : []));
+    const nested = getLogicalFilterEntries(nestedCriteria, { ...contextObject, ...nestedObject }).map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => `${nestedDef?.label ?? relatedFallbackLabel(nestedKey)} ${expressionEntrySummary(nestedDef, nestedValue, nestedEndpoint, entityNameMaps, metadataServers, ratingOptions)}`);
+    const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
+    return [related.exclude ? `No ${def.label}` : def.label, q ? `search ${q}` : "", ...nested].filter(Boolean).join(", ");
+  }).join(", ");
+  const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
+  const children = (expression.children ?? []).map((child) => child.group
+    ? filterExpressionAccessibleSummary(child.group, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)
+    : child.filter ? summarizeFilter(child.filter) : "").filter(Boolean);
+  return `${operator} group: ${children.join("; ")}`;
 }
 
 function RelatedFilterChipGroup({
@@ -884,7 +1014,9 @@ function ActiveObjectFilterChipsContent({
           : def?.type === "remoteId"
           ? formatRemoteIdFilterChipValue(value, endpointValue, metadataServers)
           : customSection?.summarize?.(value) ?? (isAuxiliaryToggle && typeof value === "boolean" ? (value ? "Yes" : "No") : formatFilterChipValue(def, value, nameMap, ratingOptions));
-        const displayContent = !customSection && def?.type === "rating"
+        const displayContent = isFilterExpression
+          ? <FilterExpressionChipDisplay expression={value as ChipFilterExpression} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
+          : !customSection && def?.type === "rating"
           ? <RatingFilterChipDisplay value={value} options={ratingOptions} fallback={displayValue} />
           : !customSection && def?.type === "multiId"
             ? <MultiIdFilterChipDisplay def={def} value={value} nameMap={nameMap} fallback={displayValue} />
@@ -902,7 +1034,7 @@ function ActiveObjectFilterChipsContent({
               data-active-filter-key={key}
               className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2 text-left"
               title={`${label}: ${displayValue}`}
-              aria-label={`Edit filter: ${label}`}
+              aria-label={isFilterExpression ? `Edit filter: ${label}. ${filterExpressionAccessibleSummary(value as ChipFilterExpression, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)}` : `Edit filter: ${label}`}
             >
               <span className="text-muted">{label}:</span>
               <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>

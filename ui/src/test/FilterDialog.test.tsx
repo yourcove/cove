@@ -1775,7 +1775,7 @@ describe("FilterDialog", () => {
     renderWithQueryClient(<FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />);
 
     fireEvent.click(screen.getByText("Related Performers"));
-    fireEvent.click(screen.getByRole("tab", { name: "Age on video date" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Age (then)" }));
     fireEvent.click(screen.getByRole("button", { name: "Between" }));
     const values = screen.getAllByRole("spinbutton");
     fireEvent.change(values[0], { target: { value: "20" } });

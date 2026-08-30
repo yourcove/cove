@@ -495,7 +495,7 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "bitrate", label: "Bitrate (kbps)", type: "number", filterKey: "bitrateInterval" },
   { id: "fileCount", label: "File Count", type: "number", filterKey: "fileCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
   { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("performers"), relatedContextCriteria: [
-    { id: "ageAtVideoDate", label: "Age on video date", type: "number", filterKey: "ageAtHostDateCriterion" },
+    { id: "ageAtVideoDate", label: "Age (then)", type: "number", filterKey: "ageAtHostDateCriterion" },
   ] },
   { id: "resumeTime", label: "Resume Time", type: "number", filterKey: "resumeTimeCriterion" },
   { id: "playDuration", label: "Play Duration", type: "duration", filterKey: "playDurationCriterion" },
@@ -517,7 +517,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "relatedVideos", label: "Related Videos", type: "related", entityType: "videos", filterKey: "videoFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("videos") },
-  { id: "age", label: "Age", type: "number", filterKey: "ageCriterion" },
+  { id: "age", label: "Age (now)", type: "number", filterKey: "ageCriterion" },
   { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [
     { value: "Male", label: "Male" },
     { value: "Female", label: "Female" },

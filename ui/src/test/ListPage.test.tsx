@@ -261,6 +261,82 @@ describe("ListPage active filter chips", () => {
     });
   });
 
+  it("shows advanced group operators and each related-performer condition", () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              _filterExpression: {
+                operator: "AND",
+                children: [
+                  { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Male)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 20, value2: 30 } } } },
+                  { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Female)$", modifier: "MATCHES_REGEX", _selectedValues: ["Female"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 } } } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Related Performers condition")).toHaveLength(2);
+    expect(screen.getByText("Male")).toBeInTheDocument();
+    expect(screen.getByText("Between 20 and 30")).toBeInTheDocument();
+    expect(screen.getByText("Female")).toBeInTheDocument();
+    expect(screen.getByText("Between 30 and 40")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit filter: Advanced filter\. AND group: Related Performers, Age \(then\) Between 20 and 30, Gender Male; Related Performers, Age \(then\) Between 30 and 40, Gender Female/ })).toBeInTheDocument();
+  });
+
+  it("resolves entity names and exposes nested expression operators", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["tags", "all"], [{ id: 42, name: "Example Tag" }]);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              _filterExpression: {
+                operator: "OR",
+                children: [
+                  { filter: { tagsCriterion: { modifier: "INCLUDES", value: [42] } } },
+                  { group: { operator: "AND", children: [
+                    { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
+                    { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
+                  ] } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Example Tag")).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /OR group: Tags Example Tag; AND group: URL Includes foo; URL Excludes bar/ })).toBeInTheDocument();
+  });
+
   it("normalizes the legacy performer-favorite chip before editing or removing it", async () => {
     const user = userEvent.setup();
     const onObjectFilterChange = vi.fn();
@@ -317,7 +393,7 @@ describe("ListPage active filter chips", () => {
       "multi-enum labels",
       { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [{ value: "TransgenderMale", label: "Transgender Male" }, { value: "NonBinary", label: "Non-Binary" }] },
       { value: "^(?:TransgenderMale|NonBinary)$", modifier: "MATCHES_REGEX" },
-      "Any of Transgender Male or Non-Binary",
+      "Transgender Male or Non-Binary",
     ],
     [
       "career length units",
@@ -354,7 +430,7 @@ describe("ListPage active filter chips", () => {
         options: [{ value: "Male", label: "Male" }],
       },
       { value: "^(?:Male|RetiredValue)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male", "RetiredValue"] },
-    )).toBe("Any of Male or RetiredValue");
+    )).toBe("Male or RetiredValue");
   });
 
   it("opens and removes a legacy endpoint-only Remote ID filter", async () => {
