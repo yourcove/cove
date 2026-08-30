@@ -908,6 +908,7 @@ function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefi
   const q = raw.findFilter?.q?.trim();
   const matchAll = raw._matchAll === true;
   const mode = raw.mode === "every" || raw.mode === "none" ? raw.mode : undefined;
+  const conditionOperator = raw.conditionOperator === "or" ? "or" : undefined;
   const contextValues = (criterion.relatedContextCriteria ?? []).reduce<Record<string, unknown>>((result, contextCriterion) => {
     const contextValue = (raw as Record<string, unknown>)[contextCriterion.filterKey];
     if (isCriterionValueValid(contextValue, contextCriterion)) result[contextCriterion.filterKey] = contextValue;
@@ -919,6 +920,7 @@ function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefi
     ...(q ? { findFilter: { q } } : {}),
     ...(Object.keys(objectFilter).length > 0 ? { objectFilter } : {}),
     ...(mode ? { mode } : {}),
+    ...(conditionOperator ? { conditionOperator } : {}),
     ...(raw.exclude ? { exclude: true } : {}),
     ...(raw._savedFilterName?.trim() ? { _savedFilterName: raw._savedFilterName.trim() } : {}),
     ...(matchAll ? { _matchAll: true } : {}),
@@ -2401,6 +2403,7 @@ function RelatedFilterWorkspace({
   const initialSelectionRef = useRef(selection);
   const related = value ?? {};
   const relationshipMode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
+  const conditionOperator = related.conditionOperator === "or" ? "or" : "and";
   const objectFilter = related.objectFilter && typeof related.objectFilter === "object"
     ? related.objectFilter as Record<string, unknown>
     : {};
@@ -2478,6 +2481,7 @@ function RelatedFilterWorkspace({
       ...(q ? { findFilter: { q } } : {}),
       ...(hasObjectFilter ? { objectFilter: savedObjectFilter } : {}),
       ...(related.mode ? { mode: related.mode } : {}),
+      ...(related.conditionOperator ? { conditionOperator: related.conditionOperator } : {}),
       ...(related.exclude ? { exclude: true } : {}),
       _savedFilterName: savedFilter.name,
       ...(!q && !hasObjectFilter ? { _matchAll: true } : {}),
@@ -2489,6 +2493,7 @@ function RelatedFilterWorkspace({
     if (related._matchAll) update({ _matchAll: undefined });
     else onChange({
       ...(related.mode ? { mode: related.mode } : {}),
+      ...(related.conditionOperator ? { conditionOperator: related.conditionOperator } : {}),
       ...(related.exclude ? { exclude: true } : {}),
       _matchAll: true,
     });
@@ -2503,6 +2508,8 @@ function RelatedFilterWorkspace({
   }, [criteriaSearch, nestedCriteria]);
   const activeCriteria = filteredCriteria.filter((candidate) => isCriterionValueValid(getNestedValue(candidate), candidate));
   const inactiveCriteria = filteredCriteria.filter((candidate) => !activeCriteria.includes(candidate));
+  const activeConditionCount = nestedCriteria.filter((candidate) => isCriterionValueValid(getNestedValue(candidate), candidate)).length
+    + (related.findFilter?.q?.trim() ? 1 : 0);
   const showTextSearch = !criteriaSearch.trim() || "text search".includes(criteriaSearch.trim().toLowerCase());
 
   const renderCriterionRow = (nestedCriterion: CriterionDefinition) => {
@@ -2529,22 +2536,35 @@ function RelatedFilterWorkspace({
       <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">Relationship</h3>
-          <p className="text-xs text-muted">All conditions below must match the same related {singular}.</p>
+          <p className="text-xs text-muted">{conditionOperator === "or" ? "At least one condition below" : "All conditions below"} must match the same related {singular}.</p>
         </div>
-        <select
-          ref={relationshipModeRef}
-          aria-label="Relationship match mode"
-          value={relationshipMode}
-          onChange={(event) => {
-            const mode = event.target.value as RelatedFilterCriterion["mode"];
-            update({ mode: mode === "atLeastOne" ? undefined : mode, exclude: undefined });
-          }}
-          className="min-h-11 shrink-0 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-        >
-          <option value="atLeastOne">At least one matching {singular}</option>
-          <option value="every">Every {singular} matches</option>
-          <option value="none">No {singular} matches</option>
-        </select>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <select
+            ref={relationshipModeRef}
+            aria-label="Relationship match mode"
+            value={relationshipMode}
+            onChange={(event) => {
+              const mode = event.target.value as RelatedFilterCriterion["mode"];
+              update({ mode: mode === "atLeastOne" ? undefined : mode, exclude: undefined });
+            }}
+            className="min-h-11 shrink-0 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+          >
+            <option value="atLeastOne">At least one matching {singular}</option>
+            <option value="every">Every {singular} matches</option>
+            <option value="none">No {singular} matches</option>
+          </select>
+          {activeConditionCount >= 2 || conditionOperator === "or" ? (
+            <select
+              aria-label="Related condition operator"
+              value={conditionOperator}
+              onChange={(event) => update({ conditionOperator: event.target.value === "or" ? "or" : undefined }, true)}
+              className="min-h-11 shrink-0 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+            >
+              <option value="and">Match all conditions</option>
+              <option value="or">Match any condition</option>
+            </select>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">

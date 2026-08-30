@@ -195,11 +195,18 @@ public enum RelatedFilterMode
     None,
 }
 
+public enum RelatedFilterConditionOperator
+{
+    And,
+    Or,
+}
+
 public class RelatedFilterCriterion<TFilter> where TFilter : class
 {
     public FindFilter? FindFilter { get; set; }
     public TFilter? ObjectFilter { get; set; }
     public RelatedFilterMode Mode { get; set; } = RelatedFilterMode.AtLeastOne;
+    public RelatedFilterConditionOperator ConditionOperator { get; set; } = RelatedFilterConditionOperator.And;
     /// <summary>Legacy negative mode retained for saved-filter compatibility. New filters use <see cref="Mode"/>.</summary>
     public bool Exclude { get; set; }
     /// <summary>Optional age of the related performer on the host entity's date. Currently supported by video performer relationships.</summary>

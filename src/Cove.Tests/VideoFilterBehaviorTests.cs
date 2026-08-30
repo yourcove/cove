@@ -491,6 +491,75 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task RelatedPerformerEveryModeCanMatchAgeAtVideoDateOrFavorite()
+    {
+        await using var context = CreateContext();
+        var age19 = CreatePerformer("Age 19", new DateOnly(2006, 1, 1));
+        var favoriteAge28 = CreatePerformer("Favorite age 28", new DateOnly(1997, 1, 1));
+        favoriteAge28.Favorite = true;
+        var age28 = CreatePerformer("Age 28", new DateOnly(1997, 1, 1));
+        var matches = CreateVideoWithFile("age-or-favorite", videoDate: new DateOnly(2025, 6, 2));
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = age19 });
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = favoriteAge28 });
+        var fails = CreateVideoWithFile("neither", videoDate: new DateOnly(2025, 6, 2));
+        fails.VideoPerformers.Add(new VideoPerformer { Performer = age19 });
+        fails.VideoPerformers.Add(new VideoPerformer { Performer = age28 });
+        context.Videos.AddRange(matches, fails, CreateVideoWithFile("empty", videoDate: new DateOnly(2025, 6, 2)));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    ConditionOperator = RelatedFilterConditionOperator.Or,
+                    ObjectFilter = new PerformerFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
+                    AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.Between, Value = 18, Value2 = 20 },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("age-or-favorite", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerEveryModeCanMatchUnknownAgeAtVideoDateOrFavorite()
+    {
+        await using var context = CreateContext();
+        var unknownAge = CreatePerformer("Unknown age", null);
+        var favorite = CreatePerformer("Favorite", new DateOnly(1990, 1, 1));
+        favorite.Favorite = true;
+        var knownNonFavorite = CreatePerformer("Known non-favorite", new DateOnly(1990, 1, 1));
+        var matches = CreateVideoWithFile("unknown-or-favorite", videoDate: new DateOnly(2025, 6, 2));
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = unknownAge });
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = favorite });
+        var fails = CreateVideoWithFile("known-neither", videoDate: new DateOnly(2025, 6, 2));
+        fails.VideoPerformers.Add(new VideoPerformer { Performer = knownNonFavorite });
+        context.Videos.AddRange(matches, fails);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    ConditionOperator = RelatedFilterConditionOperator.Or,
+                    ObjectFilter = new PerformerFilter { FavoriteCriterion = new BoolCriterion { Value = true } },
+                    AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.IsNull },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("unknown-or-favorite", Assert.Single(items).Title);
+    }
+
+    [Fact]
     public async Task PerformerTagsCriterion_Includes_MatchesVideosByPerformerOccurrenceTag()
     {
         await using var context = CreateContext();
@@ -1545,7 +1614,7 @@ public class VideoFilterBehaviorTests
         return video;
     }
 
-    private static Performer CreatePerformer(string name, DateOnly birthdate, params Tag[] tags)
+    private static Performer CreatePerformer(string name, DateOnly? birthdate, params Tag[] tags)
     {
         var performer = new Performer
         {

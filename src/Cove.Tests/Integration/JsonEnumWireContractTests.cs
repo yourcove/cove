@@ -91,6 +91,21 @@ public sealed class JsonEnumWireContractTests
     }
 
     [Theory]
+    [InlineData(RelatedFilterConditionOperator.And, "and")]
+    [InlineData(RelatedFilterConditionOperator.Or, "or")]
+    public void Related_condition_operators_round_trip_as_camel_case_strings(RelatedFilterConditionOperator conditionOperator, string wireValue)
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var json = JsonSerializer.Serialize(new RelatedConditionOperatorPayload(conditionOperator), options);
+        var roundTrip = JsonSerializer.Deserialize<RelatedConditionOperatorPayload>(json, options);
+
+        Assert.Contains($"\"conditionOperator\":\"{wireValue}\"", json, StringComparison.Ordinal);
+        Assert.Equal(conditionOperator, roundTrip?.ConditionOperator);
+    }
+
+    [Theory]
     [InlineData("""{"status":1}""", AiRunStatus.Pending)]
     [InlineData("""{"status":5}""", AiRunStatus.Cancelled)]
     public void The_numeric_form_still_deserializes_after_the_change(string body, AiRunStatus expected)
@@ -353,6 +368,7 @@ public sealed class JsonEnumWireContractTests
 
     private sealed record StatusPayload(AiRunStatus Status);
     private sealed record RelatedModePayload(RelatedFilterMode Mode);
+    private sealed record RelatedConditionOperatorPayload(RelatedFilterConditionOperator ConditionOperator);
 
     private sealed record NullableStatusPayload(AiRunStatus? Status);
 

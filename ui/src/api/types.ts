@@ -2267,6 +2267,7 @@ export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>>
   findFilter?: Pick<FindFilter, "q">;
   objectFilter?: TObjectFilter;
   mode?: "atLeastOne" | "every" | "none";
+  conditionOperator?: "and" | "or";
   /** Legacy negative mode retained when loading older saved filters. */
   exclude?: boolean;
   ageAtHostDateCriterion?: IntCriterion;

@@ -204,6 +204,34 @@ describe("FilterDialog", () => {
     expect(onApply).toHaveBeenCalledWith({ performerFilterCriterion: { mode: "every", _matchAll: true } });
   });
 
+  it("matches any related-performer condition within the selected relationship mode", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    fireEvent.change(screen.getByRole("combobox", { name: "Relationship match mode" }), { target: { value: "every" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Age (then)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Between" }));
+    const values = screen.getAllByRole("spinbutton");
+    fireEvent.change(values[0], { target: { value: "18" } });
+    fireEvent.change(values[1], { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Related condition operator" }), { target: { value: "or" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        mode: "every",
+        conditionOperator: "or",
+        ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 20 },
+        objectFilter: { favoriteCriterion: { value: true } },
+      },
+    });
+  });
+
   it("builds a performer filter from related favorite videos", () => {
     const onApply = vi.fn();
     renderWithQueryClient(

@@ -659,7 +659,7 @@ function ExpressionLeafSummary({
           const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
           return (
             <span key={key} className="inline-flex min-w-0 flex-wrap items-center gap-1" aria-label={`${def.label} condition`}>
-              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label}</span>
+              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label}{related.conditionOperator === "or" ? " · any condition" : ""}</span>
               {q ? <span className="rounded bg-card px-1.5 py-0.5">Search “{q}”</span> : null}
               {nestedEntries.map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => (
                 <span key={nestedKey} className="rounded bg-card px-1.5 py-0.5">
@@ -741,7 +741,8 @@ function filterExpressionAccessibleSummary(
     const contextObject = Object.fromEntries((def.relatedContextCriteria ?? []).flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, related[criterion.filterKey]]] : []));
     const nested = getLogicalFilterEntries(nestedCriteria, { ...contextObject, ...nestedObject }).map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => `${nestedDef?.label ?? relatedFallbackLabel(nestedKey)} ${expressionEntrySummary(nestedDef, nestedValue, nestedEndpoint, entityNameMaps, metadataServers, ratingOptions)}`);
     const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
-    return [related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label, q ? `search ${q}` : "", ...nested].filter(Boolean).join(", ");
+    const separator = related.conditionOperator === "or" ? " OR " : ", ";
+    return [related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label, [q ? `search ${q}` : "", ...nested].filter(Boolean).join(separator)].filter(Boolean).join(", ");
   }).join(", ");
   const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
   const children = (expression.children ?? []).map((child) => child.group
@@ -787,6 +788,7 @@ function RelatedFilterChipGroup({
     findFilter?: { q?: string };
     objectFilter?: Record<string, unknown>;
     mode?: "atLeastOne" | "every" | "none";
+    conditionOperator?: "and" | "or";
     exclude?: boolean;
     _savedFilterName?: string;
     _matchAll?: boolean;
@@ -798,11 +800,12 @@ function RelatedFilterChipGroup({
   const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
   const EntityIcon = def.entityType === "performers" ? Users : Film;
   const relationshipMode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
+  const conditionWord = related.conditionOperator === "or" ? "any" : "all";
   const modeLabel = relationshipMode === "every"
-    ? `Every ${singular} matches all`
+    ? `Every ${singular} matches ${conditionWord}`
     : relationshipMode === "none"
-      ? `No ${singular} matches all`
-      : `At least one ${singular} matching all`;
+      ? `No ${singular} matches ${conditionWord}`
+      : `At least one ${singular} matching ${conditionWord}`;
   const q = related.findFilter?.q?.trim();
   const groupRef = useRef<HTMLDivElement>(null);
 

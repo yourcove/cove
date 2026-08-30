@@ -61,28 +61,27 @@ These modes quantify only relationships the current user can read. **Every** and
 
 ## Require every performer to meet either of two rules
 
-The intended rule
+To require every performer to be either 18–20 on the video date or a favorite:
 
-> Every performer was 18–20 on the video date, or is a favorite.
+1. Select **Every performer matches**.
+2. Set **Age (then)** to **Between** `18` and `20`.
+3. Set **Favorite** to **True**.
+4. Once both conditions are present, change **Match all conditions** to **Match any condition**.
 
-cannot yet be entered directly as an **OR** group inside the related-performer workspace. For performers with known ages, use the logically equivalent exclusion:
-
-1. Select **No performer matches**.
-2. Set **Age (then)** to **Not Between** `18` and `20`.
-3. Set **Favorite** to **False**.
-4. Keep those two conditions joined with **AND**.
-
-This asks Cove to reject videos containing a performer who is both outside the age range and not a favorite:
-
-`NOT EXISTS performer (age is outside 18–20 AND performer is not a favorite)`
-
-By De Morgan’s law, that is equivalent to:
+The relationship mode applies to performers, while the condition operator applies inside each performer:
 
 `EVERY performer (age is 18–20 OR performer is a favorite)`
 
-### Missing-age limitation
+## Match an occurrence tag or a performer property
 
-**Not Between** requires the performer’s birthdate and the video date. A performer whose age cannot be calculated does not match the excluded condition, so this workaround does not reject that performer. Direct nested **OR** support should define how unknown ages behave before this recipe is published as a general solution.
+To find videos where an appearance has selected performer occurrence tags or the video contains a favorite performer:
+
+1. Add **Performer Occurrence Tags** with the required tags.
+2. Add **Related Performers**, then set **Favorite** to **True**.
+3. Return to the main filter dialog and choose **Combine filters…**.
+4. Put the occurrence-tag condition and related-performer condition in an **OR** group.
+
+These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** only when the alternatives are properties of the related performer itself.
 
 ## Choose the correct performer tags
 
@@ -99,7 +98,6 @@ Before removing this page’s draft status:
 
 - verify every recipe through the current keyboard workflow
 - add screenshots only after the related-performer grouping interface is settled
-- decide whether nested **AND**/**OR** groups belong inside the related-entity workspace
-- define missing-value behavior for negated age conditions
+- decide whether related-entity conditions need groups nested more deeply than one **Match all**/**Match any** choice
 - confirm the labels and result semantics against the released backend
 - remove implementation-oriented caveats that no longer apply
