@@ -1,0 +1,105 @@
+---
+title: Advanced search recipes
+description: Build less common Cove searches with repeated filters, related entities, and grouped conditions.
+draft: true
+---
+
+This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the advanced-filter experience and the examples are still under review.
+
+Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **AND** or **OR** group.
+
+## Match a performer’s age when a video was made
+
+To find videos containing a performer who was between 18 and 20 on the video date:
+
+1. Open **Videos**, then **Filters**.
+2. Select **Related Performers**.
+3. Leave **Relationship match mode** set to **At least one matching performer**.
+4. Select **Age (then)**, choose **Between**, and enter `18` and `20`.
+5. Apply the filters.
+
+**Age (then)** compares each performer’s birthdate with the video date. It is different from **Age (now)**, which uses the performer’s current age. A performer needs both a birthdate and a dated video for **Age (then)** to match.
+
+## Require performers from two different groups
+
+To find a video containing both a male performer aged 20–30 and a female performer aged 30–40, add two **Related Performers** conditions:
+
+| Related-performer condition | Gender | Age (then) |
+| --- | --- | --- |
+| First | Male | Between 20 and 30 |
+| Second | Female | Between 30 and 40 |
+
+Keep the two related-performer conditions joined with **AND**. Each condition must match one performer, while the filters inside each condition must match the same performer. The male and female requirements may therefore be satisfied by different people in the video.
+
+Do not combine gender and both age ranges inside one related-performer condition. Conditions inside that workspace describe one performer.
+
+## Repeat one filter with different operators
+
+Some searches need the same criterion more than once. For example, videos outside a date interval can be expressed as:
+
+- **Date** is before `2000-01-01`
+- **OR**
+- **Date** is after `2020-01-01`
+
+Add the first **Date** condition, choose **Add another Date**, and use **Combine filters…** to change their group from **AND** to **OR**.
+
+The same pattern applies when one string criterion must include one value and exclude another, such as a URL that includes one domain fragment but excludes a path fragment.
+
+## Control how related entities match
+
+The relationship selector changes how a related-entity condition is applied:
+
+| Mode | Meaning |
+| --- | --- |
+| **At least one matching performer** | One visible related performer must satisfy the conditions. |
+| **Every performer matches** | The video must have a visible performer, and every visible performer must satisfy the conditions. |
+| **No performer matches** | The video must have a visible performer, and none of its visible performers may satisfy the conditions. |
+
+For example, choose **Every performer matches** with **Rating** greater than or equal to four stars to find videos where every visible performer meets that rating threshold.
+
+These modes quantify only relationships the current user can read. **Every** and **No** both require at least one visible related entity; an empty relationship does not pass automatically.
+
+## Require every performer to meet either of two rules
+
+The intended rule
+
+> Every performer was 18–20 on the video date, or is a favorite.
+
+cannot yet be entered directly as an **OR** group inside the related-performer workspace. For performers with known ages, use the logically equivalent exclusion:
+
+1. Select **No performer matches**.
+2. Set **Age (then)** to **Not Between** `18` and `20`.
+3. Set **Favorite** to **False**.
+4. Keep those two conditions joined with **AND**.
+
+This asks Cove to reject videos containing a performer who is both outside the age range and not a favorite:
+
+`NOT EXISTS performer (age is outside 18–20 AND performer is not a favorite)`
+
+By De Morgan’s law, that is equivalent to:
+
+`EVERY performer (age is 18–20 OR performer is a favorite)`
+
+### Missing-age limitation
+
+**Not Between** requires the performer’s birthdate and the video date. A performer whose age cannot be calculated does not match the excluded condition, so this workaround does not reject that performer. Direct nested **OR** support should define how unknown ages behave before this recipe is published as a general solution.
+
+## Choose the correct performer tags
+
+Video search exposes two different tag relationships:
+
+- **Performer Occurrence Tags** are attached to a performer’s appearance in one video.
+- **Related Performers → Tags** are permanent tags attached to the performer record.
+
+Use occurrence tags for facts about a specific appearance. Use related-performer tags for stable performer metadata.
+
+## Review before publication
+
+Before removing this page’s draft status:
+
+- verify every recipe through the current keyboard workflow
+- add screenshots only after the related-performer grouping interface is settled
+- decide whether nested **AND**/**OR** groups belong inside the related-entity workspace
+- define missing-value behavior for negated age conditions
+- confirm the labels and result semantics against the released backend
+- remove implementation-oriented caveats that no longer apply
