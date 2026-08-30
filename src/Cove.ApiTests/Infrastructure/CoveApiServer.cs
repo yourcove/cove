@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using Cove.Core.DTOs;
 using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
+using Cove.Data.Auth;
 
 namespace Cove.ApiTests.Infrastructure;
 
@@ -18,6 +19,8 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private const string FaceSuggestionProviderDirectoryName = "com.cove.api-test-face-provider";
     private const string FaceSuggestionProviderBuildDirectoryName = "face-suggestion-provider";
     internal static readonly TimeSpan StartupReadinessTimeout = TimeSpan.FromMinutes(10);
+    private static readonly Lazy<string> PersonaPasswordHash = new(
+        () => PasswordHasher.HashPassword(ApiTestUsers.Password));
 
     private readonly PostgreSqlTestDatabase _database;
     private readonly MetadataServiceSimulator _metadataService;
@@ -232,21 +235,29 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         var users = new Dictionary<string, CoveClient>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var owner = await CreateOwnerAsync(cancellationToken);
-            users.Add(owner.Username, owner);
-            foreach (var (username, displayName) in new[]
+            using var provisionResponse = await client.PostAsJsonAsync(
+                "/health/test-personas",
+                new
+                {
+                    passwordHash = PersonaPasswordHash.Value,
+                    personas = new[]
+                    {
+                        new { username = ApiTestUsers.Owner, displayName = "Owner", role = BuiltinRoles.Owner, isSystem = true },
+                        new { username = ApiTestUsers.Eva, displayName = "Eva", role = BuiltinRoles.Member, isSystem = false },
+                        new { username = ApiTestUsers.Anthony, displayName = "Anthony", role = BuiltinRoles.Member, isSystem = false },
+                    },
+                },
+                ApiJson.Options,
+                cancellationToken);
+            var sessions = await ApiResponse.ReadAsync<AuthenticationResponse[]>(
+                provisionResponse,
+                "POST /health/test-personas",
+                cancellationToken);
+            foreach (var session in sessions)
             {
-                (ApiTestUsers.Eva, "Eva"),
-                (ApiTestUsers.Anthony, "Anthony"),
-            })
-            {
-                await owner.CreateUserAsync(new CreateUserRequest(
-                    username,
-                    ApiTestUsers.Password,
-                    DisplayName: displayName,
-                    Roles: [BuiltinRoles.Member]), cancellationToken);
-                var member = await CreateTestSessionAsync(username, cancellationToken);
-                users.Add(member.Username, member);
+                if (string.IsNullOrWhiteSpace(session.Token) || string.IsNullOrWhiteSpace(session.Username))
+                    throw new InvalidOperationException("The test persona response did not contain a username and access token.");
+                users.Add(session.Username, new CoveClient(session.Username, BaseAddress, session.Token));
             }
             return users;
         }
@@ -265,43 +276,6 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
 
     internal Task WaitForExitAsync(CancellationToken cancellationToken = default)
         => _process.WaitForExitAsync(cancellationToken);
-
-    private async Task<CoveClient> CreateOwnerAsync(CancellationToken cancellationToken)
-    {
-        using var client = new HttpClient { BaseAddress = BaseAddress };
-        using var response = await client.PostAsJsonAsync(
-            "/api/auth/bootstrap-owner",
-            new { username = ApiTestUsers.Owner, password = ApiTestUsers.Password },
-            ApiJson.Options,
-            cancellationToken);
-        var login = await ApiResponse.ReadAsync<AuthenticationResponse>(
-            response,
-            "POST /api/auth/bootstrap-owner",
-            cancellationToken);
-
-        if (string.IsNullOrWhiteSpace(login.Token))
-            throw new InvalidOperationException("The owner bootstrap response did not contain an access token.");
-
-        return new CoveClient(ApiTestUsers.Owner, BaseAddress, login.Token);
-    }
-
-    private async Task<CoveClient> CreateTestSessionAsync(
-        string username,
-        CancellationToken cancellationToken)
-    {
-        using var client = CreateLifecycleClient();
-        using var response = await client.PostAsync(
-            $"/health/test-session/{Uri.EscapeDataString(username)}",
-            content: null,
-            cancellationToken);
-        var login = await ApiResponse.ReadAsync<AuthenticationResponse>(
-            response,
-            "POST /health/test-session/{username}",
-            cancellationToken);
-        if (string.IsNullOrWhiteSpace(login.Token))
-            throw new InvalidOperationException($"The test session response for '{username}' did not contain an access token.");
-        return new CoveClient(username, BaseAddress, login.Token);
-    }
 
     public async ValueTask DisposeAsync()
     {
@@ -600,5 +574,5 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     [GeneratedRegex(@"Now listening on:\s+(http://\S+)", RegexOptions.CultureInvariant)]
     private static partial Regex ListeningAddressRegex();
 
-    private sealed record AuthenticationResponse(string Token);
+    private sealed record AuthenticationResponse(string Token, string Username);
 }

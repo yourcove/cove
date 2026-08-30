@@ -11,16 +11,25 @@ public sealed class AuthSessionApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
-    public async Task GivenTestSessionEndpoint_WhenResetTokenIsMissing_ThenEndpointIsHidden()
+    public async Task GivenTestPersonaEndpoint_WhenResetTokenIsMissing_ThenEndpointIsHidden()
     {
         using var client = new HttpClient { BaseAddress = ApiUri };
 
         using var response = await client.PostAsync(
-            $"/health/test-session/{ApiTestUsers.Eva}",
+            "/health/test-personas",
             content: null,
             TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        using var wrongTokenClient = new HttpClient { BaseAddress = ApiUri };
+        wrongTokenClient.DefaultRequestHeaders.Add("X-Cove-Test-Reset-Token", "wrong-token");
+        using var wrongTokenResponse = await wrongTokenClient.PostAsync(
+            "/health/test-personas",
+            content: null,
+            TestContext.Current.CancellationToken);
+
+        wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

@@ -15,6 +15,7 @@ using Cove.Api.Hubs;
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Entities.Galleries;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
@@ -719,10 +720,9 @@ try
             return Results.NoContent();
         }).AllowAnonymous();
 
-        app.MapPost("/health/test-session/{username}", async (
-            string username,
+        app.MapPost("/health/test-personas", async (
             HttpContext httpContext,
-            IUserService users,
+            CoveContext db,
             ITokenService tokens,
             CancellationToken cancellationToken) =>
         {
@@ -736,16 +736,52 @@ try
                 return Results.NotFound();
             }
 
-            var user = await users.FindByUsernameAsync(username, cancellationToken);
-            if (user is null)
-                return Results.NotFound();
+            var request = await httpContext.Request.ReadFromJsonAsync<IntegrationTestPersonaProvisionRequest>(
+                cancellationToken: cancellationToken);
+            if (request is null)
+                return Results.BadRequest();
 
-            var pair = await tokens.IssueForUserAsync(
-                user.Id,
-                httpContext.Connection.RemoteIpAddress?.ToString(),
-                httpContext.Request.Headers.UserAgent.ToString(),
-                cancellationToken);
-            return Results.Ok(new LoginResponse(pair.AccessToken, pair.User.Username));
+            var roleNames = request.Personas.Select(persona => persona.Role).Distinct().ToArray();
+            var roles = await db.Roles
+                .Where(role => roleNames.Contains(role.Name))
+                .ToDictionaryAsync(role => role.Name, StringComparer.Ordinal, cancellationToken);
+            if (roles.Count != roleNames.Length)
+                return Results.Problem("One or more integration-test roles are unavailable.");
+
+            var now = DateTime.UtcNow;
+            var users = request.Personas.Select(persona => new User
+            {
+                Username = persona.Username,
+                DisplayName = persona.DisplayName,
+                PasswordHash = request.PasswordHash,
+                PasswordAlgo = Cove.Data.Auth.PasswordHasher.Algorithm,
+                IsActive = true,
+                IsLocked = false,
+                IsSystem = persona.IsSystem,
+                CreatedAt = now,
+                UpdatedAt = now,
+            }).ToArray();
+            db.Users.AddRange(users);
+            await db.SaveChangesAsync(cancellationToken);
+            db.UserRoleAssignments.AddRange(users.Zip(request.Personas, (user, persona) => new UserRoleAssignment
+            {
+                UserId = user.Id,
+                RoleId = roles[persona.Role].Id,
+                GrantedAt = now,
+            }));
+            await db.SaveChangesAsync(cancellationToken);
+
+            var sessions = new List<LoginResponse>(users.Length);
+            foreach (var user in users)
+            {
+                var pair = await tokens.IssueForUserAsync(
+                    user.Id,
+                    httpContext.Connection.RemoteIpAddress?.ToString(),
+                    httpContext.Request.Headers.UserAgent.ToString(),
+                    cancellationToken);
+                sessions.Add(new LoginResponse(pair.AccessToken, pair.User.Username));
+            }
+            return Results.Ok(sessions);
         }).AllowAnonymous();
 
         app.MapPost("/health/test-shutdown", (
@@ -1022,3 +1058,13 @@ finally
 public partial class Program
 {
 }
+
+internal sealed record IntegrationTestPersonaProvisionRequest(
+    string PasswordHash,
+    IReadOnlyList<IntegrationTestPersona> Personas);
+
+internal sealed record IntegrationTestPersona(
+    string Username,
+    string DisplayName,
+    string Role,
+    bool IsSystem);
