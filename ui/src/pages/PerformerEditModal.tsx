@@ -76,11 +76,12 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(performer.remoteIds.map((remoteId) => ({ ...remoteId })));
   const trimmedTagSearch = tagSearch.trim();
 
-  const { data: tagResults, isLoading: tagResultsLoading } = useQuery({
+  const { data: tagResults, isLoading: tagResultsLoading, isPlaceholderData: tagResultsPlaceholder } = useQuery({
     queryKey: ["performer-tags-search", trimmedTagSearch],
     queryFn: () => tagsApi.find({ q: trimmedTagSearch, perPage: 20, sort: "name", direction: "asc" }),
     enabled: trimmedTagSearch.length > 0,
     staleTime: 60000,
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {
@@ -205,20 +206,23 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     const items: AutocompleteItem<TagAutocompleteValue>[] = filteredTags.map((tag) => ({
       key: `tag:${tag.id}`,
       value: { kind: "tag", tag },
+      disabled: tagResultsPlaceholder,
     }));
     if (showTagCreateOption) {
       items.push({
-        key: `create:${trimmedTagSearch.toLowerCase()}`,
+        key: "create",
         value: { kind: "create", query: trimmedTagSearch },
         disabled: tagCreateMutation.isPending,
       });
     }
     return items;
-  }, [filteredTags, showTagCreateOption, tagCreateMutation.isPending, trimmedTagSearch]);
+  }, [filteredTags, showTagCreateOption, tagCreateMutation.isPending, tagResultsPlaceholder, trimmedTagSearch]);
   const tagAutocomplete = useAutocomplete({
     items: tagAutocompleteItems,
     inputValue: tagSearch,
     onInputValueChange: setTagSearch,
+    busy: tagResultsPlaceholder,
+    preserveActiveKeyOnInputChange: true,
     onSelect: (item) => {
       if (item.kind === "create") {
         tagCreateMutation.mutate(item.query);
