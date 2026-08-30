@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.Auth;
@@ -81,6 +82,30 @@ public sealed class AuthSessionApiTests(
         redeemedUser.GetProperty("roles").EnumerateArray().Select(role => role.GetString()).Should().Contain(BuiltinRoles.Member);
         (await owner.GetUserAsync(int.Parse(redeemedUser.GetProperty("id").GetString()!), TestContext.Current.CancellationToken)).DisplayName.Should().Be("Invited API user");
         (await owner.TryRedeemInviteStatusAsync(invite.Token, password, username, TestContext.Current.CancellationToken)).Should().Be(HttpStatusCode.Gone);
+    }
+
+    [Fact]
+    [CoversEndpoint("POST", "/api/auth/invite-redeem")]
+    public async Task GivenPendingInvite_WhenPasswordIsTooShort_ThenRedemptionReturnsValidationFailureWithoutInternalDetails()
+    {
+        var owner = AsUser();
+        var username = $"invite-weak-password-{Guid.NewGuid():N}";
+        var invite = await owner.CreatePendingUserInviteAsync(new CreateInviteRequest(
+            Username: username,
+            DisplayName: "Invited API user",
+            Roles: [BuiltinRoles.Member]), TestContext.Current.CancellationToken);
+        using var client = new HttpClient { BaseAddress = ApiUri };
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/auth/invite-redeem",
+            new { invite.Token, Password = "short", Username = username },
+            TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        body.Should().Contain("Password must be 8-200 characters.");
+        body.Should().NotContain("System.InvalidOperationException");
+        body.Should().NotContain("StackTrace");
     }
 
     [Fact]
