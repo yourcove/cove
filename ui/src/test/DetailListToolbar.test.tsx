@@ -346,8 +346,8 @@ describe("DetailListToolbar", () => {
     await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
 
     await user.click(screen.getByRole("button", { name: "Close filters" }));
-    await user.click(screen.getByRole("button", { name: "Edit OR group in advanced filters" }));
-    expect(screen.getByRole("heading", { name: "Advanced filter" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit OR group in Combine Filters" }));
+    expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
   });
 
   it("normalizes a legacy performer-favorite chip before editing or removing it", async () => {

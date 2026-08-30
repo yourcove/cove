@@ -4,9 +4,22 @@ description: Build less common Cove searches with repeated filters, related enti
 draft: true
 ---
 
-This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the advanced-filter experience and the examples are still under review.
+This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the **Combine Filters** experience and the examples are still under review.
 
 Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **AND** or **OR** group.
+
+## Combine filters into groups
+
+**Combine Filters** represents parentheses as nested blocks. Each block has one operator:
+
+- **All (AND)** requires every direct condition or group in the block.
+- **Any (OR)** requires at least one direct condition or group in the block.
+
+Select two or more conditions in the same block, choose **Group selected…**, and select the operator for the new group. Operators shown between rows reflect the operator chosen for their surrounding block. Use **Ungroup** to remove one pair of logical parentheses without deleting its conditions.
+
+Choose **Explain this search** for a structured plain-English outline of the current groups. The explanation follows edits immediately and is useful for checking which conditions belong inside each set of parentheses before applying the search.
+
+The complete workflow is keyboard accessible. Tab reaches every control. When a condition or group selector has focus, use the arrow keys to move through the structure, Space to select, Enter to edit, Alt+Up or Alt+Down to reorder siblings, Ctrl/Cmd+G to group selected siblings, and Ctrl/Cmd+Shift+G to ungroup. Escape returns to the preceding filter view.
 
 ## Match a performer’s age when a video was made
 
@@ -98,6 +111,6 @@ Before removing this page’s draft status:
 
 - verify every recipe through the current keyboard workflow
 - add screenshots only after the related-performer grouping interface is settled
-- decide whether related-entity conditions need groups nested more deeply than one **Match all**/**Match any** choice
+- verify the **Combine Filters** nesting, explanation, and shortcut descriptions against the final interface
 - confirm the labels and result semantics against the released backend
 - remove implementation-oriented caveats that no longer apply

@@ -1411,6 +1411,7 @@ export function ListPage({
           customSections={mergedCustomFilterSections}
           showCustomSectionDivider={showCustomFilterDivider}
           supportsFilterExpressions={supportsFilterExpressions}
+          subjectLabel={title.toLowerCase()}
           onApply={(f) => {
             if (pageKey) {
               trackInteraction({

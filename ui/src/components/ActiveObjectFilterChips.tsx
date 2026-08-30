@@ -705,7 +705,7 @@ function FilterExpressionChipDisplay({
   return (
     <span data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
       {onEdit ? (
-        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression" })} className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/25" aria-label={`Edit ${operator} group in advanced filters`}>{operator}</button>
+        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression" })} className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/25" aria-label={`Edit ${operator} group in Combine Filters`}>{operator}</button>
       ) : <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span>}
       {(expression.children ?? []).map((child, index) => child.group ? (
         <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} />
@@ -1041,7 +1041,7 @@ function ActiveObjectFilterChipsContent({
         const isAuxiliaryToggle = def?.auxiliaryToggleKey === key;
         const isFilterExpression = key === "_filterExpression";
         const isExpressionLeaf = Boolean(expressionPath);
-        const label = isFilterExpression ? "Advanced filter" : customSection?.label ?? (isAuxiliaryToggle ? def?.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
+        const label = isFilterExpression ? "Combine Filters" : customSection?.label ?? (isAuxiliaryToggle ? def?.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
         if (!isExpressionLeaf && !customSection && def?.type === "related") {
           return (
             <RelatedFilterChipGroup
