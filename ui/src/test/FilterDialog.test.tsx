@@ -102,6 +102,32 @@ describe("FilterDialog", () => {
     await waitFor(() => expect(screen.getByLabelText("Saved performer filter")).toHaveFocus());
   });
 
+  it("navigates related filter criteria with vertical arrow keys", () => {
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    const search = screen.getByLabelText("Search performer filter criteria");
+    search.focus();
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    expect(screen.getByRole("tab", { name: "Text search" })).toHaveFocus();
+
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(screen.getByRole("tab", { name: "Age (now)" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(screen.getByRole("tab", { name: "Age (then)" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(screen.getByRole("tab", { name: "Age (now)" })).toHaveFocus();
+
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(screen.getByRole("tab", { name: "Weight" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "Home" });
+    expect(screen.getByRole("tab", { name: "Text search" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(search).toHaveFocus();
+  });
+
   it("opens at the root when the first active filter is a related filter", () => {
     renderWithQueryClient(
       <FilterDialog

@@ -2675,8 +2675,10 @@ function RelatedFilterWorkspace({
     ...(criterion.relatedCriteria?.() ?? getRelatedCriteria(entityType)),
   ], [criterion, entityType]);
   const [criteriaSearch, setCriteriaSearch] = useState("");
+  const [navigatorFocusKey, setNavigatorFocusKey] = useState<string | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const criteriaSearchRef = useRef<HTMLInputElement>(null);
+  const criterionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const savedFilterSelectRef = useRef<HTMLSelectElement>(null);
   const relationshipModeRef = useRef<HTMLSelectElement>(null);
   const matchAnyRef = useRef<HTMLButtonElement>(null);
@@ -2791,18 +2793,49 @@ function RelatedFilterWorkspace({
   const activeConditionCount = nestedCriteria.filter((candidate) => isCriterionValueValid(getNestedValue(candidate), candidate)).length
     + (related.findFilter?.q?.trim() ? 1 : 0);
   const showTextSearch = !criteriaSearch.trim() || "text search".includes(criteriaSearch.trim().toLowerCase());
+  const visibleNavigatorKeys = [
+    ...(showTextSearch ? ["search"] : []),
+    ...activeCriteria.map((candidate) => candidate.id),
+    ...inactiveCriteria.map((candidate) => candidate.id),
+  ];
+  const selectedNavigatorKey = editingSearch ? "search" : selectedCriterion?.id;
+  const rovingNavigatorKey = navigatorFocusKey && visibleNavigatorKeys.includes(navigatorFocusKey)
+    ? navigatorFocusKey
+    : selectedNavigatorKey && visibleNavigatorKeys.includes(selectedNavigatorKey)
+    ? selectedNavigatorKey
+    : visibleNavigatorKeys[0];
+  const handleNavigatorKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, key: string) => {
+    const index = visibleNavigatorKeys.indexOf(key);
+    if (event.key === "ArrowUp" && index === 0) {
+      event.preventDefault();
+      criteriaSearchRef.current?.focus();
+      return;
+    }
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowDown") nextIndex = Math.min(visibleNavigatorKeys.length - 1, index + 1);
+    if (event.key === "ArrowUp") nextIndex = Math.max(0, index - 1);
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = visibleNavigatorKeys.length - 1;
+    if (nextIndex === undefined || nextIndex < 0) return;
+    event.preventDefault();
+    criterionButtonRefs.current.get(visibleNavigatorKeys[nextIndex])?.focus();
+  };
 
   const renderCriterionRow = (nestedCriterion: CriterionDefinition) => {
     const active = isCriterionValueValid(getNestedValue(nestedCriterion), nestedCriterion);
     const selected = selectedCriterion?.id === nestedCriterion.id;
     return (
       <button
+        ref={(element) => { if (element) criterionButtonRefs.current.set(nestedCriterion.id, element); else criterionButtonRefs.current.delete(nestedCriterion.id); }}
         key={nestedCriterion.id}
         type="button"
         role="tab"
         aria-selected={selected}
         data-active={active ? "true" : "false"}
+        tabIndex={nestedCriterion.id === rovingNavigatorKey ? 0 : -1}
         onClick={() => select({ facet: "criterion", nestedCriterionId: nestedCriterion.id })}
+        onFocus={() => setNavigatorFocusKey(nestedCriterion.id)}
+        onKeyDown={(event) => handleNavigatorKeyDown(event, nestedCriterion.id)}
         className={`flex min-h-11 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition ${selected ? "border-accent bg-accent/15 text-foreground" : active ? "border-accent/30 bg-accent/5 text-foreground hover:bg-card" : "border-transparent text-secondary hover:border-border hover:bg-card hover:text-foreground"}`}
       >
         <span className="min-w-0 flex-1 truncate font-medium">{nestedCriterion.label}</span>
@@ -2874,6 +2907,11 @@ function RelatedFilterWorkspace({
                 aria-label={`Search ${singular} filter criteria`}
                 value={criteriaSearch}
                 onChange={(event) => setCriteriaSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowDown" || visibleNavigatorKeys.length === 0) return;
+                  event.preventDefault();
+                  criterionButtonRefs.current.get(visibleNavigatorKeys[0])?.focus();
+                }}
                 placeholder={`Search ${singular} filters`}
                 className="min-h-11 w-full rounded-lg border border-border bg-input py-2 pl-10 pr-3 text-base text-foreground placeholder:text-muted focus:border-accent focus:outline-none md:text-sm"
               />
@@ -2884,11 +2922,15 @@ function RelatedFilterWorkspace({
               <section className="mb-4" aria-label="Quick">
                 <h4 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">Quick</h4>
                 <button
+                  ref={(element) => { if (element) criterionButtonRefs.current.set("search", element); else criterionButtonRefs.current.delete("search"); }}
                   type="button"
                   role="tab"
                   aria-selected={editingSearch}
                   data-active={related.findFilter?.q?.trim() ? "true" : "false"}
+                  tabIndex={rovingNavigatorKey === "search" ? 0 : -1}
                   onClick={() => select({ facet: "search" })}
+                  onFocus={() => setNavigatorFocusKey("search")}
+                  onKeyDown={(event) => handleNavigatorKeyDown(event, "search")}
                   className={`flex min-h-11 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition ${editingSearch ? "border-accent bg-accent/15 text-foreground" : related.findFilter?.q?.trim() ? "border-accent/30 bg-accent/5 text-foreground hover:bg-card" : "border-transparent text-secondary hover:border-border hover:bg-card hover:text-foreground"}`}
                 >
                   <Search className="h-4 w-4 shrink-0" />
