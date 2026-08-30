@@ -172,6 +172,7 @@ export function formatFilterChipValue(def: CriterionDefinition | undefined, valu
     _selectedValues?: string[];
     findFilter?: { q?: string };
     objectFilter?: Record<string, unknown>;
+    mode?: "atLeastOne" | "every" | "none";
     exclude?: boolean;
     _savedFilterName?: string;
     _matchAll?: boolean;
@@ -189,7 +190,10 @@ export function formatFilterChipValue(def: CriterionDefinition | undefined, valu
     const details = criterion._savedFilterName?.trim()
       || [q ? `search “${q}”` : "", conditionCount > 0 ? `${conditionCount} ${conditionCount === 1 ? "condition" : "conditions"}` : ""].filter(Boolean).join(" · ")
       || (criterion._matchAll ? `any ${singular}` : `matching ${singular}`);
-    return criterion.exclude ? `No match · ${details}` : details;
+    const mode = criterion.mode ?? (criterion.exclude ? "none" : "atLeastOne");
+    if (mode === "every") return `Every ${singular} · ${details}`;
+    if (mode === "none") return `No ${singular} matches · ${details}`;
+    return details;
   }
 
   if (def?.type === "tagDuration") {
@@ -655,7 +659,7 @@ function ExpressionLeafSummary({
           const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
           return (
             <span key={key} className="inline-flex min-w-0 flex-wrap items-center gap-1" aria-label={`${def.label} condition`}>
-              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.exclude ? `No ${def.label}` : def.label}</span>
+              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label}</span>
               {q ? <span className="rounded bg-card px-1.5 py-0.5">Search “{q}”</span> : null}
               {nestedEntries.map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => (
                 <span key={nestedKey} className="rounded bg-card px-1.5 py-0.5">
@@ -737,7 +741,7 @@ function filterExpressionAccessibleSummary(
     const contextObject = Object.fromEntries((def.relatedContextCriteria ?? []).flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, related[criterion.filterKey]]] : []));
     const nested = getLogicalFilterEntries(nestedCriteria, { ...contextObject, ...nestedObject }).map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => `${nestedDef?.label ?? relatedFallbackLabel(nestedKey)} ${expressionEntrySummary(nestedDef, nestedValue, nestedEndpoint, entityNameMaps, metadataServers, ratingOptions)}`);
     const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
-    return [related.exclude ? `No ${def.label}` : def.label, q ? `search ${q}` : "", ...nested].filter(Boolean).join(", ");
+    return [related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label, q ? `search ${q}` : "", ...nested].filter(Boolean).join(", ");
   }).join(", ");
   const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
   const children = (expression.children ?? []).map((child) => child.group
@@ -782,6 +786,7 @@ function RelatedFilterChipGroup({
   const related = value && typeof value === "object" ? value as {
     findFilter?: { q?: string };
     objectFilter?: Record<string, unknown>;
+    mode?: "atLeastOne" | "every" | "none";
     exclude?: boolean;
     _savedFilterName?: string;
     _matchAll?: boolean;
@@ -792,7 +797,12 @@ function RelatedFilterChipGroup({
   const nestedEntries = getLogicalFilterEntries(nestedCriteria, { ...contextFilter, ...(related.objectFilter ?? {}) });
   const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
   const EntityIcon = def.entityType === "performers" ? Users : Film;
-  const modeLabel = related.exclude ? `No ${singular} matching all` : `At least one ${singular} matching all`;
+  const relationshipMode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
+  const modeLabel = relationshipMode === "every"
+    ? `Every ${singular} matches all`
+    : relationshipMode === "none"
+      ? `No ${singular} matches all`
+      : `At least one ${singular} matching all`;
   const q = related.findFilter?.q?.trim();
   const groupRef = useRef<HTMLDivElement>(null);
 

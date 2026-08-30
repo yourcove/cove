@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cove.Core.Common;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 using Cove.Plugins;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -71,6 +72,22 @@ public sealed class JsonEnumWireContractTests
 
         Assert.Contains("\"status\":\"running\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"status\":2", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(RelatedFilterMode.AtLeastOne, "atLeastOne")]
+    [InlineData(RelatedFilterMode.Every, "every")]
+    [InlineData(RelatedFilterMode.None, "none")]
+    public void Related_filter_modes_round_trip_as_camel_case_strings(RelatedFilterMode mode, string wireValue)
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var json = JsonSerializer.Serialize(new RelatedModePayload(mode), options);
+        var roundTrip = JsonSerializer.Deserialize<RelatedModePayload>(json, options);
+
+        Assert.Contains($"\"mode\":\"{wireValue}\"", json, StringComparison.Ordinal);
+        Assert.Equal(mode, roundTrip?.Mode);
     }
 
     [Theory]
@@ -335,6 +352,7 @@ public sealed class JsonEnumWireContractTests
     }
 
     private sealed record StatusPayload(AiRunStatus Status);
+    private sealed record RelatedModePayload(RelatedFilterMode Mode);
 
     private sealed record NullableStatusPayload(AiRunStatus? Status);
 

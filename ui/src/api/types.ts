@@ -2266,6 +2266,8 @@ export interface FindFilter {
 export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>> {
   findFilter?: Pick<FindFilter, "q">;
   objectFilter?: TObjectFilter;
+  mode?: "atLeastOne" | "every" | "none";
+  /** Legacy negative mode retained when loading older saved filters. */
   exclude?: boolean;
   ageAtHostDateCriterion?: IntCriterion;
   /** Client-only label retained with a saved-filter snapshot for a readable chip summary. */

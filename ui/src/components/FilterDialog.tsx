@@ -907,6 +907,7 @@ function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefi
   const objectFilter = sanitizeFilterCriteria(rawObjectFilter, nestedCriteria, unknownValues);
   const q = raw.findFilter?.q?.trim();
   const matchAll = raw._matchAll === true;
+  const mode = raw.mode === "every" || raw.mode === "none" ? raw.mode : undefined;
   const contextValues = (criterion.relatedContextCriteria ?? []).reduce<Record<string, unknown>>((result, contextCriterion) => {
     const contextValue = (raw as Record<string, unknown>)[contextCriterion.filterKey];
     if (isCriterionValueValid(contextValue, contextCriterion)) result[contextCriterion.filterKey] = contextValue;
@@ -917,6 +918,7 @@ function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefi
   return {
     ...(q ? { findFilter: { q } } : {}),
     ...(Object.keys(objectFilter).length > 0 ? { objectFilter } : {}),
+    ...(mode ? { mode } : {}),
     ...(raw.exclude ? { exclude: true } : {}),
     ...(raw._savedFilterName?.trim() ? { _savedFilterName: raw._savedFilterName.trim() } : {}),
     ...(matchAll ? { _matchAll: true } : {}),
@@ -2394,10 +2396,11 @@ function RelatedFilterWorkspace({
   const workspaceRef = useRef<HTMLDivElement>(null);
   const criteriaSearchRef = useRef<HTMLInputElement>(null);
   const savedFilterSelectRef = useRef<HTMLSelectElement>(null);
-  const positiveRelationshipRef = useRef<HTMLButtonElement>(null);
+  const relationshipModeRef = useRef<HTMLSelectElement>(null);
   const matchAnyRef = useRef<HTMLButtonElement>(null);
   const initialSelectionRef = useRef(selection);
   const related = value ?? {};
+  const relationshipMode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
   const objectFilter = related.objectFilter && typeof related.objectFilter === "object"
     ? related.objectFilter as Record<string, unknown>
     : {};
@@ -2417,7 +2420,7 @@ function RelatedFilterWorkspace({
     const initialSelection = initialSelectionRef.current;
     if (initialSelection?.facet === "criterion" || initialSelection?.facet === "search") return;
     const timeout = window.setTimeout(() => {
-      if (initialSelection?.facet === "mode") positiveRelationshipRef.current?.focus();
+      if (initialSelection?.facet === "mode") relationshipModeRef.current?.focus();
       else if (initialSelection?.facet === "existence") matchAnyRef.current?.focus();
       else savedFilterSelectRef.current?.focus();
     }, 0);
@@ -2474,6 +2477,7 @@ function RelatedFilterWorkspace({
     onChange({
       ...(q ? { findFilter: { q } } : {}),
       ...(hasObjectFilter ? { objectFilter: savedObjectFilter } : {}),
+      ...(related.mode ? { mode: related.mode } : {}),
       ...(related.exclude ? { exclude: true } : {}),
       _savedFilterName: savedFilter.name,
       ...(!q && !hasObjectFilter ? { _matchAll: true } : {}),
@@ -2483,7 +2487,11 @@ function RelatedFilterWorkspace({
 
   const toggleMatchAll = () => {
     if (related._matchAll) update({ _matchAll: undefined });
-    else onChange({ ...(related.exclude ? { exclude: true } : {}), _matchAll: true });
+    else onChange({
+      ...(related.mode ? { mode: related.mode } : {}),
+      ...(related.exclude ? { exclude: true } : {}),
+      _matchAll: true,
+    });
   };
 
   const filteredCriteria = useMemo(() => {
@@ -2523,25 +2531,20 @@ function RelatedFilterWorkspace({
           <h3 className="text-sm font-semibold text-foreground">Relationship</h3>
           <p className="text-xs text-muted">All conditions below must match the same related {singular}.</p>
         </div>
-        <div role="group" aria-label="Related item match" className="grid shrink-0 gap-2 sm:grid-cols-2">
-          <button
-            ref={positiveRelationshipRef}
-            type="button"
-            aria-pressed={!related.exclude}
-            onClick={() => update({ exclude: undefined })}
-            className={`min-h-10 rounded-lg border px-3 py-2 text-sm ${!related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
-          >
-            At least one matching {singular}
-          </button>
-          <button
-            type="button"
-            aria-pressed={related.exclude === true}
-            onClick={() => update({ exclude: true })}
-            className={`min-h-10 rounded-lg border px-3 py-2 text-sm ${related.exclude ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:text-foreground"}`}
-          >
-            No matching {singular}
-          </button>
-        </div>
+        <select
+          ref={relationshipModeRef}
+          aria-label="Relationship match mode"
+          value={relationshipMode}
+          onChange={(event) => {
+            const mode = event.target.value as RelatedFilterCriterion["mode"];
+            update({ mode: mode === "atLeastOne" ? undefined : mode, exclude: undefined });
+          }}
+          className="min-h-11 shrink-0 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+        >
+          <option value="atLeastOne">At least one matching {singular}</option>
+          <option value="every">Every {singular} matches</option>
+          <option value="none">No {singular} matches</option>
+        </select>
       </div>
 
       <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
@@ -2691,12 +2694,14 @@ function RelatedFilterWorkspace({
               <div className="max-w-sm">
                 <EntityIcon className="mx-auto mb-3 h-8 w-8 text-muted" />
                 <h4 className="text-lg font-semibold text-foreground">
-                  {related.exclude ? `Find ${resultPlural} without matching ${plural}` : `Find ${resultPlural} by ${singular}`}
+                  {relationshipMode === "every" ? `Find ${resultPlural} where every ${singular} matches` : relationshipMode === "none" ? `Find ${resultPlural} where no ${singular} matches` : `Find ${resultPlural} by ${singular}`}
                 </h4>
                 <p className="mt-1 text-sm text-secondary">
-                  {related.exclude
-                    ? `Show ${resultPlural} where no ${singular} matches a saved filter, the filters you add here, or both. A ${singular} counts as a match only when all filters match that same ${singular}.`
-                    : `Show ${resultPlural} with a ${singular} ${relativePronoun} matches a saved filter, the filters you add here, or both. All filters must match the same ${singular}.`}
+                  {relationshipMode === "every"
+                    ? `Show ${resultPlural} with at least one ${singular}, where every related ${singular} matches all filters.`
+                    : relationshipMode === "none"
+                      ? `Show ${resultPlural} with at least one ${singular}, where no related ${singular} matches all filters.`
+                      : `Show ${resultPlural} with a ${singular} ${relativePronoun} matches a saved filter, the filters you add here, or both. All filters must match the same ${singular}.`}
                 </p>
                 {value ? (
                   <button type="button" onClick={() => onChange(undefined)} className="mt-5 text-sm text-muted hover:text-foreground">Clear related filter</button>

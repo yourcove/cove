@@ -458,6 +458,39 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task RelatedPerformerEveryModeAppliesAgeAtVideoDateToEveryPerformer()
+    {
+        await using var context = CreateContext();
+        var age25a = CreatePerformer("Age 25 A", new DateOnly(2000, 6, 1));
+        var age25b = CreatePerformer("Age 25 B", new DateOnly(2000, 1, 1));
+        var age35 = CreatePerformer("Age 35", new DateOnly(1990, 6, 1));
+        var matches = CreateVideoWithFile("all-match", videoDate: new DateOnly(2025, 6, 2));
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = age25a });
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = age25b });
+        var mixed = CreateVideoWithFile("mixed", videoDate: new DateOnly(2025, 6, 2));
+        mixed.VideoPerformers.Add(new VideoPerformer { Performer = age25a });
+        mixed.VideoPerformers.Add(new VideoPerformer { Performer = age35 });
+        var empty = CreateVideoWithFile("empty", videoDate: new DateOnly(2025, 6, 2));
+        context.Videos.AddRange(matches, mixed, empty);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.Between, Value = 20, Value2 = 30 },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("all-match", Assert.Single(items).Title);
+    }
+
+    [Fact]
     public async Task PerformerTagsCriterion_Includes_MatchesVideosByPerformerOccurrenceTag()
     {
         await using var context = CreateContext();

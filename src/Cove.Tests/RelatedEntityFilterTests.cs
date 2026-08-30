@@ -113,6 +113,49 @@ public class RelatedEntityFilterTests
         Assert.Equal([801, 802], actualIds);
     }
 
+    [Theory]
+    [InlineData("videos", 401, 402)]
+    [InlineData("images", 501, 502)]
+    [InlineData("galleries", 601, 602)]
+    [InlineData("audios", 801, 802)]
+    [InlineData("texts", 901, 902)]
+    public async Task MediaCanRequireEveryRelatedPerformerToMatch(string entityType, int firstExpectedId, int secondExpectedId)
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var actualIds = await QueryMediaIdsAsync(fixture, entityType, new RelatedFilterCriterion<PerformerFilter>
+        {
+            Mode = RelatedFilterMode.Every,
+            ObjectFilter = new PerformerFilter
+            {
+                HeightCriterion = new IntCriterion { Modifier = CriterionModifier.LessThan, Value = 175 },
+            },
+        });
+
+        Assert.Equal([firstExpectedId, secondExpectedId], actualIds);
+    }
+
+    [Theory]
+    [InlineData("videos", 401, 402)]
+    [InlineData("images", 501, 502)]
+    [InlineData("galleries", 601, 602)]
+    [InlineData("audios", 801, 802)]
+    [InlineData("texts", 901, 902)]
+    public async Task MediaCanRequireNoRelatedPerformerToMatch(string entityType, int firstExpectedId, int secondExpectedId)
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var actualIds = await QueryMediaIdsAsync(fixture, entityType, new RelatedFilterCriterion<PerformerFilter>
+        {
+            Mode = RelatedFilterMode.None,
+            FindFilter = new FindFilter { Q = "Cora" },
+        });
+
+        Assert.Equal([firstExpectedId, secondExpectedId], actualIds);
+    }
+
     [Fact]
     public async Task PerformersCanRequireARelatedFavoriteVideo()
     {
@@ -162,6 +205,56 @@ public class RelatedEntityFilterTests
                             Modifier = CriterionModifier.Equals,
                             Value = 100,
                         },
+                    },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([301, 302, 303], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task PerformersCanRequireEveryRelatedVideoToMatch()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    ObjectFilter = new VideoFilter
+                    {
+                        DurationCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 20 },
+                    },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([302, 303], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task NoRelatedVideoModeRequiresAtLeastOneVideo()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        fixture.Context.Performers.Add(new Performer { Id = 304, Name = "No videos" });
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                {
+                    Mode = RelatedFilterMode.None,
+                    ObjectFilter = new VideoFilter
+                    {
+                        DurationCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 40 },
                     },
                 },
             },

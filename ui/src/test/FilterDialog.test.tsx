@@ -156,6 +156,54 @@ describe("FilterDialog", () => {
     });
   });
 
+  it.each([
+    ["every", "Every performer matches"],
+    ["none", "No performer matches"],
+  ] as const)("stores the %s related-performer mode from the relationship dropdown", (mode, label) => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Performers"));
+    const relationshipMode = screen.getByRole("combobox", { name: "Relationship match mode" });
+    expect(relationshipMode).toHaveValue("atLeastOne");
+    fireEvent.change(relationshipMode, { target: { value: mode } });
+    expect(screen.getByRole("option", { name: label })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "True" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        mode,
+        objectFilter: { favoriteCriterion: { value: true } },
+      },
+    });
+  });
+
+  it("preserves the relationship mode when matching any related performer", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ performerFilterCriterion: { _matchAll: true } }}
+        onApply={onApply}
+        preselectCriterion={{ criterionId: "relatedPerformers", relatedFacet: "existence" }}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Relationship match mode" }), { target: { value: "every" } });
+    fireEvent.click(screen.getByRole("button", { name: "Match any related performer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Match any related performer" }));
+    expect(screen.getByRole("combobox", { name: "Relationship match mode" })).toHaveValue("every");
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ performerFilterCriterion: { mode: "every", _matchAll: true } });
+  });
+
   it("builds a performer filter from related favorite videos", () => {
     const onApply = vi.fn();
     renderWithQueryClient(
@@ -346,7 +394,7 @@ describe("FilterDialog", () => {
     );
 
     expect(screen.getByRole("dialog", { name: "Filters / Related Performers" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: exclude ? "No matching performer" : "At least one matching performer" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("combobox", { name: "Relationship match mode" })).toHaveValue(exclude ? "none" : "atLeastOne");
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({

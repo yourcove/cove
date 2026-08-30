@@ -188,10 +188,19 @@ public class TagDurationCriterion : TagDurationClause
 }
 
 /// <summary>Filters an entity by whether it has a related entity matching another list filter.</summary>
+public enum RelatedFilterMode
+{
+    AtLeastOne,
+    Every,
+    None,
+}
+
 public class RelatedFilterCriterion<TFilter> where TFilter : class
 {
     public FindFilter? FindFilter { get; set; }
     public TFilter? ObjectFilter { get; set; }
+    public RelatedFilterMode Mode { get; set; } = RelatedFilterMode.AtLeastOne;
+    /// <summary>Legacy negative mode retained for saved-filter compatibility. New filters use <see cref="Mode"/>.</summary>
     public bool Exclude { get; set; }
     /// <summary>Optional age of the related performer on the host entity's date. Currently supported by video performer relationships.</summary>
     public IntCriterion? AgeAtHostDateCriterion { get; set; }
