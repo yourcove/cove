@@ -122,15 +122,6 @@ internal sealed class ScanJobRunner(
                     existingFiles.Count,
                     files.Count);
 
-                // Move/rename detection is only meaningful when the library already has files (a first
-                // scan has nothing to move). Gating on existing files also avoids paying for per-new-file
-                // identity lookups on the initial import, where none can possibly match.
-                var moveDetectionEnabled = config.EnableMoveDetection
-                    && await db.Set<BaseFileEntity>().AnyAsync(f => f.ZipFileId == null, ct);
-                var moveIndex = new MoveDetectionIndex { Enabled = moveDetectionEnabled };
-                if (moveDetectionEnabled)
-                    logger.LogInformation("Move/rename detection enabled for this scan.");
-
                 void PublishScanEntityEvent(string entityType, int entityId, bool isUpdate)
                 {
                     var eventType = entityType switch
@@ -263,6 +254,22 @@ internal sealed class ScanJobRunner(
                     directoryScanContext.MarkRequiresConfirmation(file.Path);
                     changedOrNewCount++;
                     filesToProcess.Add(new ScanWorkItem(file, isKnownFile, contentChanged, forceMetadataProbe));
+                }
+
+                // Load the compact identity key set once, and only when discovery found new paths that
+                // could be moves or duplicates. Workers can then reject impossible matches in memory,
+                // reserving fingerprint candidate queries for actual hash matches.
+                var moveIndexStopwatch = Stopwatch.StartNew();
+                var moveIndex = await MoveDetectionIndex.LoadAsync(
+                    db,
+                    config.EnableMoveDetection && newFileCount > 0,
+                    ct);
+                if (moveIndex.Enabled)
+                {
+                    logger.LogInformation(
+                        "Move/rename detection enabled for this scan. Loaded {FingerprintCount} stored identity fingerprints in {ElapsedMs} ms.",
+                        moveIndex.KnownFingerprintCount,
+                        moveIndexStopwatch.ElapsedMilliseconds);
                 }
 
                 // Resolve every parent folder once, up front, into a shared id map. Workers then look

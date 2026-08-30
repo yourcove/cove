@@ -48,7 +48,7 @@ internal sealed class ScanTextProcessor(
             existing.Path = BaseFileEntity.ComputePath(dirPath, basename);
 
             var existingDocument = existing.TextDocument ?? throw new InvalidOperationException($"Text file {path} is not attached to a text document");
-            await EnrichTextFileAsync(existingDocument, existing, path, ct);
+            await EnrichTextFileAsync(existingDocument, existing, path, ct, moveIndex);
             // A content change invalidates the stored phash; blank it so the generation phase recomputes it.
             if (contentChanged && scanOptions?.GenerateTextPhashes == true)
                 ScanFileIdentityService.BlankFingerprint(existing, "phash");
@@ -82,7 +82,7 @@ internal sealed class ScanTextProcessor(
                         Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
                     };
                     parentDocument.Files.Add(duplicateFile);
-                    await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct);
+                    await EnrichTextFileAsync(parentDocument, duplicateFile, path, ct, moveIndex);
                     RefreshTextSummary(parentDocument);
                     logger.LogTrace("Attached duplicate text file {NewPath} to existing text document {TextId}", path, matchedTextId);
                     return (parentDocument, true, false);
@@ -121,7 +121,7 @@ internal sealed class ScanTextProcessor(
             db.TextDocuments.Add(textDocument);
         }
 
-        await EnrichTextFileAsync(textDocument, textFile, path, ct);
+        await EnrichTextFileAsync(textDocument, textFile, path, ct, moveIndex);
         RefreshTextSummary(textDocument);
 
         logger.LogTrace("Added text document for {Path}", path);
@@ -129,7 +129,12 @@ internal sealed class ScanTextProcessor(
     }
 
 
-    private async Task EnrichTextFileAsync(TextDocument textDocument, TextFile textFile, string path, CancellationToken ct)
+    private async Task EnrichTextFileAsync(
+        TextDocument textDocument,
+        TextFile textFile,
+        string path,
+        CancellationToken ct,
+        MoveDetectionIndex? moveIndex = null)
     {
         try
         {
@@ -148,7 +153,7 @@ internal sealed class ScanTextProcessor(
         }
 
         // Always-on identity fingerprint so a later scan can recognise this file if it moves/renames.
-        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, ct);
+        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, moveIndex, ct);
         if (oshash != null)
             ScanFileIdentityService.UpsertFingerprint(textFile, "oshash", oshash);
 

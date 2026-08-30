@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Api.Services;
@@ -25,12 +26,17 @@ internal sealed class ScanFileIdentityService(IFingerprintService fingerprintSer
         CancellationToken ct)
         where TFile : BaseFileEntity
     {
-        var oshash = await ComputeOshashAsync(path, ct);
-        if (string.IsNullOrEmpty(oshash))
+        // Byte-identical files must have the same size. Most newly discovered files therefore cannot
+        // be moves or duplicates at all; avoid touching their bytes or issuing a fingerprint query.
+        if (!moveIndex.ContainsSize(stat.Size))
+            return (null, false);
+
+        var oshash = await moveIndex.GetOrComputeOshashAsync(path, ct);
+        if (string.IsNullOrEmpty(oshash) || !moveIndex.Contains(stat.Size, oshash))
             return (null, false);
 
         var candidates = await trackedSet
-            .Where(file => file.ZipFileId == null
+            .Where(file => file.ZipFileId == null && file.Size == stat.Size
                 && file.Fingerprints.Any(fingerprint => fingerprint.Type == "oshash" && fingerprint.Value == oshash))
             .ToListAsync(ct);
 
@@ -74,9 +80,10 @@ internal sealed class ScanFileIdentityService(IFingerprintService fingerprintSer
         string path,
         bool phashEnabled,
         bool md5Enabled,
+        MoveDetectionIndex? moveIndex,
         CancellationToken ct)
     {
-        var oshash = await ComputeOshashAsync(path, ct);
+        var oshash = await ComputeOshashAsync(path, moveIndex, ct);
         if (oshash != null)
             UpsertFingerprint(file, "oshash", oshash);
 
@@ -161,13 +168,85 @@ internal sealed class ScanFileIdentityService(IFingerprintService fingerprintSer
             return null;
         }
     }
+
+    internal static Task<string?> ComputeOshashAsync(
+        string path,
+        MoveDetectionIndex? moveIndex,
+        CancellationToken ct) => moveIndex != null
+            ? moveIndex.GetOrComputeOshashAsync(path, ct)
+            : ComputeOshashAsync(path, ct);
 }
 
 /// <summary>
-/// Coordinates concurrent move claims so only one discovered path re-points an existing file row.
+/// Coordinates scan-wide identity reads and concurrent move claims. Identity reads stay bounded even
+/// when move matching is disabled; <see cref="Enabled"/> only controls matching against stored rows.
 /// </summary>
 internal sealed class MoveDetectionIndex
 {
+    private const int MaxConcurrentIdentityReads = 4;
+    private const string MissingHash = "";
+    private readonly HashSet<MoveDetectionFingerprint> knownFingerprints = [];
+    private readonly HashSet<long> knownSizes = [];
+    private readonly ConcurrentDictionary<string, string> computedOshashes = new(FilesystemPaths.PathComparer);
+    private readonly SemaphoreSlim identityReadGate = new(MaxConcurrentIdentityReads, MaxConcurrentIdentityReads);
+
     public required bool Enabled { get; init; }
+    public int KnownFingerprintCount => knownFingerprints.Count;
     public ConcurrentDictionary<int, string> ClaimedFilePaths { get; } = new();
+
+    public static async Task<MoveDetectionIndex> LoadAsync(
+        CoveContext db,
+        bool enabled,
+        CancellationToken ct)
+    {
+        if (!enabled)
+            return new MoveDetectionIndex { Enabled = false };
+
+        var storedFingerprints = await db.Set<BaseFileEntity>()
+            .AsNoTracking()
+            .Where(file => file.ZipFileId == null)
+            .SelectMany(
+                file => file.Fingerprints.Where(fingerprint =>
+                    fingerprint.Type == "oshash" && fingerprint.Value != string.Empty),
+                (file, fingerprint) => new { file.Size, fingerprint.Value })
+            .Distinct()
+            .ToListAsync(ct);
+
+        var index = new MoveDetectionIndex { Enabled = storedFingerprints.Count > 0 };
+        foreach (var fingerprint in storedFingerprints)
+        {
+            index.knownFingerprints.Add(new MoveDetectionFingerprint(fingerprint.Size, fingerprint.Value));
+            index.knownSizes.Add(fingerprint.Size);
+        }
+
+        return index;
+    }
+
+    public bool ContainsSize(long size) => Enabled && knownSizes.Contains(size);
+
+    public bool Contains(long size, string oshash) =>
+        Enabled && knownFingerprints.Contains(new MoveDetectionFingerprint(size, oshash));
+
+    public async Task<string?> GetOrComputeOshashAsync(string path, CancellationToken ct)
+    {
+        if (computedOshashes.TryGetValue(path, out var cached))
+            return cached == MissingHash ? null : cached;
+
+        await identityReadGate.WaitAsync(ct);
+        try
+        {
+            if (computedOshashes.TryGetValue(path, out cached))
+                return cached == MissingHash ? null : cached;
+
+            var computed = await ScanFileIdentityService.ComputeOshashAsync(path, ct);
+            computedOshashes[path] = computed ?? MissingHash;
+            return computed;
+        }
+        finally
+        {
+            identityReadGate.Release();
+        }
+    }
 }
+
+internal readonly record struct MoveDetectionFingerprint(long Size, string OshaHash);

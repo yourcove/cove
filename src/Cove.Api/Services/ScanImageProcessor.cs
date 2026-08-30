@@ -58,6 +58,7 @@ internal sealed class ScanImageProcessor(
                     existing, path,
                     phashEnabled: scanOptions?.GenerateImagePhashes == true,
                     md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
+                    moveIndex,
                     ct);
                 // Drop the stale thumbnail so the generation phase rebuilds it from the new content.
                 if (scanOptions?.GenerateImageThumbnails == true && existing.ImageId is int changedImageId)
@@ -93,7 +94,7 @@ internal sealed class ScanImageProcessor(
                     };
                     ApplyValidatedDimensions(duplicateFile, validatedWidth, validatedHeight);
                     db.ImageFiles.Add(duplicateFile);
-                    await EnrichImageFileAsync(duplicateFile, path, ct);
+                    await EnrichImageFileAsync(duplicateFile, path, ct, moveIndex);
                     logger.LogTrace("Attached duplicate image file {NewPath} to existing image {ImageId}", path, matchedImageId);
                     return (parentImage, true, false);
                 }
@@ -136,7 +137,7 @@ internal sealed class ScanImageProcessor(
             db.Images.Add(image);
         }
 
-        await EnrichImageFileAsync(imageFile, path, ct);
+        await EnrichImageFileAsync(imageFile, path, ct, moveIndex);
 
         logger.LogTrace("Added image for {Path}", path);
         return (image, false, false);
@@ -144,9 +145,13 @@ internal sealed class ScanImageProcessor(
 
     // Compute the always-on identity fingerprint (oshash) plus the optional md5 for a new image file.
     // oshash is what lets a later scan recognise this image if it moves or is renamed.
-    private async Task EnrichImageFileAsync(ImageFile imageFile, string path, CancellationToken ct)
+    private async Task EnrichImageFileAsync(
+        ImageFile imageFile,
+        string path,
+        CancellationToken ct,
+        MoveDetectionIndex? moveIndex = null)
     {
-        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, ct);
+        var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, moveIndex, ct);
         if (oshash != null)
             ScanFileIdentityService.UpsertFingerprint(imageFile, "oshash", oshash);
 
