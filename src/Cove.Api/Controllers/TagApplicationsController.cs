@@ -24,7 +24,11 @@ public sealed class TagApplicationsController(TagApplicationService service) : C
         var applications = await service.BuildQuery(hostType, hostId, contextType, contextId)
             .OrderBy(item => item.ContextType)
             .ThenBy(item => item.ContextId)
-            .ThenBy(item => item.Tag!.Name)
+            .ThenBy(item => item.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.Name : null)
+            .ThenBy(item => item.Tag!.SortName ?? item.Tag.Name)
+            .ThenBy(item => item.TagId)
             .ToListAsync(ct);
 
         return Ok(applications.Select(Map).ToList());
@@ -110,5 +114,9 @@ public sealed class TagApplicationsController(TagApplicationService service) : C
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
             tag.MinOccurrencePercent,
-            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null)
+        {
+            TagGroupSortOrder = tag.TagGroup?.SortOrder,
+            SortName = tag.SortName,
+        };
 }

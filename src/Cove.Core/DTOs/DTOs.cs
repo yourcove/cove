@@ -145,7 +145,11 @@ public record TagDto(
     double? EffectiveDurationPercent = null,
     bool Organized = false,
     bool CanReportIncorrect = false,
-    bool HasImage = false);
+    bool HasImage = false)
+{
+    public int? TagGroupSortOrder { get; init; }
+    public string? SortName { get; init; }
+}
 
 public record TagListDto(
     int Id,
@@ -172,7 +176,11 @@ public record TagListDto(
     string? TagGroupColor = null,
     double? MinOccurrenceSec = null,
     double? MinOccurrencePercent = null,
-    bool Organized = false);
+    bool Organized = false)
+{
+    public int? TagGroupSortOrder { get; init; }
+    public string? SortName { get; init; }
+}
 
 public record TagDetailDto(
     int Id, string Name, string? SortName, string? Description, bool Favorite,

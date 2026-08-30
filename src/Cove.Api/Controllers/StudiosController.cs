@@ -297,7 +297,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
         s.Id, s.Name, s.ParentId, s.Parent?.Name, s.Favorite, s.Details, s.Organized,
         s.Urls.Select(u => u.Url).ToList(),
         s.Aliases.Select(a => a.Alias).ToList(),
-        s.StudioTags.Where(st => st.Tag != null).Select(st => TagDtoMapping.MapTagDto(st.Tag!)).ToList(),
+        s.StudioTags.Where(st => st.Tag != null).Select(st => TagDtoMapping.MapTagDto(st.Tag!)).OrderForDisplay().ToList(),
         s.RemoteIds.Select(sid => new StudioRemoteIdDto(sid.Endpoint, sid.RemoteId)).ToList(),
         usageCounts?.VideoCount ?? s.VideoCount,
         usageCounts?.ImageCount ?? s.ImageCount,
@@ -493,7 +493,7 @@ public class StudiosController(IStudioRepository studioRepo, MetadataServerServi
             .Include(s => s.RemoteIds)
             .Include(s => s.Aliases)
             .Include(s => s.Urls)
-            .Include(s => s.StudioTags).ThenInclude(st => st.Tag)
+            .Include(s => s.StudioTags).ThenInclude(st => st.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(s => s.Parent)
             .FirstOrDefaultAsync(s => s.Id == id, ct);
         if (studio == null) return NotFound();

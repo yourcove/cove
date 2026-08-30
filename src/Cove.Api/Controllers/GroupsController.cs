@@ -343,7 +343,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             .Where(r => r.ContainingGroupId == id)
             .OrderBy(r => r.OrderIndex)
             .Include(r => r.SubGroup!).ThenInclude(g => g.Urls)
-            .Include(r => r.SubGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag)
+            .Include(r => r.SubGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(r => r.SubGroup!).ThenInclude(g => g.GroupItems)
             .ToListAsync(ct);
         var groups = relations.Where(r => r.SubGroup != null).Select(r => r.SubGroup!).ToList();
@@ -360,7 +360,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             .Where(r => r.SubGroupId == id)
             .OrderBy(r => r.OrderIndex)
             .Include(r => r.ContainingGroup!).ThenInclude(g => g.Urls)
-            .Include(r => r.ContainingGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag)
+            .Include(r => r.ContainingGroup!).ThenInclude(g => g.GroupTags).ThenInclude(gt => gt.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(r => r.ContainingGroup!).ThenInclude(g => g.GroupItems)
             .ToListAsync(ct);
         var groups = relations.Where(r => r.ContainingGroup != null).Select(r => r.ContainingGroup!).ToList();
@@ -476,7 +476,7 @@ public class GroupsController(IGroupRepository groupRepo, Data.CoveContext db, I
             g.Id, g.Name, g.Aliases, PartialDate.Format(g.Date, g.DatePrecision),
             g.StudioId, g.Studio?.Name, g.Director, g.Synopsis,
             g.Urls.Select(u => u.Url).ToList(),
-            g.GroupTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!)).ToList(),
+            g.GroupTags.Where(gt => gt.Tag != null).Select(gt => TagDtoMapping.MapTagDto(gt.Tag!)).OrderForDisplay().ToList(),
             counts.VideoCount,
             itemCount,
             g.GroupItems.Any(item => item.Kind == GroupItemKind.VideoRange),

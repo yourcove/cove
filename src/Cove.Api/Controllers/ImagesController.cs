@@ -264,7 +264,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         i.StudioId, i.Studio?.Name,
         PartialDate.Format(i.Date, i.DatePrecision),
         i.Urls.Select(u => u.Url).ToList(),
-        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!, GetTagProvenance(provenanceLookup, it.Tag!.Id))).ToList(),
+        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!, GetTagProvenance(provenanceLookup, it.Tag!.Id))).OrderForDisplay().ToList(),
         i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer), performerCounts?.GetValueOrDefault(performer.Id)?.VideoCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0, performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
         galleryCount ?? i.GalleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
@@ -302,7 +302,7 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         i.StudioId, i.Studio?.Name,
         PartialDate.Format(i.Date, i.DatePrecision),
         i.Urls.Select(u => u.Url).ToList(),
-        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!)).ToList(),
+        i.ImageTags.Where(it => it.Tag != null).Select(it => TagDtoMapping.MapTagDto(it.Tag!)).OrderForDisplay().ToList(),
         i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!).OrderForDisplay().Select(performer => new PerformerSummaryDto(performer.Id, performer.Name, performer.Disambiguation, performer.Gender?.ToString(), PartialDate.Format(performer.Birthdate, performer.BirthdatePrecision), performer.Favorite, EntityImageUrls.PerformerOrNull(ControllerContext.HttpContext, performer))).ToList(),
         galleryCount,
         i.ImageGalleries?.Select(ig => ig.GalleryId).ToList() ?? [],
@@ -332,7 +332,11 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
             .AsSplitQuery()
             .OrderBy(item => item.ContextType)
             .ThenBy(item => item.ContextId)
-            .ThenBy(item => item.Tag!.Name)
+            .ThenBy(item => item.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.Name : null)
+            .ThenBy(item => item.Tag!.SortName ?? item.Tag.Name)
+            .ThenBy(item => item.TagId)
             .ToListAsync(ct);
 
         return applications.Count == 0 ? null : applications.Select(TagApplicationsController.Map).ToList();
