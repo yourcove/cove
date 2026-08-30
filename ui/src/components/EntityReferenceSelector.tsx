@@ -34,7 +34,7 @@ function buildReferenceAutocompleteItems(
   }));
   if (createQuery) {
     items.push({
-      key: `create:${createQuery.toLowerCase()}`,
+      key: "create",
       value: { kind: "create", query: createQuery },
       disabled: createPending,
     });
@@ -147,7 +147,7 @@ export function EntityReferenceSelector({
     return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading, isFetching, isPlaceholderData } = useQuery({
+  const { data: searchResults, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
@@ -200,7 +200,7 @@ export function EntityReferenceSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatable && canCreate && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isLoading && creatable && canCreate && !exactMatchExists;
   const autocompleteItems = useMemo(
     () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
@@ -211,6 +211,7 @@ export function EntityReferenceSelector({
     onInputValueChange: setSearchText,
     disabled,
     busy: isPlaceholderData,
+    preserveActiveKeyOnInputChange: true,
     onSelect: (item) => {
       if (item.kind === "create") {
         createMutation.mutate(item.query);
@@ -385,7 +386,7 @@ export function EntityReferenceMultiSelector({
     return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading, isFetching, isPlaceholderData } = useQuery({
+  const { data: searchResults, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
@@ -438,7 +439,7 @@ export function EntityReferenceMultiSelector({
     },
   });
 
-  const showCreateOption = trimmedSearch && !isFetching && creatable && canCreate && !exactMatchExists;
+  const showCreateOption = trimmedSearch && !isLoading && creatable && canCreate && !exactMatchExists;
   const autocompleteItems = useMemo(
     () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
@@ -449,6 +450,7 @@ export function EntityReferenceMultiSelector({
     onInputValueChange: setSearchText,
     disabled,
     busy: isPlaceholderData,
+    preserveActiveKeyOnInputChange: true,
     onSelect: (item) => {
       if (item.kind === "create") {
         createMutation.mutate(item.query);

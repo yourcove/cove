@@ -258,16 +258,102 @@ describe("EntityReferenceMultiSelector", () => {
     expect(screen.getByRole("option", { name: /Massage/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Massage/i })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
-    expect(input).not.toHaveAttribute("aria-activedescendant");
-    await user.keyboard("{ArrowDown}{Enter}");
+    expect(input).toHaveAttribute("aria-activedescendant", firstResult.id);
     await user.click(screen.getByRole("option", { name: /Massage/i }));
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Create “ma”" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Create “ma”" })).toBeInTheDocument();
 
     resolveNextSearch({ items: [{ id: 2, name: "Makeup" }] });
     expect(await screen.findByRole("option", { name: /Makeup/i })).toBeInTheDocument();
     expect(input).not.toHaveAttribute("aria-activedescendant");
+  });
+
+  it("keeps the highlighted create option mounted and current while the next search is loading", async () => {
+    const user = userEvent.setup();
+    let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
+    const nextSearch = new Promise<{ items: Array<{ id: number; name: string }> }>((resolve) => {
+      resolveNextSearch = resolve;
+    });
+    mocks.tagsFind.mockResolvedValueOnce({ items: [] }).mockReturnValueOnce(nextSearch);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    fireEvent.change(input, { target: { value: "Novel" } });
+    const createOption = await screen.findByRole("option", { name: "Create “Novel”" });
+    input.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", createOption.id);
+
+    fireEvent.change(input, { target: { value: "Novel tag" } });
+    await waitFor(() => expect(mocks.tagsFind).toHaveBeenCalledTimes(2));
+    const updatedCreateOption = screen.getByRole("option", { name: "Create “Novel tag”" });
+    expect(updatedCreateOption).toBe(createOption);
+    expect(input).toHaveAttribute("aria-activedescendant", updatedCreateOption.id);
+
+    resolveNextSearch({ items: [] });
+    await waitFor(() => expect(screen.getByRole("listbox")).not.toHaveAttribute("aria-busy"));
+  });
+
+  it("waits for the initial search before offering creation for an exact match", async () => {
+    let resolveSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
+    mocks.tagsFind.mockReturnValue(new Promise((resolve) => {
+      resolveSearch = resolve;
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    fireEvent.change(input, { target: { value: "Existing" } });
+    expect(await screen.findByText("Loading...")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Create “Existing”" })).not.toBeInTheDocument();
+
+    resolveSearch({ items: [{ id: 1, name: "Existing" }] });
+    expect(await screen.findByRole("option", { name: "Existing" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Create “Existing”" })).not.toBeInTheDocument();
+  });
+
+  it("clears a highlighted create option when placeholder results prove an exact match", async () => {
+    const user = userEvent.setup();
+    let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
+    mocks.tagsFind
+      .mockResolvedValueOnce({ items: [{ id: 1, name: "Existing" }] })
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveNextSearch = resolve;
+      }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EntityReferenceMultiSelector entityType="tag" values={[]} onChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    fireEvent.change(input, { target: { value: "Exist" } });
+    const createOption = await screen.findByRole("option", { name: "Create “Exist”" });
+    input.focus();
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", createOption.id);
+
+    fireEvent.change(input, { target: { value: "Existing" } });
+    await waitFor(() => expect(mocks.tagsFind).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByRole("option", { name: "Create “Existing”" })).not.toBeInTheDocument();
+    await waitFor(() => expect(input).not.toHaveAttribute("aria-activedescendant"));
+
+    resolveNextSearch({ items: [{ id: 1, name: "Existing" }] });
   });
 });
 

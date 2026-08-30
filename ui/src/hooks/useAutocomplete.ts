@@ -26,6 +26,7 @@ interface UseAutocompleteOptions<T> {
   onSelect: (value: T) => boolean | void;
   disabled?: boolean;
   busy?: boolean;
+  preserveActiveKeyOnInputChange?: boolean;
 }
 
 interface AutocompleteInputProps {
@@ -46,6 +47,7 @@ export function useAutocomplete<T>({
   onSelect,
   disabled = false,
   busy = false,
+  preserveActiveKeyOnInputChange = false,
 }: UseAutocompleteOptions<T>) {
   const generatedId = useId();
   const listboxId = `autocomplete-${generatedId}`;
@@ -63,6 +65,10 @@ export function useAutocomplete<T>({
   const selectableKeys = useMemo(
     () => selectableItems.map((item) => item.key),
     [selectableItems],
+  );
+  const itemKeys = useMemo(
+    () => items.map((item) => item.key),
+    [items],
   );
 
   const getOptionId = useCallback(
@@ -92,15 +98,15 @@ export function useAutocomplete<T>({
   useEffect(() => {
     if (previousInputValue.current === inputValue) return;
     previousInputValue.current = inputValue;
-    setActiveKey(null);
+    if (!preserveActiveKeyOnInputChange) setActiveKey(null);
     setIsOpen(!disabled && inputValue.trim().length > 0);
-  }, [disabled, inputValue]);
+  }, [disabled, inputValue, preserveActiveKeyOnInputChange]);
 
   useEffect(() => {
-    if (activeKey != null && !selectableKeys.includes(activeKey)) {
+    if (activeKey != null && (!itemKeys.includes(activeKey) || (!busy && !selectableKeys.includes(activeKey)))) {
       setActiveKey(null);
     }
-  }, [activeKey, selectableKeys]);
+  }, [activeKey, busy, itemKeys, selectableKeys]);
 
   useEffect(() => {
     if (activeKey == null) return;
@@ -144,7 +150,7 @@ export function useAutocomplete<T>({
     "aria-activedescendant": activeKey == null ? undefined : getOptionId(activeKey),
     onChange: (event) => {
       const nextValue = event.target.value;
-      setActiveKey(null);
+      if (!preserveActiveKeyOnInputChange) setActiveKey(null);
       setIsOpen(!disabled && nextValue.trim().length > 0);
       onInputValueChange(nextValue);
     },
