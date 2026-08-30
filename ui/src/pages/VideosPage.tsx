@@ -29,6 +29,7 @@ import { StudioSelector } from "../components/StudioSelector";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { WallMediaCard, type WallMediaVideoControlsState } from "../components/WallMediaCard";
 import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedInlineRating, FeedMetadataPill, FeedPortraitMediaFrame, getFeedMediaStyle } from "../components/FeedCardFrame";
+import { NarrativeText } from "../components/NarrativeText";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
 import { createFromUrlWithOptionalDownload, mergeUrlLists, NoDownloaderFoundError, type UrlDownloadMode } from "../utils/createFromUrlDownload";
@@ -1429,7 +1430,7 @@ function VideoFeedCard({ video, engagement, feedVideoSource, useVideo, soundEnab
           {title}
         </button>
       )}
-      details={video.details ? <p className="line-clamp-4">{video.details}</p> : undefined}
+      details={video.details ? <NarrativeText className="line-clamp-4">{video.details}</NarrativeText> : undefined}
       metadata={(video.organized || video.galleries.length > 0) ? (
         <>
           {video.organized ? <FeedMetadataPill>Organized</FeedMetadataPill> : null}

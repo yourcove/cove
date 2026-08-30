@@ -6,6 +6,7 @@ import { Calendar, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, Imag
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PerformerEditModal } from "./PerformerEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { DetailMergeDialog } from "../components/DetailMergeDialog";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
@@ -280,7 +281,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
               </div>
             ) : null}
 
-            {performer.details ? <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="details" block><p className="mt-4 max-w-4xl whitespace-pre-wrap text-sm leading-6 text-secondary">{performer.details}</p></FieldProvenanceHover> : null}
+            {performer.details ? <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="details" block><NarrativeText className="mt-4 max-w-4xl text-sm leading-6 text-secondary">{performer.details}</NarrativeText></FieldProvenanceHover> : null}
             <CustomFieldsDisplay customFields={performer.customFields} entityType="performer" />
           </>
         )}

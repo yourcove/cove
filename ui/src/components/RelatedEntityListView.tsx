@@ -18,6 +18,7 @@ import { getRelatedEntityDisplayModes, type RelatedEntityType } from "./relatedE
 export { getRelatedEntityDisplayModes, type RelatedEntityType } from "./relatedEntityDisplayModes";
 import { AudioTile, FaceTile, GalleryTile, GroupTile, ImageTile, PerformerTile, VideoCard, SegmentTile, StudioTile, TagTile, TextTile } from "./EntityCards";
 import { FeedCardFrame, FeedChipButton, FeedIdentityBadge, FeedMetadataPill, FeedPortraitMediaFrame, FeedTagChips, getFeedMediaStyle } from "./FeedCardFrame";
+import { NarrativeText } from "./NarrativeText";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
 import { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";
 import { VirtualizedEntityGrid, VirtualizedWallColumns, type InfiniteEntityLoadingState } from "./VirtualizedEntityLayouts";
@@ -728,7 +729,7 @@ function RelatedVideoFeedCard({ video, selected, selecting, onSelect, onNavigate
         <WallMediaCard title={title} imageSrc={coverUrl} imageAlt={coverAlt} videoSrc={videoSrc} videoStatusSrc={videoStatusSrc} useVideo muted={!soundEnabled} videoStartTimeSec={videoStartTimeSec} videoPlayThreshold={0.5} onVideoPlayEligibilityChange={onPlaybackEligibilityChange} playbackTracking={{ hostType: "video", hostId: video.id, surface: "feed", scopeKey: `related-video-feed:${video.id}` }} aspectRatio={file?.width && file.height ? `${file.width} / ${file.height}` : "16 / 9"} imageClassName="object-cover" style={mediaStyle} className="overflow-hidden rounded-2xl border border-border/70 bg-black/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)] hover:border-border/70">{mediaOverlay}</WallMediaCard>
       )}
       title={<button type="button" onClick={(event) => { event.stopPropagation(); openOrSelect(toggleOptionsFromEvent(event)); }} className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent">{title}</button>}
-      details={video.details ? <p className="line-clamp-4">{video.details}</p> : undefined}
+      details={video.details ? <NarrativeText className="line-clamp-4">{video.details}</NarrativeText> : undefined}
       metadata={(video.organized || video.galleries.length > 0) ? <>{video.organized ? <FeedMetadataPill>Organized</FeedMetadataPill> : null}{video.galleries.length > 0 ? <FeedMetadataPill>{video.galleries.length} galleries</FeedMetadataPill> : null}</> : undefined}
       chips={<RelatedFeedChips performers={video.performers} tags={video.tags} selecting={selecting} onSelect={onSelect} onNavigate={onNavigate} />}
     />
@@ -761,7 +762,7 @@ function RelatedImageFeedCard({ image, selected, selecting, onSelect, onNavigate
         <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio={file?.width && file.height ? `${file.width} / ${file.height}` : "1 / 1"} style={mediaStyle} className="overflow-hidden rounded-2xl border border-border/70 bg-black/95 shadow-[0_18px_40px_rgba(0,0,0,0.35)] hover:border-border/70">{mediaOverlay}</WallMediaCard>
       )}
       title={<button type="button" onClick={(event) => { event.stopPropagation(); openOrSelect(toggleOptionsFromEvent(event)); }} className="text-left text-base font-semibold text-foreground transition-colors hover:text-accent">{title}</button>}
-      details={image.details ? <p className="line-clamp-4">{image.details}</p> : undefined}
+      details={image.details ? <NarrativeText className="line-clamp-4">{image.details}</NarrativeText> : undefined}
       metadata={(image.organized || image.galleries.length > 0) ? <>{image.organized ? <FeedMetadataPill>Organized</FeedMetadataPill> : null}{image.galleries.length > 0 ? <FeedMetadataPill>{image.galleries.length} galleries</FeedMetadataPill> : null}</> : undefined}
       chips={<RelatedFeedChips performers={image.performers} tags={image.tags} selecting={selecting} onSelect={onSelect} onNavigate={onNavigate} />}
     />

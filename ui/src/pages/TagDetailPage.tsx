@@ -6,6 +6,7 @@ import { Building2, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, Ima
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TagEditModal } from "./TagEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { DetailMergeDialog } from "../components/DetailMergeDialog";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AudioTile, VideoCard, PerformerTile, ImageTile, GalleryTile, StudioTile, GroupTile, SegmentTile, TextTile } from "../components/EntityCards";
@@ -214,7 +215,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
         title={<FieldProvenanceHover fieldProvenance={tag.fieldProvenance} fieldKey="name">{tag.name}</FieldProvenanceHover>}
         sortName={tag.sortName && tag.sortName !== tag.name ? <FieldProvenanceHover fieldProvenance={tag.fieldProvenance} fieldKey="sortName">{tag.sortName}</FieldProvenanceHover> : undefined}
         aliases={tag.aliases.length > 0 ? <FieldProvenanceHover fieldProvenance={tag.fieldProvenance} fieldKey="aliases">{tag.aliases.join(", ")}</FieldProvenanceHover> : undefined}
-        description={tag.description ? <FieldProvenanceHover fieldProvenance={tag.fieldProvenance} fieldKey="description" block>{tag.description}</FieldProvenanceHover> : undefined}
+        description={tag.description ? <FieldProvenanceHover fieldProvenance={tag.fieldProvenance} fieldKey="description" block><NarrativeText>{tag.description}</NarrativeText></FieldProvenanceHover> : undefined}
         favorite={tagFavorite}
         onFavoriteToggle={canEngageTag ? () => setTagFavorite(!tagFavorite) : undefined}
         organized={tag.organized}

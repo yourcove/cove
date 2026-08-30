@@ -12,6 +12,7 @@ import { getGalleryDisplayTitle } from "../utils/galleryDisplay";
 import { getImageDisplayTitle } from "../utils/imageDisplay";
 import { AudioTile, FaceTile, GalleryTile, GroupTile, PerformerTile, SegmentTile, StudioTile, TagTile, TextTile } from "./EntityCards";
 import { FeedCardFrame, FeedIdentityBadge, FeedInlineRating, FeedMetadataPill, FeedPortraitMediaFrame, getFeedMediaStyle } from "./FeedCardFrame";
+import { NarrativeText } from "./NarrativeText";
 import { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";
 import { WallMediaCard } from "./WallMediaCard";
 
@@ -233,7 +234,7 @@ function GroupFeedItemCard({ item, entityState, active, principalKey, onNavigate
       headerActions={readable ? <FeedInlineRating value={rating ?? engagement?.rating} onChange={setRating} readOnly={!canEngage} pending={ratingPending} /> : undefined}
       media={renderGroupFeedMedia(item, entity, entityState, active, open, onNavigate, engagement)}
       title={route ? <button type="button" onClick={open} className="max-w-full text-left text-base font-semibold text-foreground [overflow-wrap:anywhere] transition-colors hover:text-accent">{title}</button> : <span className="[overflow-wrap:anywhere]">{title}</span>}
-      details={details ? <p className="line-clamp-4">{details}</p> : undefined}
+      details={details ? <NarrativeText className="line-clamp-4">{details}</NarrativeText> : undefined}
       metadata={readable ? <><FeedMetadataPill>{host.kindLabel}</FeedMetadataPill>{item.title ? <FeedMetadataPill>Custom title</FeedMetadataPill> : null}</> : undefined}
     />
   );

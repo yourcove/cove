@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { IsoDateInput } from "../components/IsoDateInput";
 import type { Detection, Face, MetadataServer, PerformerSummary, ResolvedSpan, Video, VideoUpdate, Segment, TagApplication, TagProvenance } from "../api/types";
@@ -1132,7 +1133,7 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
       {video.details && (
         <div>
           <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="details" block>
-            <p className="text-sm text-foreground whitespace-pre-wrap">{video.details}</p>
+            <NarrativeText className="text-sm text-foreground">{video.details}</NarrativeText>
           </FieldProvenanceHover>
         </div>
       )}

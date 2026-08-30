@@ -5,7 +5,7 @@ import { GroupItemFeed } from "../components/GroupItemFeed";
 
 const { authState, mocks } = vi.hoisted(() => ({
   authState: {
-    user: { id: "7", kind: "user", readGrantedEntityKinds: [] as string[] },
+    user: { id: "7", kind: "user", readGrantedEntityKinds: [] as string[], uiPreferences: {} as { renderMarkdown?: boolean } },
     permissions: ["groups.read", "videos.read", "images.read"],
   },
   mocks: {
@@ -60,7 +60,7 @@ vi.mock("../components/VirtualizedInfiniteList", () => ({
 describe("GroupItemFeed", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    authState.user = { id: "7", kind: "user", readGrantedEntityKinds: [] };
+    authState.user = { id: "7", kind: "user", readGrantedEntityKinds: [], uiPreferences: {} };
     authState.permissions = ["groups.read", "videos.read", "images.read"];
     mocks.useEntityEngagement.mockReturnValue({ engagement: undefined, rating: undefined, setRating: vi.fn(), ratingPending: false });
     mocks.getGroup.mockResolvedValue({ id: 4, name: "Mixed group", kind: "static" });
@@ -97,6 +97,19 @@ describe("GroupItemFeed", () => {
     expect(mocks.useEntityEngagement.mock.calls.some((call) => call[2]?.enabled === true && String(call[2]?.queryScope).startsWith("user:7:"))).toBe(true);
   });
 
+  it("renders feed details as Markdown when the viewer enables it", async () => {
+    authState.user.uiPreferences = { renderMarkdown: true };
+    mocks.getVideo.mockResolvedValue({ id: 21, title: "Video entry", details: "**Formatted feed details**", files: [{ width: 1920, height: 1080, duration: 60 }], updatedAt: "", tags: [], performers: [] });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <GroupItemFeed groupId={4} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Formatted feed details", { selector: "strong" })).toBeInTheDocument();
+  });
+
   it("uses a new cache namespace when the authenticated principal changes", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
     const view = render(
@@ -107,7 +120,7 @@ describe("GroupItemFeed", () => {
     expect(await screen.findByRole("heading", { name: "Mixed group" })).toBeInTheDocument();
     expect(mocks.pageItems).toHaveBeenCalledTimes(1);
 
-    authState.user = { id: "8", kind: "user", readGrantedEntityKinds: [] };
+    authState.user = { id: "8", kind: "user", readGrantedEntityKinds: [], uiPreferences: {} };
     view.rerender(
       <QueryClientProvider client={client}>
         <GroupItemFeed groupId={4} onNavigate={vi.fn()} />

@@ -271,14 +271,15 @@ export function SelectField({
   );
 }
 
-export function CheckboxLabel({ label, checked, onChange, description }: { label: string; checked: boolean; onChange: (checked: boolean) => void; description?: string }) {
+export function CheckboxLabel({ label, checked, onChange, description, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; description?: string; disabled?: boolean }) {
   return (
     <label className="flex items-center gap-2 text-sm text-secondary" title={getSettingHelpText(label, description)}>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 rounded border-border bg-card text-accent focus:ring-0"
+        className="h-4 w-4 rounded border-border bg-card text-accent focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
       />
       <span>{label}</span>
     </label>

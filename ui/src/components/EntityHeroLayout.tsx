@@ -330,7 +330,7 @@ export function EntityHeroLayout({
               </div>
 
               {description ? (
-                <p className="max-w-4xl whitespace-pre-wrap text-sm leading-6 text-secondary">{description}</p>
+                <div className="max-w-4xl whitespace-pre-wrap text-sm leading-6 text-secondary">{description}</div>
               ) : null}
 
               {counts.length > 0 ? (

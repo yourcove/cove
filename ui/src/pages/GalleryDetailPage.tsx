@@ -6,6 +6,7 @@ import { Film, FolderOpen, HardDrive, ImageIcon, Link as LinkIcon, Pencil, Plus,
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GalleryEditModal } from "./GalleryEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
@@ -362,7 +363,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         organized={gallery.organized}
         organizedPending={galleryUpdateMut.isPending}
         onOrganizedToggle={canWriteGallery ? (organized) => galleryUpdateMut.mutate({ organized }) : undefined}
-        description={gallery.details ? <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="details" block>{gallery.details}</FieldProvenanceHover> : undefined}
+        description={gallery.details ? <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="details" block><NarrativeText>{gallery.details}</NarrativeText></FieldProvenanceHover> : undefined}
         counts={[
           { key: "images", label: "Images", value: effectiveImageCount, icon: <ImageIcon className="h-4 w-4" /> },
           { key: "videos", label: "Videos", value: gallery.videoCount, icon: <Film className="h-4 w-4" /> },

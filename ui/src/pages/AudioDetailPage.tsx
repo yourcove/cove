@@ -8,6 +8,7 @@ import { AudioPlayer } from "../components/AudioPlayer";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { ListLoadError } from "../components/ListLoadError";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
@@ -448,7 +449,7 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">Notes</h3>
                 <FieldProvenanceHover fieldProvenance={audio.fieldProvenance} fieldKey="details" block>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground/92">{audio.details}</p>
+                  <NarrativeText className="mt-3 text-sm leading-7 text-foreground/92">{audio.details}</NarrativeText>
                 </FieldProvenanceHover>
               </div>
             ) : null}

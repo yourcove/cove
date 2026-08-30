@@ -169,7 +169,8 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
   const keyboardShortcuts = normalizeKeyboardShortcutPreferences(preferences?.keyboardShortcuts);
   const homePageContent = preferences?.homePageContent?.trim() ? preferences.homePageContent : null;
   const defaultFilters = normalizeDefaultFilters(preferences?.defaultFilters);
-  if (!theme && !ratingSystemOptions && !tracking && !videos && !playback && !keybindingOverrides && !keyboardShortcuts && !homePageContent && !defaultFilters) {
+  const renderMarkdown = typeof preferences?.renderMarkdown === "boolean" ? preferences.renderMarkdown : null;
+  if (!theme && !ratingSystemOptions && !tracking && !videos && !playback && !keybindingOverrides && !keyboardShortcuts && !homePageContent && !defaultFilters && renderMarkdown == null) {
     return null;
   }
 
@@ -183,6 +184,7 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
     keyboardShortcuts,
     homePageContent,
     defaultFilters,
+    renderMarkdown,
   };
 }
 
