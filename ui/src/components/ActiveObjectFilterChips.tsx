@@ -353,6 +353,7 @@ interface ActiveObjectFilterChipsProps {
   className?: string;
   ariaLabel?: string;
   rovingKeyboardAccess?: boolean;
+  embeddedInToolbar?: boolean;
   onFocusFallback?: () => void;
   onFocusKey?: (key: string) => void;
   expressionReturnFocusKeys?: boolean;
@@ -953,11 +954,13 @@ function ActiveObjectFilterChipsContent({
   ariaLabel = "Applied filters",
   entityNameMaps,
   rovingKeyboardAccess = false,
+  embeddedInToolbar = false,
   onFocusFallback,
   onFocusKey,
   expressionReturnFocusKeys,
   metadataServers,
 }: ActiveObjectFilterChipsProps & { entityNameMaps: Record<string, Map<number, string>>; metadataServers: MetadataServer[] }) {
+  const managesRovingKeyboard = rovingKeyboardAccess && !embeddedInToolbar;
   const ratingOptions = useRatingOptions();
   const logicalEntries = useMemo(
     () => getLogicalFilterEntries(criteriaDefinitions, objectFilter, customFilterSections),
@@ -967,8 +970,9 @@ function ActiveObjectFilterChipsContent({
   const keysSignature = keys.join("\u0000");
   const [focusedKey, setFocusedKey] = useState<string | null>(() => keys[0] ?? null);
   const [announcement, setAnnouncement] = useState("");
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef(new Map<string, HTMLButtonElement>());
-  const clearAllRef = useRef<HTMLButtonElement>(null);
+  const lastFocusedButtonRef = useRef<HTMLButtonElement | null>(null);
   const pendingRemovalRef = useRef<{ key: string | null; label: string } | null>(null);
   const instructionsId = useId();
 
@@ -986,10 +990,19 @@ function ActiveObjectFilterChipsContent({
     else onFocusFallback?.();
   }, [keysSignature, onFocusFallback]);
 
-  const focusKey = (key: string) => {
-    setFocusedKey(key);
-    buttonRefs.current.get(key)?.focus();
-  };
+  useEffect(() => {
+    if (!managesRovingKeyboard) return;
+    const buttons = Array.from(toolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+    if (buttons.length === 0) return;
+    const activeElement = document.activeElement instanceof HTMLButtonElement && toolbarRef.current?.contains(document.activeElement)
+      ? document.activeElement
+      : undefined;
+    const lastFocusedButton = lastFocusedButtonRef.current && toolbarRef.current?.contains(lastFocusedButtonRef.current)
+      ? lastFocusedButtonRef.current
+      : undefined;
+    const tabStop = activeElement ?? lastFocusedButton ?? (focusedKey ? buttonRefs.current.get(focusedKey) : undefined) ?? buttons[0];
+    buttons.forEach((button) => { button.tabIndex = button === tabStop ? 0 : -1; });
+  }, [focusedKey, keysSignature, logicalEntries, managesRovingKeyboard, onClearAll]);
   const targetForKey = (key: string): FilterChipTarget => {
     const path = logicalEntries.find((entry) => entry.key === key)?.expressionPath;
     return path ? { kind: "expression", parentKey: "_filterExpression", path } : { kind: "root", key };
@@ -997,21 +1010,6 @@ function ActiveObjectFilterChipsContent({
 
   const handleEditKeyDown = (event: KeyboardEvent<HTMLButtonElement>, key: string, label: string) => {
     const index = keys.indexOf(key);
-    if (onClearAll && ((event.key === "ArrowRight" && index === keys.length - 1) || (event.key === "ArrowLeft" && index === 0) || event.key === "End")) {
-      event.preventDefault();
-      clearAllRef.current?.focus();
-      return;
-    }
-    let nextIndex: number | undefined;
-    if (event.key === "ArrowRight") nextIndex = (index + 1) % keys.length;
-    if (event.key === "ArrowLeft") nextIndex = (index - 1 + keys.length) % keys.length;
-    if (event.key === "Home") nextIndex = 0;
-    if (event.key === "End") nextIndex = keys.length - 1;
-    if (nextIndex !== undefined) {
-      event.preventDefault();
-      focusKey(keys[nextIndex]);
-      return;
-    }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       const nextKey = keys[index + 1] ?? keys[index - 1] ?? null;
@@ -1042,8 +1040,39 @@ function ActiveObjectFilterChipsContent({
   };
 
   return (
-    <div className={`mx-1 mt-2 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface/50 p-1 ${className}`} role={rovingKeyboardAccess ? "toolbar" : "region"} aria-label={ariaLabel} aria-orientation={rovingKeyboardAccess ? "horizontal" : undefined} aria-describedby={rovingKeyboardAccess ? instructionsId : undefined}>
-      {rovingKeyboardAccess ? <span id={instructionsId} className="sr-only">Use Left and Right Arrow to review filters, Enter to edit, and Delete or Backspace to remove.</span> : null}
+    <div
+      ref={toolbarRef}
+      className={`mx-1 mt-2 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface/50 p-1 ${className}`}
+      role={embeddedInToolbar ? undefined : rovingKeyboardAccess ? "toolbar" : "region"}
+      aria-label={embeddedInToolbar ? undefined : ariaLabel}
+      aria-orientation={!embeddedInToolbar && rovingKeyboardAccess ? "horizontal" : undefined}
+      aria-describedby={!embeddedInToolbar && rovingKeyboardAccess ? instructionsId : undefined}
+      onFocusCapture={managesRovingKeyboard ? (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        lastFocusedButtonRef.current = target;
+        const buttons = Array.from(toolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+        buttons.forEach((button) => { button.tabIndex = button === target ? 0 : -1; });
+      } : undefined}
+      onKeyDownCapture={managesRovingKeyboard ? (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const buttons = Array.from(toolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+        const current = event.target instanceof HTMLButtonElement ? event.target : undefined;
+        const index = current ? buttons.indexOf(current) : -1;
+        if (index < 0 || buttons.length === 0) return;
+        const nextIndex = event.key === "Home"
+          ? 0
+          : event.key === "End"
+          ? buttons.length - 1
+          : event.key === "ArrowRight"
+          ? (index + 1) % buttons.length
+          : (index - 1 + buttons.length) % buttons.length;
+        event.preventDefault();
+        event.stopPropagation();
+        buttons[nextIndex].focus();
+      } : undefined}
+    >
+      {rovingKeyboardAccess && !embeddedInToolbar ? <span id={instructionsId} className="sr-only">Use Left and Right Arrow to move between filter parts, Enter to edit or remove, and Delete or Backspace on a filter label to remove that filter.</span> : null}
       {logicalEntries.map(({ key, value, endpointValue, customSection, def, expressionPath }) => {
         const isAuxiliaryToggle = def?.auxiliaryToggleKey === key;
         const isFilterExpression = key === "_filterExpression";
@@ -1061,7 +1090,7 @@ function ActiveObjectFilterChipsContent({
               ratingOptions={ratingOptions}
               onEdit={onEdit}
               onRemove={onRemove}
-              rovingKeyboardAccess={rovingKeyboardAccess}
+              rovingKeyboardAccess={managesRovingKeyboard}
               focused={focusedKey === key || (!focusedKey && key === keys[0])}
               onFocus={() => setFocusedKey(key)}
               onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
@@ -1130,9 +1159,9 @@ function ActiveObjectFilterChipsContent({
               ref={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
               type="button"
               onClick={() => onEdit(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: expressionPath! } : { kind: "root", key })}
-              onFocus={rovingKeyboardAccess ? () => setFocusedKey(key) : undefined}
+              onFocus={managesRovingKeyboard ? () => setFocusedKey(key) : undefined}
               onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
-              tabIndex={rovingKeyboardAccess ? (focusedKey === key || (!focusedKey && key === keys[0]) ? 0 : -1) : undefined}
+              tabIndex={managesRovingKeyboard ? (focusedKey === key || (!focusedKey && key === keys[0]) ? 0 : -1) : undefined}
               aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home End Delete Backspace" : undefined}
               data-active-filter-key={key}
               className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2 text-left"
@@ -1142,7 +1171,7 @@ function ActiveObjectFilterChipsContent({
               <span className="text-muted">{label}:</span>
               <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
             </button>
-            <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: expressionPath! } : { kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+            <button type="button" tabIndex={managesRovingKeyboard ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: expressionPath! } : { kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
               <X className="h-3 w-3" />
             </button>
           </div>
@@ -1150,19 +1179,9 @@ function ActiveObjectFilterChipsContent({
       })}
       {onClearAll ? (
         <button
-          ref={clearAllRef}
           type="button"
-          tabIndex={rovingKeyboardAccess ? -1 : undefined}
+          tabIndex={managesRovingKeyboard ? -1 : undefined}
           onClick={onClearAll}
-          onKeyDown={rovingKeyboardAccess ? (event) => {
-            if (event.key === "ArrowRight" || event.key === "Home") {
-              event.preventDefault();
-              focusKey(keys[0]);
-            } else if (event.key === "ArrowLeft") {
-              event.preventDefault();
-              focusKey(keys[keys.length - 1]);
-            }
-          } : undefined}
           aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home" : undefined}
           className="h-[26px] rounded-md px-2 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-300"
         >

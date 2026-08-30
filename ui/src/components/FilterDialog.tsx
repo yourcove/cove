@@ -1040,6 +1040,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const [navigatorFocusId, setNavigatorFocusId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const selectedFiltersToolbarRef = useRef<HTMLDivElement>(null);
+  const selectedFiltersLastFocusedRef = useRef<HTMLButtonElement | null>(null);
+  const selectedFiltersLastFocusedIndexRef = useRef(0);
+  const selectedFiltersInstructionsId = useId();
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const viewReturnFocusRef = useRef<HTMLElement | null>(null);
   const simpleReturnFocusKeyRef = useRef<string | null>(null);
@@ -1689,7 +1693,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }
       const nextIndex = Math.min(index, directlyEditableExpressionChildren.length - 2);
       const target = dialogRef.current?.querySelector<HTMLElement>(`[data-simple-return-focus="expression-${Math.max(0, nextIndex)}"]`);
-      (target ?? searchRef.current)?.focus();
+      const toolbarButtons = Array.from(selectedFiltersToolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+      (target ?? toolbarButtons[Math.min(selectedFiltersLastFocusedIndexRef.current, toolbarButtons.length - 1)] ?? searchRef.current)?.focus();
     }, 0);
   };
 
@@ -1701,6 +1706,24 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const conditionCriterion = criteria.find((criterion) => criterion.id === conditionCriterionId);
   const conditionTitle = `${conditionDraft?.isNew ? "Add" : "Edit"} ${conditionCriterion?.label ?? "filter"} condition`;
   const conditionCanSave = Boolean(conditionCriterion && isCriterionValueValid(getCriterionFilterValue(conditionDraft?.filter ?? {}, conditionCriterion), conditionCriterion));
+
+  useEffect(() => {
+    const toolbar = selectedFiltersToolbarRef.current;
+    if (!toolbar) return;
+    const buttons = Array.from(toolbar.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+    if (buttons.length === 0) return;
+    const activeButton = document.activeElement instanceof HTMLButtonElement && toolbar.contains(document.activeElement)
+      ? document.activeElement
+      : undefined;
+    const rememberedWasRemoved = Boolean(selectedFiltersLastFocusedRef.current && !toolbar.contains(selectedFiltersLastFocusedRef.current));
+    const rememberedButton = selectedFiltersLastFocusedRef.current && toolbar.contains(selectedFiltersLastFocusedRef.current)
+      ? selectedFiltersLastFocusedRef.current
+      : undefined;
+    const indexedFallback = buttons[Math.min(selectedFiltersLastFocusedIndexRef.current, buttons.length - 1)];
+    const tabStop = activeButton ?? rememberedButton ?? indexedFallback ?? buttons[0];
+    buttons.forEach((button) => { button.tabIndex = button === tabStop ? 0 : -1; });
+    if (rememberedWasRemoved && document.activeElement === document.body) tabStop.focus();
+  });
 
   if (!open) return null;
 
@@ -1795,7 +1818,40 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         </div>
 
         {dialogView === "simple" && !conditionDraft && !relatedWorkspaceCriterion && (expressionConditionCount > 0 || Object.keys(activeEditFilter).length > 0) ? (
-          <div className="flex max-h-[min(12rem,35dvh)] shrink-0 flex-wrap items-center gap-2 overflow-y-auto border-b border-border px-3 py-2 md:px-4" role="region" aria-label="Selected filters">
+          <div
+            ref={selectedFiltersToolbarRef}
+            className="flex max-h-[min(12rem,35dvh)] shrink-0 flex-wrap items-center gap-2 overflow-y-auto border-b border-border px-3 py-2 md:px-4"
+            role="toolbar"
+            aria-label="Selected filters"
+            aria-orientation="horizontal"
+            aria-describedby={selectedFiltersInstructionsId}
+            onFocusCapture={(event) => {
+              const target = event.target;
+              if (!(target instanceof HTMLButtonElement)) return;
+              selectedFiltersLastFocusedRef.current = target;
+              const buttons = Array.from(selectedFiltersToolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+              selectedFiltersLastFocusedIndexRef.current = Math.max(0, buttons.indexOf(target));
+              buttons.forEach((button) => { button.tabIndex = button === target ? 0 : -1; });
+            }}
+            onKeyDownCapture={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              const buttons = Array.from(selectedFiltersToolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+              const current = event.target instanceof HTMLButtonElement ? event.target : undefined;
+              const index = current ? buttons.indexOf(current) : -1;
+              if (index < 0 || buttons.length === 0) return;
+              const nextIndex = event.key === "Home"
+                ? 0
+                : event.key === "End"
+                ? buttons.length - 1
+                : event.key === "ArrowRight"
+                ? (index + 1) % buttons.length
+                : (index - 1 + buttons.length) % buttons.length;
+              event.preventDefault();
+              event.stopPropagation();
+              buttons[nextIndex].focus();
+            }}
+          >
+            <span id={selectedFiltersInstructionsId} className="sr-only">Use Left and Right Arrow to move between selected filter parts, Clear all, and Combine filters. Press Enter to activate the focused control.</span>
             {validSimpleExpressionEntries.map(({ child, index }) => (
               <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
                 <button type="button" onClick={() => openSimpleExpressionCondition([index])} data-simple-return-focus={`expression-${index}`} className="min-w-0 px-3 text-left hover:bg-background/40" aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
@@ -1819,6 +1875,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 }}
                 onRemove={handleRemoveChip}
                 expressionReturnFocusKeys
+                embeddedInToolbar
                 ariaLabel="Selected expression filters"
                 className="!m-0 !border-0 !bg-transparent !p-0"
               />
@@ -1831,7 +1888,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               onRemove={handleRemoveChip}
               onClearAll={handleClear}
               rovingKeyboardAccess
+              embeddedInToolbar
               onFocusFallback={() => {
+                const toolbarButtons = Array.from(selectedFiltersToolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+                const toolbarFallback = toolbarButtons[Math.min(selectedFiltersLastFocusedIndexRef.current, toolbarButtons.length - 1)];
+                if (toolbarFallback) {
+                  toolbarFallback.focus();
+                  return;
+                }
                 const mobileLayout = typeof window.matchMedia === "function"
                   ? window.matchMedia("(max-width: 767px)").matches
                   : window.innerWidth < 768;

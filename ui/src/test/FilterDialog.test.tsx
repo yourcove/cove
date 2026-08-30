@@ -358,8 +358,8 @@ describe("FilterDialog", () => {
     expect(group.querySelectorAll(".lucide-users")).toHaveLength(3);
     const editFavorite = within(group).getByRole("button", { name: "Edit performer filter: Favorite" });
     const removeFavorite = within(group).getByRole("button", { name: "Remove performer filter: Favorite" });
-    expect(editFavorite).not.toHaveAttribute("tabindex", "-1");
-    expect(removeFavorite).not.toHaveAttribute("tabindex", "-1");
+    expect(editFavorite).toHaveAttribute("tabindex", "-1");
+    expect(removeFavorite).toHaveAttribute("tabindex", "-1");
     expect(within(group).getByRole("button", { name: "Edit performer filter: Rating" })).toBeInTheDocument();
     removeFavorite.focus();
     await user.keyboard("{Enter}");
@@ -840,6 +840,8 @@ describe("FilterDialog", () => {
 
     title.focus();
     await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "Remove filter: Title" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
     expect(organized).toHaveFocus();
     await user.keyboard("{Delete}");
 
@@ -849,6 +851,46 @@ describe("FilterDialog", () => {
     await user.keyboard("{Delete}");
     await waitFor(() => expect(screen.getByRole("tab", { name: "Title" })).toHaveFocus());
     expect(screen.queryByRole("toolbar", { name: "Selected filters" })).not.toBeInTheDocument();
+  });
+
+  it("uses arrow keys to navigate every part of a related filter chip", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ performerFilterCriterion: { findFilter: { q: "sample" } } }}
+        onApply={vi.fn()}
+        openAtRoot
+      />,
+    );
+
+    const toolbar = screen.getByRole("toolbar", { name: "Selected filters" });
+    const editGroup = within(toolbar).getByRole("button", { name: "Edit filter: Related Performers" });
+    const removeGroup = within(toolbar).getByRole("button", { name: "Remove filter: Related Performers" });
+    const editSearch = within(toolbar).getByRole("button", { name: "Edit performer filter: Text search" });
+    const removeSearch = within(toolbar).getByRole("button", { name: "Remove performer filter: Text search" });
+    expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([editGroup]);
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+
+    editGroup.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(removeGroup).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(editSearch).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(removeSearch).toHaveFocus();
+    expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([removeSearch]);
+
+    const criterionSearch = screen.getByRole("searchbox", { name: "Search filter criteria" });
+    criterionSearch.focus();
+    await user.type(criterionSearch, "title");
+    expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([removeSearch]);
+
+    removeSearch.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(editSearch).toHaveFocus();
   });
 
   it("places Clear all after selected filters and returns focus to criterion search", async () => {
@@ -863,18 +905,24 @@ describe("FilterDialog", () => {
           organizedCriterion: { value: true },
         }}
         onApply={vi.fn()}
+        supportsFilterExpressions
       />,
     );
     await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
     const selectedFilters = screen.getByRole("toolbar", { name: "Selected filters" });
     const clearAll = within(selectedFilters).getByRole("button", { name: "Clear all" });
+    const combineFilters = within(selectedFilters).getByRole("button", { name: "Combine filters" });
     expect(clearAll).toHaveAttribute("tabindex", "-1");
     expect(screen.getAllByRole("button", { name: /Clear all/i })).toHaveLength(1);
 
     const organized = screen.getByRole("button", { name: "Edit filter: Organized" });
     organized.focus();
     await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "Remove filter: Organized" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
     expect(clearAll).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(combineFilters).toHaveFocus();
     await user.keyboard("{ArrowRight}");
     expect(screen.getByRole("button", { name: "Edit filter: Title" })).toHaveFocus();
 
@@ -1996,6 +2044,74 @@ describe("FilterDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
     const second = screen.getByRole("group", { name: "Date condition 2" });
     await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+  });
+
+  it("keeps expression chips and ordinary filters in one roving group after rerenders and removals", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          _filterExpression: { operator: "AND", children: [
+            { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+          ] },
+          organizedCriterion: { value: true },
+        }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        openAtRoot
+      />,
+    );
+
+    const toolbar = screen.getByRole("toolbar", { name: "Selected filters" });
+    const combineFilters = within(toolbar).getByRole("button", { name: "Combine filters" });
+    combineFilters.focus();
+    await user.type(screen.getByRole("searchbox", { name: "Search filter criteria" }), "title");
+    expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([combineFilters]);
+
+    const removeExpression = within(toolbar).getByRole("button", { name: /Remove filter: Date: < 2000-01-01/ });
+    removeExpression.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(within(toolbar).getByRole("button", { name: "Remove filter: Organized" })).toHaveFocus());
+    expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([
+      within(toolbar).getByRole("button", { name: "Remove filter: Organized" }),
+    ]);
+  });
+
+  it("keeps focus in the unified group when its final ordinary filter is removed", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          _filterExpression: { operator: "AND", children: [
+            { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+          ] },
+          titleCriterion: { value: "example", modifier: "EQUALS" },
+          organizedCriterion: { value: true },
+        }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        openAtRoot
+      />,
+    );
+
+    const toolbar = screen.getByRole("toolbar", { name: "Selected filters" });
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+    const removeOrganized = within(toolbar).getByRole("button", { name: "Remove filter: Organized" });
+    removeOrganized.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(within(toolbar).getByRole("button", { name: "Edit filter: Title" })).toHaveFocus());
+
+    await user.keyboard("{Delete}");
+    await waitFor(() => expect(within(toolbar).getByRole("button", { name: /Remove filter: Date: < 2000-01-01/ })).toHaveFocus());
+    expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([
+      within(toolbar).getByRole("button", { name: /Remove filter: Date: < 2000-01-01/ }),
+    ]);
   });
 
   it("opens an Advanced OR leaf in the repeated criterion stack and returns to the organizer", async () => {
