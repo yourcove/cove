@@ -374,7 +374,56 @@ describe("ListPage active filter chips", () => {
     expect(await screen.findByText("Example Tag")).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /OR group: Tags Example Tag; AND group: URL Includes foo; URL Excludes bar/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit OR group in advanced filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: Tags Example Tag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit AND group in advanced filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
+  });
+
+  it("opens nested expression leaves in their standard filter editors", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["tags", "all"], [{ id: 42, name: "Example Tag" }]);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ _filterExpression: { operator: "AND", children: [
+              { group: { operator: "OR", children: [
+                { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+                { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+              ] } },
+              { filter: { performerTagsCriterion: { modifier: "INCLUDES_ALL", value: [42] } } },
+            ] } }}
+            onObjectFilterChange={vi.fn()}
+            supportsFilterExpressions
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Date condition 1" })).toBeInTheDocument();
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Performer Occurrence Tags Example Tag" }));
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Performer Occurrence Tags condition 1" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit OR group in advanced filters" }));
+    expect(screen.getByRole("heading", { name: "Advanced filter" })).toBeInTheDocument();
   });
 
   it("normalizes the legacy performer-favorite chip before editing or removing it", async () => {

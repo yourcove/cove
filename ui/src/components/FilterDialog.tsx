@@ -505,6 +505,16 @@ function getExpressionLeaf(
   return child.group ? getExpressionLeaf(child.group, rest) : undefined;
 }
 
+function getExpressionGroup(
+  root: FilterExpression<Record<string, unknown>>,
+  path: number[],
+): FilterExpression<Record<string, unknown>> | undefined {
+  if (path.length === 0) return root;
+  const [index, ...rest] = path;
+  const group = root.children[index]?.group;
+  return group ? getExpressionGroup(group, rest) : undefined;
+}
+
 function getExpressionConditionCriterion(
   filter: Record<string, unknown>,
   criteria: CriterionDefinition[],
@@ -997,6 +1007,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
   const [dialogView, setDialogView] = useState<FilterDialogView>(() => initialView === "advanced" && isComplexFilterExpression(activeFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined) ? "expression" : "simple");
   const [conditionDraft, setConditionDraft] = useState<ExpressionConditionDraft | null>(null);
+  const [simpleExpressionGroupPath, setSimpleExpressionGroupPath] = useState<number[]>(() => initialExpressionPath?.slice(0, -1) ?? []);
   const [inlineStackReturnsToExpression, setInlineStackReturnsToExpression] = useState(false);
   const backdropPointerDownRef = useRef(false);
   const [search, setSearch] = useState("");
@@ -1082,7 +1093,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const expressionConditionCount = countFilterExpressionConditions(expression);
   const hasComplexExpression = isComplexFilterExpression(expression);
   const simpleExpressionChildren = expression && !hasComplexExpression ? expression.children : [];
-  const directlyEditableExpressionChildren = expression && !expression.children.some((child) => child.group) ? expression.children : [];
+  const directlyEditableExpressionChildren = expression ? getExpressionGroup(expression, simpleExpressionGroupPath)?.children ?? [] : [];
   const validSimpleExpressionEntries = simpleExpressionChildren.flatMap((child, index) => child.filter
     && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? [{ child, index }] : []);
   const expressionEligibleCount = useMemo(() => criteria.filter((criterion) => criterion.expressionSupported !== false
@@ -1173,7 +1184,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     : undefined;
   const selectedExpressionInstances = selectedCompactCriterion ? directlyEditableExpressionChildren.flatMap((child, index) =>
     child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === selectedCompactCriterion.id
-      ? [{ index, filter: child.filter }]
+      ? [{ index, path: [...simpleExpressionGroupPath, index], filter: child.filter }]
       : []) : [];
   const showInlineConditionStack = Boolean(!conditionDraft && selectedCompactCriterion && selectedExpressionInstances.length > 0);
 
@@ -1229,6 +1240,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setRelatedWorkspaceSelection(null);
         setDialogView("simple");
         setConditionDraft(null);
+        setSimpleExpressionGroupPath([]);
         setInlineStackReturnsToExpression(false);
         setNavigatorFocusId(null);
         previousFocusRef.current?.focus();
@@ -1243,7 +1255,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       const openingExpression = normalizedActiveFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
       const openingLeaf = initialExpressionPath && openingExpression ? getExpressionLeaf(openingExpression, initialExpressionPath) : undefined;
       const openingLeafCriterion = openingLeaf ? getExpressionConditionCriterion(openingLeaf, criteria) : undefined;
-      const openLeafInline = Boolean(openingLeafCriterion && openingLeafCriterion.type !== "related" && openingExpression && !openingExpression.children.some((child) => child.group));
+      const openLeafInline = Boolean(openingLeafCriterion && openingLeafCriterion.type !== "related" && openingExpression);
       const openingView = openingLeaf ? "simple" : initialView === "advanced" && isComplexFilterExpression(openingExpression) ? "expression" : "simple";
       if (openingView === "expression") {
         const merged = mergeFilterExpressionWithSimpleCriteria(openingFilter, criteria);
@@ -1252,6 +1264,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setEditFilter(openingFilter);
       }
       setDialogView(openingView);
+      setSimpleExpressionGroupPath(initialExpressionPath?.slice(0, -1) ?? []);
       setConditionDraft(openingLeaf && !openLeafInline ? { filter: openingLeaf, path: initialExpressionPath, parentPath: initialExpressionPath!.slice(0, -1), isNew: false, returnView: "simple" } : null);
       setInlineStackReturnsToExpression(false);
       setSearch("");
@@ -1268,7 +1281,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       window.setTimeout(() => {
         if (openingView === "expression") backButtonRef.current?.focus();
         else if (openLeafInline && initialExpressionPath) {
-          const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${initialExpressionPath[0]}"]`);
+          const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${initialExpressionPath.at(-1)}"]`);
           getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
         }
         else if (nextSelected && preselectCriterion) focusFirstEditorControl();
@@ -1479,11 +1492,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const addInlineCondition = (criterion: CriterionDefinition) => {
     setEditFilter((current) => {
       const base = mergeFilterExpressionWithSimpleCriteria(current, criteria) ?? { operator: "AND" as const, children: [] };
-      const index = base.children.length;
+      const group = getExpressionGroup(base, simpleExpressionGroupPath);
+      const index = group?.children.length ?? 0;
       pendingInlineConditionFocusRef.current = index;
       return {
         ...expressionPassthroughFilter(current, criteria),
-        [FILTER_EXPRESSION_STATE_KEY]: { ...base, children: [...base.children, { filter: { _criterionId: criterion.id } }] },
+        [FILTER_EXPRESSION_STATE_KEY]: replaceExpressionGroup(base, simpleExpressionGroupPath, (target) => ({ ...target, children: [...target.children, { filter: { _criterionId: criterion.id } }] })),
       };
     });
     window.setTimeout(() => {
@@ -1507,17 +1521,17 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     focusFirstConditionEditorControl();
   };
 
-  const updateInlineCondition = (index: number, criterion: CriterionDefinition, value: unknown) => {
+  const updateInlineCondition = (path: number[], criterion: CriterionDefinition, value: unknown) => {
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
-      const existingFilter = currentExpression ? getExpressionLeaf(currentExpression, [index]) : undefined;
-      if (!currentExpression || !existingFilter || currentExpression.children.some((child) => child.group)) return current;
+      const existingFilter = currentExpression ? getExpressionLeaf(currentExpression, path) : undefined;
+      if (!currentExpression || !existingFilter) return current;
       const nextFilter = { ...existingFilter };
       delete nextFilter[criterion.filterKey];
       if (criterion.secondaryFilterKey) delete nextFilter[criterion.secondaryFilterKey];
       return {
         ...current,
-        [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, [index], {
+        [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, path, {
           ...nextFilter,
           ...setCriterionFilterValue({}, criterion, value),
           _criterionId: criterion.id,
@@ -1526,17 +1540,17 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     });
   };
 
-  const updateInlineAuxiliaryToggle = (index: number, criterion: CriterionDefinition, checked: boolean) => {
+  const updateInlineAuxiliaryToggle = (path: number[], criterion: CriterionDefinition, checked: boolean) => {
     const auxiliaryToggleKey = criterion.auxiliaryToggleKey;
     if (!auxiliaryToggleKey) return;
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
-      const filter = currentExpression ? getExpressionLeaf(currentExpression, [index]) : undefined;
-      if (!currentExpression || !filter || currentExpression.children.some((child) => child.group)) return current;
+      const filter = currentExpression ? getExpressionLeaf(currentExpression, path) : undefined;
+      if (!currentExpression || !filter) return current;
       const nextFilter = { ...filter };
       if (checked) nextFilter[auxiliaryToggleKey] = true;
       else delete nextFilter[auxiliaryToggleKey];
-      return { ...current, [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, [index], nextFilter) };
+      return { ...current, [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, path, nextFilter) };
     });
   };
 
@@ -1583,8 +1597,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }
     setSearch("");
     setRelatedWorkspaceSelection(null);
+    setSimpleExpressionGroupPath(path.slice(0, -1));
     setExpandedCriterion(criterion.id);
-    focusInlineCondition(path[0]);
+    focusInlineCondition(path.at(-1) ?? 0);
   };
 
   const saveExpressionCondition = () => {
@@ -1602,14 +1617,16 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     else returnToExpression();
   };
 
-  const removeSimpleExpressionCondition = (index: number, inlinePosition?: number) => {
+  const removeSimpleExpressionCondition = (index: number, inlinePosition?: number, parentPath: number[] = simpleExpressionGroupPath) => {
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
-      if (!currentExpression || currentExpression.children.some((child) => child.group)) return current;
-      const children = currentExpression.children.filter((_, candidate) => candidate !== index);
+      if (!currentExpression) return current;
+      const group = getExpressionGroup(currentExpression, parentPath);
+      if (!group) return current;
+      const children = group.children.filter((_, candidate) => candidate !== index);
       const next = { ...current };
-      if (children.length > 0) next[FILTER_EXPRESSION_STATE_KEY] = { ...currentExpression, children };
-      else delete next[FILTER_EXPRESSION_STATE_KEY];
+      if (parentPath.length === 0 && children.length === 0) delete next[FILTER_EXPRESSION_STATE_KEY];
+      else next[FILTER_EXPRESSION_STATE_KEY] = replaceExpressionGroup(currentExpression, parentPath, (target) => ({ ...target, children }));
       return next;
     });
     window.setTimeout(() => {
@@ -1991,7 +2008,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                   <div className="rounded-xl border border-border bg-card p-4 text-sm text-secondary">{selectedItem.criterion.unsupportedReason ?? "This filter is not currently available."}</div>
                 ) : showInlineConditionStack ? (
                   <div className="space-y-4">
-                    {selectedExpressionInstances.map(({ index, filter }, position) => (
+                    {selectedExpressionInstances.map(({ index, path, filter }, position) => (
                       <fieldset
                         key={index}
                         data-inline-condition-index={index}
@@ -2002,7 +2019,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                           <legend className="px-1 text-sm font-semibold text-foreground">{selectedItem.criterion.label} condition {position + 1}</legend>
                           <button
                             type="button"
-                            onClick={() => removeSimpleExpressionCondition(index, position)}
+                            onClick={() => removeSimpleExpressionCondition(index, position, path.slice(0, -1))}
                             className="inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm text-muted hover:bg-red-500/10 hover:text-red-300"
                             aria-label={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
                           >
@@ -2014,8 +2031,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                             criterion={selectedItem.criterion}
                             value={getCriterionFilterValue(filter, selectedItem.criterion)}
                             auxiliaryToggleChecked={selectedItem.criterion.auxiliaryToggleKey ? Boolean(filter[selectedItem.criterion.auxiliaryToggleKey]) : undefined}
-                            onAuxiliaryToggleChange={(checked) => updateInlineAuxiliaryToggle(index, selectedItem.criterion, checked)}
-                            onChange={(value) => updateInlineCondition(index, selectedItem.criterion, value)}
+                            onAuxiliaryToggleChange={(checked) => updateInlineAuxiliaryToggle(path, selectedItem.criterion, checked)}
+                            onChange={(value) => updateInlineCondition(path, selectedItem.criterion, value)}
                           />
                         </div>
                       </fieldset>

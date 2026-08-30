@@ -685,6 +685,8 @@ function FilterExpressionChipDisplay({
   metadataServers,
   ratingOptions,
   nested = false,
+  path = [],
+  onEdit,
 }: {
   expression: ChipFilterExpression;
   criteriaDefinitions: CriterionDefinition[];
@@ -692,15 +694,29 @@ function FilterExpressionChipDisplay({
   metadataServers: MetadataServer[];
   ratingOptions: RatingSystemOptions;
   nested?: boolean;
+  path?: number[];
+  onEdit?: (target: FilterChipTarget) => void;
 }) {
   const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
   return (
-    <span aria-hidden="true" data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
-      <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span>
+    <span data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
+      {onEdit ? (
+        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression" })} className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/25" aria-label={`Edit ${operator} group in advanced filters`}>{operator}</button>
+      ) : <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span>}
       {(expression.children ?? []).map((child, index) => child.group ? (
-        <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested />
+        <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} />
       ) : child.filter ? (
-        <ExpressionLeafSummary key={index} filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
+        onEdit ? (
+          <button
+            key={index}
+            type="button"
+            onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path: [...path, index] })}
+            className="min-w-0 rounded-md text-left hover:bg-background/40"
+            aria-label={`Edit filter: ${filterExpressionAccessibleSummary({ operator: "AND", children: [{ filter: child.filter }] }, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^AND group: /, "")}`}
+          >
+            <ExpressionLeafSummary filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
+          </button>
+        ) : <ExpressionLeafSummary key={index} filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
       ) : null)}
     </span>
   );
@@ -1058,12 +1074,35 @@ function ActiveObjectFilterChipsContent({
         const displayContent = isExpressionLeaf
           ? <ExpressionLeafSummary filter={value as Record<string, unknown>} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
           : isFilterExpression
-          ? <FilterExpressionChipDisplay expression={value as ChipFilterExpression} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
+          ? null
           : !customSection && def?.type === "rating"
           ? <RatingFilterChipDisplay value={value} options={ratingOptions} fallback={displayValue} />
           : !customSection && def?.type === "multiId"
             ? <MultiIdFilterChipDisplay def={def} value={value} nameMap={nameMap} fallback={displayValue} />
             : displayValue;
+        if (isFilterExpression) {
+          return (
+            <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
+              <div
+                ref={(element) => { if (element) buttonRefs.current.set(key, element.querySelector("button")!); else buttonRefs.current.delete(key); }}
+                data-active-filter-key={key}
+                className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-1"
+              >
+                <FilterExpressionChipDisplay
+                  expression={value as ChipFilterExpression}
+                  criteriaDefinitions={criteriaDefinitions}
+                  entityNameMaps={entityNameMaps}
+                  metadataServers={metadataServers}
+                  ratingOptions={ratingOptions}
+                  onEdit={onEdit}
+                />
+              </div>
+              <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        }
         return (
           <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
             <button
