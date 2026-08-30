@@ -231,7 +231,8 @@ describe("PerformerEditModal", () => {
 
     renderModal(performer);
 
-    await user.type(screen.getByPlaceholderText("Search tags..."), "sha");
+    const input = screen.getByPlaceholderText("Search tags...");
+    await user.type(input, "sha");
 
     await waitFor(() => {
       expect(mocks.tagsFind).toHaveBeenLastCalledWith({
@@ -242,7 +243,11 @@ describe("PerformerEditModal", () => {
       });
     });
 
-    await user.click(await screen.findByRole("option", { name: "Shaved Pussy" }));
+    const firstOption = await screen.findByRole("option", { name: "Shaved Pussy" });
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", firstOption.id);
+    expect(firstOption).toHaveClass("bg-accent", "text-white");
+    await user.keyboard("{Enter}");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [7] })));
@@ -283,7 +288,9 @@ describe("PerformerEditModal", () => {
     await user.type(input, "Novel tag");
     const createOption = await screen.findByRole("option", { name: "Create “Novel tag”" });
     expect(input).toHaveAttribute("aria-controls", createOption.parentElement?.id);
-    await user.keyboard("{ArrowDown}{Enter}");
+    await user.keyboard("{ArrowDown}");
+    expect(createOption).toHaveClass("bg-accent", "text-white");
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(mocks.tagsCreate).toHaveBeenCalledWith({ name: "Novel tag" }));
     expect(await screen.findByText("Qualities")).toBeInTheDocument();

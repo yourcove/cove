@@ -393,7 +393,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
                 key={tag.id}
                 {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[index])}
                 type="button"
-                className={`block w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-card ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-card" : ""}`}
+                className={`block w-full px-3 py-1.5 text-left text-sm ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
               >
                 {tag.name}
               </button>
@@ -403,7 +403,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
                 {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[tagAutocompleteItems.length - 1])}
                 type="button"
                 disabled={tagCreateMutation.isPending}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-card" : ""}`}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
               >
                 {tagCreateMutation.isPending ? (
                   <span className="text-secondary">Creating...</span>
