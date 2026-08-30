@@ -49,6 +49,11 @@ public sealed class FirstRunAuthenticationApiTests
         var blockedBootstrap = await PostForJsonAsync(browser, "/api/auth/bootstrap-owner", new { username = "blocked-owner", password = ApiTestUsers.Password }, HttpStatusCode.Forbidden, TestContext.Current.CancellationToken);
         blockedBootstrap.GetProperty("code").GetString().Should().Be("SETUP_TOKEN_REQUIRED");
 
+        var weakPassword = await PostForJsonAsync(browser, "/api/auth/setup-token-redeem", new { token = setupToken, password = "short", username = "weak-password-owner" }, HttpStatusCode.BadRequest, TestContext.Current.CancellationToken);
+        weakPassword.ToString().Should().Contain("Password must be 8-200 characters.");
+        weakPassword.ToString().Should().NotContain("InvalidOperationException");
+        (await GetBootstrapStatusAsync(browser, TestContext.Current.CancellationToken)).GetProperty("ownerExists").GetBoolean().Should().BeFalse();
+
         var invalid = await PostForJsonAsync(browser, "/api/auth/setup-token-redeem", new { token = $"invalid-{Guid.NewGuid():N}", password = ApiTestUsers.Password, username = "invalid-owner" }, HttpStatusCode.Gone, TestContext.Current.CancellationToken);
         invalid.GetProperty("code").GetString().Should().Be("TOKEN_EXPIRED");
         (await GetBootstrapStatusAsync(browser, TestContext.Current.CancellationToken)).GetProperty("ownerExists").GetBoolean().Should().BeFalse();

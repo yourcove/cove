@@ -1,4 +1,5 @@
 ﻿using Cove.Api.Services;
+using System.ComponentModel.DataAnnotations;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Interfaces;
@@ -484,5 +485,11 @@ public class AuthController : ControllerBase
 public record RefreshRequest(string RefreshToken);
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 public record BootstrapOwnerRequest(string Username, string Password);
-public record SetupTokenRedeemRequest(string Token, string Password, string? Username = null);
-public record InviteRedeemRequest(string Token, string Password, string? Username = null);
+public record SetupTokenRedeemRequest(
+    string Token,
+    [StringLength(200, MinimumLength = 8, ErrorMessage = "Password must be 8-200 characters.")] string Password,
+    string? Username = null);
+public record InviteRedeemRequest(
+    string Token,
+    [StringLength(200, MinimumLength = 8, ErrorMessage = "Password must be 8-200 characters.")] string Password,
+    string? Username = null);

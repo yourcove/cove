@@ -4,6 +4,7 @@ import { auth } from "../api/client";
 import { authStore } from "../auth/authStore";
 import { useAuth } from "../auth/AuthContext";
 import { navigateToUrl } from "../router/location";
+import { getApiValidationFailureDetail } from "../utils/requestFailure";
 
 type TokenMode = "invite" | "setup";
 
@@ -52,7 +53,6 @@ export function RedeemInvitePage() {
       setError("Passwords do not match.");
       return;
     }
-
     setSubmitting(true);
     try {
       const response = mode === "setup"
@@ -63,7 +63,7 @@ export function RedeemInvitePage() {
       await refreshMe();
       navigateToUrl("/", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Token redemption failed.");
+      setError(getApiValidationFailureDetail(err));
     } finally {
       setSubmitting(false);
     }

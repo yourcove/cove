@@ -12,9 +12,18 @@ function getApiErrorDetails(message: string): { status: number; detail?: string 
 
   try {
     const parsed = JSON.parse(body) as unknown;
-    if (parsed && typeof parsed === "object" && "message" in parsed) {
+    if (parsed && typeof parsed === "object") {
       const detail = (parsed as { message?: unknown }).message;
       if (typeof detail === "string" && detail.trim()) return { status, detail: detail.trim() };
+
+      const errors = (parsed as { errors?: unknown }).errors;
+      if (errors && typeof errors === "object") {
+        for (const fieldErrors of Object.values(errors)) {
+          if (!Array.isArray(fieldErrors)) continue;
+          const validationDetail = fieldErrors.find(value => typeof value === "string" && value.trim());
+          if (typeof validationDetail === "string") return { status, detail: validationDetail.trim() };
+        }
+      }
     }
   } catch {
     // Non-JSON response bodies are implementation details, so keep the generic copy below.
