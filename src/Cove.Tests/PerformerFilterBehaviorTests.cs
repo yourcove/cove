@@ -1,4 +1,5 @@
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Repositories;
@@ -345,6 +346,108 @@ public class PerformerFilterBehaviorTests
         Assert.Equal(["Long Career"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
     }
 
+    [Fact]
+    public async Task AgeCriterion_UsesAgeAtDeathForDeceasedPerformers()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+
+        context.Performers.AddRange(
+            new Performer
+            {
+                Name = "Deceased Match",
+                Birthdate = new DateOnly(1980, 6, 15),
+                DeathDate = new DateOnly(2005, 6, 14),
+            },
+            new Performer
+            {
+                Name = "Living Match",
+                Birthdate = today.AddYears(-24),
+            },
+            new Performer
+            {
+                Name = "Future Death Match",
+                Birthdate = today.AddYears(-24),
+                DeathDate = today.AddYears(5),
+            });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new PerformerRepository(context);
+        var filter = new PerformerFilter
+        {
+            AgeCriterion = new IntCriterion
+            {
+                Value = 24,
+                Modifier = CriterionModifier.Equals,
+            },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20, Sort = "name" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, totalCount);
+        Assert.Equal(["Deceased Match", "Future Death Match", "Living Match"], items.Select(performer => performer.Name ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public async Task AgeCriterion_MatchesPossibleAgesForPartialDates()
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+
+        context.Performers.AddRange(
+            new Performer
+            {
+                Name = "Partial Birth",
+                Birthdate = new DateOnly(2000, 1, 1),
+                BirthdatePrecision = DatePrecision.Year,
+                DeathDate = new DateOnly(2026, 6, 15),
+                DeathDatePrecision = DatePrecision.Day,
+            },
+            new Performer
+            {
+                Name = "Partial Death",
+                Birthdate = new DateOnly(1994, 1, 1),
+                BirthdatePrecision = DatePrecision.Year,
+                DeathDate = new DateOnly(2017, 1, 1),
+                DeathDatePrecision = DatePrecision.Year,
+            });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new PerformerRepository(context);
+        var age25 = await repository.FindAsync(
+            new PerformerFilter { AgeCriterion = new IntCriterion { Value = 25, Modifier = CriterionModifier.Equals } },
+            new FindFilter { Page = 1, PerPage = 20, Sort = "name" },
+            TestContext.Current.CancellationToken);
+        var age26 = await repository.FindAsync(
+            new PerformerFilter { AgeCriterion = new IntCriterion { Value = 26, Modifier = CriterionModifier.Equals } },
+            new FindFilter { Page = 1, PerPage = 20, Sort = "name" },
+            TestContext.Current.CancellationToken);
+        var age22 = await repository.FindAsync(
+            new PerformerFilter { AgeCriterion = new IntCriterion { Value = 22, Modifier = CriterionModifier.Equals } },
+            new FindFilter { Page = 1, PerPage = 20, Sort = "name" },
+            TestContext.Current.CancellationToken);
+        var age23 = await repository.FindAsync(
+            new PerformerFilter { AgeCriterion = new IntCriterion { Value = 23, Modifier = CriterionModifier.Equals } },
+            new FindFilter { Page = 1, PerPage = 20, Sort = "name" },
+            TestContext.Current.CancellationToken);
+        var notAge25 = await repository.FindAsync(
+            new PerformerFilter { AgeCriterion = new IntCriterion { Value = 25, Modifier = CriterionModifier.NotEquals } },
+            new FindFilter { Page = 1, PerPage = 20, Sort = "name" },
+            TestContext.Current.CancellationToken);
+        var notBetween25 = await repository.FindAsync(
+            new PerformerFilter { AgeCriterion = new IntCriterion { Value = 25, Value2 = 25, Modifier = CriterionModifier.NotBetween } },
+            new FindFilter { Page = 1, PerPage = 20, Sort = "name" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["Partial Birth"], age25.Items.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Partial Birth"], age26.Items.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Partial Death"], age22.Items.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Partial Death"], age23.Items.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Partial Death"], notAge25.Items.Select(performer => performer.Name).ToArray());
+        Assert.Equal(["Partial Death"], notBetween25.Items.Select(performer => performer.Name).ToArray());
+    }
+
     private static async Task SeedPerformerAsync(CoveContext context, string name, params Studio[] studios)
     {
         var performer = new Performer { Name = name };
@@ -428,4 +531,3 @@ public class PerformerFilterBehaviorTests
         }
     }
 }
-

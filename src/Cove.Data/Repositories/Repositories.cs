@@ -401,25 +401,69 @@ public class PerformerRepository : IPerformerRepository
             query = FilterHelpers.ApplyInt(query, filter.GalleryCountCriterion, p => p.GalleryPerformers.Count);
             query = FilterHelpers.ApplyInt(query, filter.RemoteIdCountCriterion, p => p.RemoteIds.Count);
 
-            // Age criterion â€” computed from Birthdate
+            // Age criterion — computed at death for deceased performers, otherwise today.
             if (filter.AgeCriterion != null && filter.AgeCriterion.Value > 0)
             {
-                var now = DateOnly.FromDateTime(DateTime.Today);
-                // Convert age to birth date range
+                var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
                 var val = filter.AgeCriterion.Value;
                 var val2 = filter.AgeCriterion.Value2 ?? val;
-                var oldestBirth = now.AddYears(-val2 - 1).AddDays(1);
-                var youngestBirth = now.AddYears(-val);
-                query = filter.AgeCriterion.Modifier switch
+                var ageBoundsQuery = query.Select(performer => new
                 {
-                    CriterionModifier.Equals => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value >= now.AddYears(-val - 1).AddDays(1) && p.Birthdate.Value <= now.AddYears(-val)),
-                    CriterionModifier.NotEquals => query.Where(p => !p.Birthdate.HasValue || p.Birthdate.Value < now.AddYears(-val - 1).AddDays(1) || p.Birthdate.Value > now.AddYears(-val)),
-                    CriterionModifier.GreaterThan => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value < youngestBirth),
-                    CriterionModifier.LessThan => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value > youngestBirth),
-                    CriterionModifier.Between => query.Where(p => p.Birthdate.HasValue && p.Birthdate.Value >= oldestBirth && p.Birthdate.Value <= youngestBirth),
-                    CriterionModifier.NotBetween => query.Where(p => p.Birthdate.HasValue && (p.Birthdate.Value < oldestBirth || p.Birthdate.Value > youngestBirth)),
-                    _ => query,
+                    Performer = performer,
+                    Birthdate = performer.Birthdate,
+                    BirthdateLatest = performer.Birthdate.HasValue
+                        ? performer.BirthdatePrecision == Core.Enums.DatePrecision.Year
+                            ? performer.Birthdate.Value.AddYears(1).AddDays(-1)
+                            : performer.BirthdatePrecision == Core.Enums.DatePrecision.Month
+                                ? performer.Birthdate.Value.AddMonths(1).AddDays(-1)
+                                : performer.Birthdate.Value
+                        : (DateOnly?)null,
+                    AgeDateEarliest = performer.DeathDate.HasValue && performer.DeathDate.Value <= today
+                        ? performer.DeathDate.Value
+                        : today,
+                    AgeDateLatest = performer.DeathDate.HasValue && performer.DeathDate.Value <= today
+                        ? performer.DeathDatePrecision == Core.Enums.DatePrecision.Year
+                            ? performer.DeathDate.Value.AddYears(1).AddDays(-1) <= today
+                                ? performer.DeathDate.Value.AddYears(1).AddDays(-1)
+                                : today
+                            : performer.DeathDatePrecision == Core.Enums.DatePrecision.Month
+                                ? performer.DeathDate.Value.AddMonths(1).AddDays(-1) <= today
+                                    ? performer.DeathDate.Value.AddMonths(1).AddDays(-1)
+                                    : today
+                                : performer.DeathDate.Value
+                        : today,
+                }).Select(item => new
+                {
+                    item.Performer,
+                    item.Birthdate,
+                    HasAge = item.Birthdate.HasValue && item.Birthdate.Value <= item.AgeDateLatest,
+                    MinimumAge = item.BirthdateLatest.HasValue
+                        ? item.AgeDateEarliest.Year - item.BirthdateLatest.Value.Year
+                            - ((item.AgeDateEarliest.Month < item.BirthdateLatest.Value.Month
+                                || (item.AgeDateEarliest.Month == item.BirthdateLatest.Value.Month && item.AgeDateEarliest.Day < item.BirthdateLatest.Value.Day)) ? 1 : 0) < 0
+                            ? 0
+                            : item.AgeDateEarliest.Year - item.BirthdateLatest.Value.Year
+                                - ((item.AgeDateEarliest.Month < item.BirthdateLatest.Value.Month
+                                    || (item.AgeDateEarliest.Month == item.BirthdateLatest.Value.Month && item.AgeDateEarliest.Day < item.BirthdateLatest.Value.Day)) ? 1 : 0)
+                        : 0,
+                    MaximumAge = item.Birthdate.HasValue
+                        ? item.AgeDateLatest.Year - item.Birthdate.Value.Year
+                            - ((item.AgeDateLatest.Month < item.Birthdate.Value.Month
+                                || (item.AgeDateLatest.Month == item.Birthdate.Value.Month && item.AgeDateLatest.Day < item.Birthdate.Value.Day)) ? 1 : 0)
+                        : 0,
+                });
+
+                var filteredAges = filter.AgeCriterion.Modifier switch
+                {
+                    CriterionModifier.Equals => ageBoundsQuery.Where(item => item.HasAge && item.MinimumAge <= val && item.MaximumAge >= val),
+                    CriterionModifier.NotEquals => ageBoundsQuery.Where(item => !item.Birthdate.HasValue || (item.HasAge && (item.MaximumAge < val || item.MinimumAge > val))),
+                    CriterionModifier.GreaterThan => ageBoundsQuery.Where(item => item.HasAge && item.MaximumAge > val),
+                    CriterionModifier.LessThan => ageBoundsQuery.Where(item => item.HasAge && item.MinimumAge < val),
+                    CriterionModifier.Between => ageBoundsQuery.Where(item => item.HasAge && item.MaximumAge >= val && item.MinimumAge <= val2),
+                    CriterionModifier.NotBetween => ageBoundsQuery.Where(item => item.HasAge && (item.MaximumAge < val || item.MinimumAge > val2)),
+                    _ => ageBoundsQuery,
                 };
+                query = filteredAges.Select(item => item.Performer);
             }
 
             // String criteria

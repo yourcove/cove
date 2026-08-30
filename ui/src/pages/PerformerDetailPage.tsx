@@ -44,6 +44,7 @@ import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/use
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
+import { getPerformerAge, getUtcToday, hasDeathOccurred } from "../utils/performerAge";
 
 interface Props {
   id: number;
@@ -174,9 +175,9 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
     return <div className="py-16 text-center text-secondary">Performer not found</div>;
   }
 
-  const age = performer.birthdate
-    ? Math.floor((Date.now() - new Date(performer.birthdate).getTime()) / 31557600000)
-    : null;
+  const today = getUtcToday();
+  const age = getPerformerAge(performer.birthdate, performer.deathDate, today);
+  const deceased = hasDeathOccurred(performer.deathDate, today);
   const performerImageUrl = performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt, 1200);
   const handleCoverChanged = () => {
     queryClient.invalidateQueries({ queryKey: ["performer", performer.id] });
@@ -242,9 +243,9 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
             <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
               {performer.gender && <InfoItem icon={<UserRound className="h-4 w-4" />} label="Gender" value={performer.gender} fieldProvenance={performer.fieldProvenance} fieldKey="gender" />}
               {performer.birthdate && (
-                <InfoItem icon={<Calendar className="h-4 w-4" />} label="Born" value={`${formatDate(performer.birthdate)}${age ? ` (${age})` : ""}`} fieldProvenance={performer.fieldProvenance} fieldKey="birthdate" />
+                <InfoItem icon={<Calendar className="h-4 w-4" />} label="Born" value={`${formatDate(performer.birthdate)}${!deceased && age != null ? ` (${age})` : ""}`} fieldProvenance={performer.fieldProvenance} fieldKey="birthdate" />
               )}
-              {performer.deathDate && <InfoItem icon={<Calendar className="h-4 w-4" />} label="Died" value={formatDate(performer.deathDate)} fieldProvenance={performer.fieldProvenance} fieldKey="deathDate" />}
+              {performer.deathDate && <InfoItem icon={<Calendar className="h-4 w-4" />} label="Died" value={`${formatDate(performer.deathDate)}${deceased && age != null ? ` (age ${age})` : ""}`} fieldProvenance={performer.fieldProvenance} fieldKey="deathDate" />}
               {performer.country && <InfoItem icon={<MapPin className="h-4 w-4" />} label="Country" value={performer.country} fieldProvenance={performer.fieldProvenance} fieldKey="country" />}
               {performer.ethnicity && <InfoItem label="Ethnicity" value={performer.ethnicity} fieldProvenance={performer.fieldProvenance} fieldKey="ethnicity" />}
               {performer.heightCm && <InfoItem icon={<Ruler className="h-4 w-4" />} label="Height" value={`${performer.heightCm} cm`} fieldProvenance={performer.fieldProvenance} fieldKey="height_cm" />}
