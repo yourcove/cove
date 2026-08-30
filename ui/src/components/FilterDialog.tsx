@@ -973,6 +973,7 @@ interface FilterDialogProps {
   initialView?: "simple" | "advanced";
   initialExpressionPath?: number[];
   subjectLabel?: string;
+  openAtRoot?: boolean;
 }
 
 export interface FilterDialogCustomSection {
@@ -1009,11 +1010,8 @@ interface ExpressionConditionDraft {
   returnView: "simple" | "expression";
 }
 
-export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, preselectCriterion, customSections, showCustomSectionDivider = true, supportsFilterExpressions = false, initialView = "simple", initialExpressionPath, subjectLabel = "items" }: FilterDialogProps) {
+export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, preselectCriterion, customSections, showCustomSectionDivider = true, supportsFilterExpressions = false, initialView = "simple", initialExpressionPath, subjectLabel = "items", openAtRoot = false }: FilterDialogProps) {
   const supportsExpressions = supportsFilterExpressions;
-  const ratingOptions = useRatingOptions();
-  const appConfig = useOptionalAppConfig();
-  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
   const [dialogView, setDialogView] = useState<FilterDialogView>(() => initialView === "advanced" && isComplexFilterExpression(activeFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined) ? "expression" : "simple");
   const [conditionDraft, setConditionDraft] = useState<ExpressionConditionDraft | null>(null);
@@ -1283,7 +1281,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         ?? (customSections ?? []).find((section) => section.isActive(normalizedActiveFilter[section.filterKey]))?.id;
       const nextSelected = openingLeafCriterion?.id ?? (typeof preselectCriterion === "string"
         ? preselectCriterion
-        : preselectCriterion?.criterionId ?? firstActive ?? null);
+        : preselectCriterion?.criterionId ?? (openAtRoot ? null : firstActive) ?? null);
       setRelatedWorkspaceSelection(typeof preselectCriterion === "object"
         ? { facet: preselectCriterion.relatedFacet ?? "mode", nestedCriterionId: preselectCriterion.nestedCriterionId }
         : null);
@@ -1300,7 +1298,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }, 0);
     }
     wasOpenRef.current = true;
-  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, initialExpressionPath, initialView, normalizedActiveFilter, open, preselectCriterion]);
+  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, initialExpressionPath, initialView, normalizedActiveFilter, open, openAtRoot, preselectCriterion]);
 
   const dismiss = useCallback(() => {
     setEditFilter(cloneActiveFilter());
@@ -1875,8 +1873,6 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             onAddCondition={openNewExpressionCondition}
             onEditCondition={openExpressionCondition}
             subjectLabel={subjectLabel}
-            ratingOptions={ratingOptions}
-            metadataServers={metadataServers}
           />
         ) : relatedWorkspaceCriterion ? (
           <RelatedFilterWorkspace
@@ -2206,8 +2202,6 @@ function FilterExpressionEditor({
   onAddCondition,
   onEditCondition,
   subjectLabel,
-  ratingOptions,
-  metadataServers,
 }: {
   criteria: CriterionDefinition[];
   value: FilterExpression<Record<string, unknown>>;
@@ -2215,8 +2209,6 @@ function FilterExpressionEditor({
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
   onEditCondition: (path: number[]) => void;
   subjectLabel: string;
-  ratingOptions: RatingSystemOptions;
-  metadataServers: MetadataServer[];
 }) {
   const [explanationOpen, setExplanationOpen] = useState(false);
   const conditionCount = countFilterExpressionConditions(value);
@@ -2236,7 +2228,7 @@ function FilterExpressionEditor({
         {explanationOpen ? (
           <section id="filter-expression-explanation" aria-labelledby="filter-expression-explanation-title" className="rounded-xl border border-accent/30 bg-accent/5 p-4">
             <h3 id="filter-expression-explanation-title" className="text-sm font-semibold text-foreground">What this search does</h3>
-            <FilterExpressionExplanation expression={value} criteria={criteria} subjectLabel={subjectLabel} ratingOptions={ratingOptions} metadataServers={metadataServers} />
+            <FilterExpressionExplanation expression={value} criteria={criteria} subjectLabel={subjectLabel} />
           </section>
         ) : null}
         <div data-expression-tree>
@@ -2628,7 +2620,10 @@ function ExplanationNode({ node }: { node: FilterExplanationNode }) {
   );
 }
 
-function FilterExpressionExplanation({ expression, criteria, subjectLabel, ratingOptions, metadataServers }: { expression: FilterExpression<Record<string, unknown>>; criteria: CriterionDefinition[]; subjectLabel: string; ratingOptions: RatingSystemOptions; metadataServers: MetadataServer[] }) {
+function FilterExpressionExplanation({ expression, criteria, subjectLabel }: { expression: FilterExpression<Record<string, unknown>>; criteria: CriterionDefinition[]; subjectLabel: string }) {
+  const ratingOptions = useRatingOptions();
+  const appConfig = useOptionalAppConfig();
+  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
   const explanation = explainExpressionGroup(expression, criteria, ratingOptions, metadataServers);
   return (
     <div className="mt-2 text-sm text-secondary">

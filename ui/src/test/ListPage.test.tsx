@@ -252,6 +252,12 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Filters, 1 active" }));
+    const rootDialog = screen.getByRole("dialog", { name: "Filters" });
+    expect(rootDialog).toBeInTheDocument();
+    expect(within(rootDialog).getByRole("group", { name: "Related Performers filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
     expect(onObjectFilterChange).toHaveBeenCalledWith({
       performerFilterCriterion: {

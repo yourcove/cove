@@ -348,6 +348,10 @@ describe("DetailListToolbar", () => {
     await user.click(screen.getByRole("button", { name: "Close filters" }));
     await user.click(screen.getByRole("button", { name: "Edit OR group in Combine Filters" }));
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close filters" }));
+    await user.click(screen.getByRole("button", { name: "Filters, 1 active" }));
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
   });
 
   it("normalizes a legacy performer-favorite chip before editing or removing it", async () => {

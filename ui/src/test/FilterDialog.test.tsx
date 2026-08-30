@@ -102,6 +102,30 @@ describe("FilterDialog", () => {
     await waitFor(() => expect(screen.getByLabelText("Saved performer filter")).toHaveFocus());
   });
 
+  it("opens at the root when the first active filter is a related filter", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          performerFilterCriterion: {
+            mode: "every",
+            conditionOperator: "or",
+            ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 20 },
+            objectFilter: { favoriteCriterion: { value: true } },
+          },
+        }}
+        onApply={vi.fn()}
+        openAtRoot
+      />,
+    );
+
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Related Performers filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+  });
+
   it("returns focus to related criteria search after leaving a mobile-style editor", async () => {
     renderWithQueryClient(
       <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
