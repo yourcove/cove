@@ -1,5 +1,5 @@
 import { Search, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ListSearchCommitSource = "debounce" | "submit" | "clear";
 
@@ -17,10 +17,19 @@ const LIST_SEARCH_DEBOUNCE_MS = 350;
 
 export function ListSearchControl({ query, onQueryChange, placeholder = "Search names, titles, tags...", className = "", searchMode, searchModes, onSearchModeChange }: ListSearchControlProps) {
   const [searchText, setSearchText] = useState(query ?? "");
+  const pendingLocalCommitsRef = useRef<string[]>([]);
 
   useEffect(() => {
+    const normalizedQuery = (query ?? "").trim();
+    const acknowledgedCommitIndex = pendingLocalCommitsRef.current.indexOf(normalizedQuery);
+    const acknowledgesLocalCommit = acknowledgedCommitIndex >= 0;
+    if (acknowledgesLocalCommit) {
+      pendingLocalCommitsRef.current.splice(0, acknowledgedCommitIndex + 1);
+    } else {
+      pendingLocalCommitsRef.current = [];
+    }
     setSearchText((currentSearchText) => (
-      currentSearchText.trim() === (query ?? "").trim()
+      currentSearchText.trim() === normalizedQuery || acknowledgesLocalCommit
         ? currentSearchText
         : query ?? ""
     ));
@@ -29,6 +38,10 @@ export function ListSearchControl({ query, onQueryChange, placeholder = "Search 
   const commitSearch = useCallback((rawSearchText: string, source: ListSearchCommitSource) => {
     const normalizedSearch = rawSearchText.trim();
     if (normalizedSearch === (query ?? "").trim()) return;
+    pendingLocalCommitsRef.current = [
+      ...pendingLocalCommitsRef.current.filter((pendingQuery) => pendingQuery !== normalizedSearch),
+      normalizedSearch,
+    ];
     onQueryChange(normalizedSearch || undefined, source);
   }, [onQueryChange, query]);
 
