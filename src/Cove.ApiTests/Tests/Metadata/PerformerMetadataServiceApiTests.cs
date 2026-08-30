@@ -65,7 +65,7 @@ public sealed class PerformerMetadataServiceApiTests(
         imported.EyeColor.Should().Be("Hazel");
         imported.HairColor.Should().Be("Auburn");
         imported.HeightCm.Should().Be(168);
-        imported.CareerStart.Should().Be("2014-01-01");
+        imported.CareerStart.Should().Be("2014");
         imported.Urls.Should().Contain(performerProfileUrl);
         imported.RemoteIds.Should().ContainSingle(remoteId =>
             remoteId.Endpoint == metadataPerformer.Endpoint.AbsoluteUri
@@ -82,7 +82,7 @@ public sealed class PerformerMetadataServiceApiTests(
         persisted.EyeColor.Should().Be("Hazel");
         persisted.HairColor.Should().Be("Auburn");
         persisted.HeightCm.Should().Be(168);
-        persisted.CareerStart.Should().Be("2014-01-01");
+        persisted.CareerStart.Should().Be("2014");
         persisted.Urls.Should().Contain(performerProfileUrl);
         persisted.RemoteIds.Should().ContainSingle(remoteId =>
             remoteId.Endpoint == metadataPerformer.Endpoint.AbsoluteUri
@@ -282,7 +282,7 @@ public sealed class PerformerMetadataServiceApiTests(
         performer.HairColor.Should().Be(metadataPerformer.Performer.HairColor);
         performer.HeightCm.Should().Be(metadataPerformer.Performer.HeightCm);
         performer.CareerStart.Should().Be(metadataPerformer.Performer.CareerStartYear is int year
-            ? $"{year:0000}-01-01"
+            ? $"{year:0000}"
             : null);
         performer.Urls.Should().Equal(metadataPerformer.Performer.Urls);
         performer.RemoteIds.Should().ContainSingle(remoteId =>
