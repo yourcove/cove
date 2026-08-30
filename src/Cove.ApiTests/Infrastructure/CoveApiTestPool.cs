@@ -5,6 +5,7 @@ namespace Cove.ApiTests.Infrastructure;
 public sealed class CoveApiTestPool : IAsyncLifetime
 {
     public const int MaxParallelThreads = 8;
+    internal const int DefaultMaxWorkers = 6;
     internal const string WorkerCountEnvironmentVariable = "COVE_API_TEST_WORKERS";
 
     internal static int DefaultCapacity
@@ -39,7 +40,7 @@ public sealed class CoveApiTestPool : IAsyncLifetime
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(processorCount, 1);
         if (string.IsNullOrWhiteSpace(configuredValue))
-            return Math.Clamp(processorCount / 2, 1, MaxParallelThreads);
+            return Math.Clamp(processorCount / 2, 1, DefaultMaxWorkers);
 
         if (int.TryParse(configuredValue, out var configured)
             && configured is >= 1 and <= MaxParallelThreads)
