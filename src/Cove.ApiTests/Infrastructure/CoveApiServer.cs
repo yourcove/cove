@@ -219,24 +219,11 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>(),
             cancellationToken);
         using var client = CreateLifecycleClient();
-        using var response = await client.PostAsync("/health/test-reset", content: null, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException(
-                $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}{Environment.NewLine}"
-                + $"API process output:{Environment.NewLine}{FormatOutput(_output)}");
-        }
-        _metadataService.Reset();
-        _downloadSource.Reset();
-        _extensionRegistry.Reset();
-        _fileManagerRecorder.Reset();
-        FileSystem.Reset();
         var users = new Dictionary<string, CoveClient>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            using var provisionResponse = await client.PostAsJsonAsync(
-                "/health/test-personas",
+            using var response = await client.PostAsJsonAsync(
+                "/health/test-reset",
                 new
                 {
                     passwordHash = PersonaPasswordHash.Value,
@@ -249,14 +236,26 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
                 },
                 ApiJson.Options,
                 cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException(
+                    $"POST /health/test-reset returned {(int)response.StatusCode} ({response.StatusCode}). Response: {body}{Environment.NewLine}"
+                    + $"API process output:{Environment.NewLine}{FormatOutput(_output)}");
+            }
             var sessions = await ApiResponse.ReadAsync<AuthenticationResponse[]>(
-                provisionResponse,
-                "POST /health/test-personas",
+                response,
+                "POST /health/test-reset",
                 cancellationToken);
+            _metadataService.Reset();
+            _downloadSource.Reset();
+            _extensionRegistry.Reset();
+            _fileManagerRecorder.Reset();
+            FileSystem.Reset();
             foreach (var session in sessions)
             {
                 if (string.IsNullOrWhiteSpace(session.Token) || string.IsNullOrWhiteSpace(session.Username))
-                    throw new InvalidOperationException("The test persona response did not contain a username and access token.");
+                    throw new InvalidOperationException("The test reset response did not contain a username and access token.");
                 users.Add(session.Username, new CoveClient(session.Username, BaseAddress, session.Token));
             }
             return users;

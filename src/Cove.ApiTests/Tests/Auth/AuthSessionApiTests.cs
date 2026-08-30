@@ -11,12 +11,12 @@ public sealed class AuthSessionApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
-    public async Task GivenTestPersonaEndpoint_WhenResetTokenIsMissing_ThenEndpointIsHidden()
+    public async Task GivenTestResetEndpoint_WhenResetTokenIsMissing_ThenEndpointIsHidden()
     {
         using var client = new HttpClient { BaseAddress = ApiUri };
 
         using var response = await client.PostAsync(
-            "/health/test-personas",
+            "/health/test-reset",
             content: null,
             TestContext.Current.CancellationToken);
 
@@ -25,11 +25,13 @@ public sealed class AuthSessionApiTests(
         using var wrongTokenClient = new HttpClient { BaseAddress = ApiUri };
         wrongTokenClient.DefaultRequestHeaders.Add("X-Cove-Test-Reset-Token", "wrong-token");
         using var wrongTokenResponse = await wrongTokenClient.PostAsync(
-            "/health/test-personas",
+            "/health/test-reset",
             content: null,
             TestContext.Current.CancellationToken);
 
         wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var status = await AsUser().GetBootstrapStatusAsync(TestContext.Current.CancellationToken);
+        status.GetProperty("ownerExists").GetBoolean().Should().BeTrue();
     }
 
     [Fact]

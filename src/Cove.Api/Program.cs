@@ -675,13 +675,18 @@ try
                 return Results.NotFound();
             }
 
+            var request = await httpContext.Request.ReadFromJsonAsync<IntegrationTestResetRequest>(
+                cancellationToken: cancellationToken);
+            if (request is null)
+                return Results.BadRequest();
+
             await jobs.CancelAllAndWaitAsync(cancellationToken);
             await audit.FlushAsync(cancellationToken);
 
             await using (var scope = scopeFactory.CreateAsyncScope())
             {
-                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-                await db.Database.ExecuteSqlRawAsync("""
+                var resetDb = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                await resetDb.Database.ExecuteSqlRawAsync("""
                     DO $reset$
                     DECLARE
                         table_list text;
@@ -717,32 +722,10 @@ try
                     .EnsureBuiltInGroupsAsync(cancellationToken);
             }
 
-            return Results.NoContent();
-        }).AllowAnonymous();
-
-        app.MapPost("/health/test-personas", async (
-            HttpContext httpContext,
-            CoveContext db,
-            ITokenService tokens,
-            CancellationToken cancellationToken) =>
-        {
-            var expectedToken = builder.Configuration["Cove:IntegrationTestResetToken"];
-            if (string.IsNullOrWhiteSpace(expectedToken)
-                || !httpContext.Request.Headers.TryGetValue("X-Cove-Test-Reset-Token", out var suppliedToken)
-                || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-                    System.Text.Encoding.UTF8.GetBytes(expectedToken),
-                    System.Text.Encoding.UTF8.GetBytes(suppliedToken.ToString())))
-            {
-                return Results.NotFound();
-            }
-
-            var request = await httpContext.Request.ReadFromJsonAsync<IntegrationTestPersonaProvisionRequest>(
-                cancellationToken: cancellationToken);
-            if (request is null)
-                return Results.BadRequest();
-
+            await using var personaScope = scopeFactory.CreateAsyncScope();
+            var personaDb = personaScope.ServiceProvider.GetRequiredService<CoveContext>();
             var roleNames = request.Personas.Select(persona => persona.Role).Distinct().ToArray();
-            var roles = await db.Roles
+            var roles = await personaDb.Roles
                 .Where(role => roleNames.Contains(role.Name))
                 .ToDictionaryAsync(role => role.Name, StringComparer.Ordinal, cancellationToken);
             if (roles.Count != roleNames.Length)
@@ -761,16 +744,17 @@ try
                 CreatedAt = now,
                 UpdatedAt = now,
             }).ToArray();
-            db.Users.AddRange(users);
-            await db.SaveChangesAsync(cancellationToken);
-            db.UserRoleAssignments.AddRange(users.Zip(request.Personas, (user, persona) => new UserRoleAssignment
+            personaDb.Users.AddRange(users);
+            await personaDb.SaveChangesAsync(cancellationToken);
+            personaDb.UserRoleAssignments.AddRange(users.Zip(request.Personas, (user, persona) => new UserRoleAssignment
             {
                 UserId = user.Id,
                 RoleId = roles[persona.Role].Id,
                 GrantedAt = now,
             }));
-            await db.SaveChangesAsync(cancellationToken);
+            await personaDb.SaveChangesAsync(cancellationToken);
 
+            var tokens = personaScope.ServiceProvider.GetRequiredService<ITokenService>();
             var sessions = new List<LoginResponse>(users.Length);
             foreach (var user in users)
             {
@@ -1059,7 +1043,7 @@ public partial class Program
 {
 }
 
-internal sealed record IntegrationTestPersonaProvisionRequest(
+internal sealed record IntegrationTestResetRequest(
     string PasswordHash,
     IReadOnlyList<IntegrationTestPersona> Personas);
 
