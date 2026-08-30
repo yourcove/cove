@@ -648,8 +648,8 @@ public class PerformerRepository : IPerformerRepository
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, p => p.Id, desc),
             _ => desc ? query.OrderByDescending(p => p.UpdatedAt) : query.OrderBy(p => p.UpdatedAt),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, performer => performer.Name);
 
         var page = findFilter?.Page ?? 1;
         var perPage = findFilter?.PerPage ?? 25;
@@ -958,8 +958,8 @@ public class TagRepository : ITagRepository
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, t => t.Id, desc),
             _ => ApplyStableTagSort(query, t => t.UpdatedAt, desc),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, tag => tag.Name);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await query
@@ -1530,8 +1530,8 @@ public class StudioRepository : IStudioRepository
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, s => s.Id, desc),
             _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, studio => studio.Name);
         var page = findFilter?.Page ?? 1;
         var pagedIds = await query
             .Skip((page - 1) * perPage)
@@ -1858,8 +1858,8 @@ public class GalleryRepository : IGalleryRepository
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
             _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, gallery => gallery.Title);
         var page = findFilter?.Page ?? 1;
         var perPage = findFilter?.PerPage ?? 25;
 
@@ -2389,8 +2389,8 @@ public class ImageRepository : IImageRepository
         filterQuery = sortClauses.Count > 1
             ? ApplyImageMultiSort(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
-        if (!hasExplicitSort)
-            filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            filterQuery = FullTextSearchHelpers.OrderByExactThenRelevance(_db, filterQuery, findFilter?.Q, image => image.Title);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery
@@ -3078,8 +3078,8 @@ public class GroupRepository : IGroupRepository
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
             _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
             };
-        if (!hasExplicitSort)
-            query = FullTextSearchHelpers.OrderByRelevance(_db, query, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, group => group.Name);
         var page = findFilter?.Page ?? 1;
         var perPage = findFilter?.PerPage ?? 25;
         if (perPage <= 0)

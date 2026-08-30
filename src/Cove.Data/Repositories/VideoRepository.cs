@@ -133,8 +133,8 @@ public class VideoRepository : IVideoRepository
         filterQuery = sortClauses.Count > 1
             ? ApplyMultiSorting(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
-        if (!hasExplicitSort)
-            filterQuery = FullTextSearchHelpers.OrderByRelevance(_db, filterQuery, findFilter?.Q);
+        if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
+            filterQuery = FullTextSearchHelpers.OrderByExactThenRelevance(_db, filterQuery, findFilter?.Q, video => video.Title);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery

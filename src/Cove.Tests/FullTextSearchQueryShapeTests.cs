@@ -44,6 +44,22 @@ public sealed class FullTextSearchQueryShapeTests
     }
 
     [Fact]
+    public void ExplicitRelevanceSort_OrdersExactTitleBeforeFullTextRank()
+    {
+        using var db = CreatePostgresContext();
+        var query = FullTextSearchHelpers.OrderByExactThenRelevance(
+            db,
+            db.Images,
+            "needle",
+            image => image.Title);
+
+        var sql = query.Select(image => image.Id).ToQueryString();
+        Assert.True(FullTextSearchHelpers.ShouldOrderByRelevance(db, "needle", "relevance"));
+        Assert.Contains("ORDER BY i.\"Title\" IS NOT NULL AND lower(i.\"Title\") = 'needle' DESC", sql, StringComparison.Ordinal);
+        Assert.Contains("ts_rank", sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ImageCandidateIdSearch_PreservesTextRelationshipAndPathMatchesOnSqlite()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

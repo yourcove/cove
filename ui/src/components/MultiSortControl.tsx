@@ -172,18 +172,20 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
             ))}
           </select>
 
-          <button
-            type="button"
-            onClick={() => applyClauses([
-              { ...primary, direction: primary.direction === "desc" ? "asc" : "desc" },
-              ...clauses.slice(1),
-            ])}
-            className={toolbarIconButtonClass}
-            title={primary.direction === "desc" ? "Sort descending" : "Sort ascending"}
-            aria-label={primary.direction === "desc" ? "Sort descending" : "Sort ascending"}
-          >
-            {primary.direction === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
-          </button>
+          {primary.key !== "relevance" && (
+            <button
+              type="button"
+              onClick={() => applyClauses([
+                { ...primary, direction: primary.direction === "desc" ? "asc" : "desc" },
+                ...clauses.slice(1),
+              ])}
+              className={toolbarIconButtonClass}
+              title={primary.direction === "desc" ? "Sort descending" : "Sort ascending"}
+              aria-label={primary.direction === "desc" ? "Sort descending" : "Sort ascending"}
+            >
+              {primary.direction === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+            </button>
+          )}
 
           {primary.key === "random" && (
             <button

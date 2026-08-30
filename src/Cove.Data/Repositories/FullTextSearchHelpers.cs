@@ -219,7 +219,10 @@ public static class FullTextSearchHelpers
     }
 
     public static bool ShouldOrderByRelevance(CoveContext db, string? search, string? explicitSort)
-        => IsActive(db, search) && string.IsNullOrWhiteSpace(explicitSort);
+        => IsActive(db, search) && (string.IsNullOrWhiteSpace(explicitSort) || IsRelevanceSort(explicitSort));
+
+    public static bool IsRelevanceSort(string? sort)
+        => string.Equals(sort, "relevance", StringComparison.OrdinalIgnoreCase);
 
     public static IQueryable<T> OrderByRelevance<T>(CoveContext db, IQueryable<T> query, string? search)
         where T : BaseEntity
