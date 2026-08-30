@@ -1082,6 +1082,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const expressionConditionCount = countFilterExpressionConditions(expression);
   const hasComplexExpression = isComplexFilterExpression(expression);
   const simpleExpressionChildren = expression && !hasComplexExpression ? expression.children : [];
+  const directlyEditableExpressionChildren = expression && !expression.children.some((child) => child.group) ? expression.children : [];
   const validSimpleExpressionEntries = simpleExpressionChildren.flatMap((child, index) => child.filter
     && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? [{ child, index }] : []);
   const expressionEligibleCount = useMemo(() => criteria.filter((criterion) => criterion.expressionSupported !== false
@@ -1105,7 +1106,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       id: criterion.id,
       label: criterion.label,
       active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)
-        || simpleExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
+        || directlyEditableExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
           && isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)),
       pinned: pinnedIds.has(criterion.id),
       criterion,
@@ -1131,7 +1132,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       { label: "Related items", items: related },
       { label: "All filters", items: remaining },
     ].filter((group) => group.items.length > 0);
-  }, [criteria, customSections, editFilter, filteredCriteria, pinnedIds, search, simpleExpressionChildren]);
+  }, [criteria, customSections, directlyEditableExpressionChildren, editFilter, filteredCriteria, pinnedIds, search]);
 
   const visibleNavigatorItems = useMemo(() => navigatorGroups.flatMap((group) => group.items), [navigatorGroups]);
   const rovingNavigatorId = navigatorFocusId && visibleNavigatorItems.some((item) => item.id === navigatorFocusId)
@@ -1158,19 +1159,19 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       id: criterion.id,
       label: criterion.label,
       active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)
-        || simpleExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
+        || directlyEditableExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
           && isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)),
       pinned: pinnedIds.has(criterion.id),
       criterion,
     } : undefined;
-  }, [criteria, customSections, editFilter, expandedCriterion, pinnedIds, simpleExpressionChildren]);
+  }, [criteria, customSections, directlyEditableExpressionChildren, editFilter, expandedCriterion, pinnedIds]);
   const relatedWorkspaceCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type === "related"
     ? selectedItem.criterion
     : undefined;
   const selectedCompactCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type !== "related"
     ? selectedItem.criterion
     : undefined;
-  const selectedExpressionInstances = selectedCompactCriterion ? simpleExpressionChildren.flatMap((child, index) =>
+  const selectedExpressionInstances = selectedCompactCriterion ? directlyEditableExpressionChildren.flatMap((child, index) =>
     child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === selectedCompactCriterion.id
       ? [{ index, filter: child.filter }]
       : []) : [];
@@ -1242,7 +1243,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       const openingExpression = normalizedActiveFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
       const openingLeaf = initialExpressionPath && openingExpression ? getExpressionLeaf(openingExpression, initialExpressionPath) : undefined;
       const openingLeafCriterion = openingLeaf ? getExpressionConditionCriterion(openingLeaf, criteria) : undefined;
-      const openLeafInline = Boolean(openingLeafCriterion && openingLeafCriterion.type !== "related" && !isComplexFilterExpression(openingExpression));
+      const openLeafInline = Boolean(openingLeafCriterion && openingLeafCriterion.type !== "related" && openingExpression && !openingExpression.children.some((child) => child.group));
       const openingView = openingLeaf ? "simple" : initialView === "advanced" && isComplexFilterExpression(openingExpression) ? "expression" : "simple";
       if (openingView === "expression") {
         const merged = mergeFilterExpressionWithSimpleCriteria(openingFilter, criteria);
@@ -1510,7 +1511,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
       const existingFilter = currentExpression ? getExpressionLeaf(currentExpression, [index]) : undefined;
-      if (!currentExpression || !existingFilter || isComplexFilterExpression(currentExpression)) return current;
+      if (!currentExpression || !existingFilter || currentExpression.children.some((child) => child.group)) return current;
       const nextFilter = { ...existingFilter };
       delete nextFilter[criterion.filterKey];
       if (criterion.secondaryFilterKey) delete nextFilter[criterion.secondaryFilterKey];
@@ -1531,7 +1532,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
       const filter = currentExpression ? getExpressionLeaf(currentExpression, [index]) : undefined;
-      if (!currentExpression || !filter || isComplexFilterExpression(currentExpression)) return current;
+      if (!currentExpression || !filter || currentExpression.children.some((child) => child.group)) return current;
       const nextFilter = { ...filter };
       if (checked) nextFilter[auxiliaryToggleKey] = true;
       else delete nextFilter[auxiliaryToggleKey];
@@ -1554,7 +1555,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const filter = getExpressionLeaf(expression, path);
     if (!filter) return;
     const criterion = getExpressionConditionCriterion(filter, criteria);
-    if (returnView === "expression" && !isComplexFilterExpression(expression) && criterion?.type !== "related") {
+    if (returnView === "expression" && !expression.children.some((child) => child.group) && criterion?.type !== "related") {
       expressionReturnFocusKeyRef.current = `edit-${path.join(".")}`;
       setConditionDraft(null);
       setInlineStackReturnsToExpression(true);
@@ -1604,7 +1605,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const removeSimpleExpressionCondition = (index: number, inlinePosition?: number) => {
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
-      if (!currentExpression || isComplexFilterExpression(currentExpression)) return current;
+      if (!currentExpression || currentExpression.children.some((child) => child.group)) return current;
       const children = currentExpression.children.filter((_, candidate) => candidate !== index);
       const next = { ...current };
       if (children.length > 0) next[FILTER_EXPRESSION_STATE_KEY] = { ...currentExpression, children };
@@ -1624,7 +1625,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         }, 0);
         return;
       }
-      const nextIndex = Math.min(index, simpleExpressionChildren.length - 2);
+      const nextIndex = Math.min(index, directlyEditableExpressionChildren.length - 2);
       const target = dialogRef.current?.querySelector<HTMLElement>(`[data-simple-return-focus="expression-${Math.max(0, nextIndex)}"]`);
       (target ?? searchRef.current)?.focus();
     }, 0);

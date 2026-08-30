@@ -1814,6 +1814,88 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("stacks repeated OR conditions in the normal criterion panel without changing the operator", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "OR", children: [
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Date" }));
+    const first = screen.getByRole("group", { name: "Date condition 1" });
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    expect(within(first).getByDisplayValue("2020-01-01")).toBeInTheDocument();
+    expect(within(second).getByDisplayValue("2000-01-01")).toBeInTheDocument();
+    fireEvent.change(within(second).getByLabelText("Value"), { target: { value: "1999-01-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "OR", children: [
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+      { filter: { dateCriterion: { modifier: "LESS_THAN", value: "1999-01-01" } } },
+    ] } });
+  });
+
+  it("opens an Advanced OR leaf in the repeated criterion stack and returns to the organizer", async () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "OR", children: [
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit condition 2: Date/ }));
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    expect(screen.getByRole("group", { name: "Date condition 1" })).toBeInTheDocument();
+    await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Back to advanced filter" }));
+    expect(screen.getByRole("heading", { name: "Advanced filter" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "OR", children: [
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+      { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+    ] } });
+  });
+
+  it("opens a targeted OR leaf directly in the repeated criterion stack", async () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "OR", children: [
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialExpressionPath={[1]}
+      />,
+    );
+
+    expect(screen.getByRole("group", { name: "Date condition 1" })).toBeInTheDocument();
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+  });
+
   it("adds a repeated simple criterion through Advanced when another expression is complex", () => {
     const onApply = vi.fn();
     renderWithQueryClient(
