@@ -738,6 +738,8 @@ export function ListPage({
 }: ListPageProps) {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
+  const [filterDialogInitialView, setFilterDialogInitialView] = useState<"simple" | "advanced">("simple");
+  const [filterDialogExpressionPath, setFilterDialogExpressionPath] = useState<number[] | undefined>();
   const cardSizeEntityType = requestedCardSizeEntityType ?? filterMode ?? pageKey;
   const resolvedSavedFilterScope = savedFilterScope ?? filterMode;
   const [zoomLevel, setZoomLevel] = useEntityCardSize(cardSizeEntityType, pageKey, DEFAULT_ZOOM_LEVEL);
@@ -1032,7 +1034,7 @@ export function ListPage({
       { id: "list.page.last", keys: "Ctrl+End", surface: "list" as const, action: () => goTo(totalPages) },
     ] : []),
     // Filter dialog
-    ...(mergedCriteriaDefinitions && onObjectFilterChange ? [{ id: "list.filters", keys: "", surface: "list" as const, action: () => setFilterDialogOpen(true) }] : []),
+    ...(mergedCriteriaDefinitions && onObjectFilterChange ? [{ id: "list.filters", keys: "", surface: "list" as const, action: () => { setFilterDialogInitialView("simple"); setFilterDialogOpen(true); } }] : []),
     // Zoom
     { id: "list.zoom.in", keys: "+", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v + 0.25)) },
     { id: "list.zoom.out", keys: "-", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v - 0.25)) },
@@ -1116,11 +1118,11 @@ export function ListPage({
           />
         )}
 
-        {/* Advanced filter button */}
+        {/* Filter button */}
         {mergedCriteriaDefinitions && onObjectFilterChange && (
           <FilterButton
             activeCount={countActiveObjectFilters(mergedCriteriaDefinitions, editorObjectFilter)}
-            onClick={() => setFilterDialogOpen(true)}
+            onClick={() => { setFilterDialogInitialView("simple"); setFilterDialogOpen(true); }}
           />
         )}
 
@@ -1306,11 +1308,13 @@ export function ListPage({
           customFilterSections={mergedCustomFilterSections}
           onEdit={(target) => {
             const key = getFilterChipTargetKey(target);
+            setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
             const criterion = mergedCriteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
             const customSection = target.kind === "root" ? mergedCustomFilterSections?.find((section) => section.filterKey === key) : undefined;
-            setFilterDialogPreselect(target.kind === "related"
+            setFilterDialogPreselect(target.kind === "expression" ? undefined : target.kind === "related"
               ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
               : customSection?.id ?? criterion?.id ?? key);
+            setFilterDialogInitialView(key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple");
             setFilterDialogOpen(true);
           }}
           onRemove={(target) => {
@@ -1401,7 +1405,7 @@ export function ListPage({
       {mergedCriteriaDefinitions && onObjectFilterChange && (
         <FilterDialog
           open={filterDialogOpen}
-          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); }}
+          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); setFilterDialogInitialView("simple"); setFilterDialogExpressionPath(undefined); }}
           criteria={mergedCriteriaDefinitions}
           activeFilter={editorObjectFilter}
           customSections={mergedCustomFilterSections}
@@ -1423,6 +1427,8 @@ export function ListPage({
             onFilterChange({ ...filter, page: 1 });
           }}
           preselectCriterion={filterDialogPreselect}
+          initialView={filterDialogInitialView}
+          initialExpressionPath={filterDialogExpressionPath}
         />
       )}
     </div>

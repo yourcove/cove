@@ -14,6 +14,7 @@ export type RelatedFilterChipFacet = "criterion" | "search" | "existence" | "mod
 
 export type FilterChipTarget =
   | { kind: "root"; key: string }
+  | { kind: "expression"; parentKey: "_filterExpression"; path: number[] }
   | {
       kind: "related";
       parentKey: string;
@@ -369,6 +370,15 @@ export function removeObjectFilterChipTarget(
   target: FilterChipTarget,
 ): Record<string, unknown> {
   const next = { ...objectFilter };
+  if (target.kind === "expression") {
+    const expression = next[target.parentKey] as ChipFilterExpression | undefined;
+    const index = target.path[0];
+    if (!expression || target.path.length !== 1 || index === undefined) return next;
+    const children = (expression.children ?? []).filter((_, candidate) => candidate !== index);
+    if (children.length > 0) next[target.parentKey] = { ...expression, children };
+    else delete next[target.parentKey];
+    return next;
+  }
   if (target.kind === "root") {
     const criterion = findCriterionDefinition(criteriaDefinitions, target.key);
     if (criterion && criterion.auxiliaryToggleKey !== target.key) {
@@ -431,6 +441,14 @@ export function countActiveObjectFilters(criteriaDefinitions: CriterionDefinitio
   let count = 0;
   for (const key of Object.keys(objectFilter)) {
     if (processedKeys.has(key)) continue;
+    if (key === "_filterExpression") {
+      const expression = objectFilter[key] as ChipFilterExpression | undefined;
+      const children = expression?.children ?? [];
+      if (expression?.operator === "AND" && children.every((child) => child.filter && !child.group)) count += children.length;
+      else count += 1;
+      processedKeys.add(key);
+      continue;
+    }
     const def = findCriterionDefinition(criteriaDefinitions, key);
     if (def?.type === "remoteId" && def.secondaryFilterKey) {
       processedKeys.add(def.filterKey);
@@ -524,6 +542,7 @@ type LogicalFilterEntry = {
   endpointValue?: unknown;
   customSection?: FilterDialogCustomSection;
   def?: CriterionDefinition;
+  expressionPath?: number[];
 };
 
 function getLogicalFilterEntries(
@@ -537,6 +556,20 @@ function getLogicalFilterEntries(
   for (const [objectKey, value] of Object.entries(objectFilter)) {
     if (processedKeys.has(objectKey)) continue;
     const customSection = customFilterSections?.find((section) => section.filterKey === objectKey);
+    if (objectKey === "_filterExpression" && value && typeof value === "object") {
+      const expression = value as ChipFilterExpression;
+      const expressionChildren = expression.children ?? [];
+      const flatAnd = expression.operator === "AND" && expressionChildren.every((child) => child.filter && !child.group);
+      if (flatAnd) {
+        expressionChildren.forEach((child, index) => {
+          const filter = child.filter as Record<string, unknown>;
+          const filterKey = Object.keys(filter).find((key) => key !== "_criterionId");
+          entries.push({ key: `${objectKey}:${index}`, value: filter, def: filterKey ? findCriterionDefinition(criteriaDefinitions, filterKey) : undefined, expressionPath: [index] });
+        });
+        processedKeys.add(objectKey);
+        continue;
+      }
+    }
     const def = findCriterionDefinition(criteriaDefinitions, objectKey);
     if (def?.type === "remoteId" && def.secondaryFilterKey) {
       const primaryKey = def.filterKey;
@@ -921,6 +954,10 @@ function ActiveObjectFilterChipsContent({
     setFocusedKey(key);
     buttonRefs.current.get(key)?.focus();
   };
+  const targetForKey = (key: string): FilterChipTarget => {
+    const path = logicalEntries.find((entry) => entry.key === key)?.expressionPath;
+    return path ? { kind: "expression", parentKey: "_filterExpression", path } : { kind: "root", key };
+  };
 
   const handleEditKeyDown = (event: KeyboardEvent<HTMLButtonElement>, key: string, label: string) => {
     const index = keys.indexOf(key);
@@ -943,13 +980,13 @@ function ActiveObjectFilterChipsContent({
       event.preventDefault();
       const nextKey = keys[index + 1] ?? keys[index - 1] ?? null;
       if (!nextKey) {
-        onRemove({ kind: "root", key });
+        onRemove(targetForKey(key));
         window.setTimeout(() => onFocusFallback?.(), 0);
         return;
       }
       pendingRemovalRef.current = { key: nextKey, label };
       setFocusedKey(nextKey);
-      onRemove({ kind: "root", key });
+      onRemove(targetForKey(key));
       window.setTimeout(() => onFocusKey?.(nextKey), 0);
     }
   };
@@ -958,24 +995,25 @@ function ActiveObjectFilterChipsContent({
     const index = keys.indexOf(key);
     const nextKey = keys[index + 1] ?? keys[index - 1] ?? null;
     if (!nextKey) {
-      onRemove({ kind: "root", key });
+      onRemove(targetForKey(key));
       window.setTimeout(() => onFocusFallback?.(), 0);
       return;
     }
     pendingRemovalRef.current = { key: nextKey, label };
     setFocusedKey(nextKey);
-    onRemove({ kind: "root", key });
+    onRemove(targetForKey(key));
     window.setTimeout(() => onFocusKey?.(nextKey), 0);
   };
 
   return (
     <div className={`mx-1 mt-2 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface/50 p-1 ${className}`} role={rovingKeyboardAccess ? "toolbar" : "region"} aria-label={ariaLabel} aria-orientation={rovingKeyboardAccess ? "horizontal" : undefined} aria-describedby={rovingKeyboardAccess ? instructionsId : undefined}>
       {rovingKeyboardAccess ? <span id={instructionsId} className="sr-only">Use Left and Right Arrow to review filters, Enter to edit, and Delete or Backspace to remove.</span> : null}
-      {logicalEntries.map(({ key, value, endpointValue, customSection, def }) => {
+      {logicalEntries.map(({ key, value, endpointValue, customSection, def, expressionPath }) => {
         const isAuxiliaryToggle = def?.auxiliaryToggleKey === key;
         const isFilterExpression = key === "_filterExpression";
-        const label = isFilterExpression ? "Advanced filter" : customSection?.label ?? (isAuxiliaryToggle ? def.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
-        if (!customSection && def?.type === "related") {
+        const isExpressionLeaf = Boolean(expressionPath);
+        const label = isFilterExpression ? "Advanced filter" : customSection?.label ?? (isAuxiliaryToggle ? def?.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
+        if (!isExpressionLeaf && !customSection && def?.type === "related") {
           return (
             <RelatedFilterChipGroup
               key={key}
@@ -1009,12 +1047,17 @@ function ActiveObjectFilterChipsContent({
         }
         const nameMap = def?.entityType ? entityNameMaps[def.entityType] : undefined;
         const expressionLeafCount = isFilterExpression ? countFilterExpressionLeaves(value) : 0;
-        const displayValue = isFilterExpression
+        const expressionLeaf = isExpressionLeaf ? { operator: "AND" as const, children: [{ filter: value as Record<string, unknown> }] } : undefined;
+        const displayValue = isExpressionLeaf
+          ? filterExpressionAccessibleSummary(expressionLeaf!, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^AND group: /, "")
+          : isFilterExpression
           ? `${expressionLeafCount} ${expressionLeafCount === 1 ? "condition" : "conditions"}`
           : def?.type === "remoteId"
           ? formatRemoteIdFilterChipValue(value, endpointValue, metadataServers)
           : customSection?.summarize?.(value) ?? (isAuxiliaryToggle && typeof value === "boolean" ? (value ? "Yes" : "No") : formatFilterChipValue(def, value, nameMap, ratingOptions));
-        const displayContent = isFilterExpression
+        const displayContent = isExpressionLeaf
+          ? <ExpressionLeafSummary filter={value as Record<string, unknown>} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
+          : isFilterExpression
           ? <FilterExpressionChipDisplay expression={value as ChipFilterExpression} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
           : !customSection && def?.type === "rating"
           ? <RatingFilterChipDisplay value={value} options={ratingOptions} fallback={displayValue} />
@@ -1026,7 +1069,7 @@ function ActiveObjectFilterChipsContent({
             <button
               ref={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
               type="button"
-              onClick={() => onEdit({ kind: "root", key })}
+              onClick={() => onEdit(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: expressionPath! } : { kind: "root", key })}
               onFocus={rovingKeyboardAccess ? () => setFocusedKey(key) : undefined}
               onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
               tabIndex={rovingKeyboardAccess ? (focusedKey === key || (!focusedKey && key === keys[0]) ? 0 : -1) : undefined}
@@ -1034,12 +1077,12 @@ function ActiveObjectFilterChipsContent({
               data-active-filter-key={key}
               className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2 text-left"
               title={`${label}: ${displayValue}`}
-              aria-label={isFilterExpression ? `Edit filter: ${label}. ${filterExpressionAccessibleSummary(value as ChipFilterExpression, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)}` : `Edit filter: ${label}`}
+              aria-label={isFilterExpression ? `Edit filter: ${label}. ${filterExpressionAccessibleSummary(value as ChipFilterExpression, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)}` : isExpressionLeaf ? `Edit filter: ${label}. ${displayValue}` : `Edit filter: ${label}`}
             >
               <span className="text-muted">{label}:</span>
               <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
             </button>
-            <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+            <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: expressionPath! } : { kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
               <X className="h-3 w-3" />
             </button>
           </div>

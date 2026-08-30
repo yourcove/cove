@@ -261,7 +261,7 @@ describe("ListPage active filter chips", () => {
     });
   });
 
-  it("shows advanced group operators and each related-performer condition", () => {
+  it("shows flat AND conditions as individual chips and opens a condition directly", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <RouteRegistryProvider>
@@ -289,13 +289,15 @@ describe("ListPage active filter chips", () => {
       </QueryClientProvider>,
     );
 
-    expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Related Performers condition")).toHaveLength(2);
+    expect(document.querySelector('[data-filter-operator="AND"]')).not.toBeInTheDocument();
     expect(screen.getByText("Male")).toBeInTheDocument();
     expect(screen.getByText("Between 20 and 30")).toBeInTheDocument();
     expect(screen.getByText("Female")).toBeInTheDocument();
     expect(screen.getByText("Between 30 and 40")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Edit filter: Advanced filter\. AND group: Related Performers, Age \(then\) Between 20 and 30, Gender Male; Related Performers, Age \(then\) Between 30 and 40, Gender Female/ })).toBeInTheDocument();
+    const performerChips = screen.getAllByRole("button", { name: /Edit filter: Related Performers/ });
+    expect(performerChips).toHaveLength(2);
+    fireEvent.click(performerChips[0]);
+    expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
   });
 
   it("resolves entity names and exposes nested expression operators", async () => {
@@ -508,7 +510,7 @@ describe("ListPage active filter chips", () => {
     );
 
     expect(screen.getByText("Could not load Videos")).toBeInTheDocument();
-    expect(screen.getByText("Cove couldn’t complete the request. Please try again.")).toBeInTheDocument();
+    expect(screen.getByText("Cove can’t reach the server right now.")).toBeInTheDocument();
     expect(screen.queryByText("Request failed: 502 Bad Gateway")).not.toBeInTheDocument();
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
