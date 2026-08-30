@@ -1746,10 +1746,41 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             ))}
             {hasComplexExpression ? (
               <div className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
-                <button type="button" onClick={() => enterExpression("advanced")} data-simple-return-focus="advanced" className="flex min-w-0 items-center gap-2 px-3 text-left hover:bg-background/40" aria-label="Edit advanced filter">
-                  <Layers3 className="h-4 w-4 shrink-0 text-accent" />
-                  <span className="truncate">Advanced filter · {expressionConditionCount} {expressionConditionCount === 1 ? "condition" : "conditions"}</span>
-                </button>
+                {expression?.operator === "OR" && directlyEditableExpressionChildren.length > 0 ? (
+                  <div className="flex min-w-0 flex-wrap items-center gap-1 bg-accent/5 p-1" role="group" aria-label="OR filter group">
+                    <button
+                      type="button"
+                      onClick={() => enterExpression("advanced")}
+                      data-simple-return-focus="advanced"
+                      className="min-h-7 rounded bg-accent/15 px-2 text-xs font-semibold text-accent hover:bg-accent/25"
+                      aria-label="Edit OR group in advanced filters"
+                    >OR</button>
+                    {directlyEditableExpressionChildren.map((child, index) => child.filter ? (
+                      <div key={index} className="flex min-h-7 max-w-full items-stretch overflow-hidden rounded border border-border/80 bg-card text-xs">
+                        <button
+                          type="button"
+                          onClick={() => openSimpleExpressionCondition([index])}
+                          data-simple-return-focus={`expression-${index}`}
+                          className="min-w-0 px-2 text-left hover:bg-background/40"
+                          aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter, criteria)}`}
+                        >
+                          <span className="truncate">{summarizeExpressionCondition(child.filter, criteria)}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeSimpleExpressionCondition(index)}
+                          className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300"
+                          aria-label={`Remove filter: ${summarizeExpressionCondition(child.filter, criteria)}`}
+                        ><X className="h-3 w-3" /></button>
+                      </div>
+                    ) : null)}
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => enterExpression("advanced")} data-simple-return-focus="advanced" className="flex min-w-0 items-center gap-2 px-3 text-left hover:bg-background/40" aria-label="Edit advanced filter">
+                    <Layers3 className="h-4 w-4 shrink-0 text-accent" />
+                    <span className="truncate">Advanced filter · {expressionConditionCount} {expressionConditionCount === 1 ? "condition" : "conditions"}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {

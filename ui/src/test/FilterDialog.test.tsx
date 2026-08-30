@@ -1844,6 +1844,31 @@ describe("FilterDialog", () => {
     ] } });
   });
 
+  it("shows an interactive OR chip group inside the dialog", async () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "OR", children: [
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+      />,
+    );
+
+    const group = screen.getByRole("group", { name: "OR filter group" });
+    fireEvent.click(within(group).getByRole("button", { name: "Edit OR group in advanced filters" }));
+    expect(screen.getByRole("heading", { name: "Advanced filter" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to simple filters" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date: < 2000-01-01" }));
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+  });
+
   it("opens an Advanced OR leaf in the repeated criterion stack and returns to the organizer", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(
