@@ -134,7 +134,7 @@ public class VideoRepository : IVideoRepository
             ? ApplyMultiSorting(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
         if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
-            filterQuery = FullTextSearchHelpers.OrderByExactThenRelevance(_db, filterQuery, findFilter?.Q, video => video.Title);
+            filterQuery = ApplyVideoRelevanceOrdering(filterQuery, findFilter?.Q);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery
@@ -449,6 +449,68 @@ public class VideoRepository : IVideoRepository
         }
 
         return query.Where(video => matchingIds.Contains(video.Id));
+    }
+
+    internal IQueryable<Video> ApplyVideoRelevanceOrdering(IQueryable<Video> query, string? search)
+    {
+        var normalized = search?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return query;
+
+        var lower = normalized.ToLowerInvariant();
+        var exactRelationshipIds = _db.Set<VideoPerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower() == lower
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+            .Select(link => link.VideoId)
+            .Concat(_db.Set<VideoTag>()
+                .Where(link => link.Tag != null && (
+                    link.Tag.Name.ToLower() == lower
+                    || link.Tag.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+                .Select(link => link.VideoId))
+            .Concat(_db.Studios
+                .Where(studio => studio.Name.ToLower() == lower)
+                .SelectMany(studio => studio.Videos.Select(video => video.Id)))
+            .Concat(_db.Set<VideoGallery>()
+                .Where(link => link.Gallery != null && link.Gallery.Title != null && link.Gallery.Title.ToLower() == lower)
+                .Select(link => link.VideoId))
+            .Concat(_db.Set<GroupItem>()
+                .Where(item => item.VideoId != null && item.Group != null && item.Group.Name.ToLower() == lower)
+                .Select(item => item.VideoId!.Value));
+
+        var relationshipIds = _db.Set<VideoPerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower().Contains(lower)
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))))
+            .Select(link => link.VideoId)
+            .Concat(_db.Set<VideoTag>()
+                .Where(link => link.Tag != null && (
+                    (" " + link.Tag.Name.ToLower() + " ").Contains(" " + lower + " ")
+                    || link.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(" " + lower + " "))))
+                .Select(link => link.VideoId))
+            .Concat(_db.Studios
+                .Where(studio => studio.Name.ToLower().Contains(lower))
+                .SelectMany(studio => studio.Videos.Select(video => video.Id)))
+            .Concat(_db.Set<VideoGallery>()
+                .Where(link => link.Gallery != null && link.Gallery.Title != null && link.Gallery.Title.ToLower().Contains(lower))
+                .Select(link => link.VideoId))
+            .Concat(_db.Set<GroupItem>()
+                .Where(item => item.VideoId != null && item.Group != null && item.Group.Name.ToLower().Contains(lower))
+                .Select(item => item.VideoId!.Value));
+
+        var tokens = FullTextSearchHelpers.TokenizeSearchTerms(normalized);
+        var matchingFiles = tokens.Count > 0
+            ? _db.VideoFiles.Where(file => file.VideoId != null)
+            : _db.VideoFiles.Where(_ => false);
+        foreach (var token in tokens)
+            matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+
+        return FullTextSearchHelpers.OrderByExactThenRelevance(
+            _db,
+            query,
+            normalized,
+            video => video.Title,
+            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.VideoId!.Value)]);
     }
 
     private IQueryable<Video> ApplySorting(IQueryable<Video> query, string sort, bool desc, int? seed = null)

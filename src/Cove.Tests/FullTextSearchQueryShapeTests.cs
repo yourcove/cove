@@ -60,6 +60,27 @@ public sealed class FullTextSearchQueryShapeTests
     }
 
     [Fact]
+    public void RelationshipAwareRelevanceSort_UsesCandidateIdPredicatesAfterFullTextRank()
+    {
+        using var db = CreatePostgresContext();
+        var repository = new ImageRepository(db);
+        var query = repository.ApplyImageRelevanceOrdering(
+            repository.ApplyImageSearch(db.Images, "needle"),
+            "needle");
+
+        var sql = query.Select(image => image.Id).ToQueryString();
+
+        var rankIndex = sql.IndexOf("ts_rank", StringComparison.OrdinalIgnoreCase);
+        var relationshipIndex = sql.IndexOf("FROM image_performers AS", rankIndex, StringComparison.Ordinal);
+        var pathIndex = sql.IndexOf("FROM files AS", relationshipIndex, StringComparison.Ordinal);
+        Assert.True(rankIndex >= 0, "Expected full-text rank in generated SQL.");
+        Assert.True(relationshipIndex > rankIndex, "Expected relationship priority after full-text rank.");
+        Assert.True(pathIndex > relationshipIndex, "Expected path priority after relationship priority.");
+        Assert.Contains("CASE", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("SELECT DISTINCT", sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ImageCandidateIdSearch_PreservesTextRelationshipAndPathMatchesOnSqlite()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -91,6 +112,64 @@ public sealed class FullTextSearchQueryShapeTests
         var restricted = new ImageRepository(db).ApplyImageSearch(
             db.Images.Where(image => image.Title == "Unrelated"), "needle");
         Assert.Empty(await restricted.ToArrayAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ImageRelevanceOrdering_PrioritizesExactThenPartialRelationshipsBeforePathMatches()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
+        await using var db = new CoveContext(options);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+
+        var folder = new Folder { Path = "/library" };
+        db.Images.AddRange(
+            new Image { Title = "First", ImagePerformers = { new ImagePerformer { Performer = new Performer { Name = "Needle" } } } },
+            new Image { Title = "Second", ImagePerformers = { new ImagePerformer { Performer = new Performer { Name = "Needle Artist" } } } },
+            new Image
+            {
+                Title = "Third",
+                Files = { new ImageFile { Basename = "needle.jpg", Path = "/library/needle.jpg", ParentFolder = folder, Format = "jpg" } },
+            });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new ImageRepository(db);
+        var candidates = repository.ApplyImageSearch(db.Images.AsNoTracking(), "needle");
+        var ordered = repository.ApplyImageRelevanceOrdering(candidates, "needle");
+
+        var titles = await ordered.Select(image => image.Title!).ToArrayAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["First", "Second", "Third"], titles);
+    }
+
+    [Fact]
+    public async Task VideoRelevanceOrdering_PrioritizesExactThenPartialRelationshipsBeforePathMatches()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
+        await using var db = new CoveContext(options);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+
+        var folder = new Folder { Path = "/library" };
+        db.Videos.AddRange(
+            new Video { Title = "First", VideoPerformers = { new VideoPerformer { Performer = new Performer { Name = "Needle" } } } },
+            new Video { Title = "Second", VideoPerformers = { new VideoPerformer { Performer = new Performer { Name = "Needle Artist" } } } },
+            new Video
+            {
+                Title = "Third",
+                Files = { new VideoFile { Basename = "needle.mp4", Path = "/library/needle.mp4", ParentFolder = folder, Format = "mp4" } },
+            });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new VideoRepository(db);
+        var candidates = repository.ApplyVideoSearch(db.Videos.AsNoTracking(), "needle");
+        var ordered = repository.ApplyVideoRelevanceOrdering(candidates, "needle");
+
+        var titles = await ordered.Select(video => video.Title!).ToArrayAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["First", "Second", "Third"], titles);
     }
 
     private static CoveContext CreatePostgresContext()

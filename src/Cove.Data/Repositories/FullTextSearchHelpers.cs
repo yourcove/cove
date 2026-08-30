@@ -246,7 +246,8 @@ public static class FullTextSearchHelpers
         CoveContext db,
         IQueryable<T> query,
         string? search,
-        Expression<Func<T, string?>> titleSelector)
+        Expression<Func<T, string?>> titleSelector,
+        IReadOnlyList<IQueryable<int>>? candidatePriorityIds = null)
         where T : BaseEntity
     {
         var normalized = Normalize(search);
@@ -264,17 +265,30 @@ public static class FullTextSearchHelpers
                     Expression.Constant(normalized.ToLowerInvariant()))),
             entityParam);
 
-        var exactOrdered = query.OrderByDescending(exactTitle);
-        if (!SupportsPostgresFullText(db))
-            return exactOrdered.ThenBy(entity => entity.Id);
+        IOrderedQueryable<T> ordered = query.OrderByDescending(exactTitle);
+        string? prefixQuery = null;
 
-        var prefixQuery = BuildPrefixQuery(normalized);
-        if (prefixQuery is null)
-            return exactOrdered.ThenBy(entity => entity.Id);
+        if (SupportsPostgresFullText(db))
+        {
+            prefixQuery = BuildPrefixQuery(normalized);
+            if (prefixQuery is not null)
+            {
+                ordered = ordered.ThenByDescending(entity => EF.Property<NpgsqlTsVector>(entity, SearchVectorProperty)
+                    .Rank(EF.Functions.ToTsQuery(SearchConfig, prefixQuery)));
+            }
+        }
 
-        return exactOrdered
-            .ThenByDescending(entity => EF.Property<NpgsqlTsVector>(entity, SearchVectorProperty)
-                .Rank(EF.Functions.ToTsQuery(SearchConfig, prefixQuery)))
+        foreach (var priorityIds in candidatePriorityIds ?? [])
+        {
+            ordered = prefixQuery is null
+                ? ordered.ThenByDescending(entity => priorityIds.Contains(entity.Id))
+                : ordered.ThenByDescending(entity => EF.Property<NpgsqlTsVector>(entity, SearchVectorProperty)
+                    .Rank(EF.Functions.ToTsQuery(SearchConfig, prefixQuery)) == 0
+                        ? priorityIds.Contains(entity.Id)
+                        : false);
+        }
+
+        return ordered
             .ThenByDescending(entity => entity.UpdatedAt)
             .ThenBy(entity => entity.Id);
     }

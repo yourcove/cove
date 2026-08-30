@@ -2340,6 +2340,50 @@ public class ImageRepository : IImageRepository
         return query.Where(image => matchingIds.Contains(image.Id));
     }
 
+    internal IQueryable<Image> ApplyImageRelevanceOrdering(IQueryable<Image> query, string? search)
+    {
+        var normalized = search?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return query;
+
+        var lower = normalized.ToLowerInvariant();
+        var exactRelationshipIds = _db.Set<ImagePerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower() == lower
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+            .Select(link => link.ImageId)
+            .Concat(_db.Set<ImageTag>()
+                .Where(link => link.Tag != null && (
+                    link.Tag.Name.ToLower() == lower
+                    || link.Tag.Aliases.Any(alias => alias.Alias.ToLower() == lower)))
+                .Select(link => link.ImageId));
+
+        var relationshipIds = _db.Set<ImagePerformer>()
+            .Where(link => link.Performer != null && (
+                link.Performer.Name.ToLower().Contains(lower)
+                || link.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(lower))))
+            .Select(link => link.ImageId)
+            .Concat(_db.Set<ImageTag>()
+                .Where(link => link.Tag != null && (
+                    (" " + link.Tag.Name.ToLower() + " ").Contains(" " + lower + " ")
+                    || link.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(" " + lower + " "))))
+                .Select(link => link.ImageId));
+
+        var tokens = FullTextSearchHelpers.TokenizeSearchTerms(normalized);
+        var matchingFiles = tokens.Count > 0
+            ? _db.ImageFiles.Where(file => file.ImageId != null)
+            : _db.ImageFiles.Where(_ => false);
+        foreach (var token in tokens)
+            matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+
+        return FullTextSearchHelpers.OrderByExactThenRelevance(
+            _db,
+            query,
+            normalized,
+            image => image.Title,
+            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.ImageId!.Value)]);
+    }
+
     public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
@@ -2390,7 +2434,7 @@ public class ImageRepository : IImageRepository
             ? ApplyImageMultiSort(filterQuery, sortClauses, multiSortRegistry)
             : ApplySorting(filterQuery, sort, desc, findFilter?.Seed);
         if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
-            filterQuery = FullTextSearchHelpers.OrderByExactThenRelevance(_db, filterQuery, findFilter?.Q, image => image.Title);
+            filterQuery = ApplyImageRelevanceOrdering(filterQuery, findFilter?.Q);
 
         var page = findFilter?.Page ?? 1;
         var pagedIds = await filterQuery
