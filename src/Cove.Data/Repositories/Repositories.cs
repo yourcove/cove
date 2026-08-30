@@ -2381,7 +2381,8 @@ public class ImageRepository : IImageRepository
             query,
             normalized,
             image => image.Title,
-            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.ImageId!.Value)]);
+            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.ImageId!.Value)],
+            [image => image.Title, image => image.Details, image => image.Code, image => image.Photographer]);
     }
 
     public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)

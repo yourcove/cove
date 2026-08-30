@@ -51,11 +51,16 @@ public sealed class FullTextSearchQueryShapeTests
             db,
             db.Images,
             "needle",
-            image => image.Title);
+            image => image.Title,
+            phraseSelectors: [image => image.Title, image => image.Details]);
 
         var sql = query.Select(image => image.Id).ToQueryString();
         Assert.True(FullTextSearchHelpers.ShouldOrderByRelevance(db, "needle", "relevance"));
         Assert.Contains("ORDER BY i.\"Title\" IS NOT NULL AND lower(i.\"Title\") = 'needle' DESC", sql, StringComparison.Ordinal);
+        var phraseIndex = sql.IndexOf("lower(i.\"Details\")", StringComparison.Ordinal);
+        var rankIndex = sql.IndexOf("ts_rank", StringComparison.OrdinalIgnoreCase);
+        Assert.True(phraseIndex >= 0, "Expected an exact phrase predicate in generated SQL.");
+        Assert.True(rankIndex > phraseIndex, "Expected exact phrase ordering before full-text rank.");
         Assert.Contains("ts_rank", sql, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -170,6 +175,39 @@ public sealed class FullTextSearchQueryShapeTests
         var titles = await ordered.Select(video => video.Title!).ToArrayAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(["First", "Second", "Third"], titles);
+    }
+
+    [Fact]
+    public async Task VideoRelevanceOrdering_PrioritizesContiguousEntityPhraseBeforeScatteredTerms()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var options = new DbContextOptionsBuilder<CoveContext>().UseSqlite(connection).Options;
+        await using var db = new CoveContext(options);
+        await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+
+        db.Videos.AddRange(
+            new Video
+            {
+                Title = "Exact phrase",
+                Details = "The query has my soft pink phrase together.",
+                UpdatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            },
+            new Video
+            {
+                Title = "Scattered terms",
+                Details = "My example has soft words separated from pink ones.",
+                UpdatedAt = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new VideoRepository(db);
+        var candidates = repository.ApplyVideoSearch(db.Videos.AsNoTracking(), "my soft pink");
+        var ordered = repository.ApplyVideoRelevanceOrdering(candidates, "my soft pink");
+
+        var titles = await ordered.Select(video => video.Title!).ToArrayAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["Exact phrase", "Scattered terms"], titles);
     }
 
     private static CoveContext CreatePostgresContext()

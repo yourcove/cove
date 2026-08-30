@@ -510,7 +510,8 @@ public class VideoRepository : IVideoRepository
             query,
             normalized,
             video => video.Title,
-            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.VideoId!.Value)]);
+            [exactRelationshipIds, relationshipIds, matchingFiles.Select(file => file.VideoId!.Value)],
+            [video => video.Title, video => video.Details, video => video.Code, video => video.Director]);
     }
 
     private IQueryable<Video> ApplySorting(IQueryable<Video> query, string sort, bool desc, int? seed = null)

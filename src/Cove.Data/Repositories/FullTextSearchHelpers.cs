@@ -247,7 +247,8 @@ public static class FullTextSearchHelpers
         IQueryable<T> query,
         string? search,
         Expression<Func<T, string?>> titleSelector,
-        IReadOnlyList<IQueryable<int>>? candidatePriorityIds = null)
+        IReadOnlyList<IQueryable<int>>? candidatePriorityIds = null,
+        IReadOnlyList<Expression<Func<T, string?>>>? phraseSelectors = null)
         where T : BaseEntity
     {
         var normalized = Normalize(search);
@@ -266,6 +267,27 @@ public static class FullTextSearchHelpers
             entityParam);
 
         IOrderedQueryable<T> ordered = query.OrderByDescending(exactTitle);
+
+        if (phraseSelectors is { Count: > 0 })
+        {
+            Expression? exactPhraseBody = null;
+            foreach (var selector in phraseSelectors)
+            {
+                var field = new ParameterReplacer(selector.Parameters[0], entityParam)
+                    .Visit(selector.Body)!;
+                var fieldContainsPhrase = Expression.AndAlso(
+                    Expression.NotEqual(field, Expression.Constant(null, typeof(string))),
+                    Expression.Call(
+                        Expression.Call(field, StringToLowerMethod),
+                        StringContainsMethod,
+                        Expression.Constant(normalized.ToLowerInvariant())));
+                exactPhraseBody = OrElse(exactPhraseBody, fieldContainsPhrase);
+            }
+
+            ordered = ordered.ThenByDescending(
+                Expression.Lambda<Func<T, bool>>(exactPhraseBody!, entityParam));
+        }
+
         string? prefixQuery = null;
 
         if (SupportsPostgresFullText(db))
