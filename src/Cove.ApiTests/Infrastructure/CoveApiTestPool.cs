@@ -4,7 +4,13 @@ namespace Cove.ApiTests.Infrastructure;
 
 public sealed class CoveApiTestPool : IAsyncLifetime
 {
-    public const int MaxParallelThreads = 4;
+    public const int MaxParallelThreads = 8;
+    internal const string WorkerCountEnvironmentVariable = "COVE_API_TEST_WORKERS";
+
+    internal static int DefaultCapacity
+        => ResolveCapacity(
+             Environment.GetEnvironmentVariable(WorkerCountEnvironmentVariable),
+             Environment.ProcessorCount);
 
     private readonly Lock _stateLock = new();
     private readonly int _capacity;
@@ -16,7 +22,7 @@ public sealed class CoveApiTestPool : IAsyncLifetime
     private bool _disposed;
 
     public CoveApiTestPool()
-        : this(MaxParallelThreads)
+        : this(DefaultCapacity)
     {
     }
 
@@ -28,6 +34,20 @@ public sealed class CoveApiTestPool : IAsyncLifetime
 
     internal int ConfiguredCapacity
         => _capacity;
+
+    internal static int ResolveCapacity(string? configuredValue, int processorCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(processorCount, 1);
+        if (string.IsNullOrWhiteSpace(configuredValue))
+            return Math.Clamp(processorCount / 2, 1, MaxParallelThreads);
+
+        if (int.TryParse(configuredValue, out var configured)
+            && configured is >= 1 and <= MaxParallelThreads)
+            return configured;
+
+        throw new InvalidOperationException(
+            $"{WorkerCountEnvironmentVariable} must be an integer from 1 through {MaxParallelThreads}.");
+    }
 
     internal bool IsInitialized
     {

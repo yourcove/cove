@@ -23,7 +23,7 @@ public sealed class ApiTestFixtureHarnessTests(CoveApiTestPool assemblyPool)
         collectionBehavior.Should().NotBeNull();
         collectionBehavior!.MaxParallelThreads.Should().Be(CoveApiTestPool.MaxParallelThreads);
         collectionBehavior.ParallelAlgorithm.Should().Be(Xunit.Sdk.ParallelAlgorithm.Conservative);
-        assemblyPool.ConfiguredCapacity.Should().Be(CoveApiTestPool.MaxParallelThreads);
+        assemblyPool.ConfiguredCapacity.Should().Be(CoveApiTestPool.DefaultCapacity);
         assemblyPool.IsInitialized.Should().BeTrue();
         typeof(ApiTest).Should().BeAssignableTo<IClassFixture<CoveApiTestFixture>>();
         var apiTestTypes = assembly
@@ -124,6 +124,34 @@ public sealed class ApiTestFixtureHarnessTests(CoveApiTestPool assemblyPool)
         {
             await DisposeFixturesAndPoolAsync(fixtures, pool);
         }
+    }
+
+    [Theory]
+    [InlineData(null, 1, 1)]
+    [InlineData(null, 4, 2)]
+    [InlineData(null, 16, 8)]
+    [InlineData(null, 32, 8)]
+    [InlineData("1", 32, 1)]
+    [InlineData("6", 4, 6)]
+    [InlineData("8", 4, 8)]
+    public void GivenProcessorCountAndOptionalOverride_WhenCapacityIsResolved_ThenItIsBounded(
+        string? configuredValue,
+        int processorCount,
+        int expected)
+    {
+        CoveApiTestPool.ResolveCapacity(configuredValue, processorCount).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("9")]
+    [InlineData("invalid")]
+    public void GivenInvalidWorkerOverride_WhenCapacityIsResolved_ThenConfigurationIsRejected(string configuredValue)
+    {
+        var resolve = () => CoveApiTestPool.ResolveCapacity(configuredValue, processorCount: 4);
+
+        resolve.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{CoveApiTestPool.WorkerCountEnvironmentVariable}*");
     }
 
     private static async Task DisposeFixturesAndPoolAsync(
