@@ -54,15 +54,20 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
         // Arrange
         var performer = await AsUser().CreatePerformerAsync(new PerformerBuilder().Build(), TestContext.Current.CancellationToken);
         var video = await AsUser().CreateVideoAsync($"Face suggestion host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var image = await AsUser().CreateImageAsync($"Face suggestion image host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var imagePath = AsTestFileSystem().CreateLibraryFile($"face-suggestion-{image.Id}.png", ApiTestImages.BluePixelPng());
+        await AsDbUser().AttachStreamImageFileAsync(image.Id, imagePath, width: 1, height: 1, cancellationToken: TestContext.Current.CancellationToken);
         var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Suggestion candidate", null, false, null), TestContext.Current.CancellationToken);
+        await AsUser().CreateImageFaceDetectionAsync(image, face, TestContext.Current.CancellationToken);
         await AsUser().CreateVideoFaceDetectionAsync(video, face, TestContext.Current.CancellationToken);
 
         // Act
         var rejected = await AsUser(ApiTestUsers.Eva).RecordFaceSuggestionDecisionAsync(face.Id, new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Reject), TestContext.Current.CancellationToken);
         var videosAfterReject = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
-        var accepted = await AsUser(ApiTestUsers.Eva).RecordFaceSuggestionDecisionAsync(face.Id, new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Accept), TestContext.Current.CancellationToken);
+        var accepted = await AsUser(ApiTestUsers.Eva).RecordFaceSuggestionDecisionAsync(face.Id, new FaceSuggestionDecisionDto(performer.Id, FaceSuggestionDecisionValues.Accept, SetPerformerImage: true), TestContext.Current.CancellationToken);
         var retrieved = await AsUser().GetFaceByIdAsync(face.Id, TestContext.Current.CancellationToken);
         var videosAfterAccept = await AsUser().GetVideosByPerformerAsync(performer.Id, TestContext.Current.CancellationToken);
+        var performerImage = await AsUser().GetPerformerImageAsync(performer, TestContext.Current.CancellationToken);
 
         // Assert
         rejected.PerformerId.Should().BeNull();
@@ -71,5 +76,7 @@ public sealed class FaceBatchAndSuggestionDecisionApiTests(
         accepted.PerformerName.Should().Be(performer.Name);
         retrieved.PerformerId.Should().Be(performer.Id);
         videosAfterAccept.Should().ContainSingle(candidate => candidate.Id == video.Id);
+        performerImage.MediaType.Should().Be("image/jpeg");
+        performerImage.Content.Should().NotBeEmpty();
     }
 }
