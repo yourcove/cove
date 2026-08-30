@@ -1838,7 +1838,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         {dialogView === "simple" && !conditionDraft && !relatedWorkspaceCriterion && (expressionConditionCount > 0 || Object.keys(activeEditFilter).length > 0) ? (
           <div
             ref={selectedFiltersToolbarRef}
-            className="flex max-h-[min(12rem,35dvh)] shrink-0 flex-wrap items-center gap-2 overflow-y-auto border-b border-border px-3 py-2 md:px-4"
+            className="flex max-h-[min(12rem,35dvh)] shrink-0 flex-wrap items-center gap-2 overflow-y-auto border-b border-border px-3 py-2 [&_button:focus-visible]:relative [&_button:focus-visible]:z-10 [&_button:focus-visible]:bg-accent/25 [&_button:focus-visible]:outline-none [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-accent md:px-4"
             role="toolbar"
             aria-label="Selected filters"
             aria-orientation="horizontal"
@@ -1871,7 +1871,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           >
             <span id={selectedFiltersInstructionsId} className="sr-only">Use Left and Right Arrow to move between selected filter parts, Clear all, and Combine filters. Press Enter to activate the focused control.</span>
             {validSimpleExpressionEntries.map(({ child, index }) => (
-              <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
+              <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
                 <button type="button" onClick={() => openSimpleExpressionCondition([index])} data-simple-return-focus={`expression-${index}`} className="min-w-0 px-3 text-left hover:bg-background/40" aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
                   <span className="truncate">{summarizeExpressionCondition(child.filter ?? {}, criteria)}</span>
                 </button>
@@ -1936,7 +1936,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               className="!m-0 max-h-[min(12rem,35dvh)] overflow-y-auto !border-0 !bg-transparent !p-0"
             /> : null}
             {supportsExpressions && !hasComplexExpression && (simpleExpressionChildren.length + expressionEligibleCount) >= 2 ? (
-              <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="min-h-9 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface" aria-label="Combine filters">Combine filters…</button>
+              <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="min-h-9 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground" aria-label="Combine filters">Combine filters…</button>
             ) : null}
           </div>
         ) : null}

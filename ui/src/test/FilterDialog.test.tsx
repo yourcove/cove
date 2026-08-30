@@ -881,6 +881,7 @@ describe("FilterDialog", () => {
 
     const title = screen.getByRole("button", { name: "Edit filter: Title" });
     const organized = screen.getByRole("button", { name: "Edit filter: Organized" });
+    expect(screen.getByRole("toolbar", { name: "Selected filters" })).toHaveClass("[&_button:focus-visible]:bg-accent/25", "[&_button:focus-visible]:ring-inset");
     expect(title).toHaveAttribute("tabindex", "0");
     expect(organized).toHaveAttribute("tabindex", "-1");
     expect(screen.getByRole("button", { name: "Remove filter: Title" })).toHaveAttribute("tabindex", "-1");

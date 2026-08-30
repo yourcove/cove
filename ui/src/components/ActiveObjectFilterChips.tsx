@@ -833,7 +833,7 @@ function RelatedFilterChipGroup({
     target: FilterChipTarget,
     editable = true,
   ) => (
-    <div key={key} className="flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border/80 bg-surface text-xs text-foreground focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
+    <div key={key} className="flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border/80 bg-surface text-xs text-foreground">
       {editable ? (
         <button
           type="button"
@@ -871,7 +871,7 @@ function RelatedFilterChipGroup({
 
   return (
     <div ref={groupRef} role="group" aria-label={`${def.label} filters`} className="flex max-w-full flex-wrap items-center gap-1 rounded-md border border-accent/40 bg-card/70 p-1 text-xs text-foreground">
-      <div className="flex min-h-[28px] max-w-full items-stretch overflow-hidden rounded-md bg-accent/10 focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
+      <div className="flex min-h-[28px] max-w-full items-stretch overflow-hidden rounded-md bg-accent/10">
         <button
           ref={buttonRef}
           type="button"
@@ -1042,7 +1042,7 @@ function ActiveObjectFilterChipsContent({
   return (
     <div
       ref={toolbarRef}
-      className={`mx-1 mt-2 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface/50 p-1 ${className}`}
+      className={`mx-1 mt-2 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface/50 p-1 [&_button:focus-visible]:relative [&_button:focus-visible]:z-10 [&_button:focus-visible]:bg-accent/25 [&_button:focus-visible]:outline-none [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-accent ${className}`}
       role={embeddedInToolbar ? undefined : rovingKeyboardAccess ? "toolbar" : "region"}
       aria-label={embeddedInToolbar ? undefined : ariaLabel}
       aria-orientation={!embeddedInToolbar && rovingKeyboardAccess ? "horizontal" : undefined}
@@ -1131,7 +1131,7 @@ function ActiveObjectFilterChipsContent({
             : displayValue;
         if (isFilterExpression) {
           return (
-            <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
+            <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
               <div
                 ref={(element) => { if (element) buttonRefs.current.set(key, element.querySelector("button")!); else buttonRefs.current.delete(key); }}
                 data-active-filter-key={key}
@@ -1154,7 +1154,7 @@ function ActiveObjectFilterChipsContent({
           );
         }
         return (
-          <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
+          <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
             <button
               ref={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
               type="button"
@@ -1183,7 +1183,7 @@ function ActiveObjectFilterChipsContent({
           tabIndex={managesRovingKeyboard ? -1 : undefined}
           onClick={onClearAll}
           aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home" : undefined}
-          className="h-[26px] rounded-md px-2 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className="h-[26px] rounded-md px-2 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-300"
         >
           Clear all
         </button>
