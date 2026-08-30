@@ -704,7 +704,8 @@ function FilterExpressionChipDisplay({
   onEdit?: (target: FilterChipTarget) => void;
   expressionReturnFocusKeys?: boolean;
 }) {
-  const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
+  const rawOperator = expression.operator?.toUpperCase();
+  const operator = rawOperator === "OR" || rawOperator === "NOT" ? rawOperator : "AND";
   return (
     <span data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
       {onEdit ? (
@@ -748,7 +749,8 @@ function filterExpressionAccessibleSummary(
     const separator = related.conditionOperator === "or" ? " OR " : ", ";
     return [related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label, [q ? `search ${q}` : "", ...nested].filter(Boolean).join(separator)].filter(Boolean).join(", ");
   }).join(", ");
-  const operator = expression.operator?.toUpperCase() === "OR" ? "OR" : "AND";
+  const rawOperator = expression.operator?.toUpperCase();
+  const operator = rawOperator === "OR" || rawOperator === "NOT" ? rawOperator : "AND";
   const children = (expression.children ?? []).map((child) => child.group
     ? filterExpressionAccessibleSummary(child.group, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)
     : child.filter ? summarizeFilter(child.filter) : "").filter(Boolean);

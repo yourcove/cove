@@ -414,6 +414,105 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task FilterExpression_NotNegatesOneConditionOrNestedGroup()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            CreateVideoWithFile("foo-only"),
+            CreateVideoWithFile("foo-bar"),
+            CreateVideoWithFile("foo-baz"),
+            CreateVideoWithFile("other"));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var expression = new FilterExpression<VideoFilter>
+        {
+            Children =
+            [
+                new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "foo" } } },
+                new()
+                {
+                    Group = new FilterExpression<VideoFilter>
+                    {
+                        Operator = FilterExpressionOperator.Not,
+                        Children =
+                        [
+                            new()
+                            {
+                                Group = new FilterExpression<VideoFilter>
+                                {
+                                    Operator = FilterExpressionOperator.Or,
+                                    Children =
+                                    [
+                                        new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "bar" } } },
+                                        new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "baz" } } },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            TestContext.Current.CancellationToken,
+            expression);
+
+        Assert.Equal(1, count);
+        Assert.Equal("foo-only", Assert.Single(items).Title);
+
+        var doubleNegation = new FilterExpression<VideoFilter>
+        {
+            Operator = FilterExpressionOperator.Not,
+            Children =
+            [
+                new()
+                {
+                    Group = new FilterExpression<VideoFilter>
+                    {
+                        Operator = FilterExpressionOperator.Not,
+                        Children =
+                        [
+                            new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "foo" } } },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        var (doubleNegatedItems, doubleNegatedCount) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            TestContext.Current.CancellationToken,
+            doubleNegation);
+
+        Assert.Equal(3, doubleNegatedCount);
+        Assert.Equal(["foo-bar", "foo-baz", "foo-only"], doubleNegatedItems.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
+    public void FilterExpression_NotRequiresExactlyOneChild()
+    {
+        var empty = new FilterExpression<VideoFilter> { Operator = FilterExpressionOperator.Not };
+        var multiple = new FilterExpression<VideoFilter>
+        {
+            Operator = FilterExpressionOperator.Not,
+            Children =
+            [
+                new() { Filter = new VideoFilter() },
+                new() { Filter = new VideoFilter() },
+            ],
+        };
+
+        Assert.False(FilterExpressionQuery.TryValidate(empty, out var emptyError));
+        Assert.Equal("NOT filter-expression groups must contain exactly one child.", emptyError);
+        Assert.False(FilterExpressionQuery.TryValidate(multiple, out var multipleError));
+        Assert.Equal("NOT filter-expression groups must contain exactly one child.", multipleError);
+    }
+
+    [Fact]
     public async Task RelatedPerformerExpression_CorrelatesGenderAndAgeAtVideoDatePerClause()
     {
         await using var context = CreateContext();

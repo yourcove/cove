@@ -434,7 +434,9 @@ function sanitizeFilterExpression(expression: FilterExpression<Record<string, un
     const filter = sanitizeFilterCriteria(child.filter, criteria);
     if (Object.keys(filter).length > 0) children.push({ filter });
   }
-  return children.length > 0 ? { operator: expression.operator === "OR" ? "OR" : "AND", children } : undefined;
+  const operator = expression.operator === "OR" ? "OR" : expression.operator === "NOT" ? "NOT" : "AND";
+  if (operator === "NOT" && children.length !== 1) return undefined;
+  return children.length > 0 ? { operator, children } : undefined;
 }
 
 function filterToExpression(filter: Record<string, unknown>, criteria: CriterionDefinition[]): FilterExpression<Record<string, unknown>> {
@@ -465,7 +467,7 @@ function countFilterExpressionConditions(expression: FilterExpression<Record<str
 }
 
 export function isComplexFilterExpression(expression: FilterExpression<Record<string, unknown>> | undefined): boolean {
-  return Boolean(expression && (expression.operator === "OR" || expression.children.some((child) => child.group)));
+  return Boolean(expression && (expression.operator !== "AND" || expression.children.some((child) => child.group)));
 }
 
 function mergeFilterExpressionWithSimpleCriteria(
@@ -493,6 +495,20 @@ function replaceExpressionGroup(
   const children = root.children.slice();
   children[index] = { group: replaceExpressionGroup(child.group, rest, update) };
   return { ...root, children };
+}
+
+function removeExpressionGroup(
+  root: FilterExpression<Record<string, unknown>>,
+  groupPath: number[],
+): FilterExpression<Record<string, unknown>> | undefined {
+  if (groupPath.length === 0) return undefined;
+  const parentPath = groupPath.slice(0, -1);
+  const groupIndex = groupPath.at(-1);
+  if (groupIndex === undefined) return root;
+  return replaceExpressionGroup(root, parentPath, (parent) => ({
+    ...parent,
+    children: parent.children.filter((_, index) => index !== groupIndex),
+  }));
 }
 
 function getExpressionLeaf(
@@ -1101,7 +1117,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const expressionConditionCount = countFilterExpressionConditions(expression);
   const hasComplexExpression = isComplexFilterExpression(expression);
   const simpleExpressionChildren = expression && !hasComplexExpression ? expression.children : [];
-  const directlyEditableExpressionChildren = expression ? getExpressionGroup(expression, simpleExpressionGroupPath)?.children ?? [] : [];
+  const directlyEditableExpressionGroup = expression ? getExpressionGroup(expression, simpleExpressionGroupPath) : undefined;
+  const directlyEditableExpressionChildren = directlyEditableExpressionGroup?.children ?? [];
+  const directlyEditingNotGroup = directlyEditableExpressionGroup?.operator === "NOT";
   const validSimpleExpressionEntries = simpleExpressionChildren.flatMap((child, index) => child.filter
     && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? [{ child, index }] : []);
   const expressionEligibleCount = useMemo(() => criteria.filter((criterion) => criterion.expressionSupported !== false
@@ -1508,6 +1526,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       const base = mergeFilterExpressionWithSimpleCriteria(current, criteria) ?? { operator: "AND" as const, children: [] };
       if (countFilterExpressionConditions(base) >= MAX_FILTER_EXPRESSION_CONDITIONS) return current;
       const group = getExpressionGroup(base, simpleExpressionGroupPath);
+      if (!group || group.operator === "NOT") return current;
       const index = group?.children.length ?? 0;
       pendingInlineConditionFocusRef.current = index;
       return {
@@ -1571,6 +1590,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   };
 
   const openNewExpressionCondition = (criterionId?: string, parentPath: number[] = []) => {
+    if (expression && getExpressionGroup(expression, parentPath)?.operator === "NOT") return;
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (dialogView === "simple") simpleReturnFocusKeyRef.current = criterionId ? `repeat-${criterionId}` : null;
     else expressionReturnFocusKeyRef.current = `add-${parentPath.join(".")}`;
@@ -1625,6 +1645,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setEditFilter((current) => {
       const base = mergeFilterExpressionWithSimpleCriteria(current, criteria) ?? { operator: "AND" as const, children: [] };
       if (conditionDraft.isNew && countFilterExpressionConditions(base) >= MAX_FILTER_EXPRESSION_CONDITIONS) return current;
+      if (conditionDraft.isNew && getExpressionGroup(base, conditionDraft.parentPath)?.operator === "NOT") return current;
       const next = conditionDraft.isNew
         ? replaceExpressionGroup(base, conditionDraft.parentPath, (group) => ({ ...group, children: [...group.children, { filter: sanitized }] }))
         : updateExpressionLeaf(base, conditionDraft.path ?? [], sanitized);
@@ -1640,6 +1661,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       if (!currentExpression) return current;
       const group = getExpressionGroup(currentExpression, parentPath);
       if (!group) return current;
+      if (group.operator === "NOT" && group.children.length === 1) {
+        const nextExpression = removeExpressionGroup(currentExpression, parentPath);
+        const next = { ...current };
+        if (nextExpression) next[FILTER_EXPRESSION_STATE_KEY] = nextExpression;
+        else delete next[FILTER_EXPRESSION_STATE_KEY];
+        return next;
+      }
       const children = group.children.filter((_, candidate) => candidate !== index);
       const next = { ...current };
       if (parentPath.length === 0 && children.length === 0) delete next[FILTER_EXPRESSION_STATE_KEY];
@@ -2017,7 +2045,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                     ))}
                     <button
                       type="button"
-                      disabled={expressionConditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS}
+                      disabled={directlyEditingNotGroup || expressionConditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS}
                       onClick={() => addInlineCondition(selectedItem.criterion)}
                       data-inline-add-condition
                       className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
@@ -2235,6 +2263,7 @@ function ExpressionGroupEditor({
   const groupMenuButtonRef = useRef<HTMLButtonElement>(null);
   const groupAndRef = useRef<HTMLButtonElement>(null);
   const groupOrRef = useRef<HTMLButtonElement>(null);
+  const groupNotRef = useRef<HTMLButtonElement>(null);
   const groupPathKey = groupPath.join(".");
   const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
   useEffect(() => {
@@ -2267,13 +2296,17 @@ function ExpressionGroupEditor({
   const ungroupChild = (index: number) => {
     const child = group.children[index];
     if (!child?.group) return;
+    if (group.operator === "NOT" && child.group.children.length !== 1) {
+      setAnnouncement("A NOT group must contain exactly one item.");
+      return;
+    }
     setSelected(new Set());
     onChange({ ...group, children: [...group.children.slice(0, index), ...child.group.children, ...group.children.slice(index + 1)] });
     focusChildAfterChange(index);
   };
-  const groupSelected = (operator: "AND" | "OR") => {
+  const groupSelected = (operator: "AND" | "OR" | "NOT") => {
     const indexes = [...selected].sort((a, b) => a - b);
-    if (indexes.length < 2) return;
+    if (operator === "NOT" ? indexes.length !== 1 : indexes.length < 2) return;
     const selectedChildren = indexes.map((index) => group.children[index]);
     const first = indexes[0];
     const selectedSet = new Set(indexes);
@@ -2286,8 +2319,8 @@ function ExpressionGroupEditor({
     focusChildAfterChange(first);
   };
   const openGroupMenu = () => {
-    if (selected.size < 2) {
-      setAnnouncement("Select at least two items in the same group.");
+    if (selected.size < 1) {
+      setAnnouncement("Select at least one item in the same group.");
       return;
     }
     if (!canCreateNestedGroup) {
@@ -2295,7 +2328,7 @@ function ExpressionGroupEditor({
       return;
     }
     setGroupMenuOpen(true);
-    window.setTimeout(() => groupAndRef.current?.focus(), 0);
+    window.setTimeout(() => (selected.size === 1 ? groupNotRef.current : groupAndRef.current)?.focus(), 0);
   };
   const focusStructuralNode = (element: HTMLElement, direction: "previous" | "next") => {
     const tree = element.closest<HTMLElement>("[data-expression-tree]");
@@ -2365,11 +2398,12 @@ function ExpressionGroupEditor({
           aria-label="Group operator"
           data-expression-group-control={groupPathKey}
           value={group.operator}
-          onChange={(event) => onChange({ ...group, operator: event.target.value as "AND" | "OR" })}
+          onChange={(event) => onChange({ ...group, operator: event.target.value as "AND" | "OR" | "NOT" })}
           className="min-h-10 rounded-lg border border-border bg-input px-3 text-sm text-foreground"
         >
           <option value="AND">All (AND)</option>
           <option value="OR">Any (OR)</option>
+          <option value="NOT" disabled={group.children.length !== 1}>Not (NOT)</option>
         </select>
         <span className="text-xs text-muted">{countFilterExpressionConditions(group)} {countFilterExpressionConditions(group) === 1 ? "condition" : "conditions"}</span>
       </div>
@@ -2388,7 +2422,7 @@ function ExpressionGroupEditor({
               <span className="text-xs font-medium uppercase tracking-wide text-muted">Group</span>
               <button type="button" onClick={() => moveChild(index, -1)} disabled={index === 0} className="ml-auto min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40" aria-label={`Move group ${index + 1} up`}>↑</button>
               <button type="button" onClick={() => moveChild(index, 1)} disabled={index === group.children.length - 1} className="min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40" aria-label={`Move group ${index + 1} down`}>↓</button>
-              <button type="button" onClick={() => ungroupChild(index)} className="min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground">Ungroup</button>
+              <button type="button" onClick={() => ungroupChild(index)} disabled={group.operator === "NOT" && child.group.children.length !== 1} className="min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Ungroup</button>
             </div>
             <div className="ml-2 border-l-2 border-accent/25 pl-2 md:ml-4 md:pl-3">
               <ExpressionGroupEditor
@@ -2416,7 +2450,7 @@ function ExpressionGroupEditor({
             </button>
             <button type="button" onClick={() => moveChild(index, -1)} disabled={index === 0} className="w-9 shrink-0 border-l border-border text-muted hover:bg-card hover:text-foreground disabled:opacity-30" aria-label={`Move condition ${index + 1} up`}>↑</button>
             <button type="button" onClick={() => moveChild(index, 1)} disabled={index === group.children.length - 1} className="w-9 shrink-0 border-l border-border text-muted hover:bg-card hover:text-foreground disabled:opacity-30" aria-label={`Move condition ${index + 1} down`}>↓</button>
-            <button type="button" onClick={() => removeChild(index)} className="w-10 shrink-0 border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" aria-label={`Remove condition ${index + 1}`}><X className="mx-auto h-4 w-4" /></button>
+            <button type="button" onClick={() => removeChild(index)} disabled={group.operator === "NOT" && group.children.length === 1} className="w-10 shrink-0 border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40" aria-label={`Remove condition ${index + 1}`}><X className="mx-auto h-4 w-4" /></button>
           </div>
         )}
           </div>
@@ -2424,8 +2458,8 @@ function ExpressionGroupEditor({
         {group.children.length === 0 ? <p className="px-3 py-5 text-center text-sm text-muted">No conditions in this group.</p> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-border/70 px-3 py-2">
-        <button ref={addConditionRef} type="button" disabled={conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /> Add condition</button>
-        {selected.size >= 2 ? (
+        <button ref={addConditionRef} type="button" disabled={group.operator === "NOT" || conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /> Add condition</button>
+        {selected.size >= 1 ? (
           <div className="relative">
             <button ref={groupMenuButtonRef} type="button" disabled={!canCreateNestedGroup} aria-expanded={groupMenuOpen} aria-describedby={!canCreateNestedGroup ? `group-depth-limit-${groupPathKey || "root"}` : undefined} onClick={openGroupMenu} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Group selected…</button>
             {groupMenuOpen ? (
@@ -2442,8 +2476,14 @@ function ExpressionGroupEditor({
                   (document.activeElement === groupOrRef.current ? groupAndRef.current : groupOrRef.current)?.focus();
                 }
               }} className="absolute bottom-full left-0 z-10 mb-1 min-w-48 rounded-lg border border-border bg-surface p-1 shadow-xl">
-                <button ref={groupAndRef} role="menuitem" type="button" onClick={() => groupSelected("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">All (AND)</button>
-                <button ref={groupOrRef} role="menuitem" type="button" onClick={() => groupSelected("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Any (OR)</button>
+                {selected.size === 1 ? (
+                  <button ref={groupNotRef} role="menuitem" type="button" onClick={() => groupSelected("NOT")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Not (NOT)</button>
+                ) : (
+                  <>
+                    <button ref={groupAndRef} role="menuitem" type="button" onClick={() => groupSelected("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">All (AND)</button>
+                    <button ref={groupOrRef} role="menuitem" type="button" onClick={() => groupSelected("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Any (OR)</button>
+                  </>
+                )}
               </div>
             ) : null}
             {!canCreateNestedGroup ? <span id={`group-depth-limit-${groupPathKey || "root"}`} className="ml-2 text-xs text-muted">Maximum nesting depth reached.</span> : null}
@@ -2570,7 +2610,7 @@ function explainExpressionLeaf(filter: Record<string, unknown>, criteria: Criter
 
 function explainExpressionGroup(expression: FilterExpression<Record<string, unknown>>, criteria: CriterionDefinition[], ratingOptions: RatingSystemOptions, metadataServers: MetadataServer[]): FilterExplanationNode {
   return {
-    text: expression.operator === "OR" ? "Any of the following" : "All of the following",
+    text: expression.operator === "OR" ? "Any of the following" : expression.operator === "NOT" ? "Not the following" : "All of the following",
     children: expression.children.map((child) => child.group
       ? explainExpressionGroup(child.group, criteria, ratingOptions, metadataServers)
       : explainExpressionLeaf(child.filter ?? {}, criteria, ratingOptions, metadataServers)),

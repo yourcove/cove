@@ -217,6 +217,7 @@ public enum FilterExpressionOperator
 {
     And,
     Or,
+    Not,
 }
 
 /// <summary>A recursively composable boolean expression over partial entity filters.</summary>

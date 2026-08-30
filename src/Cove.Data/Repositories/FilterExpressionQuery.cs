@@ -36,6 +36,12 @@ public static class FilterExpressionQuery
             return current;
         }
 
+        if (expression.Operator == FilterExpressionOperator.Not)
+        {
+            var excluded = await ApplyNodeAsync(input, expression.Children[0], applyLeaf);
+            return input.Except(excluded);
+        }
+
         IQueryable<TEntity>? union = null;
         foreach (var child in expression.Children)
         {
@@ -65,6 +71,16 @@ public static class FilterExpressionQuery
         if (group.Children == null)
         {
             error = "Filter-expression children may not be null.";
+            return false;
+        }
+        if (!Enum.IsDefined(group.Operator))
+        {
+            error = $"Unsupported filter-expression operator '{group.Operator}'.";
+            return false;
+        }
+        if (group.Operator == FilterExpressionOperator.Not && group.Children.Count != 1)
+        {
+            error = "NOT filter-expression groups must contain exactly one child.";
             return false;
         }
         if (depth > 1 && group.Children.Count == 0)

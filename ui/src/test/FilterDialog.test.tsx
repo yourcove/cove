@@ -2393,6 +2393,148 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("wraps one selected condition in a unary NOT group", async () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          _filterExpression: {
+            operator: "AND",
+            children: [
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+              { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+            ],
+          },
+        }}
+        onApply={onApply}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Combine filters" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group selected…" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Not (NOT)" }));
+
+    expect(screen.getByRole("region", { name: "NOT group" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "NOT group" })).getByRole("button", { name: "Add condition" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ungroup" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "NOT group" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select condition 2" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group selected…" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Not (NOT)" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Explain this search" }));
+    expect(screen.getByRole("region", { name: "What this search does" })).toHaveTextContent("Not the following");
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      _filterExpression: {
+        operator: "AND",
+        children: [
+          { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+          { group: { operator: "NOT", children: [
+            { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+          ] } },
+        ],
+      },
+    });
+  });
+
+  it("keeps a root NOT group unary in the repeated condition editor", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "NOT", children: [
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Date" }));
+    expect(screen.getByRole("button", { name: "Add another Date" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Date condition 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({});
+  });
+
+  it("removes a nested NOT wrapper with its sole condition", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+          { group: { operator: "NOT", children: [
+            { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+          ] } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
+    expect(screen.getByRole("button", { name: "Add another Date" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Date condition 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      _filterExpression: {
+        operator: "AND",
+        children: [{ filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } }],
+      },
+    });
+  });
+
+  it("does not ungroup multiple conditions directly into a NOT group", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "NOT", children: [
+          { group: { operator: "OR", children: [
+            { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+            { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+          ] } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    const ungroup = screen.getByRole("button", { name: "Ungroup" });
+    const nestedGroup = screen.getByRole("checkbox", { name: "Select group 1" });
+    expect(ungroup).toBeDisabled();
+    fireEvent.keyDown(nestedGroup, { key: "g", ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole("region", { name: "OR group" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "NOT", children: [
+      { group: { operator: "OR", children: [
+        { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+        { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+      ] } },
+    ] } });
+  });
+
   it("supports structural keyboard navigation, grouping, movement, and ungrouping", async () => {
     renderWithQueryClient(
       <FilterDialog

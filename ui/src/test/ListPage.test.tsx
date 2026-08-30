@@ -366,6 +366,9 @@ describe("ListPage active filter chips", () => {
                     { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
                     { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
                   ] } },
+                  { group: { operator: "NOT", children: [
+                    { filter: { directorCriterion: { modifier: "INCLUDES", value: "blocked" } } },
+                  ] } },
                 ],
               },
             }}
@@ -380,11 +383,14 @@ describe("ListPage active filter chips", () => {
     expect(await screen.findByText("Example Tag")).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="NOT"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: Tags Example Tag" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit AND group in Combine Filters" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit NOT group in Combine Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: Director Includes blocked" })).toBeInTheDocument();
   });
 
   it("opens nested expression leaves in their standard filter editors", async () => {
