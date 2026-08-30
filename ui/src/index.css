@@ -26,6 +26,19 @@ body {
   font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Logical filter colors retain their dark-theme character while meeting text contrast in light themes. */
+html[data-color-scheme="light"] .filter-expression-any-label {
+  color: #5b21b6;
+}
+
+html[data-color-scheme="light"] .filter-expression-any-selected {
+  background-color: #6d28d9;
+}
+
+html[data-color-scheme="light"] .filter-expression-exclude-label {
+  color: #9f1239;
+}
+
 .navbar-desktop-links {
   display: none;
 }

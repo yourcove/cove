@@ -1318,7 +1318,7 @@ export function ListPage({
             setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
             const criterion = mergedCriteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
             const customSection = target.kind === "root" ? mergedCustomFilterSections?.find((section) => section.filterKey === key) : undefined;
-            setFilterDialogPreselect(target.kind === "expression" ? undefined : target.kind === "related"
+            setFilterDialogPreselect(target.kind === "expression" ? (target.criterionId ? { criterionId: target.criterionId, relatedFacet: target.relatedFacet ?? (target.nestedCriterionId ? "criterion" : "mode"), nestedCriterionId: target.nestedCriterionId } : undefined) : target.kind === "related"
               ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
               : customSection?.id ?? criterion?.id ?? key);
             setFilterDialogInitialView(key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple");

@@ -6,20 +6,25 @@ draft: true
 
 This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the **Combine Filters** experience and the examples are still under review.
 
-Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **AND** or **OR** group.
+Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **All**, **Any**, or **None** group.
 
 ## Combine filters into groups
 
-**Combine Filters** represents parentheses as nested blocks. Each block has one operator:
+**Combine Filters** presents the search as readable rules. Each group has one matching mode:
 
-- **All (AND)** requires every direct condition or group in the block.
-- **Any (OR)** requires at least one direct condition or group in the block.
+- **All** requires every direct condition or group.
+- **Any** requires at least one direct condition or group.
+- **None** requires every direct condition or group not to match.
 
-Select two or more conditions in the same block, choose **Group selected…**, and select the operator for the new group. Operators shown between rows reflect the operator chosen for their surrounding block. Use **Ungroup** to remove one pair of logical parentheses without deleting its conditions.
+Open a group's menu and choose **Create subgroup**, then select sibling rules. Two or more selections can become an **All** or **Any** group. One or more selections can become **None**. Choose **Cancel grouping** to leave the search unchanged.
 
-Choose **Explain this search** for a structured plain-English outline of the current groups. The explanation follows edits immediately and is useful for checking which conditions belong inside each set of parentheses before applying the search.
+To relocate a condition, drag its move handle onto another group or open the condition menu and choose **Move to…**. The menu is also the direct keyboard-accessible way to choose any legal destination group.
 
-The complete workflow is keyboard accessible. Tab reaches every control. When a condition or group selector has focus, use the arrow keys to move through the structure, Space to select, Enter to edit, Alt+Up or Alt+Down to reorder siblings, Ctrl/Cmd+G to group selected siblings, and Ctrl/Cmd+Shift+G to ungroup. Escape returns to the preceding filter view.
+Older or externally created searches may show an **Exclude** enclosure around a compound group. This is retained when changing it to None would alter the search's meaning.
+
+Each rule is already written as a plain-language sentence. Select a sentence to edit it. Secondary actions are available from its more-actions menu; a group menu can change excluded logic, dissolve the group without deleting its rules, or remove the entire group.
+
+The complete workflow is keyboard accessible. Tab reaches every control, Enter or Space activates it, and grouping mode exposes pressed-state buttons for selecting sibling rules. Escape returns to the preceding filter view.
 
 ## Match a performer’s age when a video was made
 
@@ -42,7 +47,7 @@ To find a video containing both a male performer aged 20–30 and a female perfo
 | First | Male | Between 20 and 30 |
 | Second | Female | Between 30 and 40 |
 
-Keep the two related-performer conditions joined with **AND**. Each condition must match one performer, while the filters inside each condition must match the same performer. The male and female requirements may therefore be satisfied by different people in the video.
+Keep the two related-performer conditions in an **All** group. Each condition must match one performer, while the filters inside each condition must match the same performer. The male and female requirements may therefore be satisfied by different people in the video.
 
 Do not combine gender and both age ranges inside one related-performer condition. Conditions inside that workspace describe one performer.
 
@@ -51,10 +56,10 @@ Do not combine gender and both age ranges inside one related-performer condition
 Some searches need the same criterion more than once. For example, videos outside a date interval can be expressed as:
 
 - **Date** is before `2000-01-01`
-- **OR**
+- **Any**
 - **Date** is after `2020-01-01`
 
-Add the first **Date** condition, choose **Add another Date**, and use **Combine filters…** to change their group from **AND** to **OR**.
+Add the first **Date** condition, choose **Add another Date**, and use **Combine filters…** to change **All** to **Any**.
 
 The same pattern applies when one string criterion must include one value and exclude another, such as a URL that includes one domain fragment but excludes a path fragment.
 
@@ -92,7 +97,7 @@ To find videos where an appearance has selected performer occurrence tags or the
 1. Add **Performer Occurrence Tags** with the required tags.
 2. Add **Related Performers**, then set **Favorite** to **True**.
 3. Return to the main filter dialog and choose **Combine filters…**.
-4. Put the occurrence-tag condition and related-performer condition in an **OR** group.
+4. Open the group menu, choose **Create subgroup**, select the occurrence-tag condition and related-performer condition, then choose **Any**.
 
 These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** only when the alternatives are properties of the related performer itself.
 
@@ -111,6 +116,6 @@ Before removing this page’s draft status:
 
 - verify every recipe through the current keyboard workflow
 - add screenshots only after the related-performer grouping interface is settled
-- verify the **Combine Filters** nesting, explanation, and shortcut descriptions against the final interface
+- verify the **Combine Filters** nesting, plain-language rules, and grouping descriptions against the final interface
 - confirm the labels and result semantics against the released backend
 - remove implementation-oriented caveats that no longer apply

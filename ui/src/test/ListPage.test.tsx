@@ -413,6 +413,7 @@ describe("ListPage active filter chips", () => {
                 children: [
                   { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Male)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 20, value2: 30 } } } },
                   { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Female)$", modifier: "MATCHES_REGEX", _selectedValues: ["Female"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 } } } },
+                  { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
                 ],
               },
             }}
@@ -429,10 +430,17 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByText("Between 20 and 30")).toBeInTheDocument();
     expect(screen.getByText("Female")).toBeInTheDocument();
     expect(screen.getByText("Between 30 and 40")).toBeInTheDocument();
-    const performerChips = screen.getAllByRole("button", { name: /Edit filter: Related Performers/ });
+    const performerChips = screen.getAllByRole("button", { name: "Edit filter: Related Performers" });
     expect(performerChips).toHaveLength(2);
-    fireEvent.click(performerChips[0]);
+    const ageChip = screen.getByRole("button", { name: "Edit performer filter: Age (then) Between 20 and 30" });
+    expect(ageChip).toHaveClass("border");
+    const performerCountChip = screen.getByRole("button", { name: "Edit filter: Performer Count. Performer Count = 2" });
+    expect(performerCountChip).toHaveTextContent("Performer Count:= 2");
+    expect(performerCountChip.textContent?.match(/Performer Count/g)).toHaveLength(1);
+    fireEvent.click(ageChip);
     expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Age (then)" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Between", pressed: true })).toHaveFocus());
   });
 
   it("opens a compact flat-expression chip in its normal stacked criterion panel", async () => {
@@ -512,14 +520,19 @@ describe("ListPage active filter chips", () => {
     expect(await screen.findByText("Example Tag")).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
-    expect(document.querySelector('[data-filter-operator="NOT"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit filter: Tags Example Tag" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit AND group in Combine Filters" })).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="NONE"]')).toBeInTheDocument();
+    const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
+    expect(anyGroup).toHaveClass("text-violet-300");
+    const anyCondition = screen.getByRole("button", { name: "Edit filter: Tags Example Tag" });
+    const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
+    expect(allGroup).toHaveClass("text-accent");
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit NOT group in Combine Filters" })).toBeInTheDocument();
+    const noneGroup = screen.getByRole("button", { name: "Edit None group in Combine Filters" });
+    expect(noneGroup).toHaveClass("text-rose-300");
     expect(screen.getByRole("button", { name: "Edit filter: Director Includes blocked" })).toBeInTheDocument();
+    expect(allGroup.compareDocumentPosition(anyCondition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(anyCondition.compareDocumentPosition(noneGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("opens nested expression leaves in their standard filter editors", async () => {
@@ -560,10 +573,10 @@ describe("ListPage active filter chips", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit filter: Performer Occurrence Tags Example Tag" }));
     expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Performer Occurrence Tags condition 1" })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Performer Occurrence Tags" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit OR group in Combine Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Any group in Combine Filters" }));
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
   });
 
