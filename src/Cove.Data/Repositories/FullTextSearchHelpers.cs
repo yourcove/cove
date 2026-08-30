@@ -36,6 +36,7 @@ public static class FullTextSearchHelpers
         string? search,
         Expression<Func<T, IEnumerable<Tag>>>[]? tagSelectors = null,
         Expression<Func<T, IEnumerable<Performer>>>[]? performerSelectors = null)
+        where T : BaseEntity
     {
         var normalized = Normalize(search);
         if (normalized is null)
@@ -65,7 +66,7 @@ public static class FullTextSearchHelpers
             return textQuery;
 
         var predicate = Expression.Lambda<Func<T, bool>>(body, entityParam);
-        return textQuery.Concat(baseQuery.Where(predicate)).Distinct();
+        return UnionMatchesById(baseQuery, textQuery, baseQuery.Where(predicate));
     }
 
     /// <summary>
@@ -74,7 +75,7 @@ public static class FullTextSearchHelpers
     /// forward-slash form, so the term's backslashes are normalized before matching. Substring
     /// matching is used rather than the full-text vector because PostgreSQL tokenizes paths into
     /// lexemes (e.g. "clip.mp4" -> "clip", "mp4") that don't reliably match a partial path the user
-    /// types. Mirrors <see cref="ApplyRelationalMatches"/>'s concat+distinct union and works on both
+    /// types. Combines candidate IDs like <see cref="ApplyRelationalMatches"/> and works on both
     /// PostgreSQL and the SQLite test provider.
     /// </summary>
     public static IQueryable<T> ApplyFilePathMatch<T, TFile>(
@@ -82,6 +83,7 @@ public static class FullTextSearchHelpers
         IQueryable<T> baseQuery,
         string? search,
         Expression<Func<T, IEnumerable<TFile>>> filesSelector)
+        where T : BaseEntity
         where TFile : BaseFileEntity
     {
         var normalized = Normalize(search);
@@ -113,7 +115,25 @@ public static class FullTextSearchHelpers
         var entityParam = Expression.Parameter(typeof(T), "entity");
         var body = BuildAnyMatch(filesSelector, entityParam, fileMatches);
         var predicate = Expression.Lambda<Func<T, bool>>(body, entityParam);
-        return textQuery.Concat(baseQuery.Where(predicate)).Distinct();
+        return UnionMatchesById(baseQuery, textQuery, baseQuery.Where(predicate));
+    }
+
+    /// <summary>
+    /// Combines match queries by projecting only their entity IDs, then intersects those candidates
+    /// with the original scoped query. The outer query preserves authorization and caller filters,
+    /// while the narrow UNION ALL avoids DISTINCT sorting complete entity rows.
+    /// </summary>
+    public static IQueryable<T> UnionMatchesById<T>(IQueryable<T> baseQuery, params IQueryable<T>[] matchQueries)
+        where T : BaseEntity
+    {
+        if (matchQueries.Length == 0)
+            return baseQuery.Where(_ => false);
+
+        var matchingIds = matchQueries[0].Select(entity => entity.Id);
+        foreach (var matchQuery in matchQueries.Skip(1))
+            matchingIds = matchingIds.Concat(matchQuery.Select(entity => entity.Id));
+
+        return baseQuery.Where(entity => matchingIds.Contains(entity.Id));
     }
 
     private static readonly MethodInfo StringToLowerMethod =

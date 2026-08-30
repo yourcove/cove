@@ -27,8 +27,10 @@ public class PerformerRepository : IPerformerRepository
         if (string.IsNullOrWhiteSpace(normalized)) return textQuery;
         var normalizedLower = normalized.ToLowerInvariant();
 
-        var withAliases = textQuery
-            .Concat(query.Where(p => p.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
+        var withAliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            textQuery,
+            query.Where(p => p.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
 
         return FullTextSearchHelpers.ApplyRelationalMatches(withAliases, query, search,
             tagSelectors: [p => p.PerformerTags.Where(pt => pt.Tag != null).Select(pt => pt.Tag!)]);
@@ -795,9 +797,10 @@ public class TagRepository : ITagRepository
         if (string.IsNullOrWhiteSpace(normalized)) return textQuery;
         var normalizedLower = normalized.ToLowerInvariant();
 
-        return textQuery
-            .Concat(query.Where(t => t.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))))
-            .Distinct();
+        return FullTextSearchHelpers.UnionMatchesById(
+            query,
+            textQuery,
+            query.Where(t => t.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
     }
 
     public async Task<Tag?> GetByIdAsync(int id, CancellationToken ct = default)
@@ -1373,8 +1376,10 @@ public class StudioRepository : IStudioRepository
         if (string.IsNullOrWhiteSpace(normalized)) return textQuery;
         var normalizedLower = normalized.ToLowerInvariant();
 
-        var withAliases = textQuery
-            .Concat(query.Where(s => s.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
+        var withAliases = FullTextSearchHelpers.UnionMatchesById(
+            query,
+            textQuery,
+            query.Where(s => s.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))));
 
         return FullTextSearchHelpers.ApplyRelationalMatches(withAliases, query, search,
             tagSelectors: [s => s.StudioTags.Where(st => st.Tag != null).Select(st => st.Tag!)]);
@@ -1779,9 +1784,12 @@ public class GalleryRepository : IGalleryRepository
         if (!string.IsNullOrWhiteSpace(galleryPathTerm))
         {
             var pathTerm = galleryPathTerm.ToLowerInvariant().Replace('\\', '/');
-            query = query.Concat(galleryBase.Where(g =>
-                g.Files.Any(f => f.Path.ToLower().Contains(pathTerm)) ||
-                (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm)))).Distinct();
+            query = FullTextSearchHelpers.UnionMatchesById(
+                galleryBase,
+                query,
+                galleryBase.Where(g =>
+                    g.Files.Any(f => f.Path.ToLower().Contains(pathTerm)) ||
+                    (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm))));
         }
 
         return query;
@@ -2292,6 +2300,46 @@ public class ImageRepository : IImageRepository
 
     public async Task<int> CountAsync(CancellationToken ct = default) => await _db.Images.CountAsync(ct);
 
+    internal IQueryable<Image> ApplyImageSearch(IQueryable<Image> query, string? search)
+    {
+        var textQuery = FullTextSearchHelpers.Apply(_db, query, search,
+            image => image.Title,
+            image => image.Details,
+            image => image.Code,
+            image => image.Photographer,
+            image => image.FileSearchText,
+            image => image.SearchText);
+
+        var normalized = search?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return textQuery;
+
+        var normalizedLower = normalized.ToLowerInvariant();
+        var tagWordTerm = $" {normalizedLower} ";
+        var matchingIds = textQuery.Select(image => image.Id)
+            .Concat(_db.Set<ImageTag>()
+                .Where(imageTag => imageTag.Tag != null && (
+                    (" " + imageTag.Tag.Name.ToLower() + " ").Contains(tagWordTerm) ||
+                    imageTag.Tag.Aliases.Any(alias => (" " + alias.Alias.ToLower() + " ").Contains(tagWordTerm))))
+                .Select(imageTag => imageTag.ImageId))
+            .Concat(_db.Set<ImagePerformer>()
+                .Where(imagePerformer => imagePerformer.Performer != null && (
+                    imagePerformer.Performer.Name.ToLower().Contains(normalizedLower) ||
+                    imagePerformer.Performer.Aliases.Any(alias => alias.Alias.ToLower().Contains(normalizedLower))))
+                .Select(imagePerformer => imagePerformer.ImageId));
+
+        var tokens = FullTextSearchHelpers.TokenizeSearchTerms(normalized);
+        if (tokens.Count > 0)
+        {
+            var matchingFiles = _db.ImageFiles.Where(file => file.ImageId != null);
+            foreach (var token in tokens)
+                matchingFiles = matchingFiles.Where(file => file.Path.ToLower().Contains(token));
+            matchingIds = matchingIds.Concat(matchingFiles.Select(file => file.ImageId!.Value));
+        }
+
+        return query.Where(image => matchingIds.Contains(image.Id));
+    }
+
     public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
@@ -2318,18 +2366,7 @@ public class ImageRepository : IImageRepository
         // Build filter query once (lightweight, no includes)
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
         filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        var imageBase = filterQuery;
-        var imageText = FullTextSearchHelpers.Apply(_db, imageBase, findFilter?.Q,
-            i => i.Title,
-            i => i.Details,
-            i => i.Code,
-            i => i.Photographer,
-            i => i.FileSearchText,
-            i => i.SearchText);
-        filterQuery = FullTextSearchHelpers.ApplyRelationalMatches(imageText, imageBase, findFilter?.Q,
-            tagSelectors: [i => i.ImageTags.Where(it => it.Tag != null).Select(it => it.Tag!)],
-            performerSelectors: [i => i.ImagePerformers.Where(ip => ip.Performer != null).Select(ip => ip.Performer!)]);
-        filterQuery = FullTextSearchHelpers.ApplyFilePathMatch(filterQuery, imageBase, findFilter?.Q, i => i.Files);
+        filterQuery = ApplyImageSearch(filterQuery, findFilter?.Q);
 
         var perPage = findFilter?.PerPage ?? 25;
 
@@ -2407,14 +2444,7 @@ public class ImageRepository : IImageRepository
             currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true, ct);
         var query = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
         query = ApplyImageFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        var imageBase = query;
-        var imageText = FullTextSearchHelpers.Apply(_db, imageBase, findFilter?.Q,
-            image => image.Title, image => image.Details, image => image.Code,
-            image => image.Photographer, image => image.FileSearchText, image => image.SearchText);
-        query = FullTextSearchHelpers.ApplyRelationalMatches(imageText, imageBase, findFilter?.Q,
-            tagSelectors: [image => image.ImageTags.Where(link => link.Tag != null).Select(link => link.Tag!)],
-            performerSelectors: [image => image.ImagePerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
-        query = FullTextSearchHelpers.ApplyFilePathMatch(query, imageBase, findFilter?.Q, image => image.Files);
+        query = ApplyImageSearch(query, findFilter?.Q);
 
         return await query.AsNoTracking()
             .GroupBy(_ => 1)
