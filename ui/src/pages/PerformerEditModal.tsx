@@ -76,11 +76,12 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(performer.remoteIds.map((remoteId) => ({ ...remoteId })));
   const trimmedTagSearch = tagSearch.trim();
 
-  const { data: tagResults, isLoading: tagResultsLoading } = useQuery({
+  const { data: tagResults, isLoading: tagResultsLoading, isPlaceholderData: tagResultsPlaceholder } = useQuery({
     queryKey: ["performer-tags-search", trimmedTagSearch],
     queryFn: () => tagsApi.find({ q: trimmedTagSearch, perPage: 20, sort: "name", direction: "asc" }),
     enabled: trimmedTagSearch.length > 0,
     staleTime: 60000,
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {
@@ -205,20 +206,23 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     const items: AutocompleteItem<TagAutocompleteValue>[] = filteredTags.map((tag) => ({
       key: `tag:${tag.id}`,
       value: { kind: "tag", tag },
+      disabled: tagResultsPlaceholder,
     }));
     if (showTagCreateOption) {
       items.push({
-        key: `create:${trimmedTagSearch.toLowerCase()}`,
+        key: "create",
         value: { kind: "create", query: trimmedTagSearch },
         disabled: tagCreateMutation.isPending,
       });
     }
     return items;
-  }, [filteredTags, showTagCreateOption, tagCreateMutation.isPending, trimmedTagSearch]);
+  }, [filteredTags, showTagCreateOption, tagCreateMutation.isPending, tagResultsPlaceholder, trimmedTagSearch]);
   const tagAutocomplete = useAutocomplete({
     items: tagAutocompleteItems,
     inputValue: tagSearch,
     onInputValueChange: setTagSearch,
+    busy: tagResultsPlaceholder,
+    preserveActiveKeyOnInputChange: true,
     onSelect: (item) => {
       if (item.kind === "create") {
         tagCreateMutation.mutate(item.query);
@@ -389,7 +393,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
                 key={tag.id}
                 {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[index])}
                 type="button"
-                className={`block w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-card ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-card" : ""}`}
+                className={`block w-full px-3 py-1.5 text-left text-sm ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
               >
                 {tag.name}
               </button>
@@ -399,7 +403,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
                 {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[tagAutocompleteItems.length - 1])}
                 type="button"
                 disabled={tagCreateMutation.isPending}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-accent hover:bg-card disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-card" : ""}`}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
               >
                 {tagCreateMutation.isPending ? (
                   <span className="text-secondary">Creating...</span>

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PerformerEditModal } from "../pages/PerformerEditModal";
@@ -231,7 +231,8 @@ describe("PerformerEditModal", () => {
 
     renderModal(performer);
 
-    await user.type(screen.getByPlaceholderText("Search tags..."), "sha");
+    const input = screen.getByPlaceholderText("Search tags...");
+    await user.type(input, "sha");
 
     await waitFor(() => {
       expect(mocks.tagsFind).toHaveBeenLastCalledWith({
@@ -242,7 +243,11 @@ describe("PerformerEditModal", () => {
       });
     });
 
-    await user.click(await screen.findByRole("option", { name: "Shaved Pussy" }));
+    const firstOption = await screen.findByRole("option", { name: "Shaved Pussy" });
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", firstOption.id);
+    expect(firstOption).toHaveClass("bg-accent", "text-white");
+    await user.keyboard("{Enter}");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [7] })));
@@ -283,12 +288,61 @@ describe("PerformerEditModal", () => {
     await user.type(input, "Novel tag");
     const createOption = await screen.findByRole("option", { name: "Create “Novel tag”" });
     expect(input).toHaveAttribute("aria-controls", createOption.parentElement?.id);
-    await user.keyboard("{ArrowDown}{Enter}");
+    await user.keyboard("{ArrowDown}");
+    expect(createOption).toHaveClass("bg-accent", "text-white");
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(mocks.tagsCreate).toHaveBeenCalledWith({ name: "Novel tag" }));
     expect(await screen.findByText("Qualities")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [9] })));
+  });
+
+  it("keeps the highlighted create option mounted while tag results refresh", async () => {
+    const user = userEvent.setup();
+    const performer: Performer = {
+      id: 1,
+      name: "Sample Performer",
+      favorite: false,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+      videoCount: 0,
+      imageCount: 0,
+      galleryCount: 0,
+      groupCount: 0,
+      audioCount: 0,
+      textCount: 0,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-02T00:00:00Z",
+    };
+    let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
+    mocks.tagsFind.mockReset();
+    mocks.tagsFind
+      .mockResolvedValueOnce({ items: [] })
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveNextSearch = resolve;
+      }));
+
+    renderModal(performer);
+
+    const input = screen.getByPlaceholderText("Search tags...");
+    fireEvent.change(input, { target: { value: "Novel" } });
+    const createOption = await screen.findByRole("option", { name: "Create “Novel”" });
+    input.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", createOption.id);
+
+    fireEvent.change(input, { target: { value: "Novel tag" } });
+    await waitFor(() => expect(mocks.tagsFind).toHaveBeenCalledTimes(2));
+    const updatedCreateOption = screen.getByRole("option", { name: "Create “Novel tag”" });
+    expect(updatedCreateOption).toBe(createOption);
+    expect(input).toHaveAttribute("aria-activedescendant", updatedCreateOption.id);
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+
+    resolveNextSearch({ items: [] });
+    await waitFor(() => expect(screen.getByRole("listbox")).not.toHaveAttribute("aria-busy"));
   });
 
   it("saves aliases from separate list inputs", async () => {
