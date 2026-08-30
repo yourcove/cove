@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ListPage } from "../components/ListPage";
@@ -298,6 +298,44 @@ describe("ListPage active filter chips", () => {
     expect(performerChips).toHaveLength(2);
     fireEvent.click(performerChips[0]);
     expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
+  });
+
+  it("opens a compact flat-expression chip in its normal stacked criterion panel", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              _filterExpression: {
+                operator: "AND",
+                children: [
+                  { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+                  { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+            supportsFilterExpressions
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const dateChips = screen.getAllByRole("button", { name: /Edit filter: Date\./ });
+    fireEvent.click(dateChips[1]);
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Filter condition" })).not.toBeInTheDocument();
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { pressed: true })).toHaveFocus());
   });
 
   it("resolves entity names and exposes nested expression operators", async () => {

@@ -505,6 +505,15 @@ function getExpressionLeaf(
   return child.group ? getExpressionLeaf(child.group, rest) : undefined;
 }
 
+function getExpressionConditionCriterion(
+  filter: Record<string, unknown>,
+  criteria: CriterionDefinition[],
+): CriterionDefinition | undefined {
+  const selectedId = typeof filter._criterionId === "string" ? filter._criterionId : undefined;
+  return criteria.find((criterion) => criterion.id === selectedId
+    || getCriterionFilterValue(filter, criterion) !== undefined);
+}
+
 function updateExpressionLeaf(
   root: FilterExpression<Record<string, unknown>>,
   path: number[],
@@ -968,7 +977,12 @@ function getFirstEditorControl(panel: HTMLElement | null | undefined): HTMLEleme
     ?? null;
 }
 
-type FilterDialogView = "simple" | "expression" | "condition";
+function getFirstInlineEditorControl(panel: HTMLElement | null | undefined): HTMLElement | null {
+  return panel?.querySelector<HTMLElement>("button[data-modifier][aria-pressed='true'], button[data-match-modifier][aria-pressed='true']")
+    ?? getFirstEditorControl(panel);
+}
+
+type FilterDialogView = "simple" | "expression";
 
 interface ExpressionConditionDraft {
   filter: Record<string, unknown>;
@@ -983,6 +997,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
   const [dialogView, setDialogView] = useState<FilterDialogView>(() => initialView === "advanced" && isComplexFilterExpression(activeFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined) ? "expression" : "simple");
   const [conditionDraft, setConditionDraft] = useState<ExpressionConditionDraft | null>(null);
+  const [inlineStackReturnsToExpression, setInlineStackReturnsToExpression] = useState(false);
   const backdropPointerDownRef = useRef(false);
   const [search, setSearch] = useState("");
   const [expandedCriterion, setExpandedCriterion] = useState<string | null>(null);
@@ -995,6 +1010,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const simpleReturnFocusKeyRef = useRef<string | null>(null);
   const expressionReturnFocusKeyRef = useRef<string | null>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingInlineConditionFocusRef = useRef<number | null>(null);
   const criterionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const pinButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const pendingPinFocusRef = useRef<string | null>(null);
@@ -1038,6 +1054,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const filteredCriteria = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (q ? criteria.filter((c) => c.label.toLowerCase().includes(q)) : criteria)
+      .filter((criterion) => !conditionDraft || (criterion.supported !== false && criterion.expressionSupported !== false))
       .slice()
       .sort((a, b) => {
         const aExact = Boolean(q) && a.label.toLowerCase() === q;
@@ -1045,7 +1062,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         if (aExact !== bExact) return aExact ? -1 : 1;
         return a.label.localeCompare(b.label);
       });
-  }, [criteria, search]);
+  }, [conditionDraft, criteria, search]);
 
   const activeCriterionCount = useMemo(() => {
     const criteriaCount = criteria.filter((criterion) => isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)).length;
@@ -1065,9 +1082,11 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const expressionConditionCount = countFilterExpressionConditions(expression);
   const hasComplexExpression = isComplexFilterExpression(expression);
   const simpleExpressionChildren = expression && !hasComplexExpression ? expression.children : [];
+  const validSimpleExpressionEntries = simpleExpressionChildren.flatMap((child, index) => child.filter
+    && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? [{ child, index }] : []);
   const expressionEligibleCount = useMemo(() => criteria.filter((criterion) => criterion.expressionSupported !== false
     && isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)).length, [criteria, editFilter]);
-  const displayedActiveCount = activeCriterionCount + (hasComplexExpression ? 1 : simpleExpressionChildren.length);
+  const displayedActiveCount = activeCriterionCount + (hasComplexExpression ? 1 : validSimpleExpressionEntries.length);
 
   type NavigatorItem =
     | { kind: "criterion"; id: string; label: string; active: boolean; pinned: boolean; criterion: CriterionDefinition }
@@ -1085,11 +1104,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       kind: "criterion",
       id: criterion.id,
       label: criterion.label,
-      active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion),
+      active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)
+        || simpleExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
+          && isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)),
       pinned: pinnedIds.has(criterion.id),
       criterion,
     }));
-    const customItems: NavigatorItem[] = (customSections ?? [])
+    const customItems: NavigatorItem[] = (conditionDraft ? [] : customSections ?? [])
       .filter((section) => !q || section.label.toLowerCase().includes(q))
       .map((section) => ({
         kind: "custom",
@@ -1110,7 +1131,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       { label: "Related items", items: related },
       { label: "All filters", items: remaining },
     ].filter((group) => group.items.length > 0);
-  }, [customSections, editFilter, filteredCriteria, pinnedIds, search]);
+  }, [criteria, customSections, editFilter, filteredCriteria, pinnedIds, search, simpleExpressionChildren]);
 
   const visibleNavigatorItems = useMemo(() => navigatorGroups.flatMap((group) => group.items), [navigatorGroups]);
   const rovingNavigatorId = navigatorFocusId && visibleNavigatorItems.some((item) => item.id === navigatorFocusId)
@@ -1136,14 +1157,24 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       kind: "criterion" as const,
       id: criterion.id,
       label: criterion.label,
-      active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion),
+      active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)
+        || simpleExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
+          && isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)),
       pinned: pinnedIds.has(criterion.id),
       criterion,
     } : undefined;
-  }, [criteria, customSections, editFilter, expandedCriterion, pinnedIds]);
+  }, [criteria, customSections, editFilter, expandedCriterion, pinnedIds, simpleExpressionChildren]);
   const relatedWorkspaceCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type === "related"
     ? selectedItem.criterion
     : undefined;
+  const selectedCompactCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type !== "related"
+    ? selectedItem.criterion
+    : undefined;
+  const selectedExpressionInstances = selectedCompactCriterion ? simpleExpressionChildren.flatMap((child, index) =>
+    child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === selectedCompactCriterion.id
+      ? [{ index, filter: child.filter }]
+      : []) : [];
+  const showInlineConditionStack = Boolean(!conditionDraft && selectedCompactCriterion && selectedExpressionInstances.length > 0);
 
   const cloneActiveFilter = useCallback(
     () => JSON.parse(JSON.stringify(normalizedActiveFilter)) as Record<string, unknown>,
@@ -1157,11 +1188,24 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }, 0);
   }, []);
 
+  const focusFirstConditionEditorControl = useCallback(() => {
+    window.setTimeout(() => window.setTimeout(() => {
+      const panel = dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
+      getFirstInlineEditorControl(panel)?.focus();
+    }, 0), 0);
+  }, []);
+
   const selectNavigatorItem = useCallback((id: string) => {
     setRelatedWorkspaceSelection(null);
     setExpandedCriterion(id);
-    focusFirstEditorControl();
-  }, [focusFirstEditorControl]);
+    setConditionDraft((current) => current
+      ? getExpressionConditionCriterion(current.filter, criteria)?.id === id
+        ? current
+        : { ...current, filter: { _criterionId: id } }
+      : current);
+    if (conditionDraft) focusFirstConditionEditorControl();
+    else focusFirstEditorControl();
+  }, [conditionDraft, criteria, focusFirstConditionEditorControl, focusFirstEditorControl]);
 
   useEffect(() => {
     if (lastActiveFilterSignatureRef.current !== activeFilterSignature) {
@@ -1184,6 +1228,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setRelatedWorkspaceSelection(null);
         setDialogView("simple");
         setConditionDraft(null);
+        setInlineStackReturnsToExpression(false);
         setNavigatorFocusId(null);
         previousFocusRef.current?.focus();
       }
@@ -1196,7 +1241,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       const openingFilter = cloneActiveFilter();
       const openingExpression = normalizedActiveFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
       const openingLeaf = initialExpressionPath && openingExpression ? getExpressionLeaf(openingExpression, initialExpressionPath) : undefined;
-      const openingView = openingLeaf ? "condition" : initialView === "advanced" && isComplexFilterExpression(openingExpression) ? "expression" : "simple";
+      const openingLeafCriterion = openingLeaf ? getExpressionConditionCriterion(openingLeaf, criteria) : undefined;
+      const openLeafInline = Boolean(openingLeafCriterion && openingLeafCriterion.type !== "related" && !isComplexFilterExpression(openingExpression));
+      const openingView = openingLeaf ? "simple" : initialView === "advanced" && isComplexFilterExpression(openingExpression) ? "expression" : "simple";
       if (openingView === "expression") {
         const merged = mergeFilterExpressionWithSimpleCriteria(openingFilter, criteria);
         setEditFilter({ ...expressionPassthroughFilter(openingFilter, criteria), ...(merged ? { [FILTER_EXPRESSION_STATE_KEY]: merged } : {}) });
@@ -1204,20 +1251,25 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setEditFilter(openingFilter);
       }
       setDialogView(openingView);
-      setConditionDraft(openingLeaf ? { filter: openingLeaf, path: initialExpressionPath, parentPath: initialExpressionPath!.slice(0, -1), isNew: false, returnView: "simple" } : null);
+      setConditionDraft(openingLeaf && !openLeafInline ? { filter: openingLeaf, path: initialExpressionPath, parentPath: initialExpressionPath!.slice(0, -1), isNew: false, returnView: "simple" } : null);
+      setInlineStackReturnsToExpression(false);
       setSearch("");
       setNavigatorFocusId(null);
       const firstActive = criteria.find((criterion) => isCriterionValueValid(getCriterionFilterValue(normalizedActiveFilter, criterion), criterion))?.id
         ?? (customSections ?? []).find((section) => section.isActive(normalizedActiveFilter[section.filterKey]))?.id;
-      const nextSelected = typeof preselectCriterion === "string"
+      const nextSelected = openingLeafCriterion?.id ?? (typeof preselectCriterion === "string"
         ? preselectCriterion
-        : preselectCriterion?.criterionId ?? firstActive ?? null;
+        : preselectCriterion?.criterionId ?? firstActive ?? null);
       setRelatedWorkspaceSelection(typeof preselectCriterion === "object"
         ? { facet: preselectCriterion.relatedFacet ?? "mode", nestedCriterionId: preselectCriterion.nestedCriterionId }
         : null);
       setExpandedCriterion(nextSelected);
       window.setTimeout(() => {
         if (openingView === "expression") backButtonRef.current?.focus();
+        else if (openLeafInline && initialExpressionPath) {
+          const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${initialExpressionPath[0]}"]`);
+          getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
+        }
         else if (nextSelected && preselectCriterion) focusFirstEditorControl();
         else searchRef.current?.focus();
         if (nextSelected) criterionButtonRefs.current.get(nextSelected)?.scrollIntoView?.({ block: "center", inline: "nearest" });
@@ -1233,6 +1285,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setRelatedWorkspaceSelection(null);
     setDialogView("simple");
     setConditionDraft(null);
+    setInlineStackReturnsToExpression(false);
     setNavigatorFocusId(null);
     onClose();
   }, [cloneActiveFilter, onClose]);
@@ -1240,6 +1293,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const returnToSimpleFilters = useCallback(() => {
     setDialogView("simple");
     setConditionDraft(null);
+    setInlineStackReturnsToExpression(false);
     window.setTimeout(() => window.setTimeout(() => {
         const keyedTarget = simpleReturnFocusKeyRef.current
           ? dialogRef.current?.querySelector<HTMLElement>(`[data-simple-return-focus="${simpleReturnFocusKeyRef.current}"]`)
@@ -1251,8 +1305,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   }, []);
 
   const returnToExpression = useCallback(() => {
+    setEditFilter((current) => {
+      const merged = mergeFilterExpressionWithSimpleCriteria(current, criteria);
+      return { ...expressionPassthroughFilter(current, criteria), ...(merged ? { [FILTER_EXPRESSION_STATE_KEY]: merged } : {}) };
+    });
     setDialogView("expression");
     setConditionDraft(null);
+    setInlineStackReturnsToExpression(false);
     window.setTimeout(() => window.setTimeout(() => {
         const keyedTarget = expressionReturnFocusKeyRef.current
           ? dialogRef.current?.querySelector<HTMLElement>(`[data-expression-return-focus="${expressionReturnFocusKeyRef.current}"]`)
@@ -1261,7 +1320,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         else if (viewReturnFocusRef.current?.isConnected) viewReturnFocusRef.current.focus();
         else backButtonRef.current?.focus();
       }, 0), 0);
-  }, []);
+  }, [criteria]);
 
   const enterExpression = useCallback((returnFocusKey?: string) => {
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -1272,6 +1331,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     });
     setExpandedCriterion(null);
     setRelatedWorkspaceSelection(null);
+    setInlineStackReturnsToExpression(false);
     setDialogView("expression");
     window.setTimeout(() => backButtonRef.current?.focus(), 0);
   }, [criteria]);
@@ -1286,7 +1346,11 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (dialogView === "condition") cancelExpressionCondition();
+        if (relatedWorkspaceSelection) {
+          setRelatedWorkspaceSelection(null);
+          window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>("[aria-label='Saved performer filter'], [aria-label='Saved video filter']")?.focus(), 0);
+        } else if (conditionDraft) cancelExpressionCondition();
+        else if (inlineStackReturnsToExpression) returnToExpression();
         else if (dialogView === "expression") returnToSimpleFilters();
         else if (relatedWorkspaceCriterion) {
           if (relatedWorkspaceSelection) {
@@ -1316,7 +1380,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [cancelExpressionCondition, dialogView, dismiss, open, relatedWorkspaceCriterion, relatedWorkspaceSelection, returnToExpression, returnToSimpleFilters]);
+  }, [cancelExpressionCondition, conditionDraft, dialogView, dismiss, inlineStackReturnsToExpression, open, relatedWorkspaceCriterion, relatedWorkspaceSelection, returnToExpression, returnToSimpleFilters]);
 
   const handleRemoveCriterion = useCallback((criterion: CriterionDefinition, criterionId?: string) => {
     setEditFilter((prev) => removeCriterionFilterValue(prev, criterion));
@@ -1400,7 +1464,79 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setRelatedWorkspaceSelection(null);
     setDialogView("simple");
     setConditionDraft(null);
+    setInlineStackReturnsToExpression(false);
     window.setTimeout(() => searchRef.current?.focus(), 0);
+  };
+
+  const focusInlineCondition = (index: number) => {
+    window.setTimeout(() => window.setTimeout(() => {
+      const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${index}"]`);
+      getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
+    }, 0), 0);
+  };
+
+  const addInlineCondition = (criterion: CriterionDefinition) => {
+    setEditFilter((current) => {
+      const base = mergeFilterExpressionWithSimpleCriteria(current, criteria) ?? { operator: "AND" as const, children: [] };
+      const index = base.children.length;
+      pendingInlineConditionFocusRef.current = index;
+      return {
+        ...expressionPassthroughFilter(current, criteria),
+        [FILTER_EXPRESSION_STATE_KEY]: { ...base, children: [...base.children, { filter: { _criterionId: criterion.id } }] },
+      };
+    });
+    window.setTimeout(() => {
+      const index = pendingInlineConditionFocusRef.current;
+      pendingInlineConditionFocusRef.current = null;
+      if (index !== null) focusInlineCondition(index);
+    }, 0);
+  };
+
+  const addConditionToComplexExpression = (criterion: CriterionDefinition) => {
+    viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    expressionReturnFocusKeyRef.current = "add-";
+    setEditFilter((current) => {
+      const merged = mergeFilterExpressionWithSimpleCriteria(current, criteria);
+      return { ...expressionPassthroughFilter(current, criteria), ...(merged ? { [FILTER_EXPRESSION_STATE_KEY]: merged } : {}) };
+    });
+    setConditionDraft({ filter: { _criterionId: criterion.id }, parentPath: [], isNew: true, returnView: "expression" });
+    setExpandedCriterion(criterion.id);
+    setRelatedWorkspaceSelection(null);
+    setDialogView("simple");
+    focusFirstConditionEditorControl();
+  };
+
+  const updateInlineCondition = (index: number, criterion: CriterionDefinition, value: unknown) => {
+    setEditFilter((current) => {
+      const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
+      const existingFilter = currentExpression ? getExpressionLeaf(currentExpression, [index]) : undefined;
+      if (!currentExpression || !existingFilter || isComplexFilterExpression(currentExpression)) return current;
+      const nextFilter = { ...existingFilter };
+      delete nextFilter[criterion.filterKey];
+      if (criterion.secondaryFilterKey) delete nextFilter[criterion.secondaryFilterKey];
+      return {
+        ...current,
+        [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, [index], {
+          ...nextFilter,
+          ...setCriterionFilterValue({}, criterion, value),
+          _criterionId: criterion.id,
+        }),
+      };
+    });
+  };
+
+  const updateInlineAuxiliaryToggle = (index: number, criterion: CriterionDefinition, checked: boolean) => {
+    const auxiliaryToggleKey = criterion.auxiliaryToggleKey;
+    if (!auxiliaryToggleKey) return;
+    setEditFilter((current) => {
+      const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
+      const filter = currentExpression ? getExpressionLeaf(currentExpression, [index]) : undefined;
+      if (!currentExpression || !filter || isComplexFilterExpression(currentExpression)) return current;
+      const nextFilter = { ...filter };
+      if (checked) nextFilter[auxiliaryToggleKey] = true;
+      else delete nextFilter[auxiliaryToggleKey];
+      return { ...current, [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, [index], nextFilter) };
+    });
   };
 
   const openNewExpressionCondition = (criterionId?: string, parentPath: number[] = []) => {
@@ -1408,18 +1544,46 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     if (dialogView === "simple") simpleReturnFocusKeyRef.current = criterionId ? `repeat-${criterionId}` : null;
     else expressionReturnFocusKeyRef.current = `add-${parentPath.join(".")}`;
     setConditionDraft({ filter: criterionId ? { _criterionId: criterionId } : {}, parentPath, isNew: true, returnView: dialogView === "simple" ? "simple" : "expression" });
-    setDialogView("condition");
+    setExpandedCriterion(criterionId ?? null);
+    setDialogView("simple");
+    window.setTimeout(() => criterionId ? focusFirstConditionEditorControl() : searchRef.current?.focus(), 0);
   };
 
-  const openExpressionCondition = (path: number[], returnView: FilterDialogView = "expression") => {
+  const openExpressionCondition = (path: number[], returnView: "simple" | "expression" = "expression") => {
     if (!expression) return;
     const filter = getExpressionLeaf(expression, path);
     if (!filter) return;
+    const criterion = getExpressionConditionCriterion(filter, criteria);
+    if (returnView === "expression" && !isComplexFilterExpression(expression) && criterion?.type !== "related") {
+      expressionReturnFocusKeyRef.current = `edit-${path.join(".")}`;
+      setConditionDraft(null);
+      setInlineStackReturnsToExpression(true);
+      setExpandedCriterion(criterion?.id ?? null);
+      setDialogView("simple");
+      focusInlineCondition(path[0]);
+      return;
+    }
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (returnView === "simple") simpleReturnFocusKeyRef.current = `expression-${path.join(".")}`;
     else expressionReturnFocusKeyRef.current = `edit-${path.join(".")}`;
     setConditionDraft({ filter, path, parentPath: path.slice(0, -1), isNew: false, returnView: returnView === "simple" ? "simple" : "expression" });
-    setDialogView("condition");
+    setExpandedCriterion(criterion?.id ?? null);
+    setDialogView("simple");
+    window.setTimeout(() => criterion ? focusFirstConditionEditorControl() : searchRef.current?.focus(), 0);
+  };
+
+  const openSimpleExpressionCondition = (path: number[]) => {
+    if (!expression) return;
+    const filter = getExpressionLeaf(expression, path);
+    const criterion = filter ? getExpressionConditionCriterion(filter, criteria) : undefined;
+    if (!criterion || criterion.type === "related") {
+      openExpressionCondition(path, "simple");
+      return;
+    }
+    setSearch("");
+    setRelatedWorkspaceSelection(null);
+    setExpandedCriterion(criterion.id);
+    focusInlineCondition(path[0]);
   };
 
   const saveExpressionCondition = () => {
@@ -1437,7 +1601,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     else returnToExpression();
   };
 
-  const removeSimpleExpressionCondition = (index: number) => {
+  const removeSimpleExpressionCondition = (index: number, inlinePosition?: number) => {
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
       if (!currentExpression || isComplexFilterExpression(currentExpression)) return current;
@@ -1448,6 +1612,18 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       return next;
     });
     window.setTimeout(() => {
+      if (inlinePosition !== undefined) {
+        window.setTimeout(() => {
+          const conditions = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("[data-inline-condition-index]") ?? []);
+          const target = conditions[Math.min(inlinePosition, conditions.length - 1)];
+          if (target) getFirstInlineEditorControl(target.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
+          else {
+            const panel = dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
+            getFirstEditorControl(panel)?.focus();
+          }
+        }, 0);
+        return;
+      }
       const nextIndex = Math.min(index, simpleExpressionChildren.length - 2);
       const target = dialogRef.current?.querySelector<HTMLElement>(`[data-simple-return-focus="expression-${Math.max(0, nextIndex)}"]`);
       (target ?? searchRef.current)?.focus();
@@ -1488,7 +1664,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         onKeyDown={(event) => {
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
-            if (dialogView === "condition") saveExpressionCondition();
+            if (conditionDraft) saveExpressionCondition();
             else handleApply();
           }
         }}
@@ -1498,12 +1674,16 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         {/* Header */}
         <div className="flex min-h-16 items-center justify-between border-b border-border px-4 pt-[env(safe-area-inset-top)] md:px-6 md:pt-0">
           <div className="flex min-w-0 items-center gap-2">
-            {dialogView !== "simple" || relatedWorkspaceCriterion ? (
+            {conditionDraft || inlineStackReturnsToExpression || dialogView !== "simple" || relatedWorkspaceCriterion ? (
               <button
                 ref={backButtonRef}
                 type="button"
                 onClick={() => {
-                  if (dialogView === "condition") cancelExpressionCondition();
+                  if (conditionDraft && relatedWorkspaceSelection) {
+                    setRelatedWorkspaceSelection(null);
+                    window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>("[aria-label='Saved performer filter'], [aria-label='Saved video filter']")?.focus(), 0);
+                  } else if (conditionDraft) cancelExpressionCondition();
+                  else if (inlineStackReturnsToExpression) returnToExpression();
                   else if (dialogView === "expression") returnToSimpleFilters();
                   else {
                     setExpandedCriterion(null);
@@ -1512,8 +1692,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                   }
                 }}
                 className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground"
-                aria-label={dialogView === "condition"
+                aria-label={conditionDraft
                   ? conditionDraft?.returnView === "simple" ? "Back to filters" : "Back to advanced filter"
+                  : inlineStackReturnsToExpression ? "Back to advanced filter"
                   : dialogView === "expression" ? "Back to simple filters" : "Back to filters"}
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -1534,7 +1715,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               </span>
             ) : null}
             <h2 id="filter-dialog-title" className="truncate text-lg font-semibold text-foreground">
-              {dialogView === "condition" ? conditionTitle : dialogView === "expression" ? "Advanced filter" : relatedWorkspaceCriterion ? `Filters / ${relatedWorkspaceCriterion.label}` : "Filters"}
+              {conditionDraft ? conditionTitle : dialogView === "expression" ? "Advanced filter" : relatedWorkspaceCriterion ? `Filters / ${relatedWorkspaceCriterion.label}` : "Filters"}
             </h2>
             {dialogView === "simple" && !relatedWorkspaceCriterion && selectedItem ? <span className="truncate text-sm text-secondary md:hidden">{selectedItem.label}</span> : null}
             {dialogView === "simple" && displayedActiveCount > 0 && (
@@ -1550,11 +1731,11 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           </div>
         </div>
 
-        {dialogView === "simple" && !relatedWorkspaceCriterion && (expressionConditionCount > 0 || Object.keys(activeEditFilter).length > 0) ? (
+        {dialogView === "simple" && !conditionDraft && !relatedWorkspaceCriterion && (expressionConditionCount > 0 || Object.keys(activeEditFilter).length > 0) ? (
           <div className="flex max-h-[min(12rem,35dvh)] shrink-0 flex-wrap items-center gap-2 overflow-y-auto border-b border-border px-3 py-2 md:px-4" role="region" aria-label="Selected filters">
-            {simpleExpressionChildren.map((child, index) => (
+            {validSimpleExpressionEntries.map(({ child, index }) => (
               <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
-                <button type="button" onClick={() => openExpressionCondition([index], "simple")} data-simple-return-focus={`expression-${index}`} className="min-w-0 px-3 text-left hover:bg-background/40" aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
+                <button type="button" onClick={() => openSimpleExpressionCondition([index])} data-simple-return-focus={`expression-${index}`} className="min-w-0 px-3 text-left hover:bg-background/40" aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
                   <span className="truncate">{summarizeExpressionCondition(child.filter ?? {}, criteria)}</span>
                 </button>
                 <button type="button" onClick={() => removeSimpleExpressionCondition(index)} className="flex w-9 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" aria-label={`Remove filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
@@ -1624,13 +1805,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           </div>
         ) : null}
 
-        {dialogView === "condition" && conditionDraft ? (
-          <ExpressionConditionEditor
-            criteria={criteria}
-            value={conditionDraft.filter}
-            onChange={(filter) => setConditionDraft((current) => current ? { ...current, filter } : current)}
-          />
-        ) : dialogView === "expression" ? (
+        {dialogView === "expression" ? (
           <FilterExpressionEditor
             criteria={criteria}
             value={expression ?? { operator: "AND", children: [] }}
@@ -1641,8 +1816,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         ) : relatedWorkspaceCriterion ? (
           <RelatedFilterWorkspace
             criterion={relatedWorkspaceCriterion}
-            value={getCriterionFilterValue(editFilter, relatedWorkspaceCriterion) as RelatedFilterCriterion | undefined}
-            onChange={(value) => handleSetCriterion(relatedWorkspaceCriterion, value)}
+            value={getCriterionFilterValue(conditionCriterion?.id === relatedWorkspaceCriterion.id && conditionDraft ? conditionDraft.filter : editFilter, relatedWorkspaceCriterion) as RelatedFilterCriterion | undefined}
+            onChange={(value) => conditionCriterion?.id === relatedWorkspaceCriterion.id && conditionDraft
+              ? setConditionDraft((current) => current ? { ...current, filter: { _criterionId: relatedWorkspaceCriterion.id, ...setCriterionFilterValue({}, relatedWorkspaceCriterion, value) } } : current)
+              : handleSetCriterion(relatedWorkspaceCriterion, value)}
             selection={relatedWorkspaceSelection}
             onSelectionChange={setRelatedWorkspaceSelection}
           />
@@ -1780,22 +1957,74 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                   },
                 ) : selectedItem.criterion.supported === false ? (
                   <div className="rounded-xl border border-border bg-card p-4 text-sm text-secondary">{selectedItem.criterion.unsupportedReason ?? "This filter is not currently available."}</div>
+                ) : showInlineConditionStack ? (
+                  <div className="space-y-4">
+                    {selectedExpressionInstances.map(({ index, filter }, position) => (
+                      <fieldset
+                        key={index}
+                        data-inline-condition-index={index}
+                        aria-label={`${selectedItem.criterion.label} condition ${position + 1}`}
+                        className="rounded-xl border border-border bg-card/30 p-4"
+                      >
+                        <div className="mb-4 flex min-h-9 items-center justify-between gap-3">
+                          <legend className="px-1 text-sm font-semibold text-foreground">{selectedItem.criterion.label} condition {position + 1}</legend>
+                          <button
+                            type="button"
+                            onClick={() => removeSimpleExpressionCondition(index, position)}
+                            className="inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm text-muted hover:bg-red-500/10 hover:text-red-300"
+                            aria-label={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
+                          >
+                            <X className="h-4 w-4" /> Remove
+                          </button>
+                        </div>
+                        <div data-inline-condition-editor>
+                          <CriterionEditor
+                            criterion={selectedItem.criterion}
+                            value={getCriterionFilterValue(filter, selectedItem.criterion)}
+                            auxiliaryToggleChecked={selectedItem.criterion.auxiliaryToggleKey ? Boolean(filter[selectedItem.criterion.auxiliaryToggleKey]) : undefined}
+                            onAuxiliaryToggleChange={(checked) => updateInlineAuxiliaryToggle(index, selectedItem.criterion, checked)}
+                            onChange={(value) => updateInlineCondition(index, selectedItem.criterion, value)}
+                          />
+                        </div>
+                      </fieldset>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addInlineCondition(selectedItem.criterion)}
+                      data-inline-add-condition
+                      className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground"
+                    >
+                      <Plus className="h-4 w-4" /> Add another {selectedItem.criterion.label}
+                    </button>
+                  </div>
                 ) : (
                   <>
                     <CriterionEditor
                       criterion={selectedItem.criterion}
-                      value={getCriterionFilterValue(editFilter, selectedItem.criterion)}
-                      auxiliaryToggleChecked={selectedItem.criterion.auxiliaryToggleKey ? Boolean(editFilter[selectedItem.criterion.auxiliaryToggleKey]) : undefined}
-                      onAuxiliaryToggleChange={(checked) => handleSetAuxiliaryToggle(selectedItem.criterion, checked)}
-                      onChange={(value) => handleSetCriterion(selectedItem.criterion, value)}
+                      value={getCriterionFilterValue(conditionCriterion?.id === selectedItem.criterion.id && conditionDraft ? conditionDraft.filter : editFilter, selectedItem.criterion)}
+                      auxiliaryToggleChecked={selectedItem.criterion.auxiliaryToggleKey ? Boolean((conditionCriterion?.id === selectedItem.criterion.id && conditionDraft ? conditionDraft.filter : editFilter)[selectedItem.criterion.auxiliaryToggleKey]) : undefined}
+                      onAuxiliaryToggleChange={(checked) => {
+                        if (conditionCriterion?.id === selectedItem.criterion.id && conditionDraft) {
+                          setConditionDraft((current) => {
+                            if (!current || !selectedItem.criterion.auxiliaryToggleKey) return current;
+                            const filter = { ...current.filter };
+                            if (checked) filter[selectedItem.criterion.auxiliaryToggleKey] = true;
+                            else delete filter[selectedItem.criterion.auxiliaryToggleKey];
+                            return { ...current, filter };
+                          });
+                        } else handleSetAuxiliaryToggle(selectedItem.criterion, checked);
+                      }}
+                      onChange={(value) => conditionCriterion?.id === selectedItem.criterion.id && conditionDraft
+                        ? setConditionDraft((current) => current ? { ...current, filter: { _criterionId: selectedItem.criterion.id, ...setCriterionFilterValue({}, selectedItem.criterion, value) } } : current)
+                        : handleSetCriterion(selectedItem.criterion, value)}
                     />
-                    {supportsExpressions && selectedItem.active && selectedItem.criterion.expressionSupported !== false ? <button
+                    {!conditionDraft && supportsExpressions && selectedItem.active && selectedItem.criterion.expressionSupported !== false ? <button
                       type="button"
-                      onClick={() => openNewExpressionCondition(selectedItem.criterion.id)}
+                      onClick={() => hasComplexExpression ? addConditionToComplexExpression(selectedItem.criterion) : addInlineCondition(selectedItem.criterion)}
                       data-simple-return-focus={`repeat-${selectedItem.criterion.id}`}
                       className="mt-6 inline-flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground"
                     >
-                      <Plus className="h-4 w-4" /> Add another {selectedItem.criterion.label}
+                      <Plus className="h-4 w-4" /> Add another {selectedItem.criterion.label}{hasComplexExpression ? " in Advanced…" : ""}
                     </button> : null}
                   </>
                 )}
@@ -1815,7 +2044,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         {/* Footer */}
         <div className="flex min-h-16 items-center justify-end gap-3 border-t border-border px-4 pb-[env(safe-area-inset-bottom)] md:px-6 md:pb-0">
           <div className="flex items-center gap-2">
-            {dialogView === "condition" ? (
+            {conditionDraft ? (
               <>
                 <button type="button" onClick={cancelExpressionCondition} className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel condition</button>
                 <button type="button" onClick={saveExpressionCondition} disabled={!conditionCanSave} className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50">Save condition</button>
@@ -2075,84 +2304,6 @@ function summarizeExpressionCondition(filter: Record<string, unknown>, criteria:
   if (related._savedFilterName) details.unshift(`Saved filter: ${related._savedFilterName}`);
   if (related._matchAll) details.unshift("Any related item");
   return `${selected.label}${details.length > 0 ? ` — ${details.join(" · ")}` : ""}`;
-}
-
-function ExpressionConditionEditor({
-  criteria,
-  value,
-  onChange,
-}: {
-  criteria: CriterionDefinition[];
-  value: Record<string, unknown>;
-  onChange: (value: Record<string, unknown>) => void;
-}) {
-  const selectedId = typeof value._criterionId === "string"
-    ? value._criterionId
-    : criteria.find((criterion) => getCriterionFilterValue(value, criterion) !== undefined)?.id ?? "";
-  const selected = criteria.find((criterion) => criterion.id === selectedId);
-  const [relatedSelection, setRelatedSelection] = useState<{ facet: RelatedFilterChipFacet; nestedCriterionId?: string } | null>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
-  const cleanFilter = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "_criterionId"));
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => selectRef.current?.focus(), 0);
-    return () => window.clearTimeout(timeout);
-  }, []);
-
-  return (
-    <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
-      onKeyDown={(event) => {
-        if (event.key !== "Escape" || !relatedSelection) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setRelatedSelection(null);
-      }}
-    >
-      <div className="border-b border-border p-3 md:px-5">
-        <select
-          ref={selectRef}
-          aria-label="Filter condition"
-          value={selectedId}
-          onChange={(event) => onChange(event.target.value ? { _criterionId: event.target.value } : {})}
-          className="min-h-11 w-full max-w-xl rounded-lg border border-border bg-input px-3 text-sm text-foreground"
-        >
-          <option value="">Choose a filter…</option>
-          {criteria.filter((criterion) => criterion.supported !== false && criterion.expressionSupported !== false).map((criterion) => <option key={criterion.id} value={criterion.id}>{criterion.label}</option>)}
-        </select>
-      </div>
-      {selected ? selected.type === "related" ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <RelatedFilterWorkspace
-            criterion={selected}
-            value={getCriterionFilterValue(cleanFilter, selected) as RelatedFilterCriterion | undefined}
-            onChange={(next) => onChange({ _criterionId: selected.id, ...setCriterionFilterValue({}, selected, next) })}
-            selection={relatedSelection}
-            onSelectionChange={setRelatedSelection}
-          />
-        </div>
-      ) : (
-        <div role="tabpanel" aria-label={selected.label} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-          <div className="max-w-2xl">
-          <CriterionEditor
-            criterion={selected}
-            value={getCriterionFilterValue(cleanFilter, selected)}
-            auxiliaryToggleChecked={selected.auxiliaryToggleKey ? Boolean(cleanFilter[selected.auxiliaryToggleKey]) : undefined}
-            onAuxiliaryToggleChange={(checked) => {
-              const next = { ...value };
-              if (selected.auxiliaryToggleKey) {
-                if (checked) next[selected.auxiliaryToggleKey] = true;
-                else delete next[selected.auxiliaryToggleKey];
-              }
-              onChange(next);
-            }}
-            onChange={(next) => onChange({ _criterionId: selected.id, ...setCriterionFilterValue({}, selected, next) })}
-          />
-          </div>
-        </div>
-      ) : <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted">Choose a filter condition to configure.</div>}
-    </div>
-  );
 }
 
 // ===== Related-entity Editor =====
