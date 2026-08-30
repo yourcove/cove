@@ -127,11 +127,8 @@ jobs:
       - name: Build
         run: dotnet build src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-restore
 
-      - name: Verify Windows file-deletion read semantics
-        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests" --logger "console;verbosity=normal" -- RunConfiguration.TreatNoTestsAsError=true
-
-      - name: Verify Windows stored-path boundaries
-        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests" --logger "console;verbosity=normal" -- RunConfiguration.TreatNoTestsAsError=true
+      - name: Verify Windows filesystem semantics
+        run: dotnet test src/Cove.Tests/Cove.Tests.csproj --configuration Release --no-build --no-restore --filter "FullyQualifiedName~Cove.Tests.FileReadRaceTests|FullyQualifiedName~Cove.Tests.FilesystemPathsTests|FullyQualifiedName~Cove.Tests.FileOpsControllerTests|FullyQualifiedName~Cove.Tests.GenerateJobServiceTests|FullyQualifiedName~Cove.Tests.ThumbnailServiceTests|FullyQualifiedName~Cove.Tests.StreamServiceTests|FullyQualifiedName~Cove.Tests.StreamControllerTests|FullyQualifiedName~Cove.Tests.DeletionSafetyTests" --logger "console;verbosity=normal" -- RunConfiguration.TreatNoTestsAsError=true
 
       - name: Stress concurrent blob reads and deletion
         shell: pwsh
