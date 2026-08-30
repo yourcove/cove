@@ -82,13 +82,13 @@ export function FaceCompareDialog({
     }
     const localPerformerId = readLocalPerformerId(active);
     return localPerformerId != null
-      && !!face.coverImageUrl
+      && (!!face.coverImageUrl || (faceImageUrls?.length ?? 0) > 0)
       && active.localPerformerHasImage === false
       && active.localPerformerIsLocalOnly === true
       // When linking this reference match will refresh the performer from a metadata server, the
       // performer's image comes from there — setting it from the face crop is irrelevant.
       && !readReferenceWillRefreshFromMetadata(active);
-  }, [face, active]);
+  }, [face, active, faceImageUrls]);
 
   const evidence = useMemo(() => active ? readEvidence(active).slice(0, 5) : [], [active]);
   const faceImages = useMemo(

@@ -36,6 +36,29 @@ public sealed class FacePerformerCreationApiTests(
     }
 
     [Fact]
+    public async Task GivenFaceWithDetectionFallback_WhenPerformerIsCreatedWithImage_ThenDetectionCropBecomesPerformerImage()
+    {
+        // Arrange
+        var image = await AsUser().CreateImageAsync($"Face performer image host {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var imagePath = AsTestFileSystem().CreateLibraryFile($"face-performer-{image.Id}.png", ApiTestImages.RedPixelPng());
+        await AsDbUser().AttachStreamImageFileAsync(image.Id, imagePath, width: 1, height: 1, cancellationToken: TestContext.Current.CancellationToken);
+        var face = await AsUser().CreateFaceAsync(new FaceCreateDto("Detection image candidate", null, false, null), TestContext.Current.CancellationToken);
+        await AsUser().CreateImageFaceDetectionAsync(image, face, TestContext.Current.CancellationToken);
+
+        // Act
+        var linkedFace = await AsUser(ApiTestUsers.Eva).CreatePerformerFromFaceAsync(
+            face.Id,
+            new FaceCreatePerformerDto($"Detection image performer {Guid.NewGuid():N}", SetPerformerImage: true),
+            TestContext.Current.CancellationToken);
+        var performer = await AsUser().GetPerformerByIdAsync(linkedFace.PerformerId!.Value, TestContext.Current.CancellationToken);
+        var performerImage = await AsUser().GetPerformerImageAsync(performer, TestContext.Current.CancellationToken);
+
+        // Assert
+        performerImage.MediaType.Should().Be("image/jpeg");
+        performerImage.Content.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public async Task GivenUnlinkedFace_WhenPerformerNameIsBlankOrConflicts_ThenFaceRemainsUnlinked()
     {
         // Arrange

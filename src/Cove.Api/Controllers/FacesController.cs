@@ -36,7 +36,9 @@ public class FacesController(
     IFaceTopSuggestionMaintenance? suggestionMaintenance = null,
     IReferencePerformerImporter? referencePerformerImporter = null,
     BulkDeletionJobService? bulkDeletionJobService = null,
-    BulkEntityDeletionService? bulkEntityDeletionService = null) : ControllerBase
+    BulkEntityDeletionService? bulkEntityDeletionService = null,
+    IThumbnailService? thumbnailService = null,
+    IStreamService? streamService = null) : ControllerBase
 {
     private const int TopSuggestionCandidateCount = 3;
 
@@ -2109,21 +2111,71 @@ public class FacesController(
         CancellationToken cancellationToken)
     {
         if (!setPerformerImage
-            || string.IsNullOrWhiteSpace(face.CoverBlobId)
             || !string.IsNullOrWhiteSpace(performer.ImageBlobId)
+            || !string.IsNullOrWhiteSpace(performer.ImageOverrideBlobId)
             || performer.RemoteIds.Count > 0)
         {
             return;
         }
 
-        var blob = await blobService.GetBlobAsync(face.CoverBlobId, cancellationToken);
-        if (blob is null)
+        if (!string.IsNullOrWhiteSpace(face.CoverBlobId))
         {
+            var blob = await blobService.GetBlobAsync(face.CoverBlobId, cancellationToken);
+            if (blob is null)
+                return;
+
+            await using var stream = blob.Value.Stream;
+            performer.ImageBlobId = await blobService.StoreBlobAsync(stream, blob.Value.ContentType, cancellationToken);
             return;
         }
 
-        await using var stream = blob.Value.Stream;
-        performer.ImageBlobId = await blobService.StoreBlobAsync(stream, blob.Value.ContentType, cancellationToken);
+        if (thumbnailService is null || streamService is null)
+            return;
+
+        var faceId = (long)face.Id;
+        var detections = await db.Detections
+            .AsNoTracking()
+            .Where(detection => detection.RefId == faceId
+                && detection.RefKind != null
+                && detection.RefKind.ToLower() == "face"
+                && detection.W > 0
+                && detection.H > 0)
+            .ToListAsync(cancellationToken);
+        var plausible = detections.Where(detection =>
+        {
+            var aspect = detection.H == 0 ? 0f : detection.W / detection.H;
+            if (aspect < 0.45f || aspect > 1.8f)
+                return false;
+            if (detection.FrameWidth <= 0 || detection.FrameHeight <= 0)
+                return true;
+            return (detection.W * detection.H) / (float)(detection.FrameWidth * detection.FrameHeight) >= 0.005f;
+        }).ToList();
+        var candidates = plausible.Count > 0 ? plausible : detections;
+        var orderedCandidates = candidates
+            .OrderByDescending(detection => ReadDetectionRoleIsBest(detection.Extra) ? 1 : 0)
+            .ThenByDescending(detection => ReadDetectionCoverQualityScore(detection.Extra))
+            .ThenByDescending(detection => detection.Score)
+            .ThenBy(detection => detection.Id)
+            .ToList();
+        foreach (var candidate in orderedCandidates)
+        {
+            Stream? sourceStream = null;
+            if (candidate.HostType == DetectionHostType.Image)
+                sourceStream = (await thumbnailService.GetImageStreamAsync(candidate.HostId, cancellationToken))?.stream;
+            else if (candidate.HostType == DetectionHostType.Video)
+                sourceStream = (await streamService.GetVideoScreenshot(candidate.HostId, candidate.ObservedAtSec, cancellationToken))?.stream;
+            if (sourceStream is null)
+                continue;
+
+            await using (sourceStream)
+            await using (var crop = await DetectionCropRenderer.RenderAsync(candidate, sourceStream, cancellationToken: cancellationToken))
+            {
+                if (crop is null)
+                    continue;
+                performer.ImageBlobId = await blobService.StoreBlobAsync(crop, "image/jpeg", cancellationToken);
+                return;
+            }
+        }
     }
 
     private FaceDto MapToDto(Face face, FaceComputedCounts? computedCounts = null, FaceTopSuggestionDto? topSuggestion = null, IReadOnlyList<FieldProvenanceDto>? fieldProvenance = null, (int Index, int Count)? performerFaceOrdinal = null, string? coverFallbackUrl = null) => new(
