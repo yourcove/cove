@@ -48,6 +48,15 @@ function expectUnique(criteria: CriterionDefinition[], key: keyof CriterionDefin
 }
 
 describe("filter criteria definitions", () => {
+  it("labels media performer tags as occurrence tags without changing their stable keys", () => {
+    for (const criteria of [VIDEO_CRITERIA, GALLERY_CRITERIA, IMAGE_CRITERIA, AUDIO_CRITERIA, TEXT_CRITERIA]) {
+      const criterion = criteria.find((item) => item.id === "performerTags");
+
+      expect(criterion?.label).toBe("Performer Occurrence Tags");
+      expect(criterion?.filterKey).toBe("performerTagsCriterion");
+    }
+  });
+
   it.each(criteriaSets)("%s criteria keep ids, labels, and filter keys unique", (entityName, criteria) => {
     expectUnique(criteria, "id", entityName);
     expectUnique(criteria, "label", entityName);

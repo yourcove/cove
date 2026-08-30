@@ -1166,7 +1166,7 @@ describe("FilterDialog", () => {
 
   it.each([
     {
-      criterion: "Performer Tags",
+      criterion: "Performer Occurrence Tags",
       searchName: "Search tags",
       findMock: tagsFind,
       entities: [
