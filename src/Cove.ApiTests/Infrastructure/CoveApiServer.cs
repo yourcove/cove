@@ -17,6 +17,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
     private const string ResetTokenHeader = "X-Cove-Test-Reset-Token";
     private const string FaceSuggestionProviderDirectoryName = "com.cove.api-test-face-provider";
     private const string FaceSuggestionProviderBuildDirectoryName = "face-suggestion-provider";
+    internal static readonly TimeSpan StartupReadinessTimeout = TimeSpan.FromMinutes(10);
 
     private readonly PostgreSqlTestDatabase _database;
     private readonly MetadataServiceSimulator _metadataService;
@@ -531,7 +532,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         ConcurrentQueue<string> output,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(60);
+        var deadline = DateTime.UtcNow.Add(StartupReadinessTimeout);
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -551,8 +552,11 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
             await Task.Delay(100, cancellationToken);
         }
 
-        throw new TimeoutException($"The Cove API process did not become ready. Output:{Environment.NewLine}{FormatOutput(output)}");
+        throw new TimeoutException(FormatReadinessTimeoutMessage(output));
     }
+
+    internal static string FormatReadinessTimeoutMessage(IEnumerable<string> output)
+        => $"The Cove API process did not become ready within {StartupReadinessTimeout} while waiting for database migrations and startup services. Output:{Environment.NewLine}{FormatOutput(output)}";
 
     private static void ThrowIfExited(Process process, ConcurrentQueue<string> output)
     {
@@ -570,7 +574,7 @@ internal sealed partial class CoveApiServer : IAsyncDisposable
         }
     }
 
-    private static string FormatOutput(ConcurrentQueue<string> output)
+    private static string FormatOutput(IEnumerable<string> output)
         => string.Join(Environment.NewLine, output);
 
     private static async Task KillAndWaitAsync(Process process)

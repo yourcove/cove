@@ -154,6 +154,17 @@ public sealed class ApiTestFixtureHarnessTests(CoveApiTestPool assemblyPool)
             .WithMessage($"*{CoveApiTestPool.WorkerCountEnvironmentVariable}*");
     }
 
+    [Fact]
+    public void GivenSlowColdDatabaseMigration_WhenReadinessTimesOut_ThenBudgetAndDiagnosticIdentifyStartupWork()
+    {
+        var message = CoveApiServer.FormatReadinessTimeoutMessage(["Applying migration 'baseline'"]);
+
+        CoveApiServer.StartupReadinessTimeout.Should().Be(TimeSpan.FromMinutes(10));
+        message.Should().Contain("00:10:00");
+        message.Should().Contain("database migrations and startup services");
+        message.Should().Contain("Applying migration 'baseline'");
+    }
+
     private static async Task DisposeFixturesAndPoolAsync(
         IEnumerable<CoveApiTestFixture> fixtures,
         CoveApiTestPool pool)
