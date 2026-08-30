@@ -833,7 +833,7 @@ function RelatedFilterChipGroup({
     target: FilterChipTarget,
     editable = true,
   ) => (
-    <div key={key} className="flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border/80 bg-surface text-xs text-foreground">
+    <div key={key} className="flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border/80 bg-surface text-xs text-foreground focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
       {editable ? (
         <button
           type="button"
@@ -871,7 +871,7 @@ function RelatedFilterChipGroup({
 
   return (
     <div ref={groupRef} role="group" aria-label={`${def.label} filters`} className="flex max-w-full flex-wrap items-center gap-1 rounded-md border border-accent/40 bg-card/70 p-1 text-xs text-foreground">
-      <div className="flex min-h-[28px] max-w-full items-stretch overflow-hidden rounded-md bg-accent/10">
+      <div className="flex min-h-[28px] max-w-full items-stretch overflow-hidden rounded-md bg-accent/10 focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
         <button
           ref={buttonRef}
           type="button"
@@ -1131,7 +1131,7 @@ function ActiveObjectFilterChipsContent({
             : displayValue;
         if (isFilterExpression) {
           return (
-            <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
+            <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
               <div
                 ref={(element) => { if (element) buttonRefs.current.set(key, element.querySelector("button")!); else buttonRefs.current.delete(key); }}
                 data-active-filter-key={key}
@@ -1154,7 +1154,7 @@ function ActiveObjectFilterChipsContent({
           );
         }
         return (
-          <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
+          <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
             <button
               ref={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
               type="button"
@@ -1183,7 +1183,7 @@ function ActiveObjectFilterChipsContent({
           tabIndex={managesRovingKeyboard ? -1 : undefined}
           onClick={onClearAll}
           aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home" : undefined}
-          className="h-[26px] rounded-md px-2 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-300"
+          className="h-[26px] rounded-md px-2 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           Clear all
         </button>

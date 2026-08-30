@@ -92,6 +92,53 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("shows related search chips and treats Done as the nested Apply shortcut", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={onClose} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+    await user.click(screen.getByText("Related Performers"));
+    await user.click(screen.getByRole("tab", { name: "Text search" }));
+    await user.type(screen.getByLabelText("Search related performers"), "sample");
+
+    const chips = screen.getByRole("toolbar", { name: "Related Performers selected filters" });
+    expect(within(chips).getByRole("button", { name: "Edit performer filter: Text search" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toHaveAttribute("aria-keyshortcuts", "Control+Enter Meta+Enter");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter", ctrlKey: true });
+    expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter", ctrlKey: true });
+    expect(onApply).toHaveBeenCalledWith({ performerFilterCriterion: { findFilter: { q: "sample" } } });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("returns focus to related filter search after removing the final local chip", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ performerFilterCriterion: { findFilter: { q: "sample" } } }}
+        onApply={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("Search performer filter criteria")).toHaveFocus());
+    const chips = screen.getByRole("toolbar", { name: "Related Performers selected filters" });
+    await user.click(within(chips).getByRole("button", { name: "Remove performer filter: Text search" }));
+
+    await waitFor(() => expect(screen.queryByRole("toolbar", { name: "Related Performers selected filters" })).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Search performer filter criteria")).toHaveFocus();
+  });
+
   it("focuses criteria search when entering a related workspace", async () => {
     renderWithQueryClient(
       <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={vi.fn()} />,
@@ -2903,6 +2950,31 @@ describe("FilterDialog", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+  });
+
+  it("removes chips from a related expression-condition draft", async () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "OR", children: [
+          { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: true } } } } },
+          { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit condition 1: At least one performer/ }));
+    const draftChips = screen.getByRole("toolbar", { name: "Related Performers selected filters" });
+    fireEvent.click(within(draftChips).getByRole("button", { name: "Remove performer filter: Favorite" }));
+
+    await waitFor(() => expect(screen.queryByRole("toolbar", { name: "Related Performers selected filters" })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Edit filter condition" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save condition" })).toBeDisabled();
   });
 
   it("preserves page-specific filter keys when combining simple filters", () => {

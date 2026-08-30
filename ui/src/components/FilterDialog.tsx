@@ -1209,6 +1209,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const relatedWorkspaceCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type === "related"
     ? selectedItem.criterion
     : undefined;
+  const relatedWorkspaceObjectFilter = conditionDraft && relatedWorkspaceCriterion && getExpressionConditionCriterion(conditionDraft.filter, criteria)?.id === relatedWorkspaceCriterion.id
+    ? conditionDraft.filter
+    : editFilter;
   const selectedCompactCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type !== "related"
     ? selectedItem.criterion
     : undefined;
@@ -1499,6 +1502,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setEditFilter((current) => removeObjectFilterChipTarget(current, criteria, target));
   }, [criteria, customSections]);
 
+  const handleRemoveRelatedWorkspaceChip = useCallback((target: FilterChipTarget) => {
+    if (conditionDraft && relatedWorkspaceCriterion && getExpressionConditionCriterion(conditionDraft.filter, criteria)?.id === relatedWorkspaceCriterion.id) {
+      setConditionDraft((current) => current ? { ...current, filter: removeObjectFilterChipTarget(current.filter, criteria, target) } : current);
+      return;
+    }
+    handleRemoveChip(target);
+  }, [conditionDraft, criteria, handleRemoveChip, relatedWorkspaceCriterion]);
+
   const handleApply = () => {
     const hasExpression = Boolean(editFilter[FILTER_EXPRESSION_STATE_KEY]);
     const mergedExpression = hasExpression ? sanitizeFilterExpression(mergeFilterExpressionWithSimpleCriteria(editFilter, criteria), criteria) : undefined;
@@ -1506,6 +1517,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       ? { ...expressionPassthroughFilter(editFilter, criteria), ...(mergedExpression ? { [FILTER_EXPRESSION_STATE_KEY]: mergedExpression } : {}) }
       : activeEditFilter);
     onClose();
+  };
+
+  const finishRelatedWorkspace = () => {
+    setRelatedWorkspaceSelection(null);
+    setExpandedCriterion(null);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
   };
 
   const handleClear = () => {
@@ -1751,6 +1768,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
             if (conditionDraft) saveExpressionCondition();
+            else if (relatedWorkspaceCriterion) finishRelatedWorkspace();
             else handleApply();
           }
         }}
@@ -1853,7 +1871,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           >
             <span id={selectedFiltersInstructionsId} className="sr-only">Use Left and Right Arrow to move between selected filter parts, Clear all, and Combine filters. Press Enter to activate the focused control.</span>
             {validSimpleExpressionEntries.map(({ child, index }) => (
-              <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
+              <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-surface">
                 <button type="button" onClick={() => openSimpleExpressionCondition([index])} data-simple-return-focus={`expression-${index}`} className="min-w-0 px-3 text-left hover:bg-background/40" aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
                   <span className="truncate">{summarizeExpressionCondition(child.filter ?? {}, criteria)}</span>
                 </button>
@@ -1918,7 +1936,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               className="!m-0 max-h-[min(12rem,35dvh)] overflow-y-auto !border-0 !bg-transparent !p-0"
             /> : null}
             {supportsExpressions && !hasComplexExpression && (simpleExpressionChildren.length + expressionEligibleCount) >= 2 ? (
-              <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="min-h-9 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground" aria-label="Combine filters">Combine filters…</button>
+              <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="min-h-9 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface" aria-label="Combine filters">Combine filters…</button>
             ) : null}
           </div>
         ) : null}
@@ -1933,15 +1951,34 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             subjectLabel={subjectLabel}
           />
         ) : relatedWorkspaceCriterion ? (
-          <RelatedFilterWorkspace
-            criterion={relatedWorkspaceCriterion}
-            value={getCriterionFilterValue(conditionCriterion?.id === relatedWorkspaceCriterion.id && conditionDraft ? conditionDraft.filter : editFilter, relatedWorkspaceCriterion) as RelatedFilterCriterion | undefined}
-            onChange={(value) => conditionCriterion?.id === relatedWorkspaceCriterion.id && conditionDraft
-              ? setConditionDraft((current) => current ? { ...current, filter: { _criterionId: relatedWorkspaceCriterion.id, ...setCriterionFilterValue({}, relatedWorkspaceCriterion, value) } } : current)
-              : handleSetCriterion(relatedWorkspaceCriterion, value)}
-            selection={relatedWorkspaceSelection}
-            onSelectionChange={setRelatedWorkspaceSelection}
-          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            {isCriterionValueValid(getCriterionFilterValue(relatedWorkspaceObjectFilter, relatedWorkspaceCriterion), relatedWorkspaceCriterion) ? (
+              <ActiveObjectFilterChips
+                criteriaDefinitions={criteria}
+                objectFilter={setCriterionFilterValue({}, relatedWorkspaceCriterion, getCriterionFilterValue(relatedWorkspaceObjectFilter, relatedWorkspaceCriterion))}
+                onEdit={handleEditChip}
+                onRemove={handleRemoveRelatedWorkspaceChip}
+                rovingKeyboardAccess
+                onFocusFallback={() => {
+                  const searchLabel = relatedWorkspaceCriterion.entityType === "performers"
+                    ? "Search performer filter criteria"
+                    : "Search video filter criteria";
+                  window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>(`[aria-label="${searchLabel}"]`)?.focus(), 0);
+                }}
+                ariaLabel={`${relatedWorkspaceCriterion.label} selected filters`}
+                className="mx-3 mt-3 max-h-[min(10rem,25dvh)] shrink-0 overflow-y-auto md:mx-4"
+              />
+            ) : null}
+            <RelatedFilterWorkspace
+              criterion={relatedWorkspaceCriterion}
+              value={getCriterionFilterValue(conditionCriterion?.id === relatedWorkspaceCriterion.id && conditionDraft ? conditionDraft.filter : editFilter, relatedWorkspaceCriterion) as RelatedFilterCriterion | undefined}
+              onChange={(value) => conditionCriterion?.id === relatedWorkspaceCriterion.id && conditionDraft
+                ? setConditionDraft((current) => current ? { ...current, filter: { _criterionId: relatedWorkspaceCriterion.id, ...setCriterionFilterValue({}, relatedWorkspaceCriterion, value) } } : current)
+                : handleSetCriterion(relatedWorkspaceCriterion, value)}
+              selection={relatedWorkspaceSelection}
+              onSelectionChange={setRelatedWorkspaceSelection}
+            />
+          </div>
         ) : <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
           <aside className={`${selectedItem ? "hidden md:flex" : "flex"} min-h-0 flex-col border-border md:border-r`} aria-label="Filter criteria">
             <div className="border-b border-border p-3 md:p-4">
@@ -2173,7 +2210,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             ) : (
               <>
                 <button type="button" onClick={dismiss} className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel</button>
-                <button type="button" onClick={handleApply} className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover">Apply</button>
+                {relatedWorkspaceCriterion ? (
+                  <>
+                    <button type="button" onClick={finishRelatedWorkspace} aria-keyshortcuts="Control+Enter Meta+Enter" className="min-h-11 rounded-lg border border-border px-4 text-sm font-semibold text-secondary hover:bg-card hover:text-foreground">Done</button>
+                    <button type="button" onClick={handleApply} className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover">Apply</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={handleApply} aria-keyshortcuts="Control+Enter Meta+Enter" className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover">Apply</button>
+                )}
               </>
             )}
           </div>
