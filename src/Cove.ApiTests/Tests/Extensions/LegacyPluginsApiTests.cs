@@ -6,9 +6,7 @@ using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Extensions;
 
-public sealed class LegacyPluginsApiTests(
-    ITestOutputHelper output,
-    CoveApiTestFixture fixture) : ApiTest(output, fixture)
+public sealed class LegacyPluginsApiTests : ApiTest
 {
     private const string ExtensionId = "com.cove.api-test-face-provider";
     private const string DependencyExtensionId = "com.cove.api-test-dependency";
@@ -20,6 +18,11 @@ public sealed class LegacyPluginsApiTests(
     private const string CaptureInstallCountParameter = "capture-install-count";
     private const string ExpectedInstallCountParameter = "expected-install-count";
     private const string InstallCountStoreKey = "api-test.install-count";
+
+    public LegacyPluginsApiTests(
+        ITestOutputHelper output,
+        CoveApiTestFixture fixture) : base(output, fixture)
+        => RetireApiInstanceAfterClass();
 
     [Fact]
     [CoversEndpoint("GET", "/api/plugins/tasks")]
