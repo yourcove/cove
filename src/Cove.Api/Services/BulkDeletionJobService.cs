@@ -281,13 +281,16 @@ public sealed class BulkDeletionExecutionContext
 
     public void StagePhysicalFiles(CoveContext db, IEnumerable<string> paths)
     {
-        foreach (var path in paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(FilesystemPaths.PathComparer))
+        foreach (var storedPath in paths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(FilesystemPaths.ToStoredPath)
+            .Distinct(FilesystemPaths.PathComparer))
         {
-            var identity = PhysicalFileIdentitySnapshot.Capture(path);
+            var identity = PhysicalFileIdentitySnapshot.Capture(storedPath);
             db.PendingPhysicalFileDeletions.Add(new PendingPhysicalFileDeletion
             {
                 BatchId = PhysicalDeletionBatchId,
-                Path = path,
+                Path = storedPath,
                 IdentityCaptured = identity.Captured,
                 ExpectedExists = identity.Exists,
                 ExpectedLength = identity.Length,
@@ -300,7 +303,7 @@ public sealed class BulkDeletionExecutionContext
     public void TrackPhysicalFile(string path)
     {
         if (!string.IsNullOrWhiteSpace(path))
-            _physicalFilePaths.TryAdd(path, 0);
+            _physicalFilePaths.TryAdd(FilesystemPaths.ToStoredPath(path), 0);
     }
 
     public string[] GetPhysicalFiles() => [.. _physicalFilePaths.Keys];

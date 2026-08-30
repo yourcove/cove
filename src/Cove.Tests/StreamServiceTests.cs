@@ -1,12 +1,70 @@
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Cove.Api.Services;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Cove.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Cove.Tests;
 
 public class StreamServiceTests
 {
+    [Fact]
+    public async Task GetVideoStream_OpensTheCanonicalStoredPathWithoutFolderNavigation()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-stream-source-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var videoPath = Path.Combine(tempRoot, "source.mp4");
+            var bytes = new byte[] { 1, 2, 3, 4 };
+            await File.WriteAllBytesAsync(videoPath, bytes, TestContext.Current.CancellationToken);
+
+            var dbOptions = new DbContextOptionsBuilder<CoveContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            var services = new ServiceCollection();
+            services.AddSingleton(dbOptions);
+            services.AddScoped<CoveContext>(_ => new CoveContext(dbOptions));
+
+            await using var provider = services.BuildServiceProvider();
+            int videoId;
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                var video = new Video { Title = "stream source" };
+                video.Files.Add(new VideoFile
+                {
+                    Basename = Path.GetFileName(videoPath),
+                    ParentFolder = new Folder { Path = tempRoot },
+                    Format = "mp4",
+                });
+                db.Videos.Add(video);
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                videoId = video.Id;
+            }
+
+            var service = new StreamService(provider.GetRequiredService<IServiceScopeFactory>(), null!, null!);
+
+            var result = await service.GetVideoStream(videoId, TestContext.Current.CancellationToken);
+
+            Assert.NotNull(result);
+            await using var stream = result.Value.stream;
+            using var content = new MemoryStream();
+            await stream.CopyToAsync(content, TestContext.Current.CancellationToken);
+            Assert.Equal(bytes, content.ToArray());
+            Assert.Equal("video/mp4", result.Value.contentType);
+            Assert.Equal(bytes.Length, result.Value.fileSize);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task GetVideoScreenshot_UsesSpriteVttFrame_WhenTimestampThumbnailIsMissing()
     {
@@ -59,7 +117,7 @@ public class StreamServiceTests
             Assert.Equal("image/jpeg", segmentPreview.Value.contentType);
 
             await using var stream = screenshot.Value.stream;
-            using var image = await Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
+            using var image = await SixLabors.ImageSharp.Image.LoadAsync<Rgba32>(stream, TestContext.Current.CancellationToken);
 
             Assert.Equal(160, image.Width);
             Assert.Equal(90, image.Height);

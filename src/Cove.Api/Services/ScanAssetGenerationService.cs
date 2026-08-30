@@ -62,7 +62,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var videoFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedVideoPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => processedVideoPaths.Contains(ScanPath.Normalize(FilesystemPaths.ToNativePath(file.Path))))
                 .Where(file => file.VideoId.HasValue && file.VideoId.Value != 0)
                 .GroupBy(file => file.VideoId)
                 .Select(group => group.First())
@@ -140,10 +140,9 @@ internal sealed class ScanAssetGenerationService(
                         }
                     }
                     if (options.GeneratePhashes
-                        && videoFile.ParentFolder != null
                         && !videoFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                     {
-                        var filePath = Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename);
+                        var filePath = FilesystemPaths.ToNativePath(videoFile.Path);
                         var phash = await fingerprintService.ComputeVideoPhashAsync(filePath, videoFile.Duration, token);
                         if (!string.IsNullOrWhiteSpace(phash))
                         {
@@ -171,10 +170,9 @@ internal sealed class ScanAssetGenerationService(
                         }
                     }
                     if (options.GenerateMd5
-                        && videoFile.ParentFolder != null
                         && !videoFile.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value)))
                     {
-                        var filePath = Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename);
+                        var filePath = FilesystemPaths.ToNativePath(videoFile.Path);
                         var md5 = await fingerprintService.ComputeMd5Async(filePath, token);
                         if (!string.IsNullOrWhiteSpace(md5))
                         {
@@ -247,7 +245,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var imageFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedImagePaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => processedImagePaths.Contains(ScanPath.Normalize(FilesystemPaths.ToNativePath(file.Path))))
                 .ToList();
 
             var total = Math.Max(imageFiles.Count, 1);
@@ -274,7 +272,7 @@ internal sealed class ScanAssetGenerationService(
                     if (options.GenerateImagePhashes
                         && !imageFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                     {
-                        var filePath = Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename);
+                        var filePath = FilesystemPaths.ToNativePath(imageFile.Path);
                         var phash = await fingerprintService.ComputeImagePhashAsync(filePath, token);
                         if (!string.IsNullOrWhiteSpace(phash))
                         {
@@ -305,7 +303,7 @@ internal sealed class ScanAssetGenerationService(
                     if (options.GenerateMd5
                         && !imageFile.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value)))
                     {
-                        var filePath = Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename);
+                        var filePath = FilesystemPaths.ToNativePath(imageFile.Path);
                         var md5 = await fingerprintService.ComputeMd5Async(filePath, token);
                         if (!string.IsNullOrWhiteSpace(md5))
                         {
@@ -371,7 +369,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var audioFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedAudioPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => processedAudioPaths.Contains(ScanPath.Normalize(FilesystemPaths.ToNativePath(file.Path))))
                 .ToList();
 
             var total = Math.Max(audioFiles.Count, 1);
@@ -389,7 +387,7 @@ internal sealed class ScanAssetGenerationService(
                 // Isolate each audio file so one unreadable/corrupt file can't abort the whole batch.
                 try
                 {
-                    var filePath = Path.Combine(audioFile.ParentFolder.Path, audioFile.Basename);
+                    var filePath = FilesystemPaths.ToNativePath(audioFile.Path);
                     if (options.GenerateAudioPhashes
                         && !audioFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                     {
@@ -466,7 +464,7 @@ internal sealed class ScanAssetGenerationService(
                 .ToListAsync(ct);
 
             var textFiles = candidateFiles
-                .Where(file => file.ParentFolder != null && processedTextPaths.Contains(ScanPath.Normalize(Path.Combine(file.ParentFolder.Path, file.Basename))))
+                .Where(file => processedTextPaths.Contains(ScanPath.Normalize(FilesystemPaths.ToNativePath(file.Path))))
                 .ToList();
 
             var total = Math.Max(textFiles.Count, 1);
@@ -484,7 +482,7 @@ internal sealed class ScanAssetGenerationService(
                 // Isolate each text file so one unreadable/corrupt file can't abort the whole batch.
                 try
                 {
-                    var filePath = Path.Combine(textFile.ParentFolder.Path, textFile.Basename);
+                    var filePath = FilesystemPaths.ToNativePath(textFile.Path);
                     if (options.GenerateTextPhashes
                         && !textFile.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                     {

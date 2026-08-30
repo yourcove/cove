@@ -137,7 +137,7 @@ internal readonly record struct PhysicalFileIdentitySnapshot(
     {
         try
         {
-            var file = new FileInfo(path);
+            var file = new FileInfo(FilesystemPaths.ToNativePath(path));
             file.Refresh();
             return file.Exists
                 ? new(true, true, file.Length, file.LastWriteTimeUtc.Ticks, file.CreationTimeUtc.Ticks)
@@ -178,6 +178,7 @@ public sealed class PhysicalFileDeletionService(
     {
         var candidates = candidatePaths
             .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(FilesystemPaths.ToStoredPath)
             .Distinct(FilesystemPaths.PathComparer)
             .Select(path => new PhysicalPathDeletionCandidate(path, [PhysicalFileIdentitySnapshot.Capture(path)]))
             .ToArray();
@@ -338,7 +339,7 @@ public sealed class PhysicalFileDeletionService(
 
                     if (current.Exists)
                     {
-                        File.Delete(candidate.Path);
+                        File.Delete(FilesystemPaths.ToNativePath(candidate.Path));
                         Interlocked.Increment(ref deleted);
                     }
                 }

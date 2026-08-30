@@ -7,6 +7,7 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using Cove.Core.Common;
 using Cove.Core.Entities;
 using Cove.Core.Entities.Galleries.Zip;
 using Cove.Core.Interfaces;
@@ -186,9 +187,7 @@ public class ThumbnailService(
 
         if (imageFile == null) return null;
 
-        var filePath = imageFile.ParentFolder != null
-            ? Path.Combine(imageFile.ParentFolder.Path, imageFile.Basename)
-            : imageFile.Basename;
+        var filePath = FilesystemPaths.ToNativePath(imageFile.Path);
 
         return File.Exists(filePath) ? filePath : null;
     }
@@ -1857,7 +1856,6 @@ public class ThumbnailService(
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
 
         var query = db.VideoFiles
-            .Include(f => f.ParentFolder)
             .AsNoTracking()
             .Where(f => f.VideoId == videoId);
 
@@ -1870,9 +1868,7 @@ public class ThumbnailService(
 
         if (videoFile == null) return (null, 0);
 
-        var filePath = videoFile.ParentFolder != null
-            ? Path.Combine(videoFile.ParentFolder.Path, videoFile.Basename)
-            : videoFile.Basename;
+        var filePath = FilesystemPaths.ToNativePath(videoFile.Path);
 
         return File.Exists(filePath) ? (filePath, videoFile.Duration) : (null, 0);
     }
