@@ -5,13 +5,136 @@ using Cove.Core.Entities;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
+using Cove.Plugins;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
 
 public class ScrapeAttemptServiceTests
 {
+    [Fact]
+    public async Task ApplyAttemptAsync_DoesNotHydrateExistingVideoPerformer()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        var existingPerformer = new Performer { Name = "Existing Performer", Gender = Cove.Core.Enums.GenderEnum.Female };
+        var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
+        db.AddRange(existingPerformer, video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/scene" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["Performers"] = new[]
+                {
+                    new { Name = "Existing Performer", URL = "https://example.com/performer/existing" },
+                },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        // A null performer scraper makes any attempted hydration fail, proving that existing
+        // performers are linked without being rescraped.
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            null!,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["performers"] = "merge" },
+                CreateMissingPerformers: true,
+                HydratePerformers: true),
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(Cove.Core.Enums.GenderEnum.Female, existingPerformer.Gender);
+        Assert.Empty(existingPerformer.Urls);
+        Assert.Equal(existingPerformer.Id, Assert.Single(video.VideoPerformers).PerformerId);
+    }
+
+    [Fact]
+    public async Task ApplyAttemptAsync_HydratesNewNamedVideoPerformer()
+    {
+        var dbName = $"scrape-attempt-service-{Guid.NewGuid():N}";
+        await using var db = CreateDbContext(dbName);
+
+        var video = new Video { Title = "Current Title", TagIds = [], PerformerIds = [] };
+        db.Videos.Add(video);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var attempt = new ScrapeAttempt
+        {
+            ScraperId = "tests.fake-scraper/video",
+            EntityType = EntityKinds.Video,
+            EntityId = video.Id,
+            InputKind = "url",
+            InputJson = JsonSerializer.Serialize(new { url = "https://example.com/scene" }),
+            ResultJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["Performers"] = new[]
+                {
+                    new { Name = "New Performer", URL = "https://example.com/performer/new" },
+                },
+            }),
+        };
+        db.ScrapeAttempts.Add(attempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var extensionManager = new ExtensionManager(new ExtensionContext
+        {
+            Configuration = new ConfigurationBuilder().Build(),
+            DataDirectory = Path.GetTempPath(),
+            CoveVersion = "test",
+        });
+        var scraperService = new ScraperService(
+            new CoveConfiguration(),
+            NullLogger<ScraperService>.Instance,
+            new EmptyHttpClientFactory(),
+            extensionManager);
+        var performerScrapeService = new PerformerScrapeService(db, scraperService);
+        var service = new ScrapeAttemptService(
+            db,
+            null!,
+            null!,
+            performerScrapeService,
+            new NoOpTagProvenanceService(),
+            null!,
+            new EventBus(),
+            NullLogger<ScrapeAttemptService>.Instance);
+
+        var result = await service.ApplyAttemptAsync(
+            attempt.Id,
+            new ApplyVideoScrapeAttemptDto(
+                ReplaceFields: [],
+                CollectionModes: new Dictionary<string, string> { ["performers"] = "merge" },
+                CreateMissingPerformers: true,
+                HydratePerformers: true),
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var performer = await db.Performers.Include(item => item.Urls).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("https://example.com/performer/new", Assert.Single(performer.Urls).Url);
+        Assert.Equal(performer.Id, Assert.Single(video.VideoPerformers).PerformerId);
+    }
+
     [Fact]
     public async Task ApplyAttemptAsync_AudioAttemptAppliesSelectedFieldsAndNormalizesTags()
     {
@@ -839,6 +962,11 @@ public class ScrapeAttemptServiceTests
             .Options;
 
         return new CoveContext(options);
+    }
+
+    private sealed class EmptyHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
     }
 
     private sealed class NoOpTagProvenanceService : ITagProvenanceService
