@@ -210,12 +210,55 @@ describe("Audio and text detail pages", () => {
 
     expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
     expect(screen.getByText("Late Night Mix")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Performers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Performer" })).toBeInTheDocument();
 
     const tabs = screen.getByRole("tablist", { name: /detail tabs/i });
     fireEvent.click(within(tabs).getByRole("tab", { name: /tracks/i }));
 
     expect(await screen.findByText("Intro")).toBeInTheDocument();
+  });
+
+  it.each([
+    { performers: [], performerHeading: undefined },
+    { performers: [{ id: 7, name: "Riley Hart", imagePath: undefined }], performerHeading: "Performer" },
+    {
+      performers: [
+        { id: 7, name: "Riley Hart", imagePath: undefined },
+        { id: 8, name: "Morgan Lee", imagePath: undefined },
+      ],
+      performerHeading: "Performers",
+    },
+  ])("aligns shared audio details for $performerHeading performers", async ({ performers, performerHeading }) => {
+    mockAudios.get.mockResolvedValue(buildAudio({ performers }));
+
+    renderWithQueryClient(<AudioDetailPage id={14} onNavigate={vi.fn()} />);
+
+    const details = await screen.findByText("Cruising soundtrack.");
+    const tagsHeading = screen.getByRole("heading", { name: "Tags" });
+    const urlsHeading = screen.getByRole("heading", { name: "URLs" });
+    const performer = performerHeading ? screen.getByRole("heading", { name: performerHeading }) : undefined;
+
+    expect(screen.queryByRole("heading", { name: "Notes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Source URLs" })).not.toBeInTheDocument();
+    expect(details.compareDocumentPosition(tagsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    if (performer) {
+      expect(tagsHeading.compareDocumentPosition(performer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(performer.compareDocumentPosition(urlsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } else {
+      expect(screen.queryByRole("heading", { name: /Performers?/ })).not.toBeInTheDocument();
+      expect(tagsHeading.compareDocumentPosition(urlsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("labels the shared audio edit field Details", async () => {
+    mockAudios.get.mockResolvedValue(buildAudio());
+
+    renderWithQueryClient(<AudioDetailPage id={14} onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Edit" }));
+
+    const detailsLabel = screen.getByText("Details", { selector: "label" });
+    expect(detailsLabel.nextElementSibling).toHaveValue("Cruising soundtrack.");
+    expect(screen.queryByText("Description", { selector: "label" })).not.toBeInTheDocument();
   });
 
   it("switches to the shared video player when an audio file carries video", async () => {

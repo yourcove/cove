@@ -104,7 +104,7 @@ export function AudioEditPanel({ audio, onSaved }: Props) {
         <input value={code} onChange={(event) => setCode(event.target.value)} className={inputCls} />
       </Field>
 
-      <Field label="Description" fieldProvenance={audio.fieldProvenance} fieldKey="details">
+      <Field label="Details" fieldProvenance={audio.fieldProvenance} fieldKey="details">
         <textarea value={details} onChange={(event) => setDetails(event.target.value)} rows={4} className={inputCls} />
       </Field>
 
