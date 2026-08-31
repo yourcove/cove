@@ -802,17 +802,21 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         onClose={() => setCoverOpen(false)}
         onSuccess={() => invalidateSegmentQueries(segment)}
         aspectRatio="16/9"
-        extraActions={canSetSegmentCover ? (
-          <button
-            type="button"
-            onClick={() => setSegmentCoverMutation.mutate(segmentVideoTime)}
-            disabled={coverActionPending}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
-          >
-            {coverActionPending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" /> : <Camera className="h-3.5 w-3.5" />}
-            From Current Frame
-          </button>
-        ) : null}
+        externalPending={coverActionPending}
+        extraActions={canSetSegmentCover ? ((imageOperationPending) => (
+          <>
+            <button
+              type="button"
+              onClick={() => setSegmentCoverMutation.mutate(segmentVideoTime)}
+              disabled={coverActionPending || imageOperationPending}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
+            >
+              {coverActionPending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" /> : <Camera className="h-3.5 w-3.5" />}
+              From Current Frame
+            </button>
+            {setSegmentCoverMutation.error ? <p role="alert" className="mt-2 text-xs text-red-400">{(setSegmentCoverMutation.error as Error).message}</p> : null}
+          </>
+        )) : null}
       />
       <MediaDetailLayout
         title={displayTitleWithProvenance}

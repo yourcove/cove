@@ -336,7 +336,10 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
 
   const setCoverFromCurrentFrameMut = useMutation({
     mutationFn: (atSeconds?: number) => videos.setCoverFromFrame(id, atSeconds),
-    onSuccess: invalidateVideoCover,
+    onSuccess: () => {
+      invalidateVideoCover();
+      setCoverOpen(false);
+    },
   });
 
   const coverActionPending = setCoverFromCurrentFrameMut.isPending;
@@ -870,21 +873,25 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         entityId={video.id}
         currentImageUrl={videos.screenshotUrl(video.id, video.updatedAt)}
         onUpload={(file) => entityImages.uploadVideoCoverImage(video.id, file)}
-        onDelete={() => entityImages.deleteVideoCoverImage(video.id)}
+        onDelete={video.imagePath ? () => entityImages.deleteVideoCoverImage(video.id) : undefined}
         onClose={() => setCoverOpen(false)}
         onSuccess={invalidateVideoCover}
         aspectRatio="16/9"
-        extraActions={file ? (
-          <button
-            type="button"
-            onClick={() => { handleSetCoverFromCurrentFrame(); setCoverOpen(false); }}
-            disabled={coverActionPending}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
-          >
-            {coverActionPending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" /> : <Camera className="h-3.5 w-3.5" />}
-            From Current Frame
-          </button>
-        ) : null}
+        externalPending={coverActionPending}
+        extraActions={file ? ((imageOperationPending) => (
+          <>
+            <button
+              type="button"
+              onClick={handleSetCoverFromCurrentFrame}
+              disabled={coverActionPending || imageOperationPending}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
+            >
+              {coverActionPending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" /> : <Camera className="h-3.5 w-3.5" />}
+              Use frame at {formatDuration(videoTime)}
+            </button>
+            {setCoverFromCurrentFrameMut.error ? <p role="alert" className="mt-2 text-xs text-red-400">{(setCoverFromCurrentFrameMut.error as Error).message}</p> : null}
+          </>
+        )) : null}
       />
       <Suspense fallback={null}>
         {showGenerate ? (

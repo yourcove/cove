@@ -4,7 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VideoDetailPage } from "../pages/VideoDetailPage";
 
-const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock } = vi.hoisted(() => ({
+const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock, coverDialogMock } = vi.hoisted(() => ({
   mockVideos: {
     get: vi.fn(),
     update: vi.fn(),
@@ -21,6 +21,7 @@ const { mockVideos, videoPlayerMock, videoQueueMock, visualAvailabilityMock } = 
     goNext: vi.fn(),
   },
   visualAvailabilityMock: { available: false, loading: false },
+  coverDialogMock: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -39,6 +40,13 @@ vi.mock("../components/VideoPlayer", () => ({
   VideoPlayer: (props: Record<string, unknown>) => {
     videoPlayerMock(props);
     return <div data-testid="video-detail-player">Video Player</div>;
+  },
+}));
+
+vi.mock("../components/CoverImageDialog", () => ({
+  CoverImageDialog: (props: Record<string, unknown>) => {
+    coverDialogMock(props);
+    return null;
   },
 }));
 
@@ -163,6 +171,25 @@ describe("VideoDetailPage media-player extension surface", () => {
     videoQueueMock.goNext.mockReset();
     visualAvailabilityMock.available = false;
     visualAvailabilityMock.loading = false;
+    coverDialogMock.mockReset();
+  });
+
+  it("does not offer removal for a generated-only video cover", async () => {
+    mockVideos.get.mockResolvedValue({
+      id: 14,
+      title: "Generated cover video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [{ format: "mp4", duration: 120, width: 1920, height: 1080, frameRate: 30, captions: [] }],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
+
+    renderVideoDetail();
+
+    await waitFor(() => expect(coverDialogMock).toHaveBeenCalled());
+    expect(coverDialogMock.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ onDelete: undefined }));
   });
 
   it("opts the primary player into the detail extension surface", async () => {
