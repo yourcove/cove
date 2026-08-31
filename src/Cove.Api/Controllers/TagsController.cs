@@ -685,14 +685,14 @@ public class TagsController(
             t.ParentRelations
                 .Where(pr => pr.Parent != null)
                 .Select(pr => pr.Parent!)
-                .OrderBy(TagDtoMapping.EffectiveSortName)
                 .Select(parent => MapTagDto(parent))
+                .OrderForDisplay()
                 .ToList(),
             t.ChildRelations
                 .Where(cr => cr.Child != null)
                 .Select(cr => cr.Child!)
-                .OrderBy(TagDtoMapping.EffectiveSortName)
                 .Select(child => MapTagDto(child))
+                .OrderForDisplay()
                 .ToList(),
             usageCounts.VideoCount,
             usageCounts.PerformerCount,
@@ -789,7 +789,11 @@ public class TagsController(
                 t.TagGroup?.Color,
                 t.MinOccurrenceSec,
                 t.MinOccurrencePercent,
-                t.Organized);
+                t.Organized)
+            {
+                TagGroupSortOrder = t.TagGroup?.SortOrder,
+                SortName = t.SortName,
+            };
         }).ToList();
     }
 
@@ -889,7 +893,11 @@ public class TagsController(
             tag.MinOccurrenceSec,
             tag.MinOccurrencePercent,
             Organized: tag.Organized,
-            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null)
+        {
+            TagGroupSortOrder = tag.TagGroup?.SortOrder,
+            SortName = tag.SortName,
+        };
 
     private static string? NormalizeOptionalText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

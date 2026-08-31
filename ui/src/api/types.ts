@@ -240,6 +240,8 @@ export interface Tag {
   tagGroupId?: number | null;
   tagGroupName?: string | null;
   tagGroupColor?: string | null;
+  tagGroupSortOrder?: number | null;
+  sortName?: string | null;
   minOccurrenceSec?: number | null;
   minOccurrencePercent?: number | null;
   isDerived?: boolean;
@@ -338,7 +340,6 @@ export interface TagApplicationCreate {
 }
 
 export interface TagDetail extends Tag {
-  sortName?: string;
   parents: Tag[];
   children: Tag[];
   videoCount: number;

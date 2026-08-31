@@ -4,12 +4,13 @@ import type { Tag, TagProvenance } from "../api/types";
 import { TagProvenanceHover } from "./TagProvenanceHover";
 import { rankByLabel } from "../utils/searchRanking";
 
-export type SelectableTag = Pick<Tag, "id" | "name" | "color" | "tagGroupId" | "tagGroupName" | "tagGroupColor">;
+export type SelectableTag = Pick<Tag, "id" | "name" | "sortName" | "color" | "tagGroupId" | "tagGroupName" | "tagGroupColor" | "tagGroupSortOrder">;
 
 export interface TagSelectorGroup<TTag extends SelectableTag = SelectableTag> {
   key: string;
   label: string;
   color?: string | null;
+  sortOrder?: number | null;
   tags: TTag[];
 }
 
@@ -19,16 +20,18 @@ export function groupTagsForSelector<TTag extends SelectableTag>(tags: TTag[]): 
   for (const tag of tags) {
     const key = tag.tagGroupId != null ? `group:${tag.tagGroupId}` : "ungrouped";
     const label = tag.tagGroupName?.trim() || "Ungrouped";
-    const group = groups.get(key) ?? { key, label, color: tag.tagGroupColor, tags: [] };
+    const group = groups.get(key) ?? { key, label, color: tag.tagGroupColor, sortOrder: tag.tagGroupSortOrder, tags: [] };
     group.tags.push(tag);
     groups.set(key, group);
   }
 
   return Array.from(groups.values())
-    .map((group) => ({ ...group, tags: [...group.tags].sort((left, right) => left.name.localeCompare(right.name)) }))
+    .map((group) => ({ ...group, tags: [...group.tags].sort((left, right) => (left.sortName ?? left.name).localeCompare(right.sortName ?? right.name)) }))
     .sort((left, right) => {
       if (left.key === "ungrouped") return 1;
       if (right.key === "ungrouped") return -1;
+      const priority = (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      if (priority !== 0) return priority;
       return left.label.localeCompare(right.label);
     });
 }

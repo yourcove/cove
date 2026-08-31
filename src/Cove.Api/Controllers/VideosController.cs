@@ -761,7 +761,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         group.Id, group.Name, group.Aliases, PartialDate.Format(group.Date, group.DatePrecision),
         group.StudioId, group.Studio?.Name, group.Director, group.Synopsis,
         group.Urls.Select(url => url.Url).ToList(),
-        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).ToList(),
+        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).OrderForDisplay().ToList(),
         group.GroupItems.Where(item => item.VideoId.HasValue).Select(item => item.VideoId!.Value).Distinct().Count(),
         group.GroupItems.Count,
         true,
@@ -871,7 +871,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     private static List<TagDto> GetEffectiveTags(Video video, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByVideoId)
         => effectiveTagsByVideoId != null && effectiveTagsByVideoId.TryGetValue(video.Id, out var tags)
             ? tags
-            : video.VideoTags.Where(videoTag => videoTag.Tag != null).Select(videoTag => MapTagDto(videoTag.Tag!)).ToList();
+            : video.VideoTags.Where(videoTag => videoTag.Tag != null).Select(videoTag => MapTagDto(videoTag.Tag!)).OrderForDisplay().ToList();
 
     private PerformerSummaryDto MapPerformerSummary(Performer performer, IReadOnlyDictionary<int, PerformerSummaryCounts>? performerCounts)
     {
@@ -1016,7 +1016,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 && application.ContextId != null)
             .OrderBy(application => application.ContextType)
             .ThenBy(application => application.ContextId)
-            .ThenBy(application => application.Tag!.Name)
+            .ThenBy(application => application.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(application => application.Tag!.TagGroup != null ? application.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(application => application.Tag!.TagGroup != null ? application.Tag.TagGroup.Name : null)
+            .ThenBy(application => application.Tag!.SortName ?? application.Tag.Name)
+            .ThenBy(application => application.TagId)
             .ToListAsync(ct);
 
         return applications.Select(TagApplicationsController.Map).ToList();
@@ -1039,7 +1043,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             tag.TagGroup?.Color,
             tag.MinOccurrenceSec,
             tag.MinOccurrencePercent,
-            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null);
+            HasImage: tag.ImageOverrideBlobId != null || tag.ImageBlobId != null)
+        {
+            TagGroupSortOrder = tag.TagGroup?.SortOrder,
+            SortName = tag.SortName,
+        };
 
     // ===== Activity Tracking =====
 
@@ -1182,7 +1190,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     {
         var query = db.Videos
             .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-            .Include(s => s.VideoTags).ThenInclude(st => st.Tag)
+            .Include(s => s.VideoTags).ThenInclude(st => st.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
             .Include(s => s.Studio)
             .AsNoTracking();
@@ -1283,7 +1291,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         var videoIds = groups.SelectMany(group => group.Items).Select(item => item.VideoId).Distinct().ToArray();
         var videos = await db.Videos
             .Include(video => video.Files).ThenInclude(file => file.Fingerprints)
-            .Include(video => video.VideoTags).ThenInclude(link => link.Tag)
+            .Include(video => video.VideoTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(video => video.VideoPerformers).ThenInclude(link => link.Performer)
             .Include(video => video.Studio)
             .Include(video => video.RemoteIds)

@@ -626,7 +626,7 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         group.Director,
         group.Synopsis,
         group.Urls.Select(url => url.Url).ToList(),
-        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).ToList(),
+        group.GroupTags.Where(groupTag => groupTag.Tag != null).Select(groupTag => TagDtoMapping.MapTagDto(groupTag.Tag!)).OrderForDisplay().ToList(),
         group.GroupItems.Select(item => item.VideoId).Where(videoId => videoId.HasValue).Distinct().Count(),
         group.GroupItems.Count,
         group.GroupItems.Any(item => item.Kind == GroupItemKind.VideoRange),
@@ -661,8 +661,8 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         p.Aliases.Select(a => a.Alias).ToList(),
         p.PerformerTags
             .Where(pt => pt.Tag != null)
-            .OrderBy(pt => TagDtoMapping.EffectiveSortName(pt.Tag!))
             .Select(pt => TagDtoMapping.MapTagDto(pt.Tag!))
+            .OrderForDisplay()
             .ToList(),
         p.RemoteIds.Select(remoteId => new PerformerRemoteIdDto(remoteId.Endpoint, remoteId.RemoteId)).ToList(),
         usageCounts?.VideoCount ?? p.VideoCount,

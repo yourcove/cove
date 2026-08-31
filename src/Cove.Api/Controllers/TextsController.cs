@@ -232,7 +232,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(item => item.Studio)
             .Include(item => item.Urls)
             .Include(item => item.Files)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
         if (text == null)
@@ -361,7 +361,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(item => item.Studio)
             .Include(item => item.Urls)
             .Include(item => item.Files)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == textDocumentId, ct);
         if (text == null) return NotFound();
@@ -463,7 +463,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(item => item.Studio)
             .Include(item => item.Files)
             .Include(item => item.Urls)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
         if (updated == null)
@@ -635,7 +635,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(text => text.Studio)
             .Include(text => text.Urls)
             .Include(text => text.Files)
-            .Include(text => text.TextTags).ThenInclude(link => link.Tag)
+            .Include(text => text.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(text => text.TextPerformers).ThenInclude(link => link.Performer)
             .Where(text => pagedIds.Contains(text.Id))
             .AsSplitQuery()
@@ -912,7 +912,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
     private static List<TagDto> GetEffectiveTags(TextDocument text, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByTextId)
         => effectiveTagsByTextId != null && effectiveTagsByTextId.TryGetValue(text.Id, out var tags)
             ? tags
-            : text.TextTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).ToList();
+            : text.TextTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).OrderForDisplay().ToList();
 
     private async Task<List<TagApplicationDto>?> GetContextTagApplicationsAsync(int textId, CancellationToken ct)
     {
@@ -923,7 +923,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .AsSplitQuery()
             .OrderBy(item => item.ContextType)
             .ThenBy(item => item.ContextId)
-            .ThenBy(item => item.Tag!.Name)
+            .ThenBy(item => item.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.Name : null)
+            .ThenBy(item => item.Tag!.SortName ?? item.Tag.Name)
+            .ThenBy(item => item.TagId)
             .ToListAsync(ct);
 
         return applications.Count == 0 ? null : applications.Select(TagApplicationsController.Map).ToList();
@@ -934,7 +938,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             .Include(item => item.Studio)
             .Include(item => item.Urls)
             .Include(item => item.Files)
-            .Include(item => item.TextTags).ThenInclude(link => link.Tag)
+            .Include(item => item.TextTags).ThenInclude(link => link.Tag).ThenInclude(tag => tag!.TagGroup)
             .Include(item => item.TextPerformers).ThenInclude(link => link.Performer)
             .FirstOrDefaultAsync(item => item.Id == id, ct);
 

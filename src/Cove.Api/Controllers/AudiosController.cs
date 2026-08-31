@@ -946,7 +946,11 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             .AsSplitQuery()
             .OrderBy(item => item.ContextType)
             .ThenBy(item => item.ContextId)
-            .ThenBy(item => item.Tag!.Name)
+            .ThenBy(item => item.Tag!.TagGroupId.HasValue ? 0 : 1)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.SortOrder : int.MaxValue)
+            .ThenBy(item => item.Tag!.TagGroup != null ? item.Tag.TagGroup.Name : null)
+            .ThenBy(item => item.Tag!.SortName ?? item.Tag.Name)
+            .ThenBy(item => item.TagId)
             .ToListAsync(ct);
 
         return applications.Count == 0 ? null : applications.Select(TagApplicationsController.Map).ToList();
@@ -1046,7 +1050,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     private static List<TagDto> GetEffectiveTags(Audio audio, IReadOnlyDictionary<int, List<TagDto>>? effectiveTagsByAudioId)
         => effectiveTagsByAudioId != null && effectiveTagsByAudioId.TryGetValue(audio.Id, out var tags)
             ? tags
-            : audio.AudioTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).ToList();
+            : audio.AudioTags.Where(link => link.Tag != null).Select(link => TagDtoMapping.MapTagDto(link.Tag!)).OrderForDisplay().ToList();
 
     private async Task<Audio?> GetAudioForDtoAsync(int id, CancellationToken ct)
         => await db.Audios.AsNoTracking()
