@@ -2090,7 +2090,7 @@ describe("FilterDialog", () => {
     expect(operatorChip).toHaveProperty("tabIndex", 0);
     fireEvent.click(operatorChip);
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Group operator" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Match any", pressed: true })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Back to simple filters" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toHaveFocus());
 
@@ -2406,7 +2406,7 @@ describe("FilterDialog", () => {
     fireEvent.change(within(second).getByLabelText("Value"), { target: { value: "2021-01-01" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Combine filters" }));
-    expect(screen.getByRole("button", { name: /Edit condition 2: Date: > 2021-01-01/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 2: Date is greater than 2021-01-01/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to simple filters" }));
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -2435,7 +2435,7 @@ describe("FilterDialog", () => {
     fireEvent.change(screen.getByLabelText("Value"), { target: { value: "bar" } });
     fireEvent.click(screen.getByRole("button", { name: "Back to Combine Filters" }));
 
-    expect(screen.getByRole("button", { name: /Edit condition 3: Director: = bar/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 3: Director is bar/ })).toBeInTheDocument();
   });
 
   it("offers combining only after two simple filters are active", () => {
@@ -2500,6 +2500,46 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("presents filter expressions as readable rules with contextual structural actions", async () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        subjectLabel="videos"
+        activeFilter={{
+          _filterExpression: {
+            operator: "AND",
+            children: [
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+              { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+            ],
+          },
+        }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Combine filters" }));
+    expect(screen.getByText("Find videos where")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Match all", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Match any", pressed: false })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit condition 1: Title includes foo" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Move condition/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Explain this search" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove condition 1" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for condition 1" }));
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Remove" }), { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "More actions for condition 1" })).toHaveFocus());
+  });
+
   it("groups selected sibling conditions and navigates advanced views with Escape", async () => {
     const onApply = vi.fn();
     const onClose = vi.fn();
@@ -2526,21 +2566,25 @@ describe("FilterDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Combine filters" }));
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 1" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Group selected…" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Any (OR)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group conditions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 1 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel grouping" }));
+    expect(screen.getByRole("button", { name: /Edit condition 1: Title/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Group conditions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 1 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 2 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group selected as match any" }));
 
     expect(screen.getByRole("region", { name: "OR group" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ungroup" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select group 1" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("region", { name: "OR group" })).toHaveFocus());
 
-    fireEvent.click(screen.getByRole("button", { name: "Ungroup" }));
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select condition 1" })).toHaveFocus());
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 1" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Group selected…" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Any (OR)" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "OR group" })).getByRole("button", { name: "More actions for group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dissolve group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group conditions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 1 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 2 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group selected as match any" }));
 
     fireEvent.click(screen.getByRole("button", { name: /Edit condition 1: Title/ }));
     expect(screen.getByRole("heading", { name: "Edit Title condition" })).toBeInTheDocument();
@@ -2563,7 +2607,7 @@ describe("FilterDialog", () => {
 
     const nestedOperatorChip = screen.getByRole("button", { name: "Edit OR group in Combine Filters" });
     fireEvent.click(nestedOperatorChip);
-    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "Group operator" })[1]).toHaveFocus());
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "OR group" })).getByRole("button", { name: "Match any", pressed: true })).toHaveFocus());
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toHaveFocus());
 
@@ -2611,22 +2655,20 @@ describe("FilterDialog", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Combine filters" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Group selected…" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Not (NOT)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group conditions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 2 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exclude selected" }));
 
     expect(screen.getByRole("region", { name: "NOT group" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "NOT group" })).getByRole("button", { name: "Add condition" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Ungroup" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "NOT group" })).getByRole("button", { name: "More actions for group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dissolve group" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "NOT group" })).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select condition 2" })).toHaveFocus());
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select condition 2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Group selected…" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Not (NOT)" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Explain this search" }));
-    expect(screen.getByRole("region", { name: "What this search does" })).toHaveTextContent("Not the following");
+    fireEvent.click(screen.getByRole("button", { name: "Group conditions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 2 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exclude selected" }));
+    expect(screen.getByText("Exclude this")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({
@@ -2715,10 +2757,10 @@ describe("FilterDialog", () => {
       />,
     );
 
-    const ungroup = screen.getByRole("button", { name: "Ungroup" });
-    const nestedGroup = screen.getByRole("checkbox", { name: "Select group 1" });
-    expect(ungroup).toBeDisabled();
-    fireEvent.keyDown(nestedGroup, { key: "g", ctrlKey: true, shiftKey: true });
+    const nestedRegion = screen.getByRole("region", { name: "OR group" });
+    fireEvent.click(within(nestedRegion).getByRole("button", { name: "More actions for group" }));
+    expect(screen.getByRole("button", { name: "Dissolve group" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove group" })).toBeDisabled();
     expect(screen.getByRole("region", { name: "OR group" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
@@ -2730,7 +2772,7 @@ describe("FilterDialog", () => {
     ] } });
   });
 
-  it("supports structural keyboard navigation, grouping, movement, and ungrouping", async () => {
+  it("supports keyboard-operated grouping and contextual group actions", async () => {
     renderWithQueryClient(
       <FilterDialog
         open
@@ -2752,38 +2794,25 @@ describe("FilterDialog", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Combine filters" }));
-    const first = screen.getByRole("checkbox", { name: "Select condition 1" });
-    first.focus();
-    fireEvent.keyDown(first, { key: "ArrowDown" });
-    expect(screen.getByRole("checkbox", { name: "Select condition 2" })).toHaveFocus();
-
+    const groupConditions = screen.getByRole("button", { name: "Group conditions" });
+    groupConditions.focus();
+    fireEvent.click(groupConditions);
+    const first = screen.getByRole("button", { name: "Select condition 1 for grouping" });
+    await waitFor(() => expect(first).toHaveFocus());
     fireEvent.click(first);
-    const second = screen.getByRole("checkbox", { name: "Select condition 2" });
-    fireEvent.click(second);
-    fireEvent.keyDown(second, { key: "g", ctrlKey: true });
-    const groupAll = screen.getByRole("menuitem", { name: "All (AND)" });
-    await waitFor(() => expect(groupAll).toHaveFocus());
-    fireEvent.keyDown(groupAll, { key: "ArrowDown" });
-    expect(screen.getByRole("menuitem", { name: "Any (OR)" })).toHaveFocus();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Any (OR)" }));
+    screen.getByRole("button", { name: "Select condition 2 for grouping" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Select condition 2 for grouping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group selected as match any" }));
 
-    const group = screen.getByRole("checkbox", { name: "Select group 1" });
-    await waitFor(() => expect(group).toHaveFocus());
-    fireEvent.keyDown(group, { key: "ArrowRight" });
-    const nestedFirst = within(screen.getByRole("region", { name: "OR group" })).getByRole("checkbox", { name: "Select condition 1" });
-    expect(nestedFirst).toHaveFocus();
-    fireEvent.keyDown(nestedFirst, { key: "ArrowDown", altKey: true });
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "OR group" })).getByRole("checkbox", { name: "Select condition 2" })).toHaveFocus());
-
-    const moved = within(screen.getByRole("region", { name: "OR group" })).getByRole("checkbox", { name: "Select condition 2" });
-    fireEvent.keyDown(moved, { key: "ArrowLeft" });
-    expect(screen.getByRole("checkbox", { name: "Select group 1" })).toHaveFocus();
-    fireEvent.keyDown(screen.getByRole("checkbox", { name: "Select group 1" }), { key: "g", ctrlKey: true, shiftKey: true });
+    const nestedGroup = screen.getByRole("region", { name: "OR group" });
+    await waitFor(() => expect(nestedGroup).toHaveFocus());
+    fireEvent.click(within(nestedGroup).getByRole("button", { name: "More actions for group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dissolve group" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "OR group" })).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select condition 1" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Edit condition 1: Title/ })).toHaveFocus());
   });
 
-  it("explains nested and related filter logic as a live structured outline", () => {
+  it("renders nested and related filter logic directly as readable rules", () => {
     renderWithQueryClient(
       <FilterDialog
         open
@@ -2823,19 +2852,17 @@ describe("FilterDialog", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Explain this search" }));
-    const explanation = screen.getByRole("region", { name: "What this search does" });
-    expect(within(explanation).getByText("Find videos where:")).toBeInTheDocument();
-    expect(within(explanation).getByText("Date is greater than 2020-01-01")).toBeInTheDocument();
-    expect(within(explanation).getByText("Date is less than 2000-01-01")).toBeInTheDocument();
-    expect(within(explanation).getByText("Every performer matches any of the following")).toBeInTheDocument();
-    expect(within(explanation).getByText("Age (then) is between 18 and 20")).toBeInTheDocument();
-    expect(within(explanation).getByText("Favorite is Yes")).toBeInTheDocument();
-    expect(within(explanation).getByText("Tags: Included tag but not Excluded tag")).toBeInTheDocument();
-    expect(within(explanation).getByText(/Remote ID: https:\/\/metadata\.example \(unconfigured\).*remote-123/)).toBeInTheDocument();
+    expect(screen.getByText("Find videos where")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit condition 1: Date is greater than 2020-01-01" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit condition 2: Date is less than 2000-01-01" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 2: Every performer/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 3: Tags:/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 4: Remote ID:/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Explain this search" })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getAllByRole("combobox", { name: "Group operator" })[0], { target: { value: "OR" } });
-    expect(within(explanation).getAllByText("Any of the following")).toHaveLength(2);
+    const rootMatchAny = screen.getAllByRole("button", { name: "Match any", pressed: false })[0];
+    fireEvent.click(rootMatchAny);
+    expect(rootMatchAny).toHaveAttribute("aria-pressed", "true");
   });
 
   it("preserves mixed simple criteria when editing a complex expression", () => {
@@ -2903,9 +2930,11 @@ describe("FilterDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Combine filters" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove condition 1" }));
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select condition 1" })).toHaveFocus());
-    fireEvent.click(screen.getByRole("button", { name: "Remove condition 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions for condition 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Edit condition 1: Director/ })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "More actions for condition 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Add condition" })).toHaveFocus());
   });
 

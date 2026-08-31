@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
@@ -2331,29 +2331,17 @@ function FilterExpressionEditor({
   onEditCondition: (path: number[]) => void;
   subjectLabel: string;
 }) {
-  const [explanationOpen, setExplanationOpen] = useState(false);
   const conditionCount = countFilterExpressionConditions(value);
+  const ratingOptions = useRatingOptions();
+  const appConfig = useOptionalAppConfig();
+  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
+  const describeCondition = (filter: Record<string, unknown>) => formatExplanationNodeInline(explainExpressionLeaf(filter, criteria, ratingOptions, metadataServers));
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-5">
-      <div className="mx-auto max-w-4xl space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="max-w-2xl text-sm text-secondary">Select sibling conditions to put them in a group. Each group combines its direct conditions with one operator.</p>
-          <button
-            type="button"
-            aria-expanded={explanationOpen}
-            aria-controls="filter-expression-explanation"
-            onClick={() => setExplanationOpen((current) => !current)}
-            className="min-h-10 rounded-lg border border-border px-3 text-sm text-secondary hover:bg-card hover:text-foreground"
-          >Explain this search</button>
-        </div>
-        {explanationOpen ? (
-          <section id="filter-expression-explanation" aria-labelledby="filter-expression-explanation-title" className="rounded-xl border border-accent/30 bg-accent/5 p-4">
-            <h3 id="filter-expression-explanation-title" className="text-sm font-semibold text-foreground">What this search does</h3>
-            <FilterExpressionExplanation expression={value} criteria={criteria} subjectLabel={subjectLabel} />
-          </section>
-        ) : null}
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-5 md:px-8 md:py-7">
+      <div className="mx-auto max-w-3xl space-y-4">
+        <p className="text-sm font-medium text-secondary">Find {subjectLabel} where</p>
         <div data-expression-tree>
-          <ExpressionGroupEditor group={value} groupPath={[]} criteria={criteria} root conditionCount={conditionCount} onChange={onChange} onAddCondition={onAddCondition} onEditCondition={onEditCondition} />
+          <ExpressionGroupEditor group={value} groupPath={[]} criteria={criteria} root conditionCount={conditionCount} onChange={onChange} onAddCondition={onAddCondition} onEditCondition={onEditCondition} describeCondition={describeCondition} />
         </div>
       </div>
     </div>
@@ -2372,6 +2360,10 @@ function ExpressionGroupEditor({
   onChange,
   onAddCondition,
   onEditCondition,
+  parentOperator,
+  ungroupChildFromParent,
+  removeGroupFromParent,
+  describeCondition,
 }: {
   group: FilterExpression<Record<string, unknown>>;
   groupPath: number[];
@@ -2381,24 +2373,33 @@ function ExpressionGroupEditor({
   onChange: (value: FilterExpression<Record<string, unknown>>) => void;
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
   onEditCondition: (path: number[]) => void;
+  parentOperator?: "AND" | "OR" | "NOT";
+  ungroupChildFromParent?: () => void;
+  removeGroupFromParent?: () => void;
+  describeCondition: (filter: Record<string, unknown>) => string;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [groupingMode, setGroupingMode] = useState(false);
+  const [openMenu, setOpenMenu] = useState<"group" | number | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const childFocusRefs = useRef(new Map<number, HTMLElement>());
-  const addConditionRef = useRef<HTMLButtonElement>(null);
+  const conditionMenuButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   const groupMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const groupAndRef = useRef<HTMLButtonElement>(null);
-  const groupOrRef = useRef<HTMLButtonElement>(null);
-  const groupNotRef = useRef<HTMLButtonElement>(null);
+  const addConditionRef = useRef<HTMLButtonElement>(null);
   const groupPathKey = groupPath.join(".");
   const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
+  const hasGroupActions = group.operator === "NOT" || group.children.length === 1 || !root;
   useEffect(() => {
     setSelected(new Set());
+    setGroupingMode(false);
+    setOpenMenu(null);
   }, [group]);
   const focusChildAfterChange = (index: number) => {
     window.setTimeout(() => window.setTimeout(() => {
-      (childFocusRefs.current.get(index) ?? addConditionRef.current)?.focus();
+      const pathKey = [...groupPath, index].join(".");
+      (childFocusRefs.current.get(index)
+        ?? document.querySelector<HTMLElement>(`[data-expression-node-path="${pathKey}"]`)
+        ?? addConditionRef.current)?.focus();
     }, 0), 0);
   };
   const updateChild = (index: number, child: FilterExpression<Record<string, unknown>>["children"][number]) => {
@@ -2408,17 +2409,9 @@ function ExpressionGroupEditor({
   };
   const removeChild = (index: number) => {
     setSelected(new Set());
+    setOpenMenu(null);
     onChange({ ...group, children: group.children.filter((_, candidate) => candidate !== index) });
     focusChildAfterChange(Math.min(index, group.children.length - 2));
-  };
-  const moveChild = (index: number, offset: -1 | 1) => {
-    const target = index + offset;
-    if (target < 0 || target >= group.children.length) return;
-    const children = group.children.slice();
-    [children[index], children[target]] = [children[target], children[index]];
-    setSelected((current) => new Set([...current].map((candidate) => candidate === index ? target : candidate === target ? index : candidate)));
-    onChange({ ...group, children });
-    focusChildAfterChange(target);
   };
   const ungroupChild = (index: number) => {
     const child = group.children[index];
@@ -2428,6 +2421,7 @@ function ExpressionGroupEditor({
       return;
     }
     setSelected(new Set());
+    setOpenMenu(null);
     onChange({ ...group, children: [...group.children.slice(0, index), ...child.group.children, ...group.children.slice(index + 1)] });
     focusChildAfterChange(index);
   };
@@ -2441,117 +2435,93 @@ function ExpressionGroupEditor({
       ? [{ group: { operator, children: selectedChildren } }]
       : selectedSet.has(index) ? [] : [child]);
     setSelected(new Set());
-    setGroupMenuOpen(false);
+    setGroupingMode(false);
     onChange({ ...group, children });
     focusChildAfterChange(first);
   };
-  const openGroupMenu = () => {
-    if (selected.size < 1) {
-      setAnnouncement("Select at least one item in the same group.");
-      return;
-    }
+  const startGrouping = () => {
     if (!canCreateNestedGroup) {
       setAnnouncement(`Groups may not be nested more than ${MAX_FILTER_EXPRESSION_DEPTH} levels.`);
       return;
     }
-    setGroupMenuOpen(true);
-    window.setTimeout(() => (selected.size === 1 ? groupNotRef.current : groupAndRef.current)?.focus(), 0);
+    setSelected(new Set());
+    setGroupingMode(true);
+    window.setTimeout(() => childFocusRefs.current.get(0)?.focus(), 0);
   };
-  const focusStructuralNode = (element: HTMLElement, direction: "previous" | "next") => {
-    const tree = element.closest<HTMLElement>("[data-expression-tree]");
-    const nodes = Array.from(tree?.querySelectorAll<HTMLElement>("[data-expression-node-focus]") ?? []);
-    const index = nodes.indexOf(element);
-    nodes[index + (direction === "next" ? 1 : -1)]?.focus();
+  const setOperator = (operator: "AND" | "OR" | "NOT") => {
+    setOpenMenu(null);
+    onChange({ ...group, operator });
+    window.setTimeout(() => document.querySelector<HTMLElement>(`[data-expression-group-control="${groupPathKey}"]`)?.focus(), 0);
   };
-  const handleStructuralKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>, index: number, isGroup: boolean) => {
-    const path = [...groupPath, index];
-    const pathKey = path.join(".");
-    const tree = event.currentTarget.closest<HTMLElement>("[data-expression-tree]");
-    if (event.altKey && event.key === "ArrowUp") {
-      event.preventDefault();
-      moveChild(index, -1);
-      return;
-    }
-    if (event.altKey && event.key === "ArrowDown") {
-      event.preventDefault();
-      moveChild(index, 1);
-      return;
-    }
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "g" && isGroup) {
-      event.preventDefault();
-      ungroupChild(index);
-      return;
-    }
-    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "g") {
-      event.preventDefault();
-      openGroupMenu();
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      focusStructuralNode(event.currentTarget, "previous");
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      focusStructuralNode(event.currentTarget, "next");
-      return;
-    }
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      const parent = groupPathKey
-        ? tree?.querySelector<HTMLElement>(`[data-expression-node-path="${groupPathKey}"]`)
-        : tree?.querySelector<HTMLElement>("[data-expression-group-control='']");
-      parent?.focus();
-      return;
-    }
-    if (event.key === "ArrowRight" && isGroup) {
-      event.preventDefault();
-      tree?.querySelector<HTMLElement>(`[data-expression-node-parent="${pathKey}"]`)?.focus();
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (isGroup) tree?.querySelector<HTMLElement>(`[data-expression-group-control="${pathKey}"]`)?.focus();
-      else onEditCondition(path);
-    }
+  const toggleSelection = (index: number) => setSelected((current) => {
+    const next = new Set(current);
+    if (next.has(index)) next.delete(index); else next.add(index);
+    return next;
+  });
+  const closeMenuAndRestoreFocus = () => {
+    const trigger = openMenu === "group" ? groupMenuButtonRef.current : openMenu === null ? null : conditionMenuButtonRefs.current.get(openMenu);
+    setOpenMenu(null);
+    window.setTimeout(() => trigger?.focus(), 0);
   };
 
   return (
-    <section className={`rounded-xl border ${root ? "border-accent/40 bg-accent/5" : "border-border bg-card/40 shadow-sm"}`} aria-label={`${group.operator} group`}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-2">
-        <span className="text-sm font-medium text-secondary">Combine with</span>
-        <select
-          aria-label="Group operator"
-          data-expression-group-control={groupPathKey}
-          value={group.operator}
-          onChange={(event) => onChange({ ...group, operator: event.target.value as "AND" | "OR" | "NOT" })}
-          className="min-h-10 rounded-lg border border-border bg-input px-3 text-sm text-foreground"
-        >
-          <option value="AND">All (AND)</option>
-          <option value="OR">Any (OR)</option>
-          <option value="NOT" disabled={group.children.length !== 1}>Not (NOT)</option>
-        </select>
-        <span className="text-xs text-muted">{countFilterExpressionConditions(group)} {countFilterExpressionConditions(group) === 1 ? "condition" : "conditions"}</span>
-      </div>
-      <div className="p-2">
-        {group.children.map((child, index) => (
-          <div key={index}>
-            {index > 0 ? <div className="flex h-8 items-center gap-2 px-3" aria-hidden="true"><span className="h-px flex-1 bg-border/70" /><span className="rounded bg-surface px-2 py-0.5 text-[11px] font-semibold tracking-wide text-accent">{group.operator}</span><span className="h-px flex-1 bg-border/70" /></div> : null}
-            {child.group ? (
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 px-1">
-              <input ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }} type="checkbox" checked={selected.has(index)} onChange={(event) => setSelected((current) => {
-                const next = new Set(current);
-                if (event.target.checked) next.add(index); else next.delete(index);
-                return next;
-              })} onKeyDown={(event) => handleStructuralKeyDown(event, index, true)} data-expression-node-focus data-expression-node-path={[...groupPath, index].join(".")} data-expression-node-parent={groupPathKey} aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Enter Alt+ArrowUp Alt+ArrowDown Control+G Meta+G Control+Shift+G Meta+Shift+G" aria-label={`Select group ${index + 1}`} className="h-4 w-4 accent-accent" />
-              <span className="text-xs font-medium uppercase tracking-wide text-muted">Group</span>
-              <button type="button" onClick={() => moveChild(index, -1)} disabled={index === 0} className="ml-auto min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40" aria-label={`Move group ${index + 1} up`}>↑</button>
-              <button type="button" onClick={() => moveChild(index, 1)} disabled={index === group.children.length - 1} className="min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40" aria-label={`Move group ${index + 1} down`}>↓</button>
-              <button type="button" onClick={() => ungroupChild(index)} disabled={group.operator === "NOT" && child.group.children.length !== 1} className="min-h-9 rounded-lg px-2 text-xs text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Ungroup</button>
+    <section
+      className={root ? "space-y-3" : "space-y-2 rounded-xl border-l-2 border-accent/30 bg-card/25 px-3 py-3 md:px-4"}
+      aria-label={`${group.operator} group`}
+      data-expression-node-path={groupPathKey || undefined}
+      tabIndex={root ? undefined : -1}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || openMenu === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenuAndRestoreFocus();
+      }}
+    >
+      <div className="flex min-h-10 flex-wrap items-center gap-2">
+        {group.operator === "NOT" ? (
+          <span className="text-sm font-semibold text-foreground">Exclude this</span>
+        ) : (
+          <>
+            <span className="text-sm font-medium text-secondary">Match</span>
+            <div className="inline-flex rounded-lg bg-card p-1" role="group" aria-label="How conditions are combined">
+              <button type="button" data-expression-group-control={group.operator === "AND" ? groupPathKey : undefined} aria-label="Match all" aria-pressed={group.operator === "AND"} onClick={() => setOperator("AND")} className={`min-h-8 rounded-md px-3 text-sm ${group.operator === "AND" ? "bg-accent text-white shadow-sm" : "text-secondary hover:text-foreground"}`}>All</button>
+              <button type="button" data-expression-group-control={group.operator === "OR" ? groupPathKey : undefined} aria-label="Match any" aria-pressed={group.operator === "OR"} onClick={() => setOperator("OR")} className={`min-h-8 rounded-md px-3 text-sm ${group.operator === "OR" ? "bg-accent text-white shadow-sm" : "text-secondary hover:text-foreground"}`}>Any</button>
             </div>
-            <div className="ml-2 border-l-2 border-accent/25 pl-2 md:ml-4 md:pl-3">
+            <span className="text-sm text-secondary">of these</span>
+          </>
+        )}
+        {hasGroupActions ? <div className="relative ml-auto">
+          <button ref={groupMenuButtonRef} type="button" data-expression-group-control={group.operator === "NOT" ? groupPathKey : undefined} aria-label={`More actions for ${root ? "root " : ""}group`} aria-expanded={openMenu === "group"} onClick={() => setOpenMenu((current) => current === "group" ? null : "group")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
+          {openMenu === "group" ? (
+            <div role="group" aria-label="Group actions" className="absolute right-0 top-full z-20 mt-1 min-w-44 rounded-lg border border-border bg-surface p-1 shadow-xl">
+              {group.operator === "NOT" ? <>
+                <button type="button" onClick={() => setOperator("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Match all</button>
+                <button type="button" onClick={() => setOperator("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Match any</button>
+              </> : group.children.length === 1 ? <button type="button" onClick={() => setOperator("NOT")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Exclude this</button> : null}
+              {!root ? <>
+                <button type="button" onClick={() => { setOpenMenu(null); ungroupChildFromParent?.(); }} disabled={!ungroupChildFromParent || (parentOperator === "NOT" && group.children.length !== 1)} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Dissolve group</button>
+                <button type="button" onClick={() => { setOpenMenu(null); removeGroupFromParent?.(); }} disabled={!removeGroupFromParent || parentOperator === "NOT"} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove group</button>
+              </> : null}
+            </div>
+          ) : null}
+        </div> : null}
+      </div>
+      <div className="space-y-2">
+        {group.children.map((child, index) => (
+          <div key={index} className="space-y-2">
+            {groupingMode ? (
+              <button
+                ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }}
+                type="button"
+                aria-pressed={selected.has(index)}
+                aria-label={`Select ${child.group ? "group" : "condition"} ${index + 1} for grouping`}
+                onClick={() => toggleSelection(index)}
+                className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-4 text-left text-sm transition-colors ${selected.has(index) ? "border-accent bg-accent/15 text-foreground" : "border-border bg-surface text-secondary hover:border-accent/50 hover:text-foreground"}`}
+              >
+                <span aria-hidden="true" className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${selected.has(index) ? "border-accent bg-accent text-white" : "border-muted"}`}>{selected.has(index) ? "✓" : ""}</span>
+                <span>{child.group ? `${child.group.operator === "OR" ? "Match any" : child.group.operator === "NOT" ? "Exclude" : "Match all"} group` : describeCondition(child.filter ?? {})}</span>
+              </button>
+            ) : child.group ? (
               <ExpressionGroupEditor
                 group={child.group}
                 groupPath={[...groupPath, index]}
@@ -2560,62 +2530,46 @@ function ExpressionGroupEditor({
                 onChange={(next) => updateChild(index, { group: next })}
                 onAddCondition={onAddCondition}
                 onEditCondition={onEditCondition}
+                describeCondition={describeCondition}
+                parentOperator={group.operator}
+                ungroupChildFromParent={() => ungroupChild(index)}
+                removeGroupFromParent={() => removeChild(index)}
               />
-            </div>
-          </div>
-        ) : (
-          <div className="flex min-h-11 items-stretch overflow-hidden rounded-lg border border-border bg-surface">
-            <label className="flex w-10 shrink-0 items-center justify-center border-r border-border" title={`Select condition ${index + 1}`}>
-              <input ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }} type="checkbox" checked={selected.has(index)} onChange={(event) => setSelected((current) => {
-                const next = new Set(current);
-                if (event.target.checked) next.add(index); else next.delete(index);
-                return next;
-              })} onKeyDown={(event) => handleStructuralKeyDown(event, index, false)} data-expression-node-focus data-expression-node-path={[...groupPath, index].join(".")} data-expression-node-parent={groupPathKey} aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft Enter Alt+ArrowUp Alt+ArrowDown Control+G Meta+G" aria-label={`Select condition ${index + 1}`} className="h-4 w-4 accent-accent" />
-            </label>
-            <button type="button" onClick={() => onEditCondition([...groupPath, index])} data-expression-return-focus={`edit-${[...groupPath, index].join(".")}`} className="min-w-0 flex-1 px-3 py-2 text-left text-sm text-foreground hover:bg-card" aria-label={`Edit condition ${index + 1}: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
-              {summarizeExpressionCondition(child.filter ?? {}, criteria)}
-            </button>
-            <button type="button" onClick={() => moveChild(index, -1)} disabled={index === 0} className="w-9 shrink-0 border-l border-border text-muted hover:bg-card hover:text-foreground disabled:opacity-30" aria-label={`Move condition ${index + 1} up`}>↑</button>
-            <button type="button" onClick={() => moveChild(index, 1)} disabled={index === group.children.length - 1} className="w-9 shrink-0 border-l border-border text-muted hover:bg-card hover:text-foreground disabled:opacity-30" aria-label={`Move condition ${index + 1} down`}>↓</button>
-            <button type="button" onClick={() => removeChild(index)} disabled={group.operator === "NOT" && group.children.length === 1} className="w-10 shrink-0 border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40" aria-label={`Remove condition ${index + 1}`}><X className="mx-auto h-4 w-4" /></button>
-          </div>
-        )}
+            ) : (
+              <div className="group/condition relative flex min-h-12 items-stretch overflow-visible rounded-xl border border-border bg-surface transition-colors hover:border-accent/40">
+                <button ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }} type="button" onClick={() => onEditCondition([...groupPath, index])} data-expression-node-path={[...groupPath, index].join(".")} data-expression-return-focus={`edit-${[...groupPath, index].join(".")}`} className="min-w-0 flex-1 rounded-l-xl px-4 py-3 text-left text-sm leading-5 text-foreground hover:bg-card/60" aria-label={`Edit condition ${index + 1}: ${describeCondition(child.filter ?? {})}`}>
+                  {describeCondition(child.filter ?? {})}
+                </button>
+                <div className="relative flex items-center pr-1">
+                  <button ref={(element) => { if (element) conditionMenuButtonRefs.current.set(index, element); else conditionMenuButtonRefs.current.delete(index); }} type="button" aria-label={`More actions for condition ${index + 1}`} aria-expanded={openMenu === index} onClick={() => setOpenMenu((current) => current === index ? null : index)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted opacity-100 hover:bg-card hover:text-foreground md:opacity-0 md:group-hover/condition:opacity-100 md:group-focus-within/condition:opacity-100"><MoreHorizontal className="h-4 w-4" /></button>
+                  {openMenu === index ? (
+                    <div role="group" aria-label={`Condition ${index + 1} actions`} className="absolute right-0 top-full z-20 mt-1 min-w-36 rounded-lg border border-border bg-surface p-1 shadow-xl">
+                      <button type="button" onClick={() => { setOpenMenu(null); onEditCondition([...groupPath, index]); }} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Edit</button>
+                      <button type="button" onClick={() => removeChild(index)} disabled={group.operator === "NOT" && group.children.length === 1} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove</button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
           </div>
         ))}
         {group.children.length === 0 ? <p className="px-3 py-5 text-center text-sm text-muted">No conditions in this group.</p> : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-border/70 px-3 py-2">
-        <button ref={addConditionRef} type="button" disabled={group.operator === "NOT" || conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /> Add condition</button>
-        {selected.size >= 1 ? (
-          <div className="relative">
-            <button ref={groupMenuButtonRef} type="button" disabled={!canCreateNestedGroup} aria-expanded={groupMenuOpen} aria-describedby={!canCreateNestedGroup ? `group-depth-limit-${groupPathKey || "root"}` : undefined} onClick={openGroupMenu} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Group selected…</button>
-            {groupMenuOpen ? (
-              <div role="menu" aria-label="Group selected conditions" onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.stopPropagation();
-                  setGroupMenuOpen(false);
-                  groupMenuButtonRef.current?.focus();
-                } else if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  (document.activeElement === groupAndRef.current ? groupOrRef.current : groupAndRef.current)?.focus();
-                } else if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  (document.activeElement === groupOrRef.current ? groupAndRef.current : groupOrRef.current)?.focus();
-                }
-              }} className="absolute bottom-full left-0 z-10 mb-1 min-w-48 rounded-lg border border-border bg-surface p-1 shadow-xl">
-                {selected.size === 1 ? (
-                  <button ref={groupNotRef} role="menuitem" type="button" onClick={() => groupSelected("NOT")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Not (NOT)</button>
-                ) : (
-                  <>
-                    <button ref={groupAndRef} role="menuitem" type="button" onClick={() => groupSelected("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">All (AND)</button>
-                    <button ref={groupOrRef} role="menuitem" type="button" onClick={() => groupSelected("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Any (OR)</button>
-                  </>
-                )}
-              </div>
-            ) : null}
-            {!canCreateNestedGroup ? <span id={`group-depth-limit-${groupPathKey || "root"}`} className="ml-2 text-xs text-muted">Maximum nesting depth reached.</span> : null}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        {groupingMode ? <div className="w-full space-y-2">
+          <div className="flex min-h-10 items-center justify-between gap-3">
+            <span className="text-sm text-secondary">{selected.size} selected</span>
+            <button type="button" onClick={() => { setGroupingMode(false); setSelected(new Set()); }} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel grouping</button>
           </div>
-        ) : null}
+          <div className="grid grid-cols-3 gap-2">
+            <button type="button" aria-label="Group selected as match all" disabled={selected.size < 2} onClick={() => groupSelected("AND")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Match all</button>
+            <button type="button" aria-label="Group selected as match any" disabled={selected.size < 2} onClick={() => groupSelected("OR")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Match any</button>
+            <button type="button" aria-label="Exclude selected" disabled={selected.size !== 1} onClick={() => groupSelected("NOT")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Exclude</button>
+          </div>
+        </div> : <>
+          <button ref={addConditionRef} type="button" disabled={group.operator === "NOT" || conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /> Add condition</button>
+          {group.operator !== "NOT" && group.children.length > 0 ? <button type="button" disabled={!canCreateNestedGroup} onClick={startGrouping} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Group conditions</button> : null}
+        </>}
         {conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS ? <span className="text-xs text-muted">Maximum of {MAX_FILTER_EXPRESSION_CONDITIONS} conditions reached.</span> : null}
         <span className="sr-only" role="status">{announcement}</span>
       </div>
@@ -2735,35 +2689,9 @@ function explainExpressionLeaf(filter: Record<string, unknown>, criteria: Criter
   return { text: `${quantifier} matches ${join} of the following${savedFilter}`, children };
 }
 
-function explainExpressionGroup(expression: FilterExpression<Record<string, unknown>>, criteria: CriterionDefinition[], ratingOptions: RatingSystemOptions, metadataServers: MetadataServer[]): FilterExplanationNode {
-  return {
-    text: expression.operator === "OR" ? "Any of the following" : expression.operator === "NOT" ? "Not the following" : "All of the following",
-    children: expression.children.map((child) => child.group
-      ? explainExpressionGroup(child.group, criteria, ratingOptions, metadataServers)
-      : explainExpressionLeaf(child.filter ?? {}, criteria, ratingOptions, metadataServers)),
-  };
-}
-
-function ExplanationNode({ node }: { node: FilterExplanationNode }) {
-  return (
-    <li className="space-y-1">
-      <span>{node.text}</span>
-      {node.children?.length ? <ul className="ml-4 list-disc space-y-1 border-l border-border pl-4 text-secondary">{node.children.map((child, index) => <ExplanationNode key={index} node={child} />)}</ul> : null}
-    </li>
-  );
-}
-
-function FilterExpressionExplanation({ expression, criteria, subjectLabel }: { expression: FilterExpression<Record<string, unknown>>; criteria: CriterionDefinition[]; subjectLabel: string }) {
-  const ratingOptions = useRatingOptions();
-  const appConfig = useOptionalAppConfig();
-  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
-  const explanation = explainExpressionGroup(expression, criteria, ratingOptions, metadataServers);
-  return (
-    <div className="mt-2 text-sm text-secondary">
-      <p>Find {subjectLabel} where:</p>
-      <ul className="mt-2 list-disc space-y-1 pl-5"><ExplanationNode node={explanation} /></ul>
-    </div>
-  );
+function formatExplanationNodeInline(node: FilterExplanationNode): string {
+  if (!node.children?.length) return node.text;
+  return `${node.text} — ${node.children.map(formatExplanationNodeInline).join("; ")}`;
 }
 
 // ===== Related-entity Editor =====
