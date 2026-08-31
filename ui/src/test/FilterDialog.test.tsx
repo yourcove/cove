@@ -92,6 +92,65 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("adds another related performer condition without opening Combine Filters", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          performerCountCriterion: { modifier: "EQUALS", value: 2 },
+          performerFilterCriterion: {
+            objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } },
+            ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
+          },
+        }}
+        onApply={onApply}
+        preselectCriterion="relatedPerformers"
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add performer condition" }));
+    expect(screen.getByRole("heading", { name: "Add Related Performers condition" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel condition" }));
+    expect(screen.getByRole("button", { name: "Edit performer filter: Gender" })).toHaveTextContent("Male");
+    fireEvent.click(screen.getByRole("button", { name: "Add performer condition" }));
+
+    fireEvent.click(screen.getByRole("tab", { name: "Gender" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Female" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Age (then)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Between" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Minimum" }), { target: { value: "30" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Maximum" }), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      _filterExpression: {
+        operator: "AND",
+        children: [
+          { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
+          { filter: {
+            performerFilterCriterion: {
+              objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } },
+              ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
+            },
+          } },
+          { filter: {
+            performerFilterCriterion: {
+              objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } },
+              ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 },
+            },
+          } },
+        ],
+      },
+    });
+  });
+
   it("shows related search chips and treats Done as the nested Apply shortcut", async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();

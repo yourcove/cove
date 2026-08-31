@@ -1676,6 +1676,20 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     else returnToExpression();
   };
 
+  const addRelatedCondition = () => {
+    if (!relatedWorkspaceCriterion) return;
+    const merged = mergeFilterExpressionWithSimpleCriteria(editFilter, criteria);
+    if (!merged || countFilterExpressionConditions(merged) >= MAX_FILTER_EXPRESSION_CONDITIONS) return;
+    setConditionDraft({
+      filter: { _criterionId: relatedWorkspaceCriterion.id },
+      parentPath: [],
+      isNew: true,
+      returnView: "simple",
+    });
+    setRelatedWorkspaceSelection(null);
+    focusFirstConditionEditorControl();
+  };
+
   const removeSimpleExpressionCondition = (index: number, inlinePosition?: number, parentPath: number[] = simpleExpressionGroupPath) => {
     setEditFilter((current) => {
       const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
@@ -1723,6 +1737,17 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const conditionCriterion = criteria.find((criterion) => criterion.id === conditionCriterionId);
   const conditionTitle = `${conditionDraft?.isNew ? "Add" : "Edit"} ${conditionCriterion?.label ?? "filter"} condition`;
   const conditionCanSave = Boolean(conditionCriterion && isCriterionValueValid(getCriterionFilterValue(conditionDraft?.filter ?? {}, conditionCriterion), conditionCriterion));
+  const relatedWorkspaceValue = relatedWorkspaceCriterion
+    ? getCriterionFilterValue(relatedWorkspaceObjectFilter, relatedWorkspaceCriterion)
+    : undefined;
+  const relatedConditionLimitReached = countFilterExpressionConditions(mergeFilterExpressionWithSimpleCriteria(editFilter, criteria)) >= MAX_FILTER_EXPRESSION_CONDITIONS;
+  const canAddRelatedCondition = Boolean(
+    !conditionDraft
+      && supportsExpressions
+      && relatedWorkspaceCriterion
+      && relatedWorkspaceCriterion.expressionSupported !== false
+      && isCriterionValueValid(relatedWorkspaceValue, relatedWorkspaceCriterion),
+  );
 
   useEffect(() => {
     const toolbar = selectedFiltersToolbarRef.current;
@@ -2222,8 +2247,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         </div>}
 
         {/* Footer */}
-        <div className="flex min-h-16 items-center justify-end gap-3 border-t border-border px-4 pb-[env(safe-area-inset-bottom)] md:px-6 md:pb-0">
-          <div className="flex items-center gap-2">
+        <div className="flex min-h-16 items-center justify-end gap-3 border-t border-border px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-6 md:py-2">
+          <div className="flex w-full flex-wrap items-center justify-end gap-2">
             {conditionDraft ? (
               <>
                 <button type="button" onClick={cancelExpressionCondition} className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel condition</button>
@@ -2234,6 +2259,16 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 <button type="button" onClick={dismiss} className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel</button>
                 {relatedWorkspaceCriterion ? (
                   <>
+                    {canAddRelatedCondition ? (
+                      <button
+                        type="button"
+                        onClick={addRelatedCondition}
+                        disabled={relatedConditionLimitReached}
+                        className="min-h-11 rounded-lg border border-border px-4 text-sm font-semibold text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
+                      >
+                        <span className="inline-flex items-center gap-2"><Plus className="h-4 w-4" /> Add {relatedWorkspaceCriterion.entityType === "performers" ? "performer" : "video"} condition</span>
+                      </button>
+                    ) : null}
                     <button type="button" onClick={finishRelatedWorkspace} aria-keyshortcuts="Control+Enter Meta+Enter" className="min-h-11 rounded-lg border border-border px-4 text-sm font-semibold text-secondary hover:bg-card hover:text-foreground">Done</button>
                     <button type="button" onClick={handleApply} className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover">Apply</button>
                   </>
