@@ -36,6 +36,21 @@ public class UserServiceTests
         Assert.False(restored?.KeyboardShortcuts?.ShowChordHints);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UiPreferences_RoundTripsMarkdownRenderingPreference(bool enabled)
+    {
+        var preferences = new UserUiPreferencesDto(
+            null, null, null, null, null,
+            RenderMarkdown: enabled);
+
+        var json = Assert.IsType<string>(UserService.SerializeUiPreferences(preferences));
+        var restored = UserService.ParseUiPreferences(json);
+
+        Assert.Equal(enabled, restored?.RenderMarkdown);
+    }
+
     private static CoveContext NewDb(string name = "users")
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

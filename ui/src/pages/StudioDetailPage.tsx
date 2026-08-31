@@ -6,6 +6,7 @@ import { ChevronDown, Building2, CloudDownload, CloudUpload, FileText, Film, Fol
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StudioEditModal } from "./StudioEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { DetailMergeDialog } from "../components/DetailMergeDialog";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { InteractiveRating } from "../components/Rating";
@@ -263,7 +264,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
                 <InteractiveRating value={studioRating} onChange={(value) => setStudioRating(value)} readOnly={!canEngageStudio} />
               </div>
             </div>
-            {studio.details ? <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="details" block><p className="mt-3 max-w-4xl whitespace-pre-wrap text-sm leading-6 text-secondary">{studio.details}</p></FieldProvenanceHover> : null}
+            {studio.details ? <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="details" block><NarrativeText className="mt-3 max-w-4xl text-sm leading-6 text-secondary">{studio.details}</NarrativeText></FieldProvenanceHover> : null}
             {canReadTags && studio.tags.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {studio.tags.map((tag) => (

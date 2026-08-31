@@ -6,6 +6,7 @@ import { Check, Clapperboard, Download, Eye, FolderOpen, Image as ImageIcon, Ima
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { ListLoadError } from "../components/ListLoadError";
@@ -440,7 +441,7 @@ export function ImageDetailPage({ id, onNavigate }: Props) {
         <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Description</h2>
           <FieldProvenanceHover fieldProvenance={image.fieldProvenance} fieldKey="details" block>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-secondary">{image.details}</p>
+            <NarrativeText className="mt-2 text-sm leading-relaxed text-secondary">{image.details}</NarrativeText>
           </FieldProvenanceHover>
         </section>
       ) : null}

@@ -22,6 +22,7 @@ import { useWallColumns } from "../hooks/useWallColumns";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
 import { WallMediaCard } from "../components/WallMediaCard";
 import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedIdentityBadge, FeedInlineRating, FeedMetadataPill, FeedPortraitMediaFrame, FeedTagChips, getFeedMediaStyle } from "../components/FeedCardFrame";
+import { NarrativeText } from "../components/NarrativeText";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
@@ -540,7 +541,7 @@ function ImageFeedCard({ image, engagement, onNavigate, canEngage, selected, onS
           {displayTitle}
         </button>
       )}
-      details={image.details ? <p className="line-clamp-4">{image.details}</p> : undefined}
+      details={image.details ? <NarrativeText className="line-clamp-4">{image.details}</NarrativeText> : undefined}
       metadata={(image.organized || image.galleries.length > 0) ? (
         <>
           {image.organized ? <FeedMetadataPill>Organized</FeedMetadataPill> : null}

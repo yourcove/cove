@@ -690,13 +690,15 @@ public sealed class UserService : IUserService
         var keyboardShortcuts = NormalizeKeyboardShortcutPreferences(preferences.KeyboardShortcuts);
         var homePageContent = string.IsNullOrWhiteSpace(preferences.HomePageContent) ? null : preferences.HomePageContent;
         var defaultFilters = NormalizeDefaultFilters(preferences.DefaultFilters);
+        var renderMarkdown = preferences.RenderMarkdown;
         if (theme is null && ratingSystemOptions is null && tracking is null && videos is null && playback is null
-            && keybindingOverrides is null && keyboardShortcuts is null && homePageContent is null && defaultFilters is null)
+            && keybindingOverrides is null && keyboardShortcuts is null && homePageContent is null && defaultFilters is null
+            && renderMarkdown is null)
         {
             return null;
         }
 
-        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback, homePageContent, defaultFilters, keyboardShortcuts);
+        return new UserUiPreferencesDto(theme, ratingSystemOptions, tracking, videos, keybindingOverrides, playback, homePageContent, defaultFilters, keyboardShortcuts, renderMarkdown);
     }
 
     private static UserVideosPreferencesDto? NormalizeVideosPreferences(UserVideosPreferencesDto? videos)

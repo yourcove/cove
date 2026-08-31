@@ -3091,6 +3091,8 @@ export function SettingsPage() {
           )
         )}
 
+        {resolvedActiveTab === "my-appearance-theme" && <MarkdownRenderingPreferencePanel />}
+
         {resolvedActiveTab === "keyboard-shortcuts" && (
           <SectionCard title="Keyboard Shortcuts" description="Choose, customize, import, and share keyboard shortcut presets.">
             <KeyboardShortcutSettings />
@@ -3982,6 +3984,33 @@ function LocalInterfacePanel({
         </div>
       </SectionCard>
     </>
+  );
+}
+
+function MarkdownRenderingPreferencePanel() {
+  const { authEnabled, user } = useAuth();
+  const accountBackedPreferences = supportsServerBackedUiPreferences(user);
+  const sharedProfilePreferences = accountBackedPreferences && !authEnabled;
+  const enabled = user?.uiPreferences?.renderMarkdown === true;
+
+  return (
+    <SectionCard
+      title="Narrative text"
+      description={sharedProfilePreferences
+        ? "This preference is stored in Cove's shared built-in profile."
+        : "This preference follows your signed-in account across browsers."}
+    >
+      <CheckboxLabel
+        label="Render narrative text as Markdown"
+        description="Format entity details, biographies, descriptions, and feed text as safe Markdown. Leave disabled to display imported text literally."
+        checked={enabled}
+        disabled={!accountBackedPreferences}
+        onChange={(checked) => updateAuthenticatedUserUiPreferences((current) => ({
+          ...(current ?? {}),
+          renderMarkdown: checked,
+        }))}
+      />
+    </SectionCard>
   );
 }
 

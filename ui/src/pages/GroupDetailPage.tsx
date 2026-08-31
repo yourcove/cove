@@ -6,6 +6,7 @@ import { Building2, ExternalLink, FileText, Film, Fingerprint, FolderOpen, GripV
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GroupEditModal } from "./GroupEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { NarrativeText } from "../components/NarrativeText";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AudioTile, EntityTileFrame, GroupTile, ImageTile, VideoCard, SegmentTile, TextTile } from "../components/EntityCards";
 import { CompilationPlayer } from "../components/CompilationPlayer";
@@ -323,7 +324,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
         entityType="group"
         entityId={group.id}
         title={<FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="name">{group.name}</FieldProvenanceHover>}
-        description={group.description ? <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey={["synopsis", "description", "details"]} block>{group.description}</FieldProvenanceHover> : undefined}
+        description={group.description ? <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey={["synopsis", "description", "details"]} block><NarrativeText>{group.description}</NarrativeText></FieldProvenanceHover> : undefined}
         favorite={groupFavorite}
         favoritePending={groupFavoritePending}
         onFavoriteToggle={canEngageGroup ? () => setGroupFavorite(!groupFavorite) : undefined}

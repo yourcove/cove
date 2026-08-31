@@ -1935,6 +1935,8 @@ export interface UserUiPreferences {
   homePageContent?: string | null;
   /** Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON. */
   defaultFilters?: Record<string, string> | null;
+  /** Whether narrative metadata is rendered as safe Markdown instead of literal text. */
+  renderMarkdown?: boolean | null;
 }
 
 export interface UserKeyboardShortcutPreferences {

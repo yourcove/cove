@@ -157,7 +157,8 @@ public sealed record UserUiPreferencesDto(
     string? HomePageContent = null,
     // Per-list-mode default saved filter, keyed by mode (e.g. "videos") -> opaque filter JSON.
     Dictionary<string, string>? DefaultFilters = null,
-    UserKeyboardShortcutPreferencesDto? KeyboardShortcuts = null);
+    UserKeyboardShortcutPreferencesDto? KeyboardShortcuts = null,
+    bool? RenderMarkdown = null);
 
 public sealed record CreateUserRequest(
     string Username,

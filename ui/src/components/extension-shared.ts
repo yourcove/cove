@@ -38,6 +38,8 @@ export {
 
 // ─── Dialogs / Modals ────────────────────────────────────────────────────
 export { ConfirmDialog } from "./ConfirmDialog";
+export { NarrativeText, useMarkdownRenderingEnabled } from "./NarrativeText";
+export type { NarrativeTextProps } from "./NarrativeText";
 export {
   EditModal,
   Field,
