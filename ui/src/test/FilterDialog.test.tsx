@@ -2167,6 +2167,43 @@ describe("FilterDialog", () => {
     ]);
   });
 
+  it("makes complex-expression actions explicit and restores focus after editing", async () => {
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          _filterExpression: {
+            operator: "AND",
+            children: [{
+              group: {
+                operator: "OR",
+                children: [
+                  { filter: { titleCriterion: { modifier: "INCLUDES", value: "one" } } },
+                  { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+                ],
+              },
+            }],
+          },
+        }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        openAtRoot
+      />,
+    );
+
+    const editExpression = screen.getByRole("button", { name: "Edit in Combine Filters" });
+    fireEvent.click(editExpression);
+    expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit in Combine Filters" })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search filter criteria" })).toHaveFocus());
+    expect(screen.queryByRole("toolbar", { name: "Selected filters" })).not.toBeInTheDocument();
+  });
+
   it("opens an Advanced OR leaf in the repeated criterion stack and returns to the organizer", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(
@@ -2603,6 +2640,8 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("button", { name: /Edit filter: Title/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Edit filter: Director/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Edit filter: Performer Count/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear all" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit in Combine Filters" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Combine Filters" })).not.toBeInTheDocument();
 
     const nestedOperatorChip = screen.getByRole("button", { name: "Edit OR group in Combine Filters" });

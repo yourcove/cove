@@ -1941,8 +1941,11 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               ariaLabel="Selected filters"
               className="!m-0 max-h-[min(12rem,35dvh)] overflow-y-auto !border-0 !bg-transparent !p-0"
             /> : null}
-            {supportsExpressions && !hasComplexExpression && (simpleExpressionChildren.length + expressionEligibleCount) >= 2 ? (
-              <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="min-h-9 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground" aria-label="Combine filters">Combine filters…</button>
+            {supportsExpressions && (hasComplexExpression || (simpleExpressionChildren.length + expressionEligibleCount) >= 2) ? (
+              <div className="flex min-h-9 items-center gap-1 border-l border-border pl-2">
+                {Object.keys(activeEditFilter).length === 0 && hasComplexExpression ? <button type="button" onClick={handleClear} className="min-h-9 rounded-lg px-3 text-sm text-secondary hover:bg-red-500/10 hover:text-red-300">Clear all</button> : null}
+                <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="min-h-9 rounded-lg px-3 text-sm font-medium text-accent hover:bg-accent/10" aria-label={hasComplexExpression ? "Edit in Combine Filters" : "Combine filters"}>{hasComplexExpression ? "Edit in Combine Filters…" : "Combine filters…"}</button>
+              </div>
             ) : null}
           </div>
         ) : null}
