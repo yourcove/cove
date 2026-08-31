@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal, Workflow } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
@@ -1944,7 +1944,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             {supportsExpressions && (hasComplexExpression || (simpleExpressionChildren.length + expressionEligibleCount) >= 2) ? (
               <div className="flex min-h-9 items-center gap-1 border-l border-border pl-2">
                 {Object.keys(activeEditFilter).length === 0 && hasComplexExpression ? <button type="button" onClick={handleClear} className="min-h-9 rounded-lg px-3 text-sm text-secondary hover:bg-red-500/10 hover:text-red-300">Clear all</button> : null}
-                <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="min-h-9 rounded-lg px-3 text-sm font-medium text-accent hover:bg-accent/10" aria-label={hasComplexExpression ? "Edit in Combine Filters" : "Combine filters"}>{hasComplexExpression ? "Edit in Combine Filters…" : "Combine filters…"}</button>
+                <button type="button" onClick={() => enterExpression("combine")} data-simple-return-focus="combine" className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-accent/10 hover:text-accent" title={hasComplexExpression ? "Edit in Combine Filters" : "Combine filters"} aria-label={hasComplexExpression ? "Edit in Combine Filters" : "Combine filters"}><Workflow className="h-4 w-4" /></button>
               </div>
             ) : null}
           </div>

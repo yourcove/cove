@@ -2194,6 +2194,10 @@ describe("FilterDialog", () => {
     );
 
     const editExpression = screen.getByRole("button", { name: "Edit in Combine Filters" });
+    expect(editExpression).toHaveAttribute("title", "Edit in Combine Filters");
+    expect(editExpression).toHaveTextContent("");
+    const clearAll = screen.getByRole("button", { name: "Clear all" });
+    expect(clearAll).toHaveTextContent("Clear all");
     fireEvent.click(editExpression);
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
