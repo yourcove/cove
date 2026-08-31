@@ -447,31 +447,25 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
             <AspectRatingsPanel hostType="audio" hostId={audio.id} canRate={canEngageAudio} />
             {audio.details ? (
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">Notes</h3>
                 <FieldProvenanceHover fieldProvenance={audio.fieldProvenance} fieldKey="details" block>
-                  <NarrativeText className="mt-3 text-sm leading-7 text-foreground/92">{audio.details}</NarrativeText>
+                  <NarrativeText className="text-sm text-foreground">{audio.details}</NarrativeText>
                 </FieldProvenanceHover>
               </div>
             ) : null}
-            {audio.urls.length > 0 ? (
+            {canReadTags && audio.tags.length > 0 ? (
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">Source URLs</h3>
-                <FieldProvenanceHover fieldProvenance={audio.fieldProvenance} fieldKey="urls" block className="mt-3">
-                  <div className="flex flex-col gap-2">
-                    {audio.urls.map((url) => (
-                      <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-accent transition hover:text-accent/80">
-                        <Link2 className="h-4 w-4" />
-                        <span className="truncate">{url}</span>
-                      </a>
-                    ))}
-                  </div>
-                </FieldProvenanceHover>
+                <h3 className="text-sm text-muted mb-2">Tags</h3>
+                <div className="flex flex-wrap gap-2">
+                  {audio.tags.map((tag) => (
+                    <TagBadge key={tag.id} name={tag.name} tag={tag} provenance={resolveTagProvenance(tag, audio.fieldProvenance)} onClick={() => onNavigate({ page: "tag", id: tag.id })} />
+                  ))}
+                </div>
               </div>
             ) : null}
             {canReadPerformers && audio.performers.length > 0 ? (
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">Performers</h3>
-                <FieldProvenanceHover fieldProvenance={audio.fieldProvenance} fieldKey="performers" block className="mt-4">
+                <h3 className="mb-2 text-sm text-muted">Performer{audio.performers.length > 1 ? "s" : ""}</h3>
+                <FieldProvenanceHover fieldProvenance={audio.fieldProvenance} fieldKey="performers" block>
                   <div className={audio.performers.length > 1 ? "grid grid-cols-2 gap-3" : "grid max-w-[220px] gap-3"}>
                     {audio.performers.map((performer) => {
                       const contextTags = getPerformerContextTags(audio.contextTagApplications, performer.id);
@@ -492,14 +486,19 @@ export function AudioDetailPage({ id, onNavigate }: Props) {
                 </FieldProvenanceHover>
               </div>
             ) : null}
-            {canReadTags && audio.tags.length > 0 ? (
+            {audio.urls.length > 0 ? (
               <div>
-                <h3 className="text-sm text-muted mb-2">Tags</h3>
-                <div className="flex flex-wrap gap-2">
-                  {audio.tags.map((tag) => (
-                    <TagBadge key={tag.id} name={tag.name} tag={tag} provenance={resolveTagProvenance(tag, audio.fieldProvenance)} onClick={() => onNavigate({ page: "tag", id: tag.id })} />
-                  ))}
-                </div>
+                <h3 className="mb-2 text-sm text-muted">URLs</h3>
+                <FieldProvenanceHover fieldProvenance={audio.fieldProvenance} fieldKey="urls" block>
+                  <div className="flex flex-col gap-2">
+                    {audio.urls.map((url) => (
+                      <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-accent transition hover:text-accent/80">
+                        <Link2 className="h-4 w-4" />
+                        <span className="truncate">{url}</span>
+                      </a>
+                    ))}
+                  </div>
+                </FieldProvenanceHover>
               </div>
             ) : null}
             {canReadGroups && audio.groups.length > 0 ? (
