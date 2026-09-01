@@ -2754,7 +2754,6 @@ export interface VideoFilterCriteria {
   tagIds?: number[];
   performerIds?: number[];
   ratingCriterion?: IntCriterion;
-  favoriteCriterion?: BoolCriterion;
   likeCounterCriterion?: IntCriterion;
   favoriteCriterion?: BoolCriterion;
   durationCriterion?: IntCriterion;

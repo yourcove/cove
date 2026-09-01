@@ -670,7 +670,6 @@ export const VIDEO_CRITERIA: CriteriaDefinitionList<VideoFilterCriteria> = [
   { id: "duplicatedTitle", label: "Duplicated Title", type: "bool", filterKey: "duplicatedTitleCriterion" },
   { id: "duplicatedRemoteId", label: "Duplicated Remote ID", type: "bool", filterKey: "duplicatedRemoteIdCriterion" },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
-  { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "likeCounter", label: "Likes", type: "number", filterKey: "likeCounterCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },

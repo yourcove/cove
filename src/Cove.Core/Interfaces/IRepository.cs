@@ -250,7 +250,6 @@ public class VideoFilter
     public List<int>? PerformerIds { get; set; }
     // Advanced criteria
     public IntCriterion? RatingCriterion { get; set; }
-    public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? LikeCounterCriterion { get; set; }
     public BoolCriterion? FavoriteCriterion { get; set; }
     public IntCriterion? DurationCriterion { get; set; }
