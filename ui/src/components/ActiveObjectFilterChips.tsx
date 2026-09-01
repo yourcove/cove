@@ -11,6 +11,8 @@ import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import {
   FILTER_EXPRESSION_OPERATOR_PRESENTATION,
+  getFilterExpressionPresentationChildren,
+  getFilterExpressionPresentationOperator,
   normalizeFilterExpressionOperator,
   sortFilterExpressionChildrenForDisplay,
 } from "../utils/filterExpressionPresentation";
@@ -723,16 +725,17 @@ function FilterExpressionChipDisplay({
   expressionReturnFocusKeys?: boolean;
   hideRootAndOperator?: boolean;
 }) {
-  const operator = normalizeFilterExpressionOperator(expression.operator);
+  const operator = getFilterExpressionPresentationOperator(expression);
   const presentation = FILTER_EXPRESSION_OPERATOR_PRESENTATION[operator];
-  const hasNestedGroup = (expression.children ?? []).some((child) => Boolean(child.group));
+  const presentationChildren = getFilterExpressionPresentationChildren(expression);
+  const hasNestedGroup = presentationChildren.some((child) => Boolean(child.group));
   const showOperator = nested || operator !== "AND" || !hideRootAndOperator || hasNestedGroup;
   return (
     <span data-filter-operator={operator} data-filter-group-label={presentation.label} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${presentation.containerClassName}`}>
       {showOperator && onEdit ? (
         <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`} aria-label={`Edit ${presentation.label} group in Combine Filters`}>{presentation.label}</button>
       ) : showOperator ? <span className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`}>{presentation.label}</span> : null}
-      {sortFilterExpressionChildrenForDisplay(expression.children ?? [], operator).map(({ child, index }) => child.group ? (
+      {sortFilterExpressionChildrenForDisplay(presentationChildren, operator).map(({ child, index }) => child.group ? (
         <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} hideRootAndOperator={hideRootAndOperator} />
       ) : child.filter ? (
         onEdit ? (
@@ -770,8 +773,8 @@ function filterExpressionAccessibleSummary(
     const separator = related.conditionOperator === "or" ? " OR " : ", ";
     return [related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label, [q ? `search ${q}` : "", ...nested].filter(Boolean).join(separator)].filter(Boolean).join(", ");
   }).join(", ");
-  const operator = normalizeFilterExpressionOperator(expression.operator);
-  const children = (expression.children ?? []).map((child) => child.group
+  const operator = getFilterExpressionPresentationOperator(expression);
+  const children = getFilterExpressionPresentationChildren(expression).map((child) => child.group
     ? filterExpressionAccessibleSummary(child.group, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)
     : child.filter ? summarizeFilter(child.filter) : "").filter(Boolean);
   return `${FILTER_EXPRESSION_OPERATOR_PRESENTATION[operator].label} group: ${children.join("; ")}`;

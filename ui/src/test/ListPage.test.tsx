@@ -391,7 +391,7 @@ describe("ListPage active filter chips", () => {
     expect(await screen.findByText("Example Tag")).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
-    expect(document.querySelector('[data-filter-operator="NOT"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="NONE"]')).toBeInTheDocument();
     const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
     expect(anyGroup).toHaveClass("text-violet-300");
     const anyCondition = screen.getByRole("button", { name: "Edit filter: Tags Example Tag" });
@@ -399,11 +399,11 @@ describe("ListPage active filter chips", () => {
     expect(allGroup).toHaveClass("text-accent");
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
-    const excludeGroup = screen.getByRole("button", { name: "Edit Exclude group in Combine Filters" });
-    expect(excludeGroup).toHaveClass("text-rose-300");
+    const noneGroup = screen.getByRole("button", { name: "Edit None group in Combine Filters" });
+    expect(noneGroup).toHaveClass("text-rose-300");
     expect(screen.getByRole("button", { name: "Edit filter: Director Includes blocked" })).toBeInTheDocument();
     expect(allGroup.compareDocumentPosition(anyCondition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(anyCondition.compareDocumentPosition(excludeGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(anyCondition.compareDocumentPosition(noneGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("opens nested expression leaves in their standard filter editors", async () => {

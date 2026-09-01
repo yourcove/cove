@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, useId, useRef, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal, Workflow, Check } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal, Workflow, Check, GripVertical } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
@@ -58,6 +58,7 @@ import { pushOverlay } from "../utils/overlayState";
 import { LibraryFolderTree } from "./LibraryFolderTree";
 import {
   FILTER_EXPRESSION_OPERATOR_PRESENTATION,
+  getFilterExpressionPresentationOperator,
   normalizeFilterExpressionOperator,
   sortFilterExpressionChildrenForDisplay,
 } from "../utils/filterExpressionPresentation";
@@ -426,18 +427,48 @@ function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria: Crite
 
 export const FILTER_EXPRESSION_STATE_KEY = "_filterExpression";
 
-function sanitizeFilterExpression(expression: FilterExpression<Record<string, unknown>> | undefined, criteria: CriterionDefinition[]): FilterExpression<Record<string, unknown>> | undefined {
+type EditableFilterExpression = FilterExpression<Record<string, unknown>> & {
+  _semanticNone?: boolean;
+  _moveTarget?: boolean;
+};
+
+function toEditableFilterExpression(expression: FilterExpression<Record<string, unknown>>): EditableFilterExpression {
+  const children = expression.children.map((child) => child.group
+    ? { group: toEditableFilterExpression(child.group) }
+    : child);
+  if (expression.operator !== "NOT" || children.length !== 1) return { ...expression, children };
+  const onlyChild = children[0];
+  if ("filter" in onlyChild && onlyChild.filter) return { operator: "OR", children: [onlyChild], _semanticNone: true };
+  if (onlyChild.group?.operator === "OR" && !(onlyChild.group as EditableFilterExpression)._semanticNone) {
+    return { operator: "OR", children: onlyChild.group.children, _semanticNone: true };
+  }
+  return { ...expression, children };
+}
+
+function normalizeFilterExpressionForEditing(filter: Record<string, unknown>): Record<string, unknown> {
+  const expression = filter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
+  return expression ? { ...filter, [FILTER_EXPRESSION_STATE_KEY]: toEditableFilterExpression(expression) } : filter;
+}
+
+function sanitizeFilterExpression(expression: EditableFilterExpression | undefined, criteria: CriterionDefinition[]): FilterExpression<Record<string, unknown>> | undefined {
   if (!expression) return undefined;
   const children: FilterExpression<Record<string, unknown>>["children"] = [];
   for (const child of expression.children) {
     if (child.group) {
-      const group = sanitizeFilterExpression(child.group, criteria);
+      const group = sanitizeFilterExpression(child.group as EditableFilterExpression, criteria);
       if (group && group.children.length > 0) children.push({ group });
       continue;
     }
     if (!child.filter) continue;
     const filter = sanitizeFilterCriteria(child.filter, criteria);
     if (Object.keys(filter).length > 0) children.push({ filter });
+  }
+  if (expression._semanticNone) {
+    if (children.length === 0) return undefined;
+    return {
+      operator: "NOT",
+      children: children.length === 1 ? children : [{ group: { operator: "OR", children } }],
+    };
   }
   const operator = expression.operator === "OR" ? "OR" : expression.operator === "NOT" ? "NOT" : "AND";
   if (operator === "NOT" && children.length !== 1) return undefined;
@@ -560,6 +591,71 @@ function updateExpressionLeaf(
     children[index] = { filter };
     return { ...group, children };
   });
+}
+
+function expressionPathsEqual(left: number[], right: number[]) {
+  return left.length === right.length && left.every((part, index) => part === right[index]);
+}
+
+function removeExpressionLeafAndPrune(
+  group: EditableFilterExpression,
+  path: number[],
+): EditableFilterExpression | undefined {
+  const [index, ...rest] = path;
+  if (index === undefined) return group;
+  const child = group.children[index];
+  if (!child) return group;
+  const children = group.children.slice();
+  if (rest.length === 0) {
+    if (!child.filter) return group;
+    children.splice(index, 1);
+  } else {
+    if (!child.group) return group;
+    const nextGroup = removeExpressionLeafAndPrune(child.group as EditableFilterExpression, rest);
+    if (nextGroup) children[index] = { group: nextGroup };
+    else children.splice(index, 1);
+  }
+  return children.length > 0 || group._moveTarget ? { ...group, children } : undefined;
+}
+
+function insertExpressionLeafAtMarkedGroup(
+  group: EditableFilterExpression,
+  child: FilterExpression<Record<string, unknown>>["children"][number],
+  path: number[] = [],
+): { group: EditableFilterExpression; insertedPath?: number[] } {
+  if (group._moveTarget) {
+    const { _moveTarget: _marker, ...rest } = group;
+    return { group: { ...rest, children: [...group.children, child] }, insertedPath: [...path, group.children.length] };
+  }
+  let insertedPath: number[] | undefined;
+  const children = group.children.map((candidate, index) => {
+    if (!candidate.group || insertedPath) return candidate;
+    const inserted = insertExpressionLeafAtMarkedGroup(candidate.group as EditableFilterExpression, child, [...path, index]);
+    if (inserted.insertedPath) insertedPath = inserted.insertedPath;
+    return { group: inserted.group };
+  });
+  return { group: { ...group, children }, insertedPath };
+}
+
+function moveExpressionLeaf(
+  root: EditableFilterExpression,
+  sourcePath: number[],
+  destinationPath: number[],
+): { expression: EditableFilterExpression; insertedPath?: number[] } {
+  if (expressionPathsEqual(sourcePath.slice(0, -1), destinationPath)) return { expression: root };
+  const filter = getExpressionLeaf(root, sourcePath);
+  if (!filter) return { expression: root };
+  const marked = replaceExpressionGroup(root, destinationPath, (group) => ({ ...group, _moveTarget: true } as EditableFilterExpression)) as EditableFilterExpression;
+  const withoutSource = removeExpressionLeafAndPrune(marked, sourcePath);
+  if (!withoutSource) return { expression: root };
+  const inserted = insertExpressionLeafAtMarkedGroup(withoutSource, { filter });
+  return inserted.insertedPath ? { expression: inserted.group, insertedPath: inserted.insertedPath } : { expression: root };
+}
+
+interface ExpressionGroupDestination {
+  path: number[];
+  depth: number;
+  label: string;
 }
 
 // Video criterion definitions
@@ -1063,7 +1159,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const wasOpenRef = useRef(false);
   const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
   const normalizedActiveFilter = useMemo(
-    () => migrateLegacyPerformerFavoriteCriterion(JSON.parse(activeFilterSignature) as Record<string, unknown>, criteria),
+    () => normalizeFilterExpressionForEditing(migrateLegacyPerformerFavoriteCriterion(JSON.parse(activeFilterSignature) as Record<string, unknown>, criteria)),
     [activeFilterSignature, criteria],
   );
   const lastActiveFilterSignatureRef = useRef(activeFilterSignature);
@@ -1571,7 +1667,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
 
   const handleApply = () => {
     const hasExpression = Boolean(editFilter[FILTER_EXPRESSION_STATE_KEY]);
-    const mergedExpression = hasExpression ? sanitizeFilterExpression(mergeFilterExpressionWithSimpleCriteria(editFilter, criteria), criteria) : undefined;
+    const mergedExpression = hasExpression ? sanitizeFilterExpression(mergeFilterExpressionWithSimpleCriteria(editFilter, criteria) as EditableFilterExpression | undefined, criteria) : undefined;
     onApply(hasExpression
       ? { ...expressionPassthroughFilter(editFilter, criteria), ...(mergedExpression ? { [FILTER_EXPRESSION_STATE_KEY]: mergedExpression } : {}) }
       : activeEditFilter);
@@ -2548,17 +2644,85 @@ function FilterExpressionEditor({
   subjectLabel: string;
 }) {
   const conditionCount = countFilterExpressionConditions(value);
+  const [keyboardMove, setKeyboardMove] = useState<{ sourcePath: number[]; destinationIndex: number } | null>(null);
+  const [draggedPath, setDraggedPath] = useState<number[] | null>(null);
+  const [moveAnnouncement, setMoveAnnouncement] = useState("");
   const ratingOptions = useRatingOptions();
   const appConfig = useOptionalAppConfig();
   const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
   const describeCondition = (filter: Record<string, unknown>) => formatExplanationNodeInline(explainExpressionLeaf(filter, criteria, ratingOptions, metadataServers));
+  const destinations = useMemo(() => {
+    const result: ExpressionGroupDestination[] = [];
+    const visit = (group: EditableFilterExpression, path: number[], depth: number) => {
+      const mode = getFilterExpressionPresentationOperator(group);
+      const firstLeaf = group.children.find((child) => child.filter)?.filter;
+      if (mode !== "NOT") result.push({
+        path,
+        depth,
+        label: path.length === 0
+          ? `Outermost ${FILTER_EXPRESSION_OPERATOR_PRESENTATION[mode].label} group`
+          : `${FILTER_EXPRESSION_OPERATOR_PRESENTATION[mode].label} group${firstLeaf ? ` containing ${describeCondition(firstLeaf)}` : ""}`,
+      });
+      for (const { child, index } of sortFilterExpressionChildrenForDisplay(group.children, mode)) {
+        if (child.group) visit(child.group as EditableFilterExpression, [...path, index], depth + 1);
+      }
+    };
+    visit(value as EditableFilterExpression, [], 0);
+    return result;
+  }, [criteria, metadataServers, ratingOptions, value]);
+  const legalDestinations = useCallback((sourcePath: number[]) => destinations.filter((destination) => !expressionPathsEqual(destination.path, sourcePath.slice(0, -1))), [destinations]);
+  const moveCondition = useCallback((sourcePath: number[], destinationPath: number[]) => {
+    const moved = moveExpressionLeaf(value as EditableFilterExpression, sourcePath, destinationPath);
+    if (!moved.insertedPath) return;
+    onChange(moved.expression);
+    setKeyboardMove(null);
+    setDraggedPath(null);
+    const destination = destinations.find((candidate) => expressionPathsEqual(candidate.path, destinationPath));
+    setMoveAnnouncement(`Condition moved to ${destination?.label ?? "the selected group"}.`);
+    window.setTimeout(() => window.setTimeout(() => {
+      document.querySelector<HTMLElement>(`[data-expression-move-handle="${moved.insertedPath?.join(".")}"]`)?.focus();
+    }, 0), 0);
+  }, [destinations, onChange, value]);
+  const handleMoveKeyDown = useCallback((sourcePath: number[], event: ReactKeyboardEvent<HTMLElement>) => {
+    const legal = legalDestinations(sourcePath);
+    const active = keyboardMove && expressionPathsEqual(keyboardMove.sourcePath, sourcePath) ? keyboardMove : null;
+    if ((event.key === " " || event.key === "Enter") && !active) {
+      event.preventDefault();
+      if (legal.length === 0) return;
+      setKeyboardMove({ sourcePath, destinationIndex: 0 });
+      setMoveAnnouncement(`Condition picked up. Destination: ${legal[0].label}. Use Up and Down to choose a group, Enter to move, or Escape to cancel.`);
+      return;
+    }
+    if (!active) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setKeyboardMove(null);
+      setMoveAnnouncement("Move cancelled.");
+      return;
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      const destinationIndex = (active.destinationIndex + direction + legal.length) % legal.length;
+      setKeyboardMove({ sourcePath, destinationIndex });
+      setMoveAnnouncement(`Destination: ${legal[destinationIndex].label}.`);
+      return;
+    }
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      const destination = legal[active.destinationIndex];
+      if (destination) moveCondition(sourcePath, destination.path);
+    }
+  }, [keyboardMove, legalDestinations, moveCondition]);
+  const activeKeyboardDestination = keyboardMove ? legalDestinations(keyboardMove.sourcePath)[keyboardMove.destinationIndex] : undefined;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-5 md:px-8 md:py-7">
       <div className="mx-auto max-w-3xl space-y-4">
         <p className="text-sm font-medium text-secondary">Find {subjectLabel} where</p>
         <div data-expression-tree>
-          <ExpressionGroupEditor group={value} groupPath={[]} criteria={criteria} root conditionCount={conditionCount} onChange={onChange} onAddCondition={onAddCondition} onEditCondition={onEditCondition} describeCondition={describeCondition} />
+          <ExpressionGroupEditor group={value} groupPath={[]} criteria={criteria} root conditionCount={conditionCount} onChange={onChange} onAddCondition={onAddCondition} onEditCondition={onEditCondition} describeCondition={describeCondition} destinations={destinations} legalDestinations={legalDestinations} keyboardMove={keyboardMove} activeKeyboardDestination={activeKeyboardDestination} draggedPath={draggedPath} onMoveCondition={moveCondition} onMoveKeyDown={handleMoveKeyDown} onDragStart={(path, event) => { setDraggedPath(path); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", path.join(".")); }} onDragEnd={() => setDraggedPath(null)} />
         </div>
+        <span className="sr-only" role="status">{moveAnnouncement}</span>
       </div>
     </div>
   );
@@ -2580,6 +2744,15 @@ function ExpressionGroupEditor({
   ungroupChildFromParent,
   removeGroupFromParent,
   describeCondition,
+  destinations,
+  legalDestinations,
+  keyboardMove,
+  activeKeyboardDestination,
+  draggedPath,
+  onMoveCondition,
+  onMoveKeyDown,
+  onDragStart,
+  onDragEnd,
 }: {
   group: FilterExpression<Record<string, unknown>>;
   groupPath: number[];
@@ -2593,10 +2766,20 @@ function ExpressionGroupEditor({
   ungroupChildFromParent?: () => void;
   removeGroupFromParent?: () => void;
   describeCondition: (filter: Record<string, unknown>) => string;
+  destinations: ExpressionGroupDestination[];
+  legalDestinations: (sourcePath: number[]) => ExpressionGroupDestination[];
+  keyboardMove: { sourcePath: number[]; destinationIndex: number } | null;
+  activeKeyboardDestination?: ExpressionGroupDestination;
+  draggedPath: number[] | null;
+  onMoveCondition: (sourcePath: number[], destinationPath: number[]) => void;
+  onMoveKeyDown: (sourcePath: number[], event: ReactKeyboardEvent<HTMLElement>) => void;
+  onDragStart: (sourcePath: number[], event: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [groupingMode, setGroupingMode] = useState(false);
   const [openMenu, setOpenMenu] = useState<"group" | number | null>(null);
+  const [moveMenuIndex, setMoveMenuIndex] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const childFocusRefs = useRef(new Map<number, HTMLElement>());
   const conditionMenuButtonRefs = useRef(new Map<number, HTMLButtonElement>());
@@ -2604,15 +2787,17 @@ function ExpressionGroupEditor({
   const addConditionRef = useRef<HTMLButtonElement>(null);
   const groupPathKey = groupPath.join(".");
   const operator = normalizeFilterExpressionOperator(group.operator);
-  const presentation = FILTER_EXPRESSION_OPERATOR_PRESENTATION[operator];
+  const mode = getFilterExpressionPresentationOperator(group as EditableFilterExpression);
+  const presentation = FILTER_EXPRESSION_OPERATOR_PRESENTATION[mode];
   const hasNestedGroup = group.children.some((child) => Boolean(child.group));
-  const displayedChildren = sortFilterExpressionChildrenForDisplay(group.children, operator);
+  const displayedChildren = sortFilterExpressionChildrenForDisplay(group.children, mode);
   const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
-  const hasGroupActions = group.operator === "NOT" || group.children.length === 1 || !root;
+  const hasGroupActions = group.operator === "NOT" || group.children.length === 1 || !root || (group.children.length > 0 && canCreateNestedGroup);
   useEffect(() => {
     setSelected(new Set());
     setGroupingMode(false);
     setOpenMenu(null);
+    setMoveMenuIndex(null);
   }, [group]);
   const focusChildAfterChange = (index: number) => {
     window.setTimeout(() => window.setTimeout(() => {
@@ -2653,14 +2838,16 @@ function ExpressionGroupEditor({
     onChange({ ...group, children: nextChildren });
     focusChildAfterChange(nextFocusIndex);
   };
-  const groupSelected = (operator: "AND" | "OR" | "NOT") => {
+  const groupSelected = (nextMode: "AND" | "OR" | "NONE") => {
     const indexes = [...selected].sort((a, b) => a - b);
-    if (operator === "NOT" ? indexes.length !== 1 : indexes.length < 2) return;
+    if (nextMode === "NONE" ? indexes.length < 1 : indexes.length < 2) return;
     const selectedChildren = indexes.map((index) => group.children[index]);
     const first = indexes[0];
     const selectedSet = new Set(indexes);
-    const children = group.children.flatMap((child, index) => index === first
-      ? [{ group: { operator, children: selectedChildren } }]
+    const children: FilterExpression<Record<string, unknown>>["children"] = group.children.flatMap((child, index) => index === first
+      ? [{ group: (nextMode === "NONE"
+        ? { operator: "OR" as const, children: selectedChildren, _semanticNone: true }
+        : { operator: nextMode, children: selectedChildren }) as EditableFilterExpression }]
       : selectedSet.has(index) ? [] : [child]);
     setSelected(new Set());
     setGroupingMode(false);
@@ -2676,9 +2863,11 @@ function ExpressionGroupEditor({
     setGroupingMode(true);
     window.setTimeout(() => childFocusRefs.current.get(displayedChildren[0]?.index ?? 0)?.focus(), 0);
   };
-  const setOperator = (operator: "AND" | "OR" | "NOT") => {
+  const setOperator = (nextMode: "AND" | "OR" | "NONE" | "NOT") => {
     setOpenMenu(null);
-    onChange({ ...group, operator });
+    onChange(nextMode === "NONE"
+      ? { ...group, operator: "OR", _semanticNone: true } as EditableFilterExpression
+      : { ...group, operator: nextMode, _semanticNone: undefined } as EditableFilterExpression);
     window.setTimeout(() => document.querySelector<HTMLElement>(`[data-expression-group-control="${groupPathKey}"]`)?.focus(), 0);
   };
   const toggleSelection = (index: number) => setSelected((current) => {
@@ -2691,13 +2880,27 @@ function ExpressionGroupEditor({
     setOpenMenu(null);
     window.setTimeout(() => trigger?.focus(), 0);
   };
+  const isActiveMoveDestination = Boolean(activeKeyboardDestination && expressionPathsEqual(activeKeyboardDestination.path, groupPath));
+  const isAvailableDropDestination = Boolean(draggedPath && mode !== "NOT" && !expressionPathsEqual(draggedPath.slice(0, -1), groupPath));
 
   return (
     <section
-      className={root && !hasNestedGroup ? "space-y-3" : `space-y-2 rounded-xl border px-3 py-3 md:px-4 ${presentation.containerClassName}`}
+      className={`${root && mode === "AND" && !hasNestedGroup ? "space-y-3" : `space-y-2 rounded-xl border px-3 py-3 md:px-4 ${presentation.containerClassName}`} ${isActiveMoveDestination ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : isAvailableDropDestination ? "ring-1 ring-accent/50" : ""}`}
       aria-label={`${presentation.label} group`}
       data-expression-node-path={groupPathKey || undefined}
+      data-expression-drop-path={groupPathKey}
       tabIndex={root ? undefined : -1}
+      onDragOver={(event) => {
+        if (!draggedPath || expressionPathsEqual(draggedPath.slice(0, -1), groupPath) || mode === "NOT") return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={(event) => {
+        if (!draggedPath || expressionPathsEqual(draggedPath.slice(0, -1), groupPath) || mode === "NOT") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onMoveCondition(draggedPath, groupPath);
+      }}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || openMenu === null) return;
         event.preventDefault();
@@ -2706,20 +2909,21 @@ function ExpressionGroupEditor({
       }}
     >
       <div className="flex min-h-10 flex-wrap items-center gap-2">
-        {operator === "NOT" ? (
+        {mode === "NOT" ? (
           <span className={`rounded-md px-2 py-1 text-sm font-semibold ${presentation.labelClassName}`}>Exclude</span>
         ) : (
           <>
             <span className="text-sm font-medium text-secondary">Match</span>
             <div className="inline-flex rounded-lg bg-card p-1" role="group" aria-label="How conditions are combined">
-              <button type="button" data-expression-group-control={operator === "AND" ? groupPathKey : undefined} aria-label="All" aria-pressed={operator === "AND"} onClick={() => setOperator("AND")} className={`min-h-8 rounded-md px-3 text-sm ${operator === "AND" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.AND.selectedClassName : "text-secondary hover:text-foreground"}`}>All</button>
-              <button type="button" data-expression-group-control={operator === "OR" ? groupPathKey : undefined} aria-label="Any" aria-pressed={operator === "OR"} onClick={() => setOperator("OR")} className={`min-h-8 rounded-md px-3 text-sm ${operator === "OR" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.OR.selectedClassName : "text-secondary hover:text-foreground"}`}>Any</button>
+              <button type="button" data-expression-group-control={mode === "AND" ? groupPathKey : undefined} aria-label="All" aria-pressed={mode === "AND"} onClick={() => setOperator("AND")} className={`min-h-8 rounded-md px-3 text-sm ${mode === "AND" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.AND.selectedClassName : "text-secondary hover:text-foreground"}`}>All</button>
+              <button type="button" data-expression-group-control={mode === "OR" ? groupPathKey : undefined} aria-label="Any" aria-pressed={mode === "OR"} onClick={() => setOperator("OR")} className={`min-h-8 rounded-md px-3 text-sm ${mode === "OR" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.OR.selectedClassName : "text-secondary hover:text-foreground"}`}>Any</button>
+              <button type="button" data-expression-group-control={mode === "NONE" ? groupPathKey : undefined} aria-label="None" aria-pressed={mode === "NONE"} onClick={() => setOperator("NONE")} className={`min-h-8 rounded-md px-3 text-sm ${mode === "NONE" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.NONE.selectedClassName : "text-secondary hover:text-foreground"}`}>None</button>
             </div>
             <span className="text-sm text-secondary">of these</span>
           </>
         )}
         <div className="relative ml-auto flex items-center gap-1">
-          {operator !== "NOT" ? <button ref={addConditionRef} type="button" aria-label="Add condition" title="Add condition" disabled={conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /></button> : null}
+          {mode !== "NOT" ? <button ref={addConditionRef} type="button" aria-label="Add condition" title="Add condition" disabled={conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /></button> : null}
           {hasGroupActions ? <>
           <button ref={groupMenuButtonRef} type="button" data-expression-group-control={operator === "NOT" ? groupPathKey : undefined} aria-label={`More actions for ${root ? "root " : ""}group`} aria-expanded={openMenu === "group"} onClick={() => setOpenMenu((current) => current === "group" ? null : "group")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
           {openMenu === "group" ? (
@@ -2732,6 +2936,7 @@ function ExpressionGroupEditor({
                 <button type="button" onClick={() => { setOpenMenu(null); ungroupChildFromParent?.(); }} disabled={!ungroupChildFromParent || (parentOperator === "NOT" && group.children.length !== 1)} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Dissolve group</button>
                 <button type="button" onClick={() => { setOpenMenu(null); removeGroupFromParent?.(); }} disabled={!removeGroupFromParent || parentOperator === "NOT"} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove group</button>
               </> : null}
+              {mode !== "NOT" && group.children.length > 0 ? <button type="button" onClick={() => { setOpenMenu(null); startGrouping(); }} disabled={!canCreateNestedGroup} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Create subgroup</button> : null}
             </div>
           ) : null}
           </> : null}
@@ -2742,6 +2947,8 @@ function ExpressionGroupEditor({
           const displayPosition = displayIndex + 1;
           const childPath = [...groupPath, index];
           const childPathKey = childPath.join(".");
+          const conditionDestinations = child.filter ? legalDestinations(childPath) : [];
+          const isKeyboardMoving = Boolean(keyboardMove && expressionPathsEqual(keyboardMove.sourcePath, childPath));
           const { _criterionId: _draftCriterionId, ...displayFilter } = child.filter ?? {};
           const isDraftOnly = Object.keys(displayFilter).length === 0;
           const updateConditionFromChip = (target: FilterChipTarget) => {
@@ -2776,6 +2983,15 @@ function ExpressionGroupEditor({
                 parentOperator={group.operator}
                 ungroupChildFromParent={() => ungroupChild(index)}
                 removeGroupFromParent={() => removeChild(index)}
+                destinations={destinations}
+                legalDestinations={legalDestinations}
+                keyboardMove={keyboardMove}
+                activeKeyboardDestination={activeKeyboardDestination}
+                draggedPath={draggedPath}
+                onMoveCondition={onMoveCondition}
+                onMoveKeyDown={onMoveKeyDown}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
               />
             ) : (
               <div
@@ -2784,12 +3000,24 @@ function ExpressionGroupEditor({
                 data-expression-node-path={childPathKey}
                 data-expression-return-focus={`edit-${childPathKey}`}
                 onFocus={(event) => {
-                  if (event.target === event.currentTarget) event.currentTarget.querySelector<HTMLButtonElement>("button")?.focus();
+                  if (event.target === event.currentTarget) event.currentTarget.querySelector<HTMLButtonElement>("button:not([data-expression-move-handle])")?.focus();
                 }}
                 role="group"
                 aria-label={`Condition ${displayPosition}`}
                 className="group/condition relative flex min-h-12 min-w-0 items-center gap-1 overflow-visible"
               >
+                <button
+                  type="button"
+                  draggable
+                  data-expression-move-handle={childPathKey}
+                  aria-label={isKeyboardMoving && activeKeyboardDestination ? `Drop condition in ${activeKeyboardDestination.label}` : `Move condition ${displayPosition}`}
+                  aria-pressed={isKeyboardMoving}
+                  title="Move condition"
+                  onKeyDown={(event) => onMoveKeyDown(childPath, event)}
+                  onDragStart={(event) => onDragStart(childPath, event)}
+                  onDragEnd={onDragEnd}
+                  className="inline-flex h-9 w-7 shrink-0 cursor-grab items-center justify-center rounded text-muted hover:bg-card hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent active:cursor-grabbing"
+                ><GripVertical className="h-4 w-4" /></button>
                 {isDraftOnly ? <button type="button" onClick={() => onEditCondition(childPath)} className="flex min-h-7 min-w-0 items-center overflow-hidden rounded-md border border-border bg-surface/70 px-2 text-left text-xs text-muted" aria-label={`Edit condition ${displayPosition}: ${describeCondition(child.filter ?? {})}`}>{describeCondition(child.filter ?? {})}</button> : <ActiveObjectFilterChips
                   criteriaDefinitions={criteria}
                   objectFilter={displayFilter}
@@ -2801,11 +3029,17 @@ function ExpressionGroupEditor({
                   className="!m-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0"
                 />}
                 <div className="relative flex items-center pr-1">
-                  <button ref={(element) => { if (element) conditionMenuButtonRefs.current.set(index, element); else conditionMenuButtonRefs.current.delete(index); }} type="button" aria-label={`More actions for condition ${displayPosition}`} aria-expanded={openMenu === index} onClick={() => setOpenMenu((current) => current === index ? null : index)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted opacity-100 hover:bg-card hover:text-foreground md:opacity-0 md:group-hover/condition:opacity-100 md:group-focus-within/condition:opacity-100"><MoreHorizontal className="h-4 w-4" /></button>
+                  <button ref={(element) => { if (element) conditionMenuButtonRefs.current.set(index, element); else conditionMenuButtonRefs.current.delete(index); }} type="button" aria-label={`More actions for condition ${displayPosition}`} aria-expanded={openMenu === index} onClick={() => { setMoveMenuIndex(null); setOpenMenu((current) => current === index ? null : index); }} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted opacity-100 hover:bg-card hover:text-foreground md:opacity-0 md:group-hover/condition:opacity-100 md:group-focus-within/condition:opacity-100"><MoreHorizontal className="h-4 w-4" /></button>
                   {openMenu === index ? (
-                    <div role="group" aria-label={`Condition ${displayPosition} actions`} className="absolute right-0 top-full z-20 mt-1 min-w-36 rounded-lg border border-border bg-surface p-1 shadow-xl">
-                      <button type="button" onClick={() => { setOpenMenu(null); onEditCondition([...groupPath, index]); }} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Edit</button>
-                      <button type="button" onClick={() => removeChild(index)} disabled={group.operator === "NOT" && group.children.length === 1} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove</button>
+                    <div role="group" aria-label={moveMenuIndex === index ? `Move condition ${displayPosition}` : `Condition ${displayPosition} actions`} className="absolute right-0 top-full z-20 mt-1 max-h-72 min-w-56 overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-xl">
+                      {moveMenuIndex === index ? <>
+                        <button type="button" onClick={() => setMoveMenuIndex(null)} className="block min-h-10 w-full rounded px-3 text-left text-sm text-secondary hover:bg-card">Back</button>
+                        {conditionDestinations.map((destination) => <button key={destination.path.join(".") || "root"} type="button" onClick={() => { setOpenMenu(null); setMoveMenuIndex(null); onMoveCondition(childPath, destination.path); }} style={{ paddingLeft: `${0.75 + destination.depth * 0.75}rem` }} className="block min-h-10 w-full rounded pr-3 text-left text-sm hover:bg-card">{destination.label}</button>)}
+                      </> : <>
+                        <button type="button" onClick={() => { setOpenMenu(null); onEditCondition([...groupPath, index]); }} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Edit</button>
+                        <button type="button" onClick={() => setMoveMenuIndex(index)} disabled={conditionDestinations.length === 0} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Move to…</button>
+                        <button type="button" onClick={() => removeChild(index)} disabled={group.operator === "NOT" && group.children.length === 1} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove</button>
+                      </>}
                     </div>
                   ) : null}
                 </div>
@@ -2824,11 +3058,9 @@ function ExpressionGroupEditor({
           <div className="grid grid-cols-3 gap-2">
             <button type="button" aria-label="Group selected as All" disabled={selected.size < 2} onClick={() => groupSelected("AND")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">All</button>
             <button type="button" aria-label="Group selected as Any" disabled={selected.size < 2} onClick={() => groupSelected("OR")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Any</button>
-            <button type="button" aria-label="Exclude selected" disabled={selected.size !== 1} onClick={() => groupSelected("NOT")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Exclude</button>
+            <button type="button" aria-label="Group selected as None" disabled={selected.size < 1} onClick={() => groupSelected("NONE")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">None</button>
           </div>
-        </div> : <>
-          {operator !== "NOT" && group.children.length > 0 ? <button type="button" disabled={!canCreateNestedGroup} onClick={startGrouping} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Group conditions</button> : null}
-        </>}
+        </div> : null}
         {conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS ? <span className="text-xs text-muted">Maximum of {MAX_FILTER_EXPRESSION_CONDITIONS} conditions reached.</span> : null}
         <span className="sr-only" role="status">{announcement}</span>
       </div>

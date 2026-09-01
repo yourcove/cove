@@ -6,7 +6,7 @@ draft: true
 
 This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the **Combine Filters** experience and the examples are still under review.
 
-Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **All**, **Any**, or **Exclude** group.
+Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **All**, **Any**, or **None** group.
 
 ## Combine filters into groups
 
@@ -14,9 +14,13 @@ Start with the regular filter dialog. Use **Combine filters…** only when the r
 
 - **All** requires every direct condition or group.
 - **Any** requires at least one direct condition or group.
-- **Exclude** requires its one condition or nested group not to match.
+- **None** requires every direct condition or group not to match.
 
-Choose **Group conditions** to enter grouping mode, then select sibling rules. Two or more selections can become an **All** or **Any** group. One selection can become **Exclude**. Choose **Cancel grouping** to leave the search unchanged.
+Open a group's menu and choose **Create subgroup**, then select sibling rules. Two or more selections can become an **All** or **Any** group. One or more selections can become **None**. Choose **Cancel grouping** to leave the search unchanged.
+
+To relocate a condition, drag its move handle onto another group or open the condition menu and choose **Move to…**. The menu is also the direct keyboard-accessible way to choose any legal destination group.
+
+Older or externally created searches may show an **Exclude** enclosure around a compound group. This is retained when changing it to None would alter the search's meaning.
 
 Each rule is already written as a plain-language sentence. Select a sentence to edit it. Secondary actions are available from its more-actions menu; a group menu can change excluded logic, dissolve the group without deleting its rules, or remove the entire group.
 
@@ -93,7 +97,7 @@ To find videos where an appearance has selected performer occurrence tags or the
 1. Add **Performer Occurrence Tags** with the required tags.
 2. Add **Related Performers**, then set **Favorite** to **True**.
 3. Return to the main filter dialog and choose **Combine filters…**.
-4. Choose **Group conditions**, select the occurrence-tag condition and related-performer condition, then choose **Any**.
+4. Open the group menu, choose **Create subgroup**, select the occurrence-tag condition and related-performer condition, then choose **Any**.
 
 These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** only when the alternatives are properties of the related performer itself.
 
