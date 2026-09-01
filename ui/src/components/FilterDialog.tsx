@@ -2090,7 +2090,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             value={expression ?? { operator: "AND", children: [] }}
             onChange={(value) => setEditFilter((current) => ({ ...expressionPassthroughFilter(current, criteria), [FILTER_EXPRESSION_STATE_KEY]: value }))}
             onAddCondition={openNewExpressionCondition}
-            onEditCondition={openExpressionCondition}
+            onEditCondition={(path, target) => {
+              openExpressionCondition(path);
+              if (target?.kind === "related") setRelatedWorkspaceSelection({ facet: target.facet, nestedCriterionId: target.nestedCriterionId });
+            }}
             subjectLabel={subjectLabel}
           />
         ) : relatedWorkspaceCriterion ? (
@@ -2536,7 +2539,7 @@ function FilterExpressionEditor({
   value: FilterExpression<Record<string, unknown>>;
   onChange: (value: FilterExpression<Record<string, unknown>>) => void;
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
-  onEditCondition: (path: number[]) => void;
+  onEditCondition: (path: number[], target?: FilterChipTarget) => void;
   subjectLabel: string;
 }) {
   const conditionCount = countFilterExpressionConditions(value);
@@ -2580,7 +2583,7 @@ function ExpressionGroupEditor({
   conditionCount: number;
   onChange: (value: FilterExpression<Record<string, unknown>>) => void;
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
-  onEditCondition: (path: number[]) => void;
+  onEditCondition: (path: number[], target?: FilterChipTarget) => void;
   parentOperator?: "AND" | "OR" | "NOT";
   ungroupChildFromParent?: () => void;
   removeGroupFromParent?: () => void;
@@ -2715,8 +2718,18 @@ function ExpressionGroupEditor({
         </div> : null}
       </div>
       <div className="space-y-2">
-        {group.children.map((child, index) => (
-          <div key={index} className="space-y-2">
+        {group.children.map((child, index) => {
+          const childPath = [...groupPath, index];
+          const childPathKey = childPath.join(".");
+          const { _criterionId: _draftCriterionId, ...displayFilter } = child.filter ?? {};
+          const isDraftOnly = Object.keys(displayFilter).length === 0;
+          const updateConditionFromChip = (target: FilterChipTarget) => {
+            const nextFilter = removeObjectFilterChipTarget(child.filter ?? {}, criteria, target);
+            const { _criterionId: _remainingCriterionId, ...remainingFilter } = nextFilter;
+            if (Object.keys(remainingFilter).length === 0) removeChild(index);
+            else updateChild(index, { filter: nextFilter });
+          };
+          return <div key={index} className="space-y-2">
             {groupingMode ? (
               <button
                 ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }}
@@ -2744,10 +2757,28 @@ function ExpressionGroupEditor({
                 removeGroupFromParent={() => removeChild(index)}
               />
             ) : (
-              <div className="group/condition relative flex min-h-12 items-stretch overflow-visible rounded-xl border border-border bg-surface transition-colors hover:border-accent/40">
-                <button ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }} type="button" onClick={() => onEditCondition([...groupPath, index])} data-expression-node-path={[...groupPath, index].join(".")} data-expression-return-focus={`edit-${[...groupPath, index].join(".")}`} className="min-w-0 flex-1 rounded-l-xl px-4 py-3 text-left text-sm leading-5 text-foreground hover:bg-card/60" aria-label={`Edit condition ${index + 1}: ${describeCondition(child.filter ?? {})}`}>
-                  {describeCondition(child.filter ?? {})}
-                </button>
+              <div
+                ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }}
+                tabIndex={-1}
+                data-expression-node-path={childPathKey}
+                data-expression-return-focus={`edit-${childPathKey}`}
+                onFocus={(event) => {
+                  if (event.target === event.currentTarget) event.currentTarget.querySelector<HTMLButtonElement>("button")?.focus();
+                }}
+                role="group"
+                aria-label={`Condition ${index + 1}`}
+                className="group/condition relative flex min-h-12 min-w-0 items-center gap-1 overflow-visible"
+              >
+                {isDraftOnly ? <button type="button" onClick={() => onEditCondition(childPath)} className="flex min-h-7 min-w-0 items-center overflow-hidden rounded-md border border-border bg-surface/70 px-2 text-left text-xs text-muted" aria-label={`Edit condition ${index + 1}: ${describeCondition(child.filter ?? {})}`}>{describeCondition(child.filter ?? {})}</button> : <ActiveObjectFilterChips
+                  criteriaDefinitions={criteria}
+                  objectFilter={displayFilter}
+                  onEdit={(target) => onEditCondition(childPath, target)}
+                  onRemove={updateConditionFromChip}
+                  embeddedInToolbar
+                  primaryEditAriaLabel={`Edit condition ${index + 1}: ${describeCondition(child.filter ?? {})}`}
+                  removable={group.operator !== "NOT" || group.children.length !== 1}
+                  className="!m-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0"
+                />}
                 <div className="relative flex items-center pr-1">
                   <button ref={(element) => { if (element) conditionMenuButtonRefs.current.set(index, element); else conditionMenuButtonRefs.current.delete(index); }} type="button" aria-label={`More actions for condition ${index + 1}`} aria-expanded={openMenu === index} onClick={() => setOpenMenu((current) => current === index ? null : index)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted opacity-100 hover:bg-card hover:text-foreground md:opacity-0 md:group-hover/condition:opacity-100 md:group-focus-within/condition:opacity-100"><MoreHorizontal className="h-4 w-4" /></button>
                   {openMenu === index ? (
@@ -2760,7 +2791,7 @@ function ExpressionGroupEditor({
               </div>
             )}
           </div>
-        ))}
+        })}
         {group.children.length === 0 ? <p className="px-3 py-5 text-center text-sm text-muted">No conditions in this group.</p> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 pt-1">

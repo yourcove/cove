@@ -359,6 +359,8 @@ interface ActiveObjectFilterChipsProps {
   expressionReturnFocusKeys?: boolean;
   hideRootAndOperator?: boolean;
   expressionPathOffset?: number;
+  primaryEditAriaLabel?: string;
+  removable?: boolean;
 }
 
 function findCriterionDefinition(criteriaDefinitions: CriterionDefinition[], key: string) {
@@ -786,6 +788,8 @@ function RelatedFilterChipGroup({
   buttonRef,
   removeGroup,
   onGroupRemoved,
+  primaryEditAriaLabel,
+  removable,
 }: {
   parentKey: string;
   def: CriterionDefinition;
@@ -802,6 +806,8 @@ function RelatedFilterChipGroup({
   buttonRef: (element: HTMLButtonElement | null) => void;
   removeGroup: () => void;
   onGroupRemoved: () => void;
+  primaryEditAriaLabel?: string;
+  removable: boolean;
 }) {
   const related = value && typeof value === "object" ? value as {
     findFilter?: { q?: string };
@@ -869,7 +875,7 @@ function RelatedFilterChipGroup({
           <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
         </span>
       )}
-      <button
+      {removable ? <button
         type="button"
         onClick={() => removeNestedFilter(target)}
         className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300"
@@ -877,7 +883,7 @@ function RelatedFilterChipGroup({
         aria-label={`Remove ${singular} filter: ${label}`}
       >
         <X className="h-3 w-3" />
-      </button>
+      </button> : null}
     </div>
   );
 
@@ -889,17 +895,19 @@ function RelatedFilterChipGroup({
           type="button"
           onClick={() => onEdit({ kind: "related", parentKey, facet: "mode" })}
           onFocus={rovingKeyboardAccess ? onFocus : undefined}
-          onKeyDown={onKeyDown}
+          onKeyDown={rovingKeyboardAccess ? (event) => {
+            if (removable || (event.key !== "Delete" && event.key !== "Backspace")) onKeyDown?.(event);
+          } : undefined}
           tabIndex={rovingKeyboardAccess ? (focused ? 0 : -1) : undefined}
-          aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home End Delete Backspace" : undefined}
+          aria-keyshortcuts={rovingKeyboardAccess ? `ArrowLeft ArrowRight Home End${removable ? " Delete Backspace" : ""}` : undefined}
           data-active-filter-key={parentKey}
           className="flex min-w-0 items-center gap-1.5 px-2 text-left font-medium hover:bg-accent/10"
-          aria-label={`Edit filter: ${def.label}`}
+          aria-label={primaryEditAriaLabel ?? `Edit filter: ${def.label}`}
         >
           <span>{modeLabel}</span>
           {related._savedFilterName?.trim() ? <span className="truncate font-normal text-muted">· Saved: {related._savedFilterName.trim()}</span> : null}
         </button>
-        <button
+        {removable ? <button
           type="button"
           tabIndex={rovingKeyboardAccess ? -1 : undefined}
           onClick={removeGroup}
@@ -908,7 +916,7 @@ function RelatedFilterChipGroup({
           aria-label={`Remove filter: ${def.label}`}
         >
           <X className="h-3 w-3" />
-        </button>
+        </button> : null}
       </div>
       {q ? renderNestedChip(
         `${parentKey}:search`,
@@ -1030,6 +1038,8 @@ function ActiveObjectFilterChipsContent({
   hideRootAndOperator,
   expressionPathOffset = 0,
   metadataServers,
+  primaryEditAriaLabel,
+  removable = true,
 }: ActiveObjectFilterChipsProps & { entityNameMaps: Record<string, Map<number, string>>; metadataServers: MetadataServer[] }) {
   const managesRovingKeyboard = rovingKeyboardAccess && !embeddedInToolbar;
   const ratingOptions = useRatingOptions();
@@ -1166,7 +1176,9 @@ function ActiveObjectFilterChipsContent({
               rovingKeyboardAccess={managesRovingKeyboard}
               focused={focusedKey === key || (!focusedKey && key === keys[0])}
               onFocus={() => setFocusedKey(key)}
-              onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
+              onKeyDown={rovingKeyboardAccess ? (event) => {
+                if (removable || (event.key !== "Delete" && event.key !== "Backspace")) handleEditKeyDown(event, key, label);
+              } : undefined}
               buttonRef={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
               removeGroup={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })}
               onGroupRemoved={() => {
@@ -1180,6 +1192,8 @@ function ActiveObjectFilterChipsContent({
                   onFocusFallback?.();
                 }
               }}
+              primaryEditAriaLabel={primaryEditAriaLabel}
+              removable={removable}
             />
           );
         }
@@ -1221,9 +1235,9 @@ function ActiveObjectFilterChipsContent({
                   hideRootAndOperator={hideRootAndOperator}
                 />
               </div>
-              <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+              {removable ? <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
                 <X className="h-3 w-3" />
-              </button>
+              </button> : null}
             </div>
           );
         }
@@ -1231,9 +1245,9 @@ function ActiveObjectFilterChipsContent({
           return (
             <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
               <RelatedExpressionLeafDisplay path={effectiveExpressionPath!} def={def} value={value} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} />
-              <button type="button" onClick={() => onRemove({ kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+              {removable ? <button type="button" onClick={() => onRemove({ kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
                 <X className="h-3 w-3" />
-              </button>
+              </button> : null}
             </div>
           );
         }
@@ -1244,20 +1258,22 @@ function ActiveObjectFilterChipsContent({
               type="button"
               onClick={() => onEdit(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! } : { kind: "root", key })}
               onFocus={managesRovingKeyboard ? () => setFocusedKey(key) : undefined}
-              onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
+              onKeyDown={rovingKeyboardAccess ? (event) => {
+                if (removable || (event.key !== "Delete" && event.key !== "Backspace")) handleEditKeyDown(event, key, label);
+              } : undefined}
               tabIndex={managesRovingKeyboard ? (focusedKey === key || (!focusedKey && key === keys[0]) ? 0 : -1) : undefined}
-              aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home End Delete Backspace" : undefined}
+              aria-keyshortcuts={rovingKeyboardAccess ? `ArrowLeft ArrowRight Home End${removable ? " Delete Backspace" : ""}` : undefined}
               data-active-filter-key={key}
               className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2 text-left"
               title={`${label}: ${displayValue}`}
-              aria-label={isFilterExpression ? `Edit filter: ${label}. ${filterExpressionAccessibleSummary(value as ChipFilterExpression, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)}` : isExpressionLeaf ? `Edit filter: ${label}. ${displayValue}` : `Edit filter: ${label}`}
+              aria-label={primaryEditAriaLabel ?? (isFilterExpression ? `Edit filter: ${label}. ${filterExpressionAccessibleSummary(value as ChipFilterExpression, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)}` : isExpressionLeaf ? `Edit filter: ${label}. ${displayValue}` : `Edit filter: ${label}`)}
             >
               <span className="text-muted">{label}:</span>
               <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
             </button>
-            <button type="button" tabIndex={managesRovingKeyboard ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! } : { kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+            {removable ? <button type="button" tabIndex={managesRovingKeyboard ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! } : { kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
               <X className="h-3 w-3" />
-            </button>
+            </button> : null}
           </div>
         );
       })}

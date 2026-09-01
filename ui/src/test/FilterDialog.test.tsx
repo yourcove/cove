@@ -2731,6 +2731,12 @@ describe("FilterDialog", () => {
             children: [
               { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
               { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+              { filter: { performerFilterCriterion: {
+                ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
+                objectFilter: {
+                  genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] },
+                },
+              } } },
             ],
           },
         }}
@@ -2744,7 +2750,26 @@ describe("FilterDialog", () => {
     expect(screen.getByText("Find videos where")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Match all", pressed: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Match any", pressed: false })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit condition 1: Title includes foo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit condition 1: Title includes foo" })).toHaveTextContent("Title:Includes foo");
+    expect(screen.getByRole("button", { name: "Remove filter: Title" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 3: At least one performer/ })).toHaveTextContent("At least one performer matching all");
+    expect(screen.getByRole("button", { name: "Edit performer filter: Age (then)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit performer filter: Gender" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove filter: Related Performers" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit performer filter: Gender" }));
+    expect(screen.getByRole("tabpanel", { name: "Gender" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Male" })).toBeChecked();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("heading", { name: "Edit Related Performers condition" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove performer filter: Gender" }));
+    expect(screen.queryByRole("button", { name: "Edit performer filter: Gender" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit performer filter: Age (then)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Title" }));
+    expect(screen.queryByRole("button", { name: "Remove filter: Title" })).not.toBeInTheDocument();
+    const nextCondition = screen.getByRole("button", { name: "Edit condition 1: Director includes bar" });
+    await waitFor(() => expect(nextCondition).toHaveFocus());
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Move condition/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Explain this search" })).not.toBeInTheDocument();
@@ -2881,6 +2906,7 @@ describe("FilterDialog", () => {
 
     expect(screen.getByRole("region", { name: "NOT group" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "NOT group" })).getByRole("button", { name: "Add condition" })).toBeDisabled();
+    expect(within(screen.getByRole("region", { name: "NOT group" })).queryByRole("button", { name: "Remove filter: Director" })).not.toBeInTheDocument();
 
     fireEvent.click(within(screen.getByRole("region", { name: "NOT group" })).getByRole("button", { name: "More actions for group" }));
     fireEvent.click(screen.getByRole("button", { name: "Dissolve group" }));
@@ -2902,6 +2928,48 @@ describe("FilterDialog", () => {
         ],
       },
     });
+  });
+
+  it("keeps draft-only expression conditions visible in Combine Filters", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { filter: { _criterionId: "title" } },
+          { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Combine Filters" }));
+    expect(screen.getByRole("button", { name: "Edit condition 1: Title is not set" })).toBeInTheDocument();
+  });
+
+  it("protects every segment of the only related condition in a NOT group", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "NOT", children: [
+          { filter: { performerFilterCriterion: {
+            objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } },
+          } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    const notGroup = screen.getByRole("region", { name: "NOT group" });
+    expect(within(notGroup).queryByRole("button", { name: "Remove filter: Related Performers" })).not.toBeInTheDocument();
+    expect(within(notGroup).queryByRole("button", { name: "Remove performer filter: Gender" })).not.toBeInTheDocument();
   });
 
   it("adds a direct condition by wrapping a root NOT in an implicit AND", async () => {
