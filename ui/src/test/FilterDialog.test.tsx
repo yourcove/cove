@@ -2498,6 +2498,15 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("group", { name: "Date condition 1" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Date condition 2" })).toBeInTheDocument();
     expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit All group in Combine Filters" })).toBeInTheDocument();
+    expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit filter: Date < 2000-01-01" })).toHaveClass(
+      "relative",
+      "focus-visible:after:absolute",
+      "focus-visible:after:inset-0",
+      "focus-visible:after:ring-2",
+      "focus-visible:after:ring-inset",
+      "focus-visible:after:ring-accent",
+      "focus-visible:after:content-['']",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({

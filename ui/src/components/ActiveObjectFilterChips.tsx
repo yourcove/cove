@@ -744,7 +744,7 @@ function FilterExpressionChipDisplay({
             type="button"
             onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path: [...path, index] })}
             data-simple-return-focus={expressionReturnFocusKeys ? `expression-${[...path, index].join(".")}` : undefined}
-            className="min-w-0 rounded-md text-left hover:bg-background/40"
+            className="relative min-w-0 rounded-md text-left hover:bg-background/40 focus-visible:after:pointer-events-none focus-visible:after:absolute focus-visible:after:inset-0 focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-accent focus-visible:after:content-['']"
             aria-label={`Edit filter: ${filterExpressionAccessibleSummary({ operator: "AND", children: [{ filter: child.filter }] }, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^All group: /, "")}`}
           >
             <ExpressionLeafSummary filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
