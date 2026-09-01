@@ -1503,7 +1503,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }, 0);
   }, [criteria]);
 
-  const cancelExpressionCondition = useCallback(() => {
+  const discardExpressionCondition = useCallback(() => {
     if (conditionDraft?.returnView === "simple") {
       if (!conditionDraft.isNew && getExpressionConditionCriterion(conditionDraft.filter, criteria)?.type === "related") {
         setExpandedCriterion(null);
@@ -1514,6 +1514,22 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }
     else returnToExpression();
   }, [conditionDraft, criteria, returnToExpression, returnToSimpleFilters]);
+
+  const exitExpressionCondition = () => {
+    const criterion = conditionDraft ? getExpressionConditionCriterion(conditionDraft.filter, criteria) : undefined;
+    if (conditionDraft?.isNew && criterion?.type === "related"
+      && isCriterionValueValid(getCriterionFilterValue(conditionDraft.filter, criterion), criterion)) {
+      saveExpressionCondition();
+      return;
+    }
+    discardExpressionCondition();
+  };
+
+  const canAutoCommitNewRelatedCondition = (() => {
+    const criterion = conditionDraft ? getExpressionConditionCriterion(conditionDraft.filter, criteria) : undefined;
+    return Boolean(conditionDraft?.isNew && criterion?.type === "related"
+      && isCriterionValueValid(getCriterionFilterValue(conditionDraft.filter, criterion), criterion));
+  })();
 
   const closeRelatedWorkspace = useCallback(() => {
     const returnFocusKey = pendingRelatedWorkspaceReturnFocusRef.current ? simpleReturnFocusKeyRef.current : null;
@@ -1534,12 +1550,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (conditionDraft?.returnView === "simple" && !conditionDraft.isNew && relatedWorkspaceSelection) {
-          cancelExpressionCondition();
+        if (canAutoCommitNewRelatedCondition) {
+          exitExpressionCondition();
+        } else if (conditionDraft?.returnView === "simple" && !conditionDraft.isNew && relatedWorkspaceSelection) {
+          exitExpressionCondition();
         } else if (relatedWorkspaceSelection) {
           setRelatedWorkspaceSelection(null);
           window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>("[aria-label='Saved performer filter'], [aria-label='Saved video filter']")?.focus(), 0);
-        } else if (conditionDraft) cancelExpressionCondition();
+        } else if (conditionDraft) exitExpressionCondition();
         else if (inlineStackReturnsToExpression) returnToExpression();
         else if (dialogView === "expression") returnToSimpleFilters();
         else if (relatedWorkspaceCriterion) {
@@ -1569,7 +1587,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [cancelExpressionCondition, closeRelatedWorkspace, conditionDraft, dialogView, dismiss, inlineStackReturnsToExpression, open, relatedWorkspaceCriterion, relatedWorkspaceSelection, returnToExpression, returnToSimpleFilters]);
+  }, [canAutoCommitNewRelatedCondition, closeRelatedWorkspace, conditionDraft, dialogView, discardExpressionCondition, dismiss, inlineStackReturnsToExpression, open, relatedWorkspaceCriterion, relatedWorkspaceSelection, returnToExpression, returnToSimpleFilters]);
 
   const handleRemoveCriterion = useCallback((criterion: CriterionDefinition, criterionId?: string) => {
     setEditFilter((prev) => removeCriterionFilterValue(prev, criterion));
@@ -1786,7 +1804,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     else focusFirstEditorControl();
   };
 
-  const saveExpressionCondition = () => {
+  function saveExpressionCondition() {
     if (!conditionDraft) return;
     const sanitized = sanitizeFilterCriteria(conditionDraft.filter, criteria);
     if (Object.keys(sanitized).length === 0) return;
@@ -1812,7 +1830,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       returnToSimpleFilters();
     }
     else returnToExpression();
-  };
+  }
 
   const addRelatedCondition = () => {
     if (!relatedWorkspaceCriterion) return;
@@ -2005,12 +2023,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 ref={backButtonRef}
                 type="button"
                 onClick={() => {
-                  if (conditionDraft?.returnView === "simple" && !conditionDraft.isNew && relatedWorkspaceSelection) {
-                    cancelExpressionCondition();
+                  if (canAutoCommitNewRelatedCondition) {
+                    exitExpressionCondition();
+                  } else if (conditionDraft?.returnView === "simple" && !conditionDraft.isNew && relatedWorkspaceSelection) {
+                    exitExpressionCondition();
                   } else if (conditionDraft && relatedWorkspaceSelection) {
                     setRelatedWorkspaceSelection(null);
                     window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>("[aria-label='Saved performer filter'], [aria-label='Saved video filter']")?.focus(), 0);
-                  } else if (conditionDraft) cancelExpressionCondition();
+                  } else if (conditionDraft) exitExpressionCondition();
                   else if (inlineStackReturnsToExpression) returnToExpression();
                   else if (dialogView === "expression") returnToSimpleFilters();
                   else {
@@ -2535,8 +2555,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
           <div className="flex flex-wrap items-center justify-end gap-2">
             {conditionDraft ? (
               <>
-                <button type="button" onClick={cancelExpressionCondition} className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel condition</button>
-                <button type="button" onClick={saveExpressionCondition} disabled={!conditionCanSave} className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50">Save condition</button>
+                <button type="button" onClick={discardExpressionCondition} className="min-h-11 rounded-lg border border-border px-4 text-sm text-secondary hover:bg-card hover:text-foreground">{conditionDraft.isNew && conditionCriterion?.type === "related" ? "Discard condition" : "Cancel condition"}</button>
+                {conditionDraft.isNew && conditionCriterion?.type === "related" ? null : <button type="button" onClick={saveExpressionCondition} disabled={!conditionCanSave} className="min-h-11 rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50">Save condition</button>}
               </>
             ) : (
               <>

@@ -121,7 +121,7 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("heading", { name: "Add Related Performers condition" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel condition" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard condition" }));
     expect(screen.getByRole("button", { name: "Edit performer filter: Gender" })).toHaveTextContent("Male");
     await waitFor(() => expect(screen.getByRole("button", { name: "Add another performer condition" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Add another performer condition" }));
@@ -132,7 +132,9 @@ describe("FilterDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Between" }));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Minimum" }), { target: { value: "30" } });
     fireEvent.change(screen.getByRole("spinbutton", { name: "Maximum" }), { target: { value: "40" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
+    expect(screen.queryByRole("button", { name: "Save condition" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
     const performerConditions = screen.getAllByRole("button", { name: "Edit filter: Related Performers" });
