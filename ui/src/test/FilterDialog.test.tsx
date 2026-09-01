@@ -133,11 +133,13 @@ describe("FilterDialog", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: "Minimum" }), { target: { value: "30" } });
     fireEvent.change(screen.getByRole("spinbutton", { name: "Maximum" }), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
-    expect(screen.getByRole("group", { name: "Related Performers condition 1" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Related Performers condition 2" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add another performer condition" })).toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole("group", { name: "Related Performers condition 1" })).getByRole("button", { name: "Edit performer filter: Gender" }));
+    expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+    const performerConditions = screen.getAllByRole("button", { name: "Edit filter: Related Performers" });
+    expect(performerConditions).toHaveLength(2);
+    fireEvent.click(performerConditions[0]);
     expect(screen.getByRole("heading", { name: "Edit Related Performers condition" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit performer filter: Gender" }));
     expect(screen.getByRole("checkbox", { name: "Male" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Cancel condition" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument());

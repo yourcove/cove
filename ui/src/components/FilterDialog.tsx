@@ -1804,7 +1804,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       return { ...expressionPassthroughFilter(current, criteria), [FILTER_EXPRESSION_STATE_KEY]: next };
     });
     if (conditionDraft.returnView === "simple") {
-      if (!conditionDraft.isNew && getExpressionConditionCriterion(conditionDraft.filter, criteria)?.type === "related") {
+      if (getExpressionConditionCriterion(conditionDraft.filter, criteria)?.type === "related") {
         setExpandedCriterion(null);
         setRelatedWorkspaceSelection(null);
         pendingRelatedWorkspaceReturnFocusRef.current = false;
