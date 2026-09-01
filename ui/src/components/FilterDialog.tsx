@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal, Workflow } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal, Workflow, Check } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
@@ -1161,12 +1161,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         section,
       }));
     const items = [...customItems, ...criterionItems];
-    const active = items.filter((item) => item.active).sort(sortItems);
-    const pinned = items.filter((item) => !item.active && item.pinned).sort(sortItems);
-    const related = items.filter((item) => !item.active && !item.pinned && item.kind === "criterion" && item.criterion.category === "related").sort(sortItems);
-    const remaining = items.filter((item) => !item.active && !item.pinned && !(item.kind === "criterion" && item.criterion.category === "related")).sort(sortItems);
+    const pinned = items.filter((item) => item.pinned).sort(sortItems);
+    const related = items.filter((item) => !item.pinned && item.kind === "criterion" && item.criterion.category === "related").sort(sortItems);
+    const remaining = items.filter((item) => !item.pinned && !(item.kind === "criterion" && item.criterion.category === "related")).sort(sortItems);
     return [
-      { label: "Active", items: active },
       { label: "Pinned", items: pinned },
       { label: "Related items", items: related },
       { label: "All filters", items: remaining },
@@ -1326,6 +1324,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         else if (openLeafInline && initialExpressionPath) {
           const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${initialExpressionPath.at(-1)}"]`);
           getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
+        }
+        else if (openingLeafCriterion?.type === "related" && typeof preselectCriterion === "object" && preselectCriterion.nestedCriterionId) {
+          const panel = dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
+          (panel?.querySelector<HTMLElement>("input:not([type='hidden']), select, textarea, button[aria-pressed='true']") ?? getFirstEditorControl(panel))?.focus();
         }
         else if (nextSelected && preselectCriterion) focusFirstEditorControl();
         else searchRef.current?.focus();
@@ -2172,8 +2174,6 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                       const supported = item.kind === "custom" || item.criterion.supported !== false;
                       const rowStateClass = selected
                         ? "border-accent bg-accent/15 text-foreground"
-                        : item.active
-                        ? "border-accent/30 bg-accent/5 text-foreground hover:bg-card"
                         : "border-transparent text-secondary hover:border-border hover:bg-card hover:text-foreground";
                       return (
                         <div key={item.id} role="presentation" className={`flex min-h-11 w-full items-stretch overflow-hidden rounded-lg border text-sm transition ${rowStateClass} ${supported ? "" : "cursor-not-allowed opacity-60"}`}>
@@ -2183,6 +2183,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                             role="tab"
                             id={`filter-tab-${item.id}`}
                             aria-selected={selected}
+                            aria-describedby={item.active ? `filter-status-${item.id}` : undefined}
                             aria-controls="filter-editor-panel"
                             aria-disabled={!supported || undefined}
                             tabIndex={item.id === rovingNavigatorId ? 0 : -1}
@@ -2213,9 +2214,11 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                             className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                             title={supported ? undefined : item.kind === "criterion" ? item.criterion.unsupportedReason : undefined}
                           >
-                            <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                            <span className={`min-w-0 flex-1 truncate font-medium ${item.active ? "text-accent" : ""}`}>{item.label}</span>
+                            {item.active ? <Check className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" /> : null}
                             {!supported ? <span className="text-[10px] uppercase tracking-wide text-muted">Unavailable</span> : null}
                           </button>
+                          {item.active ? <span id={`filter-status-${item.id}`} className="sr-only">Active filter</span> : null}
                           {item.kind === "criterion" && supported ? (
                             <button
                               ref={(element) => { if (element) pinButtonRefs.current.set(item.id, element); else pinButtonRefs.current.delete(item.id); }}
@@ -2281,19 +2284,17 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                         key={index}
                         data-inline-condition-index={index}
                         aria-label={`${selectedItem.criterion.label} condition ${position + 1}`}
-                        className="rounded-xl border border-border bg-card/30 p-4"
+                        className="relative rounded-xl border border-border bg-card/30 p-4 pr-12"
                       >
-                        <div className="mb-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => removeSimpleExpressionCondition(index, position, path.slice(0, -1))}
-                            title={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
-                            aria-label={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-red-500/10 hover:text-red-300"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeSimpleExpressionCondition(index, position, path.slice(0, -1))}
+                          title={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
+                          aria-label={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
+                          className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-red-500/10 hover:text-red-300"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                         <div data-inline-condition-editor>
                           <CriterionEditor
                             criterion={selectedItem.criterion}

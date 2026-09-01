@@ -14,7 +14,7 @@ export type RelatedFilterChipFacet = "criterion" | "search" | "existence" | "mod
 
 export type FilterChipTarget =
   | { kind: "root"; key: string; path?: number[] }
-  | { kind: "expression"; parentKey: "_filterExpression"; path: number[] }
+  | { kind: "expression"; parentKey: "_filterExpression"; path: number[]; criterionId?: string; relatedFacet?: RelatedFilterChipFacet; nestedCriterionId?: string }
   | {
       kind: "related";
       parentKey: string;
@@ -947,6 +947,60 @@ function RelatedFilterChipGroup({
   );
 }
 
+function RelatedExpressionLeafDisplay({
+  path,
+  def,
+  value,
+  entityNameMaps,
+  metadataServers,
+  ratingOptions,
+  onEdit,
+}: {
+  path: number[];
+  def: CriterionDefinition;
+  value: unknown;
+  entityNameMaps: Record<string, Map<number, string>>;
+  metadataServers: MetadataServer[];
+  ratingOptions: RatingSystemOptions;
+  onEdit: (target: FilterChipTarget) => void;
+}) {
+  const leafFilter = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const criterionValue = leafFilter[def.filterKey];
+  const related = criterionValue && typeof criterionValue === "object" ? criterionValue as Record<string, unknown> : {};
+  const nestedCriteria = [...(def.relatedContextCriteria ?? []), ...(def.relatedCriteria?.() ?? [])];
+  const nestedObject = related.objectFilter && typeof related.objectFilter === "object" ? related.objectFilter as Record<string, unknown> : {};
+  const contextObject = Object.fromEntries((def.relatedContextCriteria ?? []).flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, related[criterion.filterKey]]] : []));
+  const nestedEntries = getLogicalFilterEntries(nestedCriteria, { ...contextObject, ...nestedObject });
+  const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
+  const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
+  const modeLabel = related.mode === "every" ? `Every ${singular}` : related.mode === "none" || related.exclude ? `No ${singular}` : def.label;
+  return (
+    <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2">
+      <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "mode" })} className="text-muted hover:text-foreground" aria-label={`Edit filter: ${modeLabel}${related.conditionOperator === "or" ? ", any condition" : ""}`}>{modeLabel}{related.conditionOperator === "or" ? " · any condition" : ""}:</button>
+      {q ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "search" })} className="rounded bg-card px-1.5 py-0.5 hover:bg-background/60" aria-label={`Edit ${singular} filter: Text search ${q}`}>Search “{q}”</button> : null}
+      {related._matchAll === true && !q && nestedEntries.length === 0 ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "existence" })} className="rounded bg-card px-1.5 py-0.5 hover:bg-background/60" aria-label={`Edit ${singular} filter: Any ${singular}`}>Any related {singular}</button> : null}
+      {nestedEntries.map(({ key, value: nestedValue, endpointValue, def: nestedDef }) => {
+        const label = nestedDef?.label ?? relatedFallbackLabel(key);
+        const nameMap = nestedDef?.entityType ? entityNameMaps[nestedDef.entityType] : undefined;
+        const displayValue = nestedDef?.type === "remoteId"
+          ? formatRemoteIdFilterChipValue(nestedValue, endpointValue, metadataServers)
+          : formatFilterChipValue(nestedDef, nestedValue, nameMap, ratingOptions);
+        return nestedDef ? (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, nestedCriterionId: nestedDef?.id })}
+            className="rounded bg-card px-1.5 py-0.5 text-left hover:bg-background/60"
+            aria-label={`Edit ${singular} filter: ${label} ${displayValue}`}
+          >
+            <span className="text-muted">{label} </span>{displayValue}
+          </button>
+        ) : <span key={key} className="rounded bg-card px-1.5 py-0.5"><span className="text-muted">{label} </span>{displayValue}</span>;
+      })}
+    </span>
+  );
+}
+
 function ActiveObjectFilterChipsContent({
   criteriaDefinitions,
   objectFilter,
@@ -1154,6 +1208,16 @@ function ActiveObjectFilterChipsContent({
                 />
               </div>
               <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        }
+        if (isExpressionLeaf && def?.type === "related") {
+          return (
+            <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
+              <RelatedExpressionLeafDisplay path={expressionPath!} def={def} value={value} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} onEdit={onEdit} />
+              <button type="button" onClick={() => onRemove({ kind: "expression", parentKey: "_filterExpression", path: expressionPath! })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
                 <X className="h-3 w-3" />
               </button>
             </div>

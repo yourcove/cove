@@ -300,10 +300,12 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByText("Between 20 and 30")).toBeInTheDocument();
     expect(screen.getByText("Female")).toBeInTheDocument();
     expect(screen.getByText("Between 30 and 40")).toBeInTheDocument();
-    const performerChips = screen.getAllByRole("button", { name: /Edit filter: Related Performers/ });
+    const performerChips = screen.getAllByRole("button", { name: "Edit filter: Related Performers" });
     expect(performerChips).toHaveLength(2);
-    fireEvent.click(performerChips[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Edit performer filter: Age (then) Between 20 and 30" }));
     expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Age (then)" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Between", pressed: true })).toHaveFocus());
   });
 
   it("opens a compact flat-expression chip in its normal stacked criterion panel", async () => {

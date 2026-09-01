@@ -899,7 +899,7 @@ describe("FilterDialog", () => {
     expect(selectedFilters).toHaveTextContent("Title:= example");
     expect(selectedFilters).toHaveTextContent("Organized:Yes");
     expect(screen.queryByRole("button", { name: "Clear criterion" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("tab").some((tab) => tab.querySelector(".lucide-check"))).toBe(false);
+    expect(screen.getAllByRole("tab").filter((tab) => tab.querySelector(".lucide-check"))).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove filter: Title" }));
 
@@ -2047,9 +2047,17 @@ describe("FilterDialog", () => {
       />,
     );
 
+    expect(screen.queryByRole("region", { name: "Active" })).not.toBeInTheDocument();
+    const activeUrlTab = screen.getByRole("tab", { name: "URL" });
+    expect(activeUrlTab.querySelector("span")).toHaveClass("text-accent");
+    expect(activeUrlTab).toHaveAccessibleDescription("Active filter");
+    expect(activeUrlTab.querySelector(".lucide-check")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add another URL" }));
     expect(screen.getByRole("button", { name: "Add another URL" }).parentElement).toHaveClass("mt-auto");
     const second = screen.getByRole("group", { name: "URL condition 2" });
+    const removeSecond = within(second).getByRole("button", { name: "Remove URL condition 2" });
+    expect(removeSecond).toHaveClass("absolute");
+    expect(removeSecond).toHaveTextContent("");
     expect(screen.queryByRole("combobox", { name: "Filter condition" })).not.toBeInTheDocument();
     await waitFor(() => expect(within(second).getByRole("button", { pressed: true })).toHaveFocus());
     fireEvent.click(within(second).getByRole("button", { name: "Excludes" }));
