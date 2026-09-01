@@ -357,6 +357,7 @@ interface ActiveObjectFilterChipsProps {
   onFocusFallback?: () => void;
   onFocusKey?: (key: string) => void;
   expressionReturnFocusKeys?: boolean;
+  hideRootAndOperator?: boolean;
 }
 
 function findCriterionDefinition(criteriaDefinitions: CriterionDefinition[], key: string) {
@@ -694,6 +695,7 @@ function FilterExpressionChipDisplay({
   path = [],
   onEdit,
   expressionReturnFocusKeys = false,
+  hideRootAndOperator = false,
 }: {
   expression: ChipFilterExpression;
   criteriaDefinitions: CriterionDefinition[];
@@ -704,16 +706,18 @@ function FilterExpressionChipDisplay({
   path?: number[];
   onEdit?: (target: FilterChipTarget) => void;
   expressionReturnFocusKeys?: boolean;
+  hideRootAndOperator?: boolean;
 }) {
   const rawOperator = expression.operator?.toUpperCase();
   const operator = rawOperator === "OR" || rawOperator === "NOT" ? rawOperator : "AND";
+  const showOperator = nested || operator !== "AND" || !hideRootAndOperator;
   return (
     <span data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
-      {onEdit ? (
+      {showOperator && onEdit ? (
         <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/25" aria-label={`Edit ${operator} group in Combine Filters`}>{operator}</button>
-      ) : <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span>}
+      ) : showOperator ? <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span> : null}
       {(expression.children ?? []).map((child, index) => child.group ? (
-        <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} />
+        <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} hideRootAndOperator={hideRootAndOperator} />
       ) : child.filter ? (
         onEdit ? (
           <button
@@ -958,6 +962,7 @@ function ActiveObjectFilterChipsContent({
   onFocusFallback,
   onFocusKey,
   expressionReturnFocusKeys,
+  hideRootAndOperator,
   metadataServers,
 }: ActiveObjectFilterChipsProps & { entityNameMaps: Record<string, Map<number, string>>; metadataServers: MetadataServer[] }) {
   const managesRovingKeyboard = rovingKeyboardAccess && !embeddedInToolbar;
@@ -1145,6 +1150,7 @@ function ActiveObjectFilterChipsContent({
                   ratingOptions={ratingOptions}
                   onEdit={onEdit}
                   expressionReturnFocusKeys={expressionReturnFocusKeys}
+                  hideRootAndOperator={hideRootAndOperator}
                 />
               </div>
               <button type="button" tabIndex={rovingKeyboardAccess ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove({ kind: "root", key })} className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
