@@ -642,17 +642,19 @@ function ExpressionLeafSummary({
   entityNameMaps,
   metadataServers,
   ratingOptions,
+  compact = false,
 }: {
   filter: Record<string, unknown>;
   criteriaDefinitions: CriterionDefinition[];
   entityNameMaps: Record<string, Map<number, string>>;
   metadataServers: MetadataServer[];
   ratingOptions: RatingSystemOptions;
+  compact?: boolean;
 }) {
   const entries = getLogicalFilterEntries(criteriaDefinitions, filter);
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border/80 bg-surface px-1.5 py-1">
-      {entries.map(({ key, value, endpointValue, def }) => {
+    <span className={compact ? "flex min-w-0 flex-wrap items-center gap-1" : "flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-border/80 bg-surface px-1.5 py-1"}>
+      {entries.map(({ key, value, endpointValue, def }, entryIndex) => {
         if (def?.type === "related") {
           const related = value && typeof value === "object" ? value as Record<string, unknown> : {};
           const nestedCriteria = [...(def.relatedContextCriteria ?? []), ...(def.relatedCriteria?.() ?? [])];
@@ -674,10 +676,15 @@ function ExpressionLeafSummary({
             </span>
           );
         }
+        const showCompactLabel = compact && (entryIndex > 0 || def?.auxiliaryToggleKey === key);
+        const entryLabel = def?.auxiliaryToggleKey === key ? def.auxiliaryToggleLabel ?? def.label : def?.label ?? relatedFallbackLabel(key);
+        const entryValue = def?.auxiliaryToggleKey === key && typeof value === "boolean"
+          ? (value ? "Yes" : "No")
+          : expressionEntrySummary(def, value, endpointValue, entityNameMaps, metadataServers, ratingOptions);
         return (
-          <span key={key} className="rounded bg-card px-1.5 py-0.5">
-            <span className="text-muted">{def?.label ?? relatedFallbackLabel(key)} </span>
-            {expressionEntrySummary(def, value, endpointValue, entityNameMaps, metadataServers, ratingOptions)}
+          <span key={key} className={compact ? "" : "rounded bg-card px-1.5 py-0.5"}>
+            {!compact || showCompactLabel ? <span className="text-muted">{entryLabel} </span> : null}
+            {entryValue}
           </span>
         );
       })}
@@ -977,8 +984,8 @@ function RelatedExpressionLeafDisplay({
   return (
     <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2">
       <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "mode" })} className="text-muted hover:text-foreground" aria-label={`Edit filter: ${modeLabel}${related.conditionOperator === "or" ? ", any condition" : ""}`}>{modeLabel}{related.conditionOperator === "or" ? " · any condition" : ""}:</button>
-      {q ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "search" })} className="rounded bg-card px-1.5 py-0.5 hover:bg-background/60" aria-label={`Edit ${singular} filter: Text search ${q}`}>Search “{q}”</button> : null}
-      {related._matchAll === true && !q && nestedEntries.length === 0 ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "existence" })} className="rounded bg-card px-1.5 py-0.5 hover:bg-background/60" aria-label={`Edit ${singular} filter: Any ${singular}`}>Any related {singular}</button> : null}
+      {q ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "search" })} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Text search ${q}`}>Search “{q}”</button> : null}
+      {related._matchAll === true && !q && nestedEntries.length === 0 ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "existence" })} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Any ${singular}`}>Any related {singular}</button> : null}
       {nestedEntries.map(({ key, value: nestedValue, endpointValue, def: nestedDef }) => {
         const label = nestedDef?.label ?? relatedFallbackLabel(key);
         const nameMap = nestedDef?.entityType ? entityNameMaps[nestedDef.entityType] : undefined;
@@ -990,7 +997,7 @@ function RelatedExpressionLeafDisplay({
             key={key}
             type="button"
             onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, nestedCriterionId: nestedDef?.id })}
-            className="rounded bg-card px-1.5 py-0.5 text-left hover:bg-background/60"
+            className="rounded border border-border/80 bg-surface px-1.5 py-0.5 text-left hover:border-accent hover:bg-background/60"
             aria-label={`Edit ${singular} filter: ${label} ${displayValue}`}
           >
             <span className="text-muted">{label} </span>{displayValue}
@@ -1180,7 +1187,7 @@ function ActiveObjectFilterChipsContent({
           ? formatRemoteIdFilterChipValue(value, endpointValue, metadataServers)
           : customSection?.summarize?.(value) ?? (isAuxiliaryToggle && typeof value === "boolean" ? (value ? "Yes" : "No") : formatFilterChipValue(def, value, nameMap, ratingOptions));
         const displayContent = isExpressionLeaf
-          ? <ExpressionLeafSummary filter={value as Record<string, unknown>} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
+          ? <ExpressionLeafSummary compact filter={value as Record<string, unknown>} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
           : isFilterExpression
           ? null
           : !customSection && def?.type === "rating"

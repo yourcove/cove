@@ -284,6 +284,7 @@ describe("ListPage active filter chips", () => {
                 children: [
                   { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Male)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 20, value2: 30 } } } },
                   { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Female)$", modifier: "MATCHES_REGEX", _selectedValues: ["Female"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 } } } },
+                  { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
                 ],
               },
             }}
@@ -302,7 +303,12 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByText("Between 30 and 40")).toBeInTheDocument();
     const performerChips = screen.getAllByRole("button", { name: "Edit filter: Related Performers" });
     expect(performerChips).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Edit performer filter: Age (then) Between 20 and 30" }));
+    const ageChip = screen.getByRole("button", { name: "Edit performer filter: Age (then) Between 20 and 30" });
+    expect(ageChip).toHaveClass("border");
+    const performerCountChip = screen.getByRole("button", { name: "Edit filter: Performer Count. Performer Count = 2" });
+    expect(performerCountChip).toHaveTextContent("Performer Count:= 2");
+    expect(performerCountChip.textContent?.match(/Performer Count/g)).toHaveLength(1);
+    fireEvent.click(ageChip);
     expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Age (then)" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Between", pressed: true })).toHaveFocus());
