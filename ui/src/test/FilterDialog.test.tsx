@@ -2065,8 +2065,8 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "URL condition 1" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "URL condition 2" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit filter: URL: Includes foo" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit filter: URL: Excludes bar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: URL. URL Includes foo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: URL. URL Excludes bar" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({
@@ -2220,13 +2220,52 @@ describe("FilterDialog", () => {
     await user.type(screen.getByRole("searchbox", { name: "Search filter criteria" }), "title");
     expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toHaveLength(1);
 
-    const removeExpression = within(toolbar).getByRole("button", { name: /Remove filter: Date: < 2000-01-01/ });
+    const removeExpression = within(toolbar).getByRole("button", { name: "Remove filter: Date" });
     removeExpression.focus();
     await user.keyboard("{Enter}");
     await waitFor(() => expect(within(toolbar).getByRole("button", { name: "Remove filter: Organized" })).toHaveFocus());
     expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([
       within(toolbar).getByRole("button", { name: "Remove filter: Organized" }),
     ]);
+  });
+
+  it("uses the shared structured chips for simple expression conditions", async () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
+          { filter: { performerFilterCriterion: {
+            ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 }, objectFilter: {
+            genderCriterion: { value: "^(?:Male)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male"] },
+          } } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        openAtRoot
+      />,
+    );
+
+    const toolbar = screen.getByRole("toolbar", { name: "Selected filters" });
+    expect(within(toolbar).getByRole("button", { name: "Edit filter: Performer Count. Performer Count = 2" })).toHaveTextContent("Performer Count:= 2");
+    const ageChip = within(toolbar).getByRole("button", { name: "Edit performer filter: Age (then) Between 18 and 25" });
+    expect(ageChip).toHaveClass("border");
+    expect(within(toolbar).getByRole("button", { name: "Edit performer filter: Gender Male" })).toHaveClass("border");
+    expect(within(toolbar).queryByRole("button", { name: /At least one performer —/ })).not.toBeInTheDocument();
+    fireEvent.click(ageChip);
+    expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Age (then)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel condition" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Filters / Related Performers" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Back to filters" }));
+    await waitFor(() => expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit filter: Related Performers" })).toHaveFocus());
+
+    const returnedToolbar = screen.getByRole("toolbar", { name: "Selected filters" });
+    fireEvent.click(within(returnedToolbar).getByRole("button", { name: "Remove filter: Related Performers" }));
+    expect(within(returnedToolbar).queryByRole("button", { name: "Edit filter: Related Performers" })).not.toBeInTheDocument();
+    expect(within(returnedToolbar).getByRole("button", { name: "Edit filter: Performer Count. Performer Count = 2" })).toBeInTheDocument();
   });
 
   it("keeps focus in the unified group when its final ordinary filter is removed", async () => {
@@ -2257,9 +2296,9 @@ describe("FilterDialog", () => {
     await waitFor(() => expect(within(toolbar).getByRole("button", { name: "Edit filter: Title" })).toHaveFocus());
 
     await user.keyboard("{Delete}");
-    await waitFor(() => expect(within(toolbar).getByRole("button", { name: /Remove filter: Date: < 2000-01-01/ })).toHaveFocus());
+    await waitFor(() => expect(within(toolbar).getByRole("button", { name: "Remove filter: Date" })).toHaveFocus());
     expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toEqual([
-      within(toolbar).getByRole("button", { name: /Remove filter: Date: < 2000-01-01/ }),
+      within(toolbar).getByRole("button", { name: "Remove filter: Date" }),
     ]);
   });
 
@@ -2508,7 +2547,7 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Advanced" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Combine Filters" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Title: Includes foo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Title. Title Includes foo" }));
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Title condition 1" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "=" })).toHaveFocus());
@@ -2551,7 +2590,7 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Edit filter: Date: > 2020-01-01" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: Date. Date > 2020-01-01" })).toBeInTheDocument();
   });
 
   it("shows ordinary sidebar edits when returning from a flat stack to Advanced", () => {

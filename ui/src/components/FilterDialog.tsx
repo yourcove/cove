@@ -1048,6 +1048,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const viewReturnFocusRef = useRef<HTMLElement | null>(null);
   const simpleReturnFocusKeyRef = useRef<string | null>(null);
+  const pendingRelatedWorkspaceReturnFocusRef = useRef(false);
   const expressionReturnFocusKeyRef = useRef<string | null>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const criterionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -1406,6 +1407,20 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     else returnToExpression();
   }, [conditionDraft?.returnView, returnToExpression, returnToSimpleFilters]);
 
+  const closeRelatedWorkspace = useCallback(() => {
+    const returnFocusKey = pendingRelatedWorkspaceReturnFocusRef.current ? simpleReturnFocusKeyRef.current : null;
+    pendingRelatedWorkspaceReturnFocusRef.current = false;
+    if (returnFocusKey) simpleReturnFocusKeyRef.current = null;
+    setExpandedCriterion(null);
+    setRelatedWorkspaceSelection(null);
+    window.setTimeout(() => window.setTimeout(() => {
+      const keyedTarget = returnFocusKey
+        ? dialogRef.current?.querySelector<HTMLElement>(`[data-simple-return-focus="${returnFocusKey}"]`)
+        : null;
+      (keyedTarget ?? searchRef.current)?.focus();
+    }, 0), 0);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1422,8 +1437,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             setRelatedWorkspaceSelection(null);
             window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>("[aria-label='Saved performer filter'], [aria-label='Saved video filter']")?.focus(), 0);
           } else {
-            setExpandedCriterion(null);
-            window.setTimeout(() => searchRef.current?.focus(), 0);
+            closeRelatedWorkspace();
           }
         } else dismiss();
         return;
@@ -1445,7 +1459,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [cancelExpressionCondition, conditionDraft, dialogView, dismiss, inlineStackReturnsToExpression, open, relatedWorkspaceCriterion, relatedWorkspaceSelection, returnToExpression, returnToSimpleFilters]);
+  }, [cancelExpressionCondition, closeRelatedWorkspace, conditionDraft, dialogView, dismiss, inlineStackReturnsToExpression, open, relatedWorkspaceCriterion, relatedWorkspaceSelection, returnToExpression, returnToSimpleFilters]);
 
   const handleRemoveCriterion = useCallback((criterion: CriterionDefinition, criterionId?: string) => {
     setEditFilter((prev) => removeCriterionFilterValue(prev, criterion));
@@ -1633,7 +1647,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       return;
     }
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (returnView === "simple") simpleReturnFocusKeyRef.current = `expression-${path.join(".")}`;
+    if (returnView === "simple") {
+      simpleReturnFocusKeyRef.current = `expression-${path.join(".")}`;
+      pendingRelatedWorkspaceReturnFocusRef.current = criterion?.type === "related";
+    }
     else expressionReturnFocusKeyRef.current = `edit-${path.join(".")}`;
     setConditionDraft({ filter, path, parentPath: path.slice(0, -1), isNew: false, returnView: returnView === "simple" ? "simple" : "expression" });
     setExpandedCriterion(criterion?.id ?? null);
@@ -1878,9 +1895,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                   else if (inlineStackReturnsToExpression) returnToExpression();
                   else if (dialogView === "expression") returnToSimpleFilters();
                   else {
-                    setExpandedCriterion(null);
-                    setRelatedWorkspaceSelection(null);
-                    window.setTimeout(() => searchRef.current?.focus(), 0);
+                    closeRelatedWorkspace();
                   }
                 }}
                 className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground"
@@ -1964,16 +1979,29 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             }}
           >
             <span id={selectedFiltersInstructionsId} className="sr-only">Use Left and Right Arrow to move between selected filter parts and Clear all. Press Down Arrow to move to filter search. Press Enter to activate the focused control.</span>
-            {validSimpleExpressionEntries.map(({ child, index }) => (
-              <div key={index} className="flex min-h-9 max-w-full items-stretch overflow-hidden rounded-lg border border-border bg-card text-sm">
-                <button type="button" onClick={() => openSimpleExpressionCondition([index])} data-simple-return-focus={`expression-${index}`} className="min-w-0 px-3 text-left hover:bg-background/40" aria-label={`Edit filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
-                  <span className="truncate">{summarizeExpressionCondition(child.filter ?? {}, criteria)}</span>
-                </button>
-                <button type="button" onClick={() => removeSimpleExpressionCondition(index)} className="flex w-9 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" aria-label={`Remove filter: ${summarizeExpressionCondition(child.filter ?? {}, criteria)}`}>
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
+            {validSimpleExpressionEntries.map(({ child, index }) => {
+              const { _criterionId: _draftCriterionId, ...displayFilter } = child.filter ?? {};
+              return (
+              <ActiveObjectFilterChips
+                key={index}
+                criteriaDefinitions={criteria}
+                objectFilter={{ [FILTER_EXPRESSION_STATE_KEY]: { operator: "AND", children: [{ ...child, filter: displayFilter }] } }}
+                onEdit={(target) => {
+                  if (target.kind === "expression") {
+                    setRelatedWorkspaceSelection(target.criterionId ? { facet: target.relatedFacet ?? (target.nestedCriterionId ? "criterion" : "mode"), nestedCriterionId: target.nestedCriterionId } : null);
+                    openSimpleExpressionCondition(target.path);
+                  }
+                }}
+                onRemove={() => removeSimpleExpressionCondition(index)}
+                expressionReturnFocusKeys
+                expressionPathOffset={index}
+                hideRootAndOperator
+                embeddedInToolbar
+                ariaLabel={`Selected filter ${index + 1}`}
+                className="!m-0 !border-0 !bg-transparent !p-0"
+              />
+              );
+            })}
             {hasComplexExpression ? (
               <ActiveObjectFilterChips
                 criteriaDefinitions={criteria}

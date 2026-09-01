@@ -358,6 +358,7 @@ interface ActiveObjectFilterChipsProps {
   onFocusKey?: (key: string) => void;
   expressionReturnFocusKeys?: boolean;
   hideRootAndOperator?: boolean;
+  expressionPathOffset?: number;
 }
 
 function findCriterionDefinition(criteriaDefinitions: CriterionDefinition[], key: string) {
@@ -962,6 +963,7 @@ function RelatedExpressionLeafDisplay({
   metadataServers,
   ratingOptions,
   onEdit,
+  expressionReturnFocusKeys,
 }: {
   path: number[];
   def: CriterionDefinition;
@@ -970,6 +972,7 @@ function RelatedExpressionLeafDisplay({
   metadataServers: MetadataServer[];
   ratingOptions: RatingSystemOptions;
   onEdit: (target: FilterChipTarget) => void;
+  expressionReturnFocusKeys?: boolean;
 }) {
   const leafFilter = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const criterionValue = leafFilter[def.filterKey];
@@ -983,7 +986,7 @@ function RelatedExpressionLeafDisplay({
   const modeLabel = related.mode === "every" ? `Every ${singular}` : related.mode === "none" || related.exclude ? `No ${singular}` : def.label;
   return (
     <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2">
-      <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "mode" })} className="text-muted hover:text-foreground" aria-label={`Edit filter: ${modeLabel}${related.conditionOperator === "or" ? ", any condition" : ""}`}>{modeLabel}{related.conditionOperator === "or" ? " · any condition" : ""}:</button>
+      <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "mode" })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-${path.join(".")}` : undefined} className="text-muted hover:text-foreground" aria-label={`Edit filter: ${modeLabel}${related.conditionOperator === "or" ? ", any condition" : ""}`}>{modeLabel}{related.conditionOperator === "or" ? " · any condition" : ""}:</button>
       {q ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "search" })} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Text search ${q}`}>Search “{q}”</button> : null}
       {related._matchAll === true && !q && nestedEntries.length === 0 ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "existence" })} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Any ${singular}`}>Any related {singular}</button> : null}
       {nestedEntries.map(({ key, value: nestedValue, endpointValue, def: nestedDef }) => {
@@ -1024,6 +1027,7 @@ function ActiveObjectFilterChipsContent({
   onFocusKey,
   expressionReturnFocusKeys,
   hideRootAndOperator,
+  expressionPathOffset = 0,
   metadataServers,
 }: ActiveObjectFilterChipsProps & { entityNameMaps: Record<string, Map<number, string>>; metadataServers: MetadataServer[] }) {
   const managesRovingKeyboard = rovingKeyboardAccess && !embeddedInToolbar;
@@ -1071,7 +1075,8 @@ function ActiveObjectFilterChipsContent({
   }, [focusedKey, keysSignature, logicalEntries, managesRovingKeyboard, onClearAll]);
   const targetForKey = (key: string): FilterChipTarget => {
     const path = logicalEntries.find((entry) => entry.key === key)?.expressionPath;
-    return path ? { kind: "expression", parentKey: "_filterExpression", path } : { kind: "root", key };
+    const effectivePath = path ? [path[0] + expressionPathOffset, ...path.slice(1)] : undefined;
+    return effectivePath ? { kind: "expression", parentKey: "_filterExpression", path: effectivePath } : { kind: "root", key };
   };
 
   const handleEditKeyDown = (event: KeyboardEvent<HTMLButtonElement>, key: string, label: string) => {
@@ -1143,6 +1148,7 @@ function ActiveObjectFilterChipsContent({
         const isAuxiliaryToggle = def?.auxiliaryToggleKey === key;
         const isFilterExpression = key === "_filterExpression";
         const isExpressionLeaf = Boolean(expressionPath);
+        const effectiveExpressionPath = expressionPath ? [expressionPath[0] + expressionPathOffset, ...expressionPath.slice(1)] : undefined;
         const label = isFilterExpression ? "Combine Filters" : customSection?.label ?? (isAuxiliaryToggle ? def?.auxiliaryToggleLabel : undefined) ?? def?.label ?? key;
         if (!isExpressionLeaf && !customSection && def?.type === "related") {
           return (
@@ -1223,8 +1229,8 @@ function ActiveObjectFilterChipsContent({
         if (isExpressionLeaf && def?.type === "related") {
           return (
             <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
-              <RelatedExpressionLeafDisplay path={expressionPath!} def={def} value={value} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} onEdit={onEdit} />
-              <button type="button" onClick={() => onRemove({ kind: "expression", parentKey: "_filterExpression", path: expressionPath! })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+              <RelatedExpressionLeafDisplay path={effectiveExpressionPath!} def={def} value={value} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} />
+              <button type="button" onClick={() => onRemove({ kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
                 <X className="h-3 w-3" />
               </button>
             </div>
@@ -1235,7 +1241,7 @@ function ActiveObjectFilterChipsContent({
             <button
               ref={(element) => { if (element) buttonRefs.current.set(key, element); else buttonRefs.current.delete(key); }}
               type="button"
-              onClick={() => onEdit(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: expressionPath! } : { kind: "root", key })}
+              onClick={() => onEdit(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! } : { kind: "root", key })}
               onFocus={managesRovingKeyboard ? () => setFocusedKey(key) : undefined}
               onKeyDown={rovingKeyboardAccess ? (event) => handleEditKeyDown(event, key, label) : undefined}
               tabIndex={managesRovingKeyboard ? (focusedKey === key || (!focusedKey && key === keys[0]) ? 0 : -1) : undefined}
@@ -1248,7 +1254,7 @@ function ActiveObjectFilterChipsContent({
               <span className="text-muted">{label}:</span>
               <span className="flex min-w-0 max-w-full flex-wrap items-center">{displayContent}</span>
             </button>
-            <button type="button" tabIndex={managesRovingKeyboard ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: expressionPath! } : { kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
+            <button type="button" tabIndex={managesRovingKeyboard ? -1 : undefined} onClick={() => rovingKeyboardAccess ? removeFilter(key, label) : onRemove(isExpressionLeaf ? { kind: "expression", parentKey: "_filterExpression", path: effectiveExpressionPath! } : { kind: "root", key })} className="flex w-7 items-center justify-center border-l border-border text-muted hover:bg-red-500/10 hover:text-red-300" title={`Remove filter: ${label}`} aria-label={`Remove filter: ${label}`}>
               <X className="h-3 w-3" />
             </button>
           </div>
