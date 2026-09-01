@@ -2048,13 +2048,12 @@ describe("FilterDialog", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Add another URL" }));
-    expect(screen.getByRole("heading", { name: "Add URL condition" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add another URL" }).parentElement).toHaveClass("mt-auto");
+    const second = screen.getByRole("group", { name: "URL condition 2" });
     expect(screen.queryByRole("combobox", { name: "Filter condition" })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { pressed: true })).toHaveFocus());
-    fireEvent.click(screen.getByRole("button", { name: "Excludes" }));
-    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "bar" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
+    await waitFor(() => expect(within(second).getByRole("button", { pressed: true })).toHaveFocus());
+    fireEvent.click(within(second).getByRole("button", { name: "Excludes" }));
+    fireEvent.change(within(second).getByLabelText("Value"), { target: { value: "bar" } });
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "URL condition 1" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "URL condition 2" })).toBeInTheDocument();
@@ -2090,11 +2089,10 @@ describe("FilterDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
     expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Filter condition" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: ">" }));
-    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "2020-01-01" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
     const first = screen.getByRole("group", { name: "Date condition 1" });
     const second = screen.getByRole("group", { name: "Date condition 2" });
+    fireEvent.click(within(second).getByRole("button", { name: ">" }));
+    fireEvent.change(within(second).getByLabelText("Value"), { target: { value: "2020-01-01" } });
     expect(within(first).getByDisplayValue("2000-01-01")).toBeInTheDocument();
     expect(within(second).getByDisplayValue("2020-01-01")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
@@ -2375,12 +2373,11 @@ describe("FilterDialog", () => {
 
     expect(screen.queryByRole("group", { name: "Date condition 1" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
-    expect(screen.getByRole("heading", { name: "Add Date condition" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: ">" }));
-    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "2020-01-01" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
+    const newCondition = screen.getByRole("group", { name: "Date condition 2" });
+    fireEvent.click(within(newCondition).getByRole("button", { name: ">" }));
+    fireEvent.change(within(newCondition).getByLabelText("Value"), { target: { value: "2020-01-01" } });
     expect(screen.getByRole("group", { name: "Date condition 1" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Date condition 2" })).toBeInTheDocument();
     expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).queryByRole("button", { name: "Edit AND group in Combine Filters" })).not.toBeInTheDocument();
@@ -2442,9 +2439,9 @@ describe("FilterDialog", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Add another Video Count" }));
-    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "4" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
     const first = screen.getByRole("group", { name: "Video Count condition 1" });
+    const second = screen.getByRole("group", { name: "Video Count condition 2" });
+    fireEvent.change(within(second).getByRole("spinbutton"), { target: { value: "4" } });
     fireEvent.change(within(first).getByRole("spinbutton"), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
@@ -2454,7 +2451,7 @@ describe("FilterDialog", () => {
     ] } });
   });
 
-  it("cancels an incomplete repeated condition without changing the original", async () => {
+  it("removes an incomplete repeated condition inline", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(
       <FilterDialog
@@ -2469,12 +2466,14 @@ describe("FilterDialog", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Add another URL" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel condition" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove URL condition 2" }));
     expect(screen.queryByRole("group", { name: "URL condition 1" })).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("foo")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenCalledWith({
-      urlCriterion: { modifier: "INCLUDES", value: "foo" },
+      _filterExpression: { operator: "AND", children: [
+        { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
+      ] },
     });
   });
 
@@ -2504,7 +2503,7 @@ describe("FilterDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit filter: Title: Includes foo" }));
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Title condition 1" })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add another Title" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "=" })).toHaveFocus());
   });
 
   it("uses the ordinary stack when editing a flat condition from the organizer", async () => {
@@ -2819,7 +2818,7 @@ describe("FilterDialog", () => {
     });
   });
 
-  it("adds a direct condition by wrapping a root NOT in an implicit AND", () => {
+  it("adds a direct condition by wrapping a root NOT in an implicit AND", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(
       <FilterDialog
@@ -2837,9 +2836,12 @@ describe("FilterDialog", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Date" }));
     expect(screen.queryByRole("group", { name: "Date condition 1" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
-    fireEvent.click(screen.getByRole("button", { name: ">" }));
-    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "2020-01-01" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
+    const newCondition = screen.getByRole("group", { name: "Date condition 1" });
+    expect(within(newCondition).getByRole("button", { name: "Remove Date condition 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add another Date" })).toBeDisabled();
+    await waitFor(() => expect(within(newCondition).getByRole("button", { pressed: true })).toHaveFocus());
+    fireEvent.click(within(newCondition).getByRole("button", { name: ">" }));
+    fireEvent.change(within(newCondition).getByLabelText("Value"), { target: { value: "2020-01-01" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "AND", children: [
@@ -2850,7 +2852,7 @@ describe("FilterDialog", () => {
     ] } });
   });
 
-  it("adds a direct condition at the root while preserving a nested NOT", () => {
+  it("adds a direct condition at the root while preserving a nested NOT", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(
       <FilterDialog
@@ -2870,9 +2872,11 @@ describe("FilterDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
     fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
-    fireEvent.click(screen.getByRole("button", { name: ">" }));
-    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "2020-01-01" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
+    const newCondition = screen.getByRole("group", { name: "Date condition 1" });
+    expect(within(newCondition).getByRole("button", { name: "Remove Date condition 1" })).toBeInTheDocument();
+    await waitFor(() => expect(within(newCondition).getByRole("button", { pressed: true })).toHaveFocus());
+    fireEvent.click(within(newCondition).getByRole("button", { name: ">" }));
+    fireEvent.change(within(newCondition).getByLabelText("Value"), { target: { value: "2020-01-01" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({
@@ -2887,6 +2891,75 @@ describe("FilterDialog", () => {
         ],
       },
     });
+  });
+
+  it.each([
+    {
+      name: "root NOT",
+      activeFilter: { _filterExpression: { operator: "NOT", children: [
+        { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+      ] } },
+      openNested: false,
+    },
+    {
+      name: "nested NOT",
+      activeFilter: { _filterExpression: { operator: "AND", children: [
+        { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+        { group: { operator: "NOT", children: [
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } },
+      ] } },
+      openNested: true,
+    },
+  ])("restores the $name editor after removing an inline addition", async ({ activeFilter, openNested }) => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={activeFilter}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        preselectCriterion={openNested ? undefined : "date"}
+      />,
+    );
+
+    if (openNested) fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Date condition 1" }));
+
+    expect(screen.queryByRole("group", { name: "Date condition 1" })).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("2000-01-01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add another Date" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "<" })).toHaveFocus());
+  });
+
+  it("rebases inline-addition restoration after removing an earlier sibling", async () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "1990-01-01" } } },
+          { group: { operator: "NOT", children: [
+            { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+          ] } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Date condition 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Date condition 1" }));
+
+    expect(screen.queryByRole("group", { name: "Date condition 1" })).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("2000-01-01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add another Date" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "<" })).toHaveFocus());
   });
 
   it("does not ungroup multiple conditions directly into a NOT group", () => {
