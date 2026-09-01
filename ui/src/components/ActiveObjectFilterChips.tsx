@@ -987,8 +987,8 @@ function RelatedExpressionLeafDisplay({
   return (
     <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2">
       <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "mode" })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-${path.join(".")}` : undefined} className="text-muted hover:text-foreground" aria-label={`Edit filter: ${modeLabel}${related.conditionOperator === "or" ? ", any condition" : ""}`}>{modeLabel}{related.conditionOperator === "or" ? " · any condition" : ""}:</button>
-      {q ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "search" })} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Text search ${q}`}>Search “{q}”</button> : null}
-      {related._matchAll === true && !q && nestedEntries.length === 0 ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "existence" })} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Any ${singular}`}>Any related {singular}</button> : null}
+      {q ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "search" })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-${path.join(".")}-facet-search` : undefined} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Text search ${q}`}>Search “{q}”</button> : null}
+      {related._matchAll === true && !q && nestedEntries.length === 0 ? <button type="button" onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, relatedFacet: "existence" })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-${path.join(".")}-facet-existence` : undefined} className="rounded border border-border/80 bg-surface px-1.5 py-0.5 hover:border-accent hover:bg-background/60" aria-label={`Edit ${singular} filter: Any ${singular}`}>Any related {singular}</button> : null}
       {nestedEntries.map(({ key, value: nestedValue, endpointValue, def: nestedDef }) => {
         const label = nestedDef?.label ?? relatedFallbackLabel(key);
         const nameMap = nestedDef?.entityType ? entityNameMaps[nestedDef.entityType] : undefined;
@@ -1000,6 +1000,7 @@ function RelatedExpressionLeafDisplay({
             key={key}
             type="button"
             onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path, criterionId: def.id, nestedCriterionId: nestedDef?.id })}
+            data-simple-return-focus={expressionReturnFocusKeys ? `expression-${path.join(".")}-nested-${nestedDef.id}` : undefined}
             className="rounded border border-border/80 bg-surface px-1.5 py-0.5 text-left hover:border-accent hover:bg-background/60"
             aria-label={`Edit ${singular} filter: ${label} ${displayValue}`}
           >

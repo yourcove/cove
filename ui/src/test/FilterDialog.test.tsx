@@ -135,7 +135,9 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("heading", { name: "Edit Related Performers condition" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Male" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Cancel condition" }));
-    await waitFor(() => expect(within(screen.getByRole("group", { name: "Related Performers condition 1" })).getByRole("button", { name: "Edit" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Edit filter: Related Performers" })[0]).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({
@@ -2257,15 +2259,52 @@ describe("FilterDialog", () => {
     fireEvent.click(ageChip);
     expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Age (then)" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel condition" }));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Filters / Related Performers" })).toBeInTheDocument());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+    const returnedAgeChip = within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit performer filter: Age (then) Between 18 and 25" });
+    await waitFor(() => expect(returnedAgeChip).toHaveFocus());
+
+    fireEvent.click(returnedAgeChip);
     fireEvent.click(screen.getByRole("button", { name: "Back to filters" }));
-    await waitFor(() => expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit filter: Related Performers" })).toHaveFocus());
+    await waitFor(() => expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit performer filter: Age (then) Between 18 and 25" })).toHaveFocus());
+
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit performer filter: Age (then) Between 18 and 25" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save condition" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: "Edit performer filter: Age (then) Between 18 and 25" })).toHaveFocus());
 
     const returnedToolbar = screen.getByRole("toolbar", { name: "Selected filters" });
     fireEvent.click(within(returnedToolbar).getByRole("button", { name: "Remove filter: Related Performers" }));
     expect(within(returnedToolbar).queryByRole("button", { name: "Edit filter: Related Performers" })).not.toBeInTheDocument();
     expect(within(returnedToolbar).getByRole("button", { name: "Edit filter: Performer Count. Performer Count = 2" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["search", { findFilter: { q: "sample" } }, "Edit performer filter: Text search sample"],
+    ["existence", { _matchAll: true }, "Edit performer filter: Any performer"],
+  ])("restores focus to the related performer %s chip", async (_facet, relatedValue, chipName) => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { filter: { performerFilterCriterion: relatedValue } },
+          { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        openAtRoot
+      />,
+    );
+
+    const chip = within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: chipName });
+    fireEvent.click(chip);
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(within(screen.getByRole("toolbar", { name: "Selected filters" })).getByRole("button", { name: chipName })).toHaveFocus());
   });
 
   it("keeps focus in the unified group when its final ordinary filter is removed", async () => {

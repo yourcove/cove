@@ -1403,9 +1403,16 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   }, [criteria]);
 
   const cancelExpressionCondition = useCallback(() => {
-    if (conditionDraft?.returnView === "simple") returnToSimpleFilters();
+    if (conditionDraft?.returnView === "simple") {
+      if (!conditionDraft.isNew && getExpressionConditionCriterion(conditionDraft.filter, criteria)?.type === "related") {
+        setExpandedCriterion(null);
+        setRelatedWorkspaceSelection(null);
+        pendingRelatedWorkspaceReturnFocusRef.current = false;
+      }
+      returnToSimpleFilters();
+    }
     else returnToExpression();
-  }, [conditionDraft?.returnView, returnToExpression, returnToSimpleFilters]);
+  }, [conditionDraft, criteria, returnToExpression, returnToSimpleFilters]);
 
   const closeRelatedWorkspace = useCallback(() => {
     const returnFocusKey = pendingRelatedWorkspaceReturnFocusRef.current ? simpleReturnFocusKeyRef.current : null;
@@ -1426,7 +1433,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        if (relatedWorkspaceSelection) {
+        if (conditionDraft?.returnView === "simple" && !conditionDraft.isNew && relatedWorkspaceSelection) {
+          cancelExpressionCondition();
+        } else if (relatedWorkspaceSelection) {
           setRelatedWorkspaceSelection(null);
           window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>("[aria-label='Saved performer filter'], [aria-label='Saved video filter']")?.focus(), 0);
         } else if (conditionDraft) cancelExpressionCondition();
@@ -1632,7 +1641,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     window.setTimeout(() => criterionId ? focusFirstConditionEditorControl() : searchRef.current?.focus(), 0);
   };
 
-  const openExpressionCondition = (path: number[], returnView: "simple" | "expression" = "expression") => {
+  const openExpressionCondition = (path: number[], returnView: "simple" | "expression" = "expression", simpleReturnFocusKey?: string) => {
     if (!expression) return;
     const filter = getExpressionLeaf(expression, path);
     if (!filter) return;
@@ -1648,7 +1657,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (returnView === "simple") {
-      simpleReturnFocusKeyRef.current = `expression-${path.join(".")}`;
+      simpleReturnFocusKeyRef.current = simpleReturnFocusKey ?? `expression-${path.join(".")}`;
       pendingRelatedWorkspaceReturnFocusRef.current = criterion?.type === "related";
     }
     else expressionReturnFocusKeyRef.current = `edit-${path.join(".")}`;
@@ -1693,7 +1702,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         : updateExpressionLeaf(base, conditionDraft.path ?? [], sanitized);
       return { ...expressionPassthroughFilter(current, criteria), [FILTER_EXPRESSION_STATE_KEY]: next };
     });
-    if (conditionDraft.returnView === "simple") returnToSimpleFilters();
+    if (conditionDraft.returnView === "simple") {
+      if (!conditionDraft.isNew && getExpressionConditionCriterion(conditionDraft.filter, criteria)?.type === "related") {
+        setExpandedCriterion(null);
+        setRelatedWorkspaceSelection(null);
+        pendingRelatedWorkspaceReturnFocusRef.current = false;
+      }
+      returnToSimpleFilters();
+    }
     else returnToExpression();
   };
 
@@ -1888,7 +1904,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 ref={backButtonRef}
                 type="button"
                 onClick={() => {
-                  if (conditionDraft && relatedWorkspaceSelection) {
+                  if (conditionDraft?.returnView === "simple" && !conditionDraft.isNew && relatedWorkspaceSelection) {
+                    cancelExpressionCondition();
+                  } else if (conditionDraft && relatedWorkspaceSelection) {
                     setRelatedWorkspaceSelection(null);
                     window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>("[aria-label='Saved performer filter'], [aria-label='Saved video filter']")?.focus(), 0);
                   } else if (conditionDraft) cancelExpressionCondition();
@@ -1989,7 +2007,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 onEdit={(target) => {
                   if (target.kind === "expression") {
                     setRelatedWorkspaceSelection(target.criterionId ? { facet: target.relatedFacet ?? (target.nestedCriterionId ? "criterion" : "mode"), nestedCriterionId: target.nestedCriterionId } : null);
-                    openSimpleExpressionCondition(target.path);
+                    if (target.nestedCriterionId) openExpressionCondition(target.path, "simple", `expression-${target.path.join(".")}-nested-${target.nestedCriterionId}`);
+                    else if (target.relatedFacet === "search" || target.relatedFacet === "existence") openExpressionCondition(target.path, "simple", `expression-${target.path.join(".")}-facet-${target.relatedFacet}`);
+                    else openSimpleExpressionCondition(target.path);
                   }
                 }}
                 onRemove={() => removeSimpleExpressionCondition(index)}
