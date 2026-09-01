@@ -2792,7 +2792,7 @@ function ExpressionGroupEditor({
   const hasNestedGroup = group.children.some((child) => Boolean(child.group));
   const displayedChildren = sortFilterExpressionChildrenForDisplay(group.children, mode);
   const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
-  const hasGroupActions = group.operator === "NOT" || group.children.length === 1 || !root || (group.children.length > 0 && canCreateNestedGroup);
+  const hasGroupActions = !root || (mode !== "NOT" && group.children.length > 0 && canCreateNestedGroup);
   useEffect(() => {
     setSelected(new Set());
     setGroupingMode(false);
@@ -2863,7 +2863,7 @@ function ExpressionGroupEditor({
     setGroupingMode(true);
     window.setTimeout(() => childFocusRefs.current.get(displayedChildren[0]?.index ?? 0)?.focus(), 0);
   };
-  const setOperator = (nextMode: "AND" | "OR" | "NONE" | "NOT") => {
+  const setOperator = (nextMode: "AND" | "OR" | "NONE") => {
     setOpenMenu(null);
     onChange(nextMode === "NONE"
       ? { ...group, operator: "OR", _semanticNone: true } as EditableFilterExpression
@@ -2928,15 +2928,11 @@ function ExpressionGroupEditor({
           <button ref={groupMenuButtonRef} type="button" data-expression-group-control={operator === "NOT" ? groupPathKey : undefined} aria-label={`More actions for ${root ? "root " : ""}group`} aria-expanded={openMenu === "group"} onClick={() => setOpenMenu((current) => current === "group" ? null : "group")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
           {openMenu === "group" ? (
             <div role="group" aria-label="Group actions" className="absolute right-0 top-full z-20 mt-1 min-w-44 rounded-lg border border-border bg-surface p-1 shadow-xl">
-              {operator === "NOT" ? <>
-                <button type="button" onClick={() => setOperator("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">All</button>
-                <button type="button" onClick={() => setOperator("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Any</button>
-              </> : group.children.length === 1 ? <button type="button" onClick={() => setOperator("NOT")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Exclude</button> : null}
+              {mode !== "NOT" && group.children.length > 0 ? <button type="button" onClick={() => { setOpenMenu(null); startGrouping(); }} disabled={!canCreateNestedGroup} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Create subgroup</button> : null}
               {!root ? <>
                 <button type="button" onClick={() => { setOpenMenu(null); ungroupChildFromParent?.(); }} disabled={!ungroupChildFromParent || (parentOperator === "NOT" && group.children.length !== 1)} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Dissolve group</button>
                 <button type="button" onClick={() => { setOpenMenu(null); removeGroupFromParent?.(); }} disabled={!removeGroupFromParent || parentOperator === "NOT"} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove group</button>
               </> : null}
-              {mode !== "NOT" && group.children.length > 0 ? <button type="button" onClick={() => { setOpenMenu(null); startGrouping(); }} disabled={!canCreateNestedGroup} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Create subgroup</button> : null}
             </div>
           ) : null}
           </> : null}

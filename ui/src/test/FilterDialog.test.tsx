@@ -2985,6 +2985,34 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("region", { name: "Exclude group" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "All group" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Exclude group" }).querySelector(":scope > div:first-child button[aria-label='Add condition']")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More actions for root group" })).not.toBeInTheDocument();
+  });
+
+  it("keeps operators out of group action menus", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { group: { operator: "NOT", children: [
+            { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+          ] } },
+          { filter: { directorCriterion: { modifier: "INCLUDES", value: "bar" } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    const noneGroup = screen.getByRole("region", { name: "None group" });
+    fireEvent.click(within(noneGroup).getByRole("button", { name: "More actions for group" }));
+    const actions = within(noneGroup).getByRole("group", { name: "Group actions" });
+    expect(within(actions).getByRole("button", { name: "Create subgroup" })).toBeInTheDocument();
+    expect(within(actions).queryByRole("button", { name: "All" })).not.toBeInTheDocument();
+    expect(within(actions).queryByRole("button", { name: "Any" })).not.toBeInTheDocument();
+    expect(within(actions).queryByRole("button", { name: "Exclude" })).not.toBeInTheDocument();
   });
 
   it("moves a nested condition to the outer group through the accessible destination menu", async () => {
