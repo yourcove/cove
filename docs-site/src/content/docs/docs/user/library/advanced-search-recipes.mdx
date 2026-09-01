@@ -6,17 +6,17 @@ draft: true
 
 This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the **Combine Filters** experience and the examples are still under review.
 
-Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **Match all**, **Match any**, or **Exclude** group.
+Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **All**, **Any**, or **Exclude** group.
 
 ## Combine filters into groups
 
 **Combine Filters** presents the search as readable rules. Each group has one matching mode:
 
-- **Match all** requires every direct condition or group.
-- **Match any** requires at least one direct condition or group.
-- **Exclude this** requires its one condition or nested group not to match.
+- **All** requires every direct condition or group.
+- **Any** requires at least one direct condition or group.
+- **Exclude** requires its one condition or nested group not to match.
 
-Choose **Group conditions** to enter grouping mode, then select sibling rules. Two or more selections can become a **Match all** or **Match any** group. One selection can become **Exclude**. Choose **Cancel grouping** to leave the search unchanged.
+Choose **Group conditions** to enter grouping mode, then select sibling rules. Two or more selections can become an **All** or **Any** group. One selection can become **Exclude**. Choose **Cancel grouping** to leave the search unchanged.
 
 Each rule is already written as a plain-language sentence. Select a sentence to edit it. Secondary actions are available from its more-actions menu; a group menu can change excluded logic, dissolve the group without deleting its rules, or remove the entire group.
 
@@ -43,7 +43,7 @@ To find a video containing both a male performer aged 20–30 and a female perfo
 | First | Male | Between 20 and 30 |
 | Second | Female | Between 30 and 40 |
 
-Keep the two related-performer conditions joined with **AND**. Each condition must match one performer, while the filters inside each condition must match the same performer. The male and female requirements may therefore be satisfied by different people in the video.
+Keep the two related-performer conditions in an **All** group. Each condition must match one performer, while the filters inside each condition must match the same performer. The male and female requirements may therefore be satisfied by different people in the video.
 
 Do not combine gender and both age ranges inside one related-performer condition. Conditions inside that workspace describe one performer.
 
@@ -52,10 +52,10 @@ Do not combine gender and both age ranges inside one related-performer condition
 Some searches need the same criterion more than once. For example, videos outside a date interval can be expressed as:
 
 - **Date** is before `2000-01-01`
-- **OR**
+- **Any**
 - **Date** is after `2020-01-01`
 
-Add the first **Date** condition, choose **Add another Date**, and use **Combine filters…** to change **Match all** to **Match any**.
+Add the first **Date** condition, choose **Add another Date**, and use **Combine filters…** to change **All** to **Any**.
 
 The same pattern applies when one string criterion must include one value and exclude another, such as a URL that includes one domain fragment but excludes a path fragment.
 
@@ -93,7 +93,7 @@ To find videos where an appearance has selected performer occurrence tags or the
 1. Add **Performer Occurrence Tags** with the required tags.
 2. Add **Related Performers**, then set **Favorite** to **True**.
 3. Return to the main filter dialog and choose **Combine filters…**.
-4. Choose **Group conditions**, select the occurrence-tag condition and related-performer condition, then choose **Match any**.
+4. Choose **Group conditions**, select the occurrence-tag condition and related-performer condition, then choose **Any**.
 
 These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** only when the alternatives are properties of the related performer itself.
 

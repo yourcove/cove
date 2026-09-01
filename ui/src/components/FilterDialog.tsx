@@ -56,6 +56,11 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { getMultiIdModifierLabel } from "../utils/filterModifierLabels";
 import { pushOverlay } from "../utils/overlayState";
 import { LibraryFolderTree } from "./LibraryFolderTree";
+import {
+  FILTER_EXPRESSION_OPERATOR_PRESENTATION,
+  normalizeFilterExpressionOperator,
+  sortFilterExpressionChildrenForDisplay,
+} from "../utils/filterExpressionPresentation";
 
 // ===== Criterion definitions =====
 
@@ -2598,6 +2603,10 @@ function ExpressionGroupEditor({
   const groupMenuButtonRef = useRef<HTMLButtonElement>(null);
   const addConditionRef = useRef<HTMLButtonElement>(null);
   const groupPathKey = groupPath.join(".");
+  const operator = normalizeFilterExpressionOperator(group.operator);
+  const presentation = FILTER_EXPRESSION_OPERATOR_PRESENTATION[operator];
+  const hasNestedGroup = group.children.some((child) => Boolean(child.group));
+  const displayedChildren = sortFilterExpressionChildrenForDisplay(group.children, operator);
   const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
   const hasGroupActions = group.operator === "NOT" || group.children.length === 1 || !root;
   useEffect(() => {
@@ -2619,10 +2628,14 @@ function ExpressionGroupEditor({
     onChange({ ...group, children });
   };
   const removeChild = (index: number) => {
+    const removedDisplayIndex = displayedChildren.findIndex((entry) => entry.index === index);
+    const nextChildren = group.children.filter((_, candidate) => candidate !== index);
+    const nextDisplayedChildren = sortFilterExpressionChildrenForDisplay(nextChildren, operator);
+    const nextFocusIndex = nextDisplayedChildren[Math.min(removedDisplayIndex, nextDisplayedChildren.length - 1)]?.index;
     setSelected(new Set());
     setOpenMenu(null);
-    onChange({ ...group, children: group.children.filter((_, candidate) => candidate !== index) });
-    focusChildAfterChange(Math.min(index, group.children.length - 2));
+    onChange({ ...group, children: nextChildren });
+    focusChildAfterChange(nextFocusIndex ?? 0);
   };
   const ungroupChild = (index: number) => {
     const child = group.children[index];
@@ -2633,8 +2646,12 @@ function ExpressionGroupEditor({
     }
     setSelected(new Set());
     setOpenMenu(null);
-    onChange({ ...group, children: [...group.children.slice(0, index), ...child.group.children, ...group.children.slice(index + 1)] });
-    focusChildAfterChange(index);
+    const nextChildren = [...group.children.slice(0, index), ...child.group.children, ...group.children.slice(index + 1)];
+    const insertedIndexes = new Set(child.group.children.map((_, childIndex) => index + childIndex));
+    const nextFocusIndex = sortFilterExpressionChildrenForDisplay(nextChildren, operator)
+      .find((entry) => insertedIndexes.has(entry.index))?.index ?? index;
+    onChange({ ...group, children: nextChildren });
+    focusChildAfterChange(nextFocusIndex);
   };
   const groupSelected = (operator: "AND" | "OR" | "NOT") => {
     const indexes = [...selected].sort((a, b) => a - b);
@@ -2657,7 +2674,7 @@ function ExpressionGroupEditor({
     }
     setSelected(new Set());
     setGroupingMode(true);
-    window.setTimeout(() => childFocusRefs.current.get(0)?.focus(), 0);
+    window.setTimeout(() => childFocusRefs.current.get(displayedChildren[0]?.index ?? 0)?.focus(), 0);
   };
   const setOperator = (operator: "AND" | "OR" | "NOT") => {
     setOpenMenu(null);
@@ -2677,8 +2694,8 @@ function ExpressionGroupEditor({
 
   return (
     <section
-      className={root ? "space-y-3" : "space-y-2 rounded-xl border-l-2 border-accent/30 bg-card/25 px-3 py-3 md:px-4"}
-      aria-label={`${group.operator} group`}
+      className={root && !hasNestedGroup ? "space-y-3" : `space-y-2 rounded-xl border px-3 py-3 md:px-4 ${presentation.containerClassName}`}
+      aria-label={`${presentation.label} group`}
       data-expression-node-path={groupPathKey || undefined}
       tabIndex={root ? undefined : -1}
       onKeyDown={(event) => {
@@ -2689,36 +2706,40 @@ function ExpressionGroupEditor({
       }}
     >
       <div className="flex min-h-10 flex-wrap items-center gap-2">
-        {group.operator === "NOT" ? (
-          <span className="text-sm font-semibold text-foreground">Exclude this</span>
+        {operator === "NOT" ? (
+          <span className={`rounded-md px-2 py-1 text-sm font-semibold ${presentation.labelClassName}`}>Exclude</span>
         ) : (
           <>
             <span className="text-sm font-medium text-secondary">Match</span>
             <div className="inline-flex rounded-lg bg-card p-1" role="group" aria-label="How conditions are combined">
-              <button type="button" data-expression-group-control={group.operator === "AND" ? groupPathKey : undefined} aria-label="Match all" aria-pressed={group.operator === "AND"} onClick={() => setOperator("AND")} className={`min-h-8 rounded-md px-3 text-sm ${group.operator === "AND" ? "bg-accent text-white shadow-sm" : "text-secondary hover:text-foreground"}`}>All</button>
-              <button type="button" data-expression-group-control={group.operator === "OR" ? groupPathKey : undefined} aria-label="Match any" aria-pressed={group.operator === "OR"} onClick={() => setOperator("OR")} className={`min-h-8 rounded-md px-3 text-sm ${group.operator === "OR" ? "bg-accent text-white shadow-sm" : "text-secondary hover:text-foreground"}`}>Any</button>
+              <button type="button" data-expression-group-control={operator === "AND" ? groupPathKey : undefined} aria-label="All" aria-pressed={operator === "AND"} onClick={() => setOperator("AND")} className={`min-h-8 rounded-md px-3 text-sm ${operator === "AND" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.AND.selectedClassName : "text-secondary hover:text-foreground"}`}>All</button>
+              <button type="button" data-expression-group-control={operator === "OR" ? groupPathKey : undefined} aria-label="Any" aria-pressed={operator === "OR"} onClick={() => setOperator("OR")} className={`min-h-8 rounded-md px-3 text-sm ${operator === "OR" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.OR.selectedClassName : "text-secondary hover:text-foreground"}`}>Any</button>
             </div>
             <span className="text-sm text-secondary">of these</span>
           </>
         )}
-        {hasGroupActions ? <div className="relative ml-auto">
-          <button ref={groupMenuButtonRef} type="button" data-expression-group-control={group.operator === "NOT" ? groupPathKey : undefined} aria-label={`More actions for ${root ? "root " : ""}group`} aria-expanded={openMenu === "group"} onClick={() => setOpenMenu((current) => current === "group" ? null : "group")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
+        <div className="relative ml-auto flex items-center gap-1">
+          {operator !== "NOT" ? <button ref={addConditionRef} type="button" aria-label="Add condition" title="Add condition" disabled={conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /></button> : null}
+          {hasGroupActions ? <>
+          <button ref={groupMenuButtonRef} type="button" data-expression-group-control={operator === "NOT" ? groupPathKey : undefined} aria-label={`More actions for ${root ? "root " : ""}group`} aria-expanded={openMenu === "group"} onClick={() => setOpenMenu((current) => current === "group" ? null : "group")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
           {openMenu === "group" ? (
             <div role="group" aria-label="Group actions" className="absolute right-0 top-full z-20 mt-1 min-w-44 rounded-lg border border-border bg-surface p-1 shadow-xl">
-              {group.operator === "NOT" ? <>
-                <button type="button" onClick={() => setOperator("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Match all</button>
-                <button type="button" onClick={() => setOperator("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Match any</button>
-              </> : group.children.length === 1 ? <button type="button" onClick={() => setOperator("NOT")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Exclude this</button> : null}
+              {operator === "NOT" ? <>
+                <button type="button" onClick={() => setOperator("AND")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">All</button>
+                <button type="button" onClick={() => setOperator("OR")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Any</button>
+              </> : group.children.length === 1 ? <button type="button" onClick={() => setOperator("NOT")} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Exclude</button> : null}
               {!root ? <>
                 <button type="button" onClick={() => { setOpenMenu(null); ungroupChildFromParent?.(); }} disabled={!ungroupChildFromParent || (parentOperator === "NOT" && group.children.length !== 1)} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card disabled:opacity-40">Dissolve group</button>
                 <button type="button" onClick={() => { setOpenMenu(null); removeGroupFromParent?.(); }} disabled={!removeGroupFromParent || parentOperator === "NOT"} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove group</button>
               </> : null}
             </div>
           ) : null}
-        </div> : null}
+          </> : null}
+        </div>
       </div>
-      <div className="space-y-2">
-        {group.children.map((child, index) => {
+      <div className="space-y-2" data-testid="expression-group-children">
+        {displayedChildren.map(({ child, index }, displayIndex) => {
+          const displayPosition = displayIndex + 1;
           const childPath = [...groupPath, index];
           const childPathKey = childPath.join(".");
           const { _criterionId: _draftCriterionId, ...displayFilter } = child.filter ?? {};
@@ -2735,12 +2756,12 @@ function ExpressionGroupEditor({
                 ref={(element) => { if (element) childFocusRefs.current.set(index, element); else childFocusRefs.current.delete(index); }}
                 type="button"
                 aria-pressed={selected.has(index)}
-                aria-label={`Select ${child.group ? "group" : "condition"} ${index + 1} for grouping`}
+                aria-label={`Select ${child.group ? "group" : "condition"} ${displayPosition} for grouping`}
                 onClick={() => toggleSelection(index)}
                 className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-4 text-left text-sm transition-colors ${selected.has(index) ? "border-accent bg-accent/15 text-foreground" : "border-border bg-surface text-secondary hover:border-accent/50 hover:text-foreground"}`}
               >
                 <span aria-hidden="true" className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${selected.has(index) ? "border-accent bg-accent text-white" : "border-muted"}`}>{selected.has(index) ? "✓" : ""}</span>
-                <span>{child.group ? `${child.group.operator === "OR" ? "Match any" : child.group.operator === "NOT" ? "Exclude" : "Match all"} group` : describeCondition(child.filter ?? {})}</span>
+                <span>{child.group ? `${FILTER_EXPRESSION_OPERATOR_PRESENTATION[normalizeFilterExpressionOperator(child.group.operator)].label} group` : describeCondition(child.filter ?? {})}</span>
               </button>
             ) : child.group ? (
               <ExpressionGroupEditor
@@ -2766,23 +2787,23 @@ function ExpressionGroupEditor({
                   if (event.target === event.currentTarget) event.currentTarget.querySelector<HTMLButtonElement>("button")?.focus();
                 }}
                 role="group"
-                aria-label={`Condition ${index + 1}`}
+                aria-label={`Condition ${displayPosition}`}
                 className="group/condition relative flex min-h-12 min-w-0 items-center gap-1 overflow-visible"
               >
-                {isDraftOnly ? <button type="button" onClick={() => onEditCondition(childPath)} className="flex min-h-7 min-w-0 items-center overflow-hidden rounded-md border border-border bg-surface/70 px-2 text-left text-xs text-muted" aria-label={`Edit condition ${index + 1}: ${describeCondition(child.filter ?? {})}`}>{describeCondition(child.filter ?? {})}</button> : <ActiveObjectFilterChips
+                {isDraftOnly ? <button type="button" onClick={() => onEditCondition(childPath)} className="flex min-h-7 min-w-0 items-center overflow-hidden rounded-md border border-border bg-surface/70 px-2 text-left text-xs text-muted" aria-label={`Edit condition ${displayPosition}: ${describeCondition(child.filter ?? {})}`}>{describeCondition(child.filter ?? {})}</button> : <ActiveObjectFilterChips
                   criteriaDefinitions={criteria}
                   objectFilter={displayFilter}
                   onEdit={(target) => onEditCondition(childPath, target)}
                   onRemove={updateConditionFromChip}
                   embeddedInToolbar
-                  primaryEditAriaLabel={`Edit condition ${index + 1}: ${describeCondition(child.filter ?? {})}`}
+                  primaryEditAriaLabel={`Edit condition ${displayPosition}: ${describeCondition(child.filter ?? {})}`}
                   removable={group.operator !== "NOT" || group.children.length !== 1}
                   className="!m-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0"
                 />}
                 <div className="relative flex items-center pr-1">
-                  <button ref={(element) => { if (element) conditionMenuButtonRefs.current.set(index, element); else conditionMenuButtonRefs.current.delete(index); }} type="button" aria-label={`More actions for condition ${index + 1}`} aria-expanded={openMenu === index} onClick={() => setOpenMenu((current) => current === index ? null : index)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted opacity-100 hover:bg-card hover:text-foreground md:opacity-0 md:group-hover/condition:opacity-100 md:group-focus-within/condition:opacity-100"><MoreHorizontal className="h-4 w-4" /></button>
+                  <button ref={(element) => { if (element) conditionMenuButtonRefs.current.set(index, element); else conditionMenuButtonRefs.current.delete(index); }} type="button" aria-label={`More actions for condition ${displayPosition}`} aria-expanded={openMenu === index} onClick={() => setOpenMenu((current) => current === index ? null : index)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted opacity-100 hover:bg-card hover:text-foreground md:opacity-0 md:group-hover/condition:opacity-100 md:group-focus-within/condition:opacity-100"><MoreHorizontal className="h-4 w-4" /></button>
                   {openMenu === index ? (
-                    <div role="group" aria-label={`Condition ${index + 1} actions`} className="absolute right-0 top-full z-20 mt-1 min-w-36 rounded-lg border border-border bg-surface p-1 shadow-xl">
+                    <div role="group" aria-label={`Condition ${displayPosition} actions`} className="absolute right-0 top-full z-20 mt-1 min-w-36 rounded-lg border border-border bg-surface p-1 shadow-xl">
                       <button type="button" onClick={() => { setOpenMenu(null); onEditCondition([...groupPath, index]); }} className="block min-h-10 w-full rounded px-3 text-left text-sm hover:bg-card">Edit</button>
                       <button type="button" onClick={() => removeChild(index)} disabled={group.operator === "NOT" && group.children.length === 1} className="block min-h-10 w-full rounded px-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove</button>
                     </div>
@@ -2801,13 +2822,12 @@ function ExpressionGroupEditor({
             <button type="button" onClick={() => { setGroupingMode(false); setSelected(new Set()); }} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel grouping</button>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <button type="button" aria-label="Group selected as match all" disabled={selected.size < 2} onClick={() => groupSelected("AND")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Match all</button>
-            <button type="button" aria-label="Group selected as match any" disabled={selected.size < 2} onClick={() => groupSelected("OR")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Match any</button>
+            <button type="button" aria-label="Group selected as All" disabled={selected.size < 2} onClick={() => groupSelected("AND")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">All</button>
+            <button type="button" aria-label="Group selected as Any" disabled={selected.size < 2} onClick={() => groupSelected("OR")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Any</button>
             <button type="button" aria-label="Exclude selected" disabled={selected.size !== 1} onClick={() => groupSelected("NOT")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Exclude</button>
           </div>
         </div> : <>
-          <button ref={addConditionRef} type="button" disabled={group.operator === "NOT" || conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => onAddCondition(undefined, groupPath)} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /> Add condition</button>
-          {group.operator !== "NOT" && group.children.length > 0 ? <button type="button" disabled={!canCreateNestedGroup} onClick={startGrouping} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Group conditions</button> : null}
+          {operator !== "NOT" && group.children.length > 0 ? <button type="button" disabled={!canCreateNestedGroup} onClick={startGrouping} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Group conditions</button> : null}
         </>}
         {conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS ? <span className="text-xs text-muted">Maximum of {MAX_FILTER_EXPRESSION_CONDITIONS} conditions reached.</span> : null}
         <span className="sr-only" role="status">{announcement}</span>

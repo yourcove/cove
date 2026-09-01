@@ -392,13 +392,18 @@ describe("ListPage active filter chips", () => {
     expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="NOT"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit OR group in Combine Filters" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit filter: Tags Example Tag" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit AND group in Combine Filters" })).toBeInTheDocument();
+    const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
+    expect(anyGroup).toHaveClass("text-violet-300");
+    const anyCondition = screen.getByRole("button", { name: "Edit filter: Tags Example Tag" });
+    const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
+    expect(allGroup).toHaveClass("text-accent");
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit NOT group in Combine Filters" })).toBeInTheDocument();
+    const excludeGroup = screen.getByRole("button", { name: "Edit Exclude group in Combine Filters" });
+    expect(excludeGroup).toHaveClass("text-rose-300");
     expect(screen.getByRole("button", { name: "Edit filter: Director Includes blocked" })).toBeInTheDocument();
+    expect(allGroup.compareDocumentPosition(anyCondition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(anyCondition.compareDocumentPosition(excludeGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("opens nested expression leaves in their standard filter editors", async () => {
@@ -439,10 +444,10 @@ describe("ListPage active filter chips", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit filter: Performer Occurrence Tags Example Tag" }));
     expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Performer Occurrence Tags condition 1" })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Performer Occurrence Tags" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit OR group in Combine Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Any group in Combine Filters" }));
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
   });
 

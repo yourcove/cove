@@ -346,7 +346,7 @@ describe("DetailListToolbar", () => {
     await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
 
     await user.click(screen.getByRole("button", { name: "Close filters" }));
-    await user.click(screen.getByRole("button", { name: "Edit OR group in Combine Filters" }));
+    await user.click(screen.getByRole("button", { name: "Edit Any group in Combine Filters" }));
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close filters" }));
     await user.click(screen.getByRole("button", { name: "Filters, 1 active" }));

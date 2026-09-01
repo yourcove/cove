@@ -9,6 +9,11 @@ import type { MetadataServer, RatingSystemOptions } from "../api/types";
 import { convertToRatingFormat, formatDisplayRating, normalizeRatingOptions, RatingStars, useRatingOptions } from "./Rating";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
+import {
+  FILTER_EXPRESSION_OPERATOR_PRESENTATION,
+  normalizeFilterExpressionOperator,
+  sortFilterExpressionChildrenForDisplay,
+} from "../utils/filterExpressionPresentation";
 
 export type RelatedFilterChipFacet = "criterion" | "search" | "existence" | "mode";
 
@@ -718,15 +723,16 @@ function FilterExpressionChipDisplay({
   expressionReturnFocusKeys?: boolean;
   hideRootAndOperator?: boolean;
 }) {
-  const rawOperator = expression.operator?.toUpperCase();
-  const operator = rawOperator === "OR" || rawOperator === "NOT" ? rawOperator : "AND";
-  const showOperator = nested || operator !== "AND" || !hideRootAndOperator;
+  const operator = normalizeFilterExpressionOperator(expression.operator);
+  const presentation = FILTER_EXPRESSION_OPERATOR_PRESENTATION[operator];
+  const hasNestedGroup = (expression.children ?? []).some((child) => Boolean(child.group));
+  const showOperator = nested || operator !== "AND" || !hideRootAndOperator || hasNestedGroup;
   return (
-    <span data-filter-operator={operator} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${nested ? "border-border/80 bg-card/60" : "border-accent/40 bg-accent/5"}`}>
+    <span data-filter-operator={operator} data-filter-group-label={presentation.label} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${presentation.containerClassName}`}>
       {showOperator && onEdit ? (
-        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/25" aria-label={`Edit ${operator} group in Combine Filters`}>{operator}</button>
-      ) : showOperator ? <span className="rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">{operator}</span> : null}
-      {(expression.children ?? []).map((child, index) => child.group ? (
+        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`} aria-label={`Edit ${presentation.label} group in Combine Filters`}>{presentation.label}</button>
+      ) : showOperator ? <span className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`}>{presentation.label}</span> : null}
+      {sortFilterExpressionChildrenForDisplay(expression.children ?? [], operator).map(({ child, index }) => child.group ? (
         <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...path, index]} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} hideRootAndOperator={hideRootAndOperator} />
       ) : child.filter ? (
         onEdit ? (
@@ -736,7 +742,7 @@ function FilterExpressionChipDisplay({
             onClick={() => onEdit({ kind: "expression", parentKey: "_filterExpression", path: [...path, index] })}
             data-simple-return-focus={expressionReturnFocusKeys ? `expression-${[...path, index].join(".")}` : undefined}
             className="min-w-0 rounded-md text-left hover:bg-background/40"
-            aria-label={`Edit filter: ${filterExpressionAccessibleSummary({ operator: "AND", children: [{ filter: child.filter }] }, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^AND group: /, "")}`}
+            aria-label={`Edit filter: ${filterExpressionAccessibleSummary({ operator: "AND", children: [{ filter: child.filter }] }, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^All group: /, "")}`}
           >
             <ExpressionLeafSummary filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
           </button>
@@ -764,12 +770,11 @@ function filterExpressionAccessibleSummary(
     const separator = related.conditionOperator === "or" ? " OR " : ", ";
     return [related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label, [q ? `search ${q}` : "", ...nested].filter(Boolean).join(separator)].filter(Boolean).join(", ");
   }).join(", ");
-  const rawOperator = expression.operator?.toUpperCase();
-  const operator = rawOperator === "OR" || rawOperator === "NOT" ? rawOperator : "AND";
+  const operator = normalizeFilterExpressionOperator(expression.operator);
   const children = (expression.children ?? []).map((child) => child.group
     ? filterExpressionAccessibleSummary(child.group, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)
     : child.filter ? summarizeFilter(child.filter) : "").filter(Boolean);
-  return `${operator} group: ${children.join("; ")}`;
+  return `${FILTER_EXPRESSION_OPERATOR_PRESENTATION[operator].label} group: ${children.join("; ")}`;
 }
 
 function RelatedFilterChipGroup({
@@ -1201,7 +1206,7 @@ function ActiveObjectFilterChipsContent({
         const expressionLeafCount = isFilterExpression ? countFilterExpressionLeaves(value) : 0;
         const expressionLeaf = isExpressionLeaf ? { operator: "AND" as const, children: [{ filter: value as Record<string, unknown> }] } : undefined;
         const displayValue = isExpressionLeaf
-          ? filterExpressionAccessibleSummary(expressionLeaf!, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^AND group: /, "")
+          ? filterExpressionAccessibleSummary(expressionLeaf!, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions).replace(/^All group: /, "")
           : isFilterExpression
           ? `${expressionLeafCount} ${expressionLeafCount === 1 ? "condition" : "conditions"}`
           : def?.type === "remoteId"
