@@ -47,7 +47,7 @@ describe("GlobalSearch", () => {
 
   it("debounces rapid typing into one consolidated request", async () => {
     renderSearch();
-    const input = screen.getByRole("textbox", { name: "Search all..." });
+    const input = screen.getByRole("combobox", { name: "Search all..." });
 
     fireEvent.change(input, { target: { value: "quick" } });
     fireEvent.change(input, { target: { value: "quick search" } });
@@ -69,10 +69,78 @@ describe("GlobalSearch", () => {
     expect(screen.getAllByText("Matching video")).toHaveLength(2);
   });
 
+  it("navigates search results with the arrow keys and opens the active result", async () => {
+    searchMock.mockResolvedValue({
+      groups: [{
+        type: "video",
+        items: [
+          { id: 42, title: "First match", subtitle: "Example studio" },
+          { id: 84, title: "Second match", subtitle: "Another studio" },
+        ],
+      }],
+      failedTypes: [],
+    });
+    const { navigate } = renderSearch();
+    const input = screen.getByRole("combobox", { name: "Search all..." });
+    input.focus();
+
+    fireEvent.change(input, { target: { value: "test" } });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+      await Promise.resolve();
+    });
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    const firstMatch = screen.getAllByRole("option", { name: /First match/ })[0];
+    expect(firstMatch).toHaveAttribute("aria-selected", "true");
+    expect(firstMatch).toHaveClass("bg-accent/15", "ring-accent");
+    expect(input).toHaveAttribute("aria-activedescendant");
+    expect(document.getElementById(input.getAttribute("aria-activedescendant")!)).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(screen.getAllByRole("option", { name: /Second match/ })[0]).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(screen.getAllByRole("option", { name: /First match/ })[0]).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(navigate).toHaveBeenCalledWith({ page: "video", id: 42 });
+    expect(input).not.toHaveFocus();
+  });
+
+  it("clears, closes, and blurs global search on Escape", () => {
+    renderSearch();
+    const input = screen.getByRole("combobox", { name: "Search all..." });
+    input.focus();
+    fireEvent.change(input, { target: { value: "test" } });
+
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(input).toHaveValue("");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).not.toHaveFocus();
+  });
+
+  it("closes global search when tabbing away", () => {
+    renderSearch();
+    const input = screen.getByRole("combobox", { name: "Search all..." });
+    fireEvent.change(input, { target: { value: "test" } });
+
+    fireEvent.keyDown(input, { key: "Tab" });
+
+    expect(input).toHaveValue("test");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+  });
+
   it("does not search terms shorter than two trimmed characters", async () => {
     renderSearch();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search all..." }), { target: { value: "a " } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Search all..." }), { target: { value: "a " } });
     await act(async () => vi.advanceTimersByTime(500));
 
     expect(searchMock).not.toHaveBeenCalled();
@@ -81,7 +149,7 @@ describe("GlobalSearch", () => {
   it("cancels an in-flight request when a newer term is committed", async () => {
     searchMock.mockImplementationOnce(() => new Promise(() => {}));
     renderSearch();
-    const input = screen.getByRole("textbox", { name: "Search all..." });
+    const input = screen.getByRole("combobox", { name: "Search all..." });
 
     fireEvent.change(input, { target: { value: "first term" } });
     await act(async () => {
@@ -106,7 +174,7 @@ describe("GlobalSearch", () => {
     searchMock.mockRejectedValue(new Error("Search API unavailable"));
     renderSearch();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search all..." }), { target: { value: "test" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Search all..." }), { target: { value: "test" } });
     await act(async () => {
       vi.advanceTimersByTime(100);
       await Promise.resolve();
@@ -134,7 +202,7 @@ describe("GlobalSearch", () => {
     searchMock.mockRejectedValue(new Error("Search API unavailable"));
     renderSearch();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search all..." }), { target: { value: "test" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Search all..." }), { target: { value: "test" } });
     await act(async () => {
       vi.advanceTimersByTime(100);
       await Promise.resolve();
@@ -152,7 +220,7 @@ describe("GlobalSearch", () => {
     searchMock.mockResolvedValue({ groups: [], failedTypes: ["video"] });
     renderSearch();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search all..." }), { target: { value: "test" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Search all..." }), { target: { value: "test" } });
     await act(async () => {
       vi.advanceTimersByTime(100);
       await Promise.resolve();

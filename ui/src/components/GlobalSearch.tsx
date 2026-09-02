@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, Building2, Film, FolderOpen, Headphones, ImageIcon, Layers, Loader2, Search, Tag, Users } from "lucide-react";
@@ -46,11 +46,13 @@ export function GlobalSearch({ navigate }: Props) {
   const [term, setTerm] = useState("");
   const [committedTerm, setCommittedTerm] = useState("");
   const [open, setOpen] = useState(false);
+  const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const [desktopPanelStyle, setDesktopPanelStyle] = useState<{ left: number; top: number; width: number } | null>(null);
   const normalizedTerm = term.trim();
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const lastTrackedSearchKey = useRef("");
+  const searchId = useId();
   const { hasPermission, permissions } = useAuth();
   const serverAvailability = useSyncExternalStore(
     subscribeToServerAvailability,
@@ -101,6 +103,7 @@ export function GlobalSearch({ navigate }: Props) {
 
       if (!inSearchControl && !inSearchPanel) {
         setOpen(false);
+        setActiveResultIndex(-1);
       }
     };
     document.addEventListener("mousedown", onPointerDown);
@@ -165,6 +168,13 @@ export function GlobalSearch({ navigate }: Props) {
   const flatResults = useMemo(() => groupsData.flatMap((group) => group.items), [groupsData]);
 
   useEffect(() => {
+    if (activeResultIndex < 0) return;
+    const activeResult = Array.from(panelRef.current?.querySelectorAll<HTMLElement>(`[data-result-index="${activeResultIndex}"]`) ?? [])
+      .find((element) => element.offsetParent !== null);
+    activeResult?.scrollIntoView({ block: "nearest" });
+  }, [activeResultIndex]);
+
+  useEffect(() => {
     if (!open || committedTerm.length < 2 || !resultMatchesInput || isFetching || searchFailed || searchableLabels.length === 0) {
       return;
     }
@@ -199,24 +209,51 @@ export function GlobalSearch({ navigate }: Props) {
         source: "globalSearch",
       },
     });
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     navigate(item.route);
     setOpen(false);
     setTerm("");
+    setActiveResultIndex(-1);
   };
 
-  const handleEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter" || normalizedTerm.length < 2)
-      return;
-    event.preventDefault();
-    if (!resultMatchesInput) {
-      setCommittedTerm(normalizedTerm);
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      setTerm("");
+      setCommittedTerm("");
+      setActiveResultIndex(-1);
+      event.currentTarget.blur();
       return;
     }
-    if (flatResults.length > 0)
-      handleSelect(flatResults[0], 1);
+
+    if (event.key === "Tab") {
+      setOpen(false);
+      setActiveResultIndex(-1);
+      return;
+    }
+
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && flatResults.length > 0) {
+      event.preventDefault();
+      setActiveResultIndex((current) => {
+        if (event.key === "ArrowDown") return (current + 1) % flatResults.length;
+        return current <= 0 ? flatResults.length - 1 : current - 1;
+      });
+      return;
+    }
+
+    if (event.key === "Enter" && normalizedTerm.length >= 2) {
+      event.preventDefault();
+      if (!resultMatchesInput) {
+        setCommittedTerm(normalizedTerm);
+        return;
+      }
+      const selectedIndex = activeResultIndex >= 0 ? activeResultIndex : 0;
+      if (flatResults[selectedIndex]) handleSelect(flatResults[selectedIndex], selectedIndex + 1);
+    }
   };
 
-  const renderResults = () => (
+  const renderResults = (listboxId: string, optionIdPrefix: string) => (
     <>
       <div className="border-b border-border px-3 py-2 text-[11px] uppercase tracking-wider text-muted">
         Global Search
@@ -244,7 +281,7 @@ export function GlobalSearch({ navigate }: Props) {
           </button>
         </div>
       ) : (
-        <div className="max-h-[28rem] overflow-y-auto">
+        <div id={listboxId} role="listbox" aria-label="Global search results" className="max-h-[28rem] overflow-y-auto">
           {failedLabels.length > 0 ? (
             <div className="border-b border-border px-3 py-2 text-xs text-amber-300">
               Search failed for {failedLabels.join(", ")}.
@@ -265,11 +302,21 @@ export function GlobalSearch({ navigate }: Props) {
                   {group.label}
                 </div>
                 <div className="pb-2">
-                  {group.items.map((item) => (
+                  {group.items.map((item) => {
+                    const resultIndex = flatResults.findIndex((result) => result.hostType === item.hostType && result.id === item.id);
+                    const isActive = resultIndex === activeResultIndex;
+                    return (
                     <button
                       key={`${group.key}-${item.id}`}
-                      onClick={() => handleSelect(item, flatResults.findIndex((result) => result.hostType === item.hostType && result.id === item.id) + 1)}
-                      className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-surface"
+                      type="button"
+                      role="option"
+                      id={`${optionIdPrefix}-${resultIndex}`}
+                      aria-selected={isActive}
+                      tabIndex={-1}
+                      data-result-index={resultIndex}
+                      onMouseMove={() => setActiveResultIndex(resultIndex)}
+                      onClick={() => handleSelect(item, resultIndex + 1)}
+                      className={`flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-surface ${isActive ? "bg-accent/15 ring-1 ring-inset ring-accent" : ""}`}
                     >
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                       <span className="min-w-0 flex-1">
@@ -277,7 +324,8 @@ export function GlobalSearch({ navigate }: Props) {
                         {item.subtitle && <span className="block truncate text-xs text-secondary">{item.subtitle}</span>}
                       </span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -301,21 +349,21 @@ export function GlobalSearch({ navigate }: Props) {
                   value={term}
                   onChange={(event) => {
                     setTerm(event.target.value);
+                    setActiveResultIndex(-1);
                   }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      setOpen(false);
-                      return;
-                    }
-                    handleEnter(event);
-                  }}
+                  onKeyDown={handleKeyDown}
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={open}
+                  aria-controls={`${searchId}-mobile-listbox`}
+                  aria-activedescendant={activeResultIndex >= 0 ? `${searchId}-mobile-option-${activeResultIndex}` : undefined}
                   aria-label="Search all..."
                   placeholder="Search all..."
                   className="w-full rounded-lg border border-border bg-input py-1.5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
                 />
               </div>
             </div>
-            {renderResults()}
+            {renderResults(`${searchId}-mobile-listbox`, `${searchId}-mobile-option`)}
           </div>
         </div>
 
@@ -325,7 +373,7 @@ export function GlobalSearch({ navigate }: Props) {
             className="hidden md:block fixed z-[60] overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
             style={desktopPanelStyle}
           >
-            {renderResults()}
+            {renderResults(`${searchId}-desktop-listbox`, `${searchId}-desktop-option`)}
           </div>
         ) : null}
       </div>
@@ -337,7 +385,10 @@ export function GlobalSearch({ navigate }: Props) {
     <div ref={containerRef} className="relative">
       {/* Mobile: icon button that opens the search */}
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          setOpen(!open);
+          if (open) setActiveResultIndex(-1);
+        }}
         className="md:hidden p-1.5 rounded border border-border bg-input text-secondary hover:text-foreground hover:border-accent"
         title="Search"
       >
@@ -352,15 +403,15 @@ export function GlobalSearch({ navigate }: Props) {
           onChange={(event) => {
             setTerm(event.target.value);
             setOpen(true);
+            setActiveResultIndex(-1);
           }}
           onFocus={() => setOpen(true)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setOpen(false);
-              return;
-            }
-            handleEnter(event);
-          }}
+          onKeyDown={handleKeyDown}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={`${searchId}-desktop-listbox`}
+          aria-activedescendant={activeResultIndex >= 0 ? `${searchId}-desktop-option-${activeResultIndex}` : undefined}
           aria-label="Search all..."
           placeholder="Search all..."
           className="w-72 rounded-lg border border-border bg-input py-1.5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
