@@ -1775,13 +1775,15 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       const nextFilter = { ...existingFilter };
       delete nextFilter[criterion.filterKey];
       if (criterion.secondaryFilterKey) delete nextFilter[criterion.secondaryFilterKey];
+      const updatedFilter = {
+        ...nextFilter,
+        ...setCriterionFilterValue({}, criterion, value),
+      };
+      if (isCriterionValueValid(value, criterion)) delete updatedFilter._criterionId;
+      else updatedFilter._criterionId = criterion.id;
       return {
         ...current,
-        [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, path, {
-          ...nextFilter,
-          ...setCriterionFilterValue({}, criterion, value),
-          _criterionId: criterion.id,
-        }),
+        [FILTER_EXPRESSION_STATE_KEY]: updateExpressionLeaf(currentExpression, path, updatedFilter),
       };
     });
   };

@@ -2895,6 +2895,46 @@ describe("FilterDialog", () => {
     ] } });
   });
 
+  it("removes the criterion marker after completing a repeated condition in a nested group", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "NOT", children: [{ group: { operator: "JUST_ONE", children: [
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2010-01-01" } } },
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+        ] } }] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    const justOne = screen.getByRole("region", { name: "Just One group" });
+    fireEvent.click(within(justOne).getByRole("button", { name: "Add condition" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Date" }));
+    const fourth = screen.getByRole("group", { name: "Date condition 4" });
+    fireEvent.change(within(fourth).getByLabelText("Value"), { target: { value: "2030-01-01" } });
+
+    const toolbar = screen.getByRole("toolbar", { name: "Selected filters" });
+    expect(within(toolbar).queryByText(/_criterion/i)).not.toBeInTheDocument();
+    expect(within(toolbar).getByRole("button", { name: "Edit filter: Date = 2030-01-01" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "NOT", children: [{ group: { operator: "JUST_ONE", children: [
+      { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2010-01-01" } } },
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+      { filter: { dateCriterion: { modifier: "EQUALS", value: "2030-01-01" } } },
+    ] } }] } });
+
+    fireEvent.change(within(fourth).getByLabelText("Value"), { target: { value: "" } });
+    expect(within(toolbar).queryByText(/_criterion/i)).not.toBeInTheDocument();
+  });
+
   it("preserves an auxiliary toggle while editing a repeated criterion", () => {
     const onApply = vi.fn();
     renderWithQueryClient(

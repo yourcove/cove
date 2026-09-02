@@ -591,6 +591,7 @@ function getLogicalFilterEntries(
   const entries: LogicalFilterEntry[] = [];
 
   for (const [objectKey, value] of Object.entries(objectFilter)) {
+    if (objectKey === "_criterionId") continue;
     if (processedKeys.has(objectKey)) continue;
     const customSection = customFilterSections?.find((section) => section.filterKey === objectKey);
     if (objectKey === "_filterExpression" && value && typeof value === "object") {
