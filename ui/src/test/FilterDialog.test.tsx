@@ -2295,6 +2295,30 @@ describe("FilterDialog", () => {
     ] } });
   });
 
+  it("does not expose an incomplete repeated-condition placeholder in the filter summary", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "OR", children: [
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Date" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
+
+    const toolbar = screen.getByRole("toolbar", { name: "Selected filters" });
+    expect(within(toolbar).queryByText(/_criterion/i)).not.toBeInTheDocument();
+    expect(within(toolbar).getByRole("button", { name: "Edit filter: Date > 2020-01-01" })).toBeInTheDocument();
+    expect(within(toolbar).getByRole("button", { name: "Edit filter: Date < 2000-01-01" })).toBeInTheDocument();
+  });
+
   it("shows an interactive OR chip group inside the dialog", async () => {
     renderWithQueryClient(
       <FilterDialog

@@ -652,6 +652,10 @@ type ChipFilterExpression = {
   children?: Array<{ filter?: Record<string, unknown>; group?: ChipFilterExpression }>;
 };
 
+function isIncompleteExpressionDraft(filter: Record<string, unknown>): boolean {
+  return Object.keys(filter).every((key) => key === "_criterionId");
+}
+
 function expressionEntrySummary(
   def: CriterionDefinition | undefined,
   value: unknown,
@@ -784,7 +788,7 @@ function FilterExpressionChipDisplay({
       ) : showOperator ? <span className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`}>{presentation.label}</span> : null}
       {sortFilterExpressionChildrenForDisplay(presentationChildren, operator).map(({ child, index }) => {
         if (child.group) return <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...presentationPath, index]} onEdit={onEdit} onRemove={onRemove} expressionReturnFocusKeys={expressionReturnFocusKeys} hideRootAndOperator={hideRootAndOperator} />;
-        if (!child.filter) return null;
+        if (!child.filter || isIncompleteExpressionDraft(child.filter)) return null;
         if (!onEdit) return <ExpressionLeafSummary key={index} filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />;
 
         const childPath = [...presentationPath, index];
@@ -835,7 +839,7 @@ function filterExpressionAccessibleSummary(
   const operator = getFilterExpressionPresentationOperator(expression);
   const children = getFilterExpressionPresentationChildren(expression).map((child) => child.group
     ? filterExpressionAccessibleSummary(child.group, criteriaDefinitions, entityNameMaps, metadataServers, ratingOptions)
-    : child.filter ? summarizeFilter(child.filter) : "").filter(Boolean);
+    : child.filter && !isIncompleteExpressionDraft(child.filter) ? summarizeFilter(child.filter) : "").filter(Boolean);
   return `${FILTER_EXPRESSION_OPERATOR_PRESENTATION[operator].label} group: ${children.join("; ")}`;
 }
 
