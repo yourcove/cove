@@ -2265,6 +2265,36 @@ describe("FilterDialog", () => {
     ] } });
   });
 
+  it("adds another repeated condition to the active OR group", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "OR", children: [
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Date" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add another Date" }));
+    const third = screen.getByRole("group", { name: "Date condition 3" });
+    fireEvent.click(within(third).getByRole("button", { name: ">" }));
+    fireEvent.change(within(third).getByLabelText("Value"), { target: { value: "2025-01-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "OR", children: [
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+      { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2025-01-01", value2: undefined } } },
+    ] } });
+  });
+
   it("shows an interactive OR chip group inside the dialog", async () => {
     renderWithQueryClient(
       <FilterDialog

@@ -1858,6 +1858,28 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const addImplicitAndCondition = (criterion: CriterionDefinition) => {
     const merged = mergeFilterExpressionWithSimpleCriteria(editFilter, criteria);
     if (!merged || countFilterExpressionConditions(merged) >= MAX_FILTER_EXPRESSION_CONDITIONS) return;
+    const activeGroup = getExpressionGroup(merged, simpleExpressionGroupPath);
+    if (activeGroup?.operator === "OR" && !activeGroup._semanticNone) {
+      const newIndex = activeGroup.children.length;
+      inlineAddedConditionRef.current = {
+        path: [...simpleExpressionGroupPath, newIndex],
+        originPath: simpleExpressionGroupPath,
+        unwrapRootOnRemove: false,
+      };
+      setEditFilter((current) => {
+        const base = mergeFilterExpressionWithSimpleCriteria(current, criteria);
+        if (!base || countFilterExpressionConditions(base) >= MAX_FILTER_EXPRESSION_CONDITIONS) return current;
+        const next = replaceExpressionGroup(base, simpleExpressionGroupPath, (group) => ({
+          ...group,
+          children: [...group.children, { filter: { _criterionId: criterion.id } }],
+        }));
+        return { ...expressionPassthroughFilter(current, criteria), [FILTER_EXPRESSION_STATE_KEY]: next };
+      });
+      setExpandedCriterion(criterion.id);
+      setRelatedWorkspaceSelection(null);
+      focusInlineCondition(newIndex);
+      return;
+    }
     const newIndex = merged.operator === "AND" ? merged.children.length : 1;
     inlineAddedConditionRef.current = {
       path: [newIndex],
