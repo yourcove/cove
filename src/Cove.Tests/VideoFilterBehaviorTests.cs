@@ -414,6 +414,40 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task FilterExpression_JustOneMatchesExactlyOneBranch()
+    {
+        await using var context = CreateContext();
+        context.Videos.AddRange(
+            CreateVideoWithFile("alpha-only"),
+            CreateVideoWithFile("beta-only"),
+            CreateVideoWithFile("gamma-only"),
+            CreateVideoWithFile("alpha-beta"),
+            CreateVideoWithFile("alpha-beta-gamma"),
+            CreateVideoWithFile("neither"));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var expression = new FilterExpression<VideoFilter>
+        {
+            Operator = FilterExpressionOperator.JustOne,
+            Children =
+            [
+                new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "alpha" } } },
+                new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "beta" } } },
+                new() { Filter = new VideoFilter { TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Includes, Value = "gamma" } } },
+            ],
+        };
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+            TestContext.Current.CancellationToken,
+            expression);
+
+        Assert.Equal(3, count);
+        Assert.Equal(["alpha-only", "beta-only", "gamma-only"], items.Select(video => video.Title ?? string.Empty).ToArray());
+    }
+
+    [Fact]
     public async Task FilterExpression_NotNegatesOneConditionOrNestedGroup()
     {
         await using var context = CreateContext();

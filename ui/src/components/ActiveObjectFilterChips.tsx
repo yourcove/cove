@@ -653,7 +653,8 @@ type ChipFilterExpression = {
 };
 
 function isIncompleteExpressionDraft(filter: Record<string, unknown>): boolean {
-  return Object.keys(filter).every((key) => key === "_criterionId");
+  const keys = Object.keys(filter);
+  return keys.length === 1 && keys[0] === "_criterionId";
 }
 
 function expressionEntrySummary(

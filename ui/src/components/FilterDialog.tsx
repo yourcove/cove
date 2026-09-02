@@ -470,7 +470,7 @@ function sanitizeFilterExpression(expression: EditableFilterExpression | undefin
       children: children.length === 1 ? children : [{ group: { operator: "OR", children } }],
     };
   }
-  const operator = expression.operator === "OR" ? "OR" : expression.operator === "NOT" ? "NOT" : "AND";
+  const operator = expression.operator === "OR" || expression.operator === "JUST_ONE" ? expression.operator : expression.operator === "NOT" ? "NOT" : "AND";
   if (operator === "NOT" && children.length !== 1) return undefined;
   return children.length > 0 ? { operator, children } : undefined;
 }
@@ -1859,7 +1859,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     const merged = mergeFilterExpressionWithSimpleCriteria(editFilter, criteria);
     if (!merged || countFilterExpressionConditions(merged) >= MAX_FILTER_EXPRESSION_CONDITIONS) return;
     const activeGroup = getExpressionGroup(merged, simpleExpressionGroupPath);
-    if (activeGroup?.operator === "OR" && !activeGroup._semanticNone) {
+    if ((activeGroup?.operator === "OR" || activeGroup?.operator === "JUST_ONE") && !(activeGroup as EditableFilterExpression)._semanticNone) {
       const newIndex = activeGroup.children.length;
       inlineAddedConditionRef.current = {
         path: [...simpleExpressionGroupPath, newIndex],
@@ -2795,7 +2795,7 @@ function ExpressionGroupEditor({
   onChange: (value: FilterExpression<Record<string, unknown>>) => void;
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
   onEditCondition: (path: number[], target?: FilterChipTarget) => void;
-  parentOperator?: "AND" | "OR" | "NOT";
+  parentOperator?: "AND" | "OR" | "JUST_ONE" | "NOT";
   ungroupChildFromParent?: () => void;
   removeGroupFromParent?: () => void;
   describeCondition: (filter: Record<string, unknown>) => string;
@@ -2871,7 +2871,7 @@ function ExpressionGroupEditor({
     onChange({ ...group, children: nextChildren });
     focusChildAfterChange(nextFocusIndex);
   };
-  const groupSelected = (nextMode: "AND" | "OR" | "NONE") => {
+  const groupSelected = (nextMode: "AND" | "OR" | "JUST_ONE" | "NONE") => {
     const indexes = [...selected].sort((a, b) => a - b);
     if (nextMode === "NONE" ? indexes.length < 1 : indexes.length < 2) return;
     const selectedChildren = indexes.map((index) => group.children[index]);
@@ -2896,7 +2896,7 @@ function ExpressionGroupEditor({
     setGroupingMode(true);
     window.setTimeout(() => childFocusRefs.current.get(displayedChildren[0]?.index ?? 0)?.focus(), 0);
   };
-  const setOperator = (nextMode: "AND" | "OR" | "NONE") => {
+  const setOperator = (nextMode: "AND" | "OR" | "JUST_ONE" | "NONE") => {
     setOpenMenu(null);
     onChange(nextMode === "NONE"
       ? { ...group, operator: "OR", _semanticNone: true } as EditableFilterExpression
@@ -2950,6 +2950,7 @@ function ExpressionGroupEditor({
             <div className="inline-flex rounded-lg bg-card p-1" role="group" aria-label="How conditions are combined">
               <button type="button" data-expression-group-control={mode === "AND" ? groupPathKey : undefined} aria-label="All" aria-pressed={mode === "AND"} onClick={() => setOperator("AND")} className={`min-h-8 rounded-md px-3 text-sm ${mode === "AND" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.AND.selectedClassName : "text-secondary hover:text-foreground"}`}>All</button>
               <button type="button" data-expression-group-control={mode === "OR" ? groupPathKey : undefined} aria-label="Any" aria-pressed={mode === "OR"} onClick={() => setOperator("OR")} className={`min-h-8 rounded-md px-3 text-sm ${mode === "OR" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.OR.selectedClassName : "text-secondary hover:text-foreground"}`}>Any</button>
+              <button type="button" data-expression-group-control={mode === "JUST_ONE" ? groupPathKey : undefined} aria-label="Just One" aria-pressed={mode === "JUST_ONE"} onClick={() => setOperator("JUST_ONE")} className={`min-h-8 rounded-md px-3 text-sm ${mode === "JUST_ONE" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.JUST_ONE.selectedClassName : "text-secondary hover:text-foreground"}`}>Just One</button>
               <button type="button" data-expression-group-control={mode === "NONE" ? groupPathKey : undefined} aria-label="None" aria-pressed={mode === "NONE"} onClick={() => setOperator("NONE")} className={`min-h-8 rounded-md px-3 text-sm ${mode === "NONE" ? FILTER_EXPRESSION_OPERATOR_PRESENTATION.NONE.selectedClassName : "text-secondary hover:text-foreground"}`}>None</button>
             </div>
             <span className="text-sm text-secondary">of these</span>
@@ -3084,9 +3085,10 @@ function ExpressionGroupEditor({
             <span className="text-sm text-secondary">{selected.size} selected</span>
             <button type="button" onClick={() => { setGroupingMode(false); setSelected(new Set()); }} className="min-h-10 rounded-lg px-3 text-sm text-secondary hover:bg-card hover:text-foreground">Cancel grouping</button>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <button type="button" aria-label="Group selected as All" disabled={selected.size < 2} onClick={() => groupSelected("AND")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">All</button>
             <button type="button" aria-label="Group selected as Any" disabled={selected.size < 2} onClick={() => groupSelected("OR")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Any</button>
+            <button type="button" aria-label="Group selected as Just One" disabled={selected.size < 2} onClick={() => groupSelected("JUST_ONE")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">Just One</button>
             <button type="button" aria-label="Group selected as None" disabled={selected.size < 1} onClick={() => groupSelected("NONE")} className="min-h-10 rounded-lg border border-border px-2 text-sm text-secondary hover:bg-card hover:text-foreground disabled:opacity-40">None</button>
           </div>
         </div> : null}

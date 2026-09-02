@@ -2347,6 +2347,33 @@ describe("FilterDialog", () => {
     await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
   });
 
+  it("edits and preserves a Just One expression group", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "JUST_ONE", children: [
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+          { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Just One group" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Just One", pressed: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "JUST_ONE", children: [
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+      { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+    ] } });
+  });
+
   it("keeps expression chips and ordinary filters in one roving group after rerenders and removals", async () => {
     const user = userEvent.setup();
     renderWithQueryClient(

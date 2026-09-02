@@ -2282,7 +2282,7 @@ export type FilterExpressionNode<TFilter = Record<string, unknown>> =
   | { group: FilterExpression<TFilter>; filter?: never };
 
 export interface FilterExpression<TFilter = Record<string, unknown>> {
-  operator: "AND" | "OR" | "NOT";
+  operator: "AND" | "OR" | "JUST_ONE" | "NOT";
   children: FilterExpressionNode<TFilter>[];
 }
 
