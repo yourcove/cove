@@ -1330,12 +1330,6 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const relatedWorkspaceObjectFilter = conditionDraft && relatedWorkspaceCriterion
     ? conditionDraft.filter
     : relatedExpressionInstances.length > 0 ? relatedExpressionInstances[0].filter : editFilter;
-  const activeRelatedCriterion = criteria.find((criterion) => criterion.type === "related"
-    && criterion.expressionSupported !== false
-    && (isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)
-      || directlyEditableExpressionChildren.some((child) => child.filter
-        && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
-        && isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion))));
   const selectedCompactCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type !== "related"
     ? selectedItem.criterion
     : undefined;
@@ -1845,8 +1839,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     else returnToExpression();
   }
 
-  const addRelatedCondition = (criterion = relatedWorkspaceCriterion ?? activeRelatedCriterion) => {
-    if (!criterion) return;
+  const addRelatedCondition = (criterion: CriterionDefinition) => {
     const merged = mergeFilterExpressionWithSimpleCriteria(editFilter, criteria);
     if (!merged || countFilterExpressionConditions(merged) >= MAX_FILTER_EXPRESSION_CONDITIONS) return;
     simpleReturnFocusKeyRef.current = `repeat-${criterion.id}`;
@@ -1967,18 +1960,25 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const relatedConditionLimitReached = countFilterExpressionConditions(mergeFilterExpressionWithSimpleCriteria(editFilter, criteria)) >= MAX_FILTER_EXPRESSION_CONDITIONS;
   const mergedExpressionConditionCount = countFilterExpressionConditions(mergeFilterExpressionWithSimpleCriteria(editFilter, criteria));
   const canCombineFilters = Boolean(dialogView === "simple" && !conditionDraft && supportsExpressions && mergedExpressionConditionCount >= 2);
-  const headerRelatedCriterion = relatedWorkspaceCriterion ?? activeRelatedCriterion;
-  const hasHeaderRelatedCondition = Boolean(headerRelatedCriterion
-    && (isCriterionValueValid(getCriterionFilterValue(editFilter, headerRelatedCriterion), headerRelatedCriterion)
-      || directlyEditableExpressionChildren.some((child) => child.filter
-        && getExpressionConditionCriterion(child.filter, criteria)?.id === headerRelatedCriterion.id
-        && isCriterionValueValid(getCriterionFilterValue(child.filter, headerRelatedCriterion), headerRelatedCriterion))));
+  const hasRelatedWorkspaceCondition = Boolean(relatedWorkspaceCriterion
+    && (isCriterionValueValid(getCriterionFilterValue(editFilter, relatedWorkspaceCriterion), relatedWorkspaceCriterion)
+      || expressionHasActiveCriterion(expression, relatedWorkspaceCriterion)));
   const canAddRelatedCondition = Boolean(
-    !conditionDraft
+    dialogView === "simple"
+      && !conditionDraft
       && supportsExpressions
-      && headerRelatedCriterion
-      && headerRelatedCriterion.expressionSupported !== false
-      && hasHeaderRelatedCondition
+      && relatedWorkspaceCriterion
+      && relatedWorkspaceCriterion.expressionSupported !== false
+      && hasRelatedWorkspaceCondition
+  );
+  const canAddSelectedCriterion = Boolean(
+    dialogView === "simple"
+      && selectedItem?.kind === "criterion"
+      && selectedItem.criterion.type !== "related"
+      && !conditionDraft
+      && supportsExpressions
+      && (selectedItem.active || selectedExpressionInstances.length > 0)
+      && selectedItem.criterion.expressionSupported !== false
   );
 
   useEffect(() => {
@@ -2088,19 +2088,6 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             )}
           </div>
           <div className="flex items-center gap-2">
-            {headerRelatedCriterion && canAddRelatedCondition ? (
-              <button
-                type="button"
-                onClick={() => addRelatedCondition(headerRelatedCriterion)}
-                disabled={relatedConditionLimitReached}
-                data-simple-return-focus={`repeat-${headerRelatedCriterion.id}`}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
-                title={`Add another ${headerRelatedCriterion.entityType === "performers" ? "performer" : "video"} condition`}
-                aria-label={`Add another ${headerRelatedCriterion.entityType === "performers" ? "performer" : "video"} condition`}
-              >
-                <Plus className="h-5 w-5" />
-              </button>
-            ) : null}
             <button type="button" onClick={dismiss} className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground" aria-label="Close filters">
               <X className="h-5 w-5" />
             </button>
@@ -2496,25 +2483,6 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                     />
                   </>
                 )}
-                {selectedItem.kind === "criterion"
-                  && !conditionDraft
-                  && supportsExpressions
-                  && (selectedItem.active || selectedExpressionInstances.length > 0)
-                  && selectedItem.criterion.expressionSupported !== false ? (
-                    <div className="mt-auto flex justify-start pt-3">
-                      <button
-                        type="button"
-                        onClick={() => addImplicitAndCondition(selectedItem.criterion)}
-                        disabled={mergedExpressionConditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS || selectedHasIncompleteExpressionInstance}
-                        data-simple-return-focus={`repeat-${selectedItem.criterion.id}`}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
-                        title={`Add another ${selectedItem.criterion.label}`}
-                        aria-label={`Add another ${selectedItem.criterion.label}`}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ) : null}
               </div>
             ) : (
               <div className="flex flex-1 items-center justify-center p-8 text-center">
@@ -2530,17 +2498,47 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
 
         {/* Footer */}
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-6 md:py-2">
-          {canCombineFilters ? (
-            <button
-              type="button"
-              onClick={() => enterExpression("combine")}
-              data-simple-return-focus="combine"
-              title="Combine Filters"
-              aria-label="Combine Filters"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground"
-            >
-              <Workflow className="h-4 w-4" />
-            </button>
+          {canCombineFilters || canAddRelatedCondition || canAddSelectedCriterion ? (
+            <div className="flex items-center gap-1" role="group" aria-label="Filter composition actions">
+              {canCombineFilters ? (
+                <button
+                  type="button"
+                  onClick={() => enterExpression("combine")}
+                  data-simple-return-focus="combine"
+                  title="Combine Filters"
+                  aria-label="Combine Filters"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground"
+                >
+                  <Workflow className="h-4 w-4" />
+                </button>
+              ) : null}
+              {relatedWorkspaceCriterion && canAddRelatedCondition ? (
+                <button
+                  type="button"
+                  onClick={() => addRelatedCondition(relatedWorkspaceCriterion)}
+                  disabled={relatedConditionLimitReached}
+                  data-simple-return-focus={`repeat-${relatedWorkspaceCriterion.id}`}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
+                  title={`Add another ${relatedWorkspaceCriterion.entityType === "performers" ? "performer" : "video"} condition`}
+                  aria-label={`Add another ${relatedWorkspaceCriterion.entityType === "performers" ? "performer" : "video"} condition`}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              ) : null}
+              {canAddSelectedCriterion && selectedItem?.kind === "criterion" ? (
+                <button
+                  type="button"
+                  onClick={() => addImplicitAndCondition(selectedItem.criterion)}
+                  disabled={mergedExpressionConditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS || selectedHasIncompleteExpressionInstance}
+                  data-simple-return-focus={`repeat-${selectedItem.criterion.id}`}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
+                  title={`Add another ${selectedItem.criterion.label}`}
+                  aria-label={`Add another ${selectedItem.criterion.label}`}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
           ) : <span />}
           <div className="flex flex-wrap items-center justify-end gap-2">
             {conditionDraft ? (

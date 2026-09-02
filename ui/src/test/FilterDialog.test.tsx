@@ -121,7 +121,8 @@ describe("FilterDialog", () => {
     );
 
     const addPerformerCondition = screen.getByRole("button", { name: "Add another performer condition" });
-    expect(screen.getByRole("button", { name: "Close filters" }).parentElement).toContainElement(addPerformerCondition);
+    expect(screen.getByRole("group", { name: "Filter composition actions" })).toContainElement(addPerformerCondition);
+    expect(screen.getByRole("button", { name: "Close filters" }).parentElement).not.toContainElement(addPerformerCondition);
     fireEvent.click(addPerformerCondition);
     expect(screen.getByRole("heading", { name: "Add Related Performers condition" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
@@ -143,11 +144,12 @@ describe("FilterDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(screen.getByRole("heading", { name: "Filters" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Close filters" }).parentElement).toContainElement(
-      screen.getByRole("button", { name: "Add another performer condition" }),
-    );
+    expect(screen.queryByRole("button", { name: "Add another performer condition" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Related Performers"));
     expect(screen.getByRole("heading", { name: "Filters / Related Performers" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Filter composition actions" })).toContainElement(
+      screen.getByRole("button", { name: "Add another performer condition" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Remove performer filter: Gender" }));
     expect(screen.queryByRole("button", { name: "Edit performer filter: Gender" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Gender" }));
@@ -185,6 +187,30 @@ describe("FilterDialog", () => {
         ],
       },
     });
+  });
+
+  it("shows the repeat action only for the currently open criterion", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{
+          resolutionCriterion: { modifier: "EQUALS", value: 2160 },
+          performerFilterCriterion: { ageAtHostDateCriterion: { modifier: "EQUALS", value: 18 } },
+        }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Add another performer condition" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Resolution" }));
+    expect(screen.getByRole("button", { name: "Add another Resolution" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add another performer condition" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Combine Filters" }));
+    expect(screen.queryByRole("button", { name: "Add another Resolution" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add another performer condition" })).not.toBeInTheDocument();
   });
 
   it("uses Apply to return from related filters before applying the full filter", async () => {
@@ -2086,8 +2112,10 @@ describe("FilterDialog", () => {
     expect(activeUrlTab.querySelector("span")).toHaveClass("text-accent");
     expect(activeUrlTab).toHaveAccessibleDescription("Active filter");
     expect(activeUrlTab.querySelector(".lucide-check")).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Filter composition actions" })).toContainElement(
+      screen.getByRole("button", { name: "Add another URL" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Add another URL" }));
-    expect(screen.getByRole("button", { name: "Add another URL" }).parentElement).toHaveClass("mt-auto");
     const second = screen.getByRole("group", { name: "URL condition 2" });
     const removeSecond = within(second).getByRole("button", { name: "Remove URL condition 2" });
     expect(removeSecond).toHaveClass("absolute");
