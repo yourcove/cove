@@ -1,45 +1,52 @@
-export type FilterExpressionOperator = "AND" | "OR" | "NONE" | "NOT";
+export type FilterExpressionOperator = "AND" | "OR" | "JUST_ONE" | "NONE" | "NOT";
 
 export const FILTER_EXPRESSION_OPERATOR_PRESENTATION: Record<FilterExpressionOperator, {
-  label: "All" | "Any" | "None" | "Exclude";
+  label: "All" | "Any" | "Just One" | "None" | "Exclude";
   rank: number;
-  containerClassName: string;
   labelClassName: string;
   selectedClassName: string;
+  railClassName: string;
 }> = {
   AND: {
     label: "All",
     rank: 0,
-    containerClassName: "border-accent/45 bg-accent/5",
     labelClassName: "bg-accent/15 text-accent hover:bg-accent/25",
     selectedClassName: "bg-accent text-white shadow-sm",
+    railClassName: "bg-accent",
   },
   OR: {
     label: "Any",
     rank: 1,
-    containerClassName: "filter-expression-any-container border-violet-500/45 bg-violet-500/5",
     labelClassName: "filter-expression-any-label bg-violet-500/15 text-violet-300 hover:bg-violet-500/25",
     selectedClassName: "filter-expression-any-selected bg-violet-500 text-white shadow-sm",
+    railClassName: "bg-violet-500",
+  },
+  JUST_ONE: {
+    label: "Just One",
+    rank: 2,
+    labelClassName: "filter-expression-just-one-label bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25",
+    selectedClassName: "filter-expression-just-one-selected bg-cyan-700 text-white shadow-sm",
+    railClassName: "bg-cyan-500",
   },
   NONE: {
     label: "None",
-    rank: 2,
-    containerClassName: "filter-expression-exclude-container border-rose-500/45 bg-rose-500/5",
+    rank: 3,
     labelClassName: "filter-expression-exclude-label bg-rose-500/15 text-rose-300 hover:bg-rose-500/25",
     selectedClassName: "bg-rose-600 text-white shadow-sm",
+    railClassName: "bg-rose-500",
   },
   NOT: {
     label: "Exclude",
-    rank: 3,
-    containerClassName: "filter-expression-exclude-container border-rose-500/45 bg-rose-500/5",
+    rank: 4,
     labelClassName: "filter-expression-exclude-label bg-rose-500/15 text-rose-300 hover:bg-rose-500/25",
     selectedClassName: "bg-rose-500 text-white shadow-sm",
+    railClassName: "bg-rose-500",
   },
 };
 
 export function normalizeFilterExpressionOperator(operator: unknown): FilterExpressionOperator {
   const normalized = typeof operator === "string" ? operator.toUpperCase() : "AND";
-  return normalized === "OR" || normalized === "NONE" || normalized === "NOT" ? normalized : "AND";
+  return normalized === "OR" || normalized === "JUST_ONE" || normalized === "NONE" || normalized === "NOT" ? normalized : "AND";
 }
 
 type PresentableExpression = {

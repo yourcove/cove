@@ -105,6 +105,30 @@ public sealed class JsonEnumWireContractTests
         Assert.Equal(conditionOperator, roundTrip?.ConditionOperator);
     }
 
+    [Fact]
+    public void Just_one_filter_expressions_round_trip_with_the_client_wire_name()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var json = JsonSerializer.Serialize(new FilterExpressionOperatorPayload(FilterExpressionOperator.JustOne), options);
+        var roundTrip = JsonSerializer.Deserialize<FilterExpressionOperatorPayload>(json, options);
+
+        Assert.Contains("\"operator\":\"JUST_ONE\"", json, StringComparison.Ordinal);
+        Assert.Equal(FilterExpressionOperator.JustOne, roundTrip?.Operator);
+    }
+
+    [Fact]
+    public void Legacy_numeric_not_filter_expression_operator_still_deserializes_as_not()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var payload = JsonSerializer.Deserialize<FilterExpressionOperatorPayload>("""{"operator":2}""", options);
+
+        Assert.Equal(FilterExpressionOperator.Not, payload?.Operator);
+    }
+
     [Theory]
     [InlineData("""{"status":1}""", AiRunStatus.Pending)]
     [InlineData("""{"status":5}""", AiRunStatus.Cancelled)]
@@ -369,6 +393,7 @@ public sealed class JsonEnumWireContractTests
     private sealed record StatusPayload(AiRunStatus Status);
     private sealed record RelatedModePayload(RelatedFilterMode Mode);
     private sealed record RelatedConditionOperatorPayload(RelatedFilterConditionOperator ConditionOperator);
+    private sealed record FilterExpressionOperatorPayload(FilterExpressionOperator Operator);
 
     private sealed record NullableStatusPayload(AiRunStatus? Status);
 

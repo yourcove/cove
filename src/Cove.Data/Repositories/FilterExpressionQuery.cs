@@ -42,6 +42,26 @@ public static class FilterExpressionQuery
             return input.Except(excluded);
         }
 
+        if (expression.Operator == FilterExpressionOperator.JustOne)
+        {
+            IQueryable<TEntity>? seen = null;
+            IQueryable<TEntity>? exactlyOne = null;
+            foreach (var child in expression.Children)
+            {
+                var branch = await ApplyNodeAsync(input, child, applyLeaf);
+                if (seen == null)
+                {
+                    seen = branch;
+                    exactlyOne = branch;
+                    continue;
+                }
+
+                exactlyOne = exactlyOne!.Except(branch).Union(branch.Except(seen));
+                seen = seen.Union(branch);
+            }
+            return exactlyOne ?? input;
+        }
+
         IQueryable<TEntity>? union = null;
         foreach (var child in expression.Children)
         {

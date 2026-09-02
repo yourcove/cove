@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Cove.Core.Entities;
 
 namespace Cove.Core.Interfaces;
@@ -218,6 +219,8 @@ public enum FilterExpressionOperator
     And,
     Or,
     Not,
+    [JsonStringEnumMemberName("JUST_ONE")]
+    JustOne,
 }
 
 /// <summary>A recursively composable boolean expression over partial entity filters.</summary>

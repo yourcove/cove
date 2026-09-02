@@ -35,6 +35,14 @@ html[data-color-scheme="light"] .filter-expression-any-selected {
   background-color: #6d28d9;
 }
 
+html[data-color-scheme="light"] .filter-expression-just-one-label {
+  color: #155e75;
+}
+
+html[data-color-scheme="light"] .filter-expression-just-one-selected {
+  background-color: #0e7490;
+}
+
 html[data-color-scheme="light"] .filter-expression-exclude-label {
   color: #9f1239;
 }

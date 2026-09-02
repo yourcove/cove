@@ -495,10 +495,13 @@ describe("ListPage active filter chips", () => {
             isLoading={false}
             criteriaDefinitions={VIDEO_CRITERIA}
             objectFilter={{
+              organizedCriterion: { value: true },
               _filterExpression: {
                 operator: "OR",
                 children: [
-                  { filter: { tagsCriterion: { modifier: "INCLUDES", value: [42] } } },
+                  { filter: { tagsCriterion: { modifier: "INCLUDES", value: [42], excludes: [43], _names: { "42": "Example Tag", "43": "Excluded Tag" } } } },
+                  { filter: { performersCriterion: { modifier: "INCLUDES", value: [1], excludes: [2], _names: { "1": "Included Performer", "2": "Excluded Performer" } } } },
+                  { filter: { performerFilterCriterion: { objectFilter: { tagsCriterion: { modifier: "INCLUDES", value: [3], excludes: [4], _names: { "3": "Included Performer Tag", "4": "Excluded Performer Tag" } } } } } },
                   { group: { operator: "AND", children: [
                     { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
                     { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
@@ -522,10 +525,27 @@ describe("ListPage active filter chips", () => {
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="NONE"]')).toBeInTheDocument();
     const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
+    const organized = screen.getByRole("button", { name: "Edit filter: Organized" });
+    expect(anyGroup.compareDocumentPosition(organized) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(anyGroup).toHaveClass("text-violet-300");
-    const anyCondition = screen.getByRole("button", { name: "Edit filter: Tags Example Tag" });
+    expect(anyGroup).toHaveTextContent("Any of 5");
+    expect(anyGroup.closest("[data-filter-outline-group]")).toHaveAttribute("data-filter-outline-group", "OR");
+    const anyCondition = screen.getByRole("button", { name: /Edit filter: Tags Example Tag/ });
+    expect(anyCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(anyCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
+    const performersCondition = screen.getByRole("button", { name: /Edit filter: Performers Included Performer/ });
+    expect(performersCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(performersCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
+    const relatedTagsCondition = screen.getByRole("button", { name: /Edit performer filter: Tags Included Performer Tag/ });
+    expect(relatedTagsCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(relatedTagsCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
     const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
     expect(allGroup).toHaveClass("text-accent");
+    expect(allGroup).toHaveTextContent("All of 2");
+    const appliedFilters = screen.getByRole("region", { name: "Applied filters" });
+    const clearAll = within(appliedFilters).getByRole("button", { name: "Clear all" });
+    expect(appliedFilters).toHaveClass("relative");
+    expect(clearAll).toHaveClass("absolute", "right-1", "top-1");
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
     const noneGroup = screen.getByRole("button", { name: "Edit None group in Combine Filters" });
@@ -533,6 +553,38 @@ describe("ListPage active filter chips", () => {
     expect(screen.getByRole("button", { name: "Edit filter: Director Includes blocked" })).toBeInTheDocument();
     expect(allGroup.compareDocumentPosition(anyCondition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(anyCondition.compareDocumentPosition(noneGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("removes a leaf through a flattened canonical None presentation", () => {
+    const onObjectFilterChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "one" } } },
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+            ] } }] } }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Title Includes one" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith({ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
+      { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+    ] } }] } });
   });
 
   it("opens nested expression leaves in their standard filter editors", async () => {
