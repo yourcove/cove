@@ -2161,13 +2161,25 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 criteriaDefinitions={criteria}
                 objectFilter={{ [FILTER_EXPRESSION_STATE_KEY]: expression }}
                 onEdit={(target) => {
-                  if (target.kind === "expression") openSimpleExpressionCondition(target.path);
+                  if (target.kind === "expression") {
+                    setRelatedWorkspaceSelection(target.criterionId ? { facet: target.relatedFacet ?? (target.nestedCriterionId ? "criterion" : "mode"), nestedCriterionId: target.nestedCriterionId } : null);
+                    if (target.nestedCriterionId) openExpressionCondition(target.path, "simple", `expression-${target.path.join(".")}-nested-${target.nestedCriterionId}`);
+                    else if (target.relatedFacet === "search" || target.relatedFacet === "existence") openExpressionCondition(target.path, "simple", `expression-${target.path.join(".")}-facet-${target.relatedFacet}`);
+                    else if (target.criterionId) openExpressionCondition(target.path, "simple", `expression-${target.path.join(".")}`);
+                    else openSimpleExpressionCondition(target.path);
+                  }
                   else if (target.kind === "root" && target.key === FILTER_EXPRESSION_STATE_KEY) {
                     const path = target.path ?? [];
                     enterExpression(`expression-group-${path.join(".") || "root"}`, path);
                   } else handleEditChip(target);
                 }}
                 onRemove={handleRemoveChip}
+                onFocusFallback={() => {
+                  const toolbarButtons = Array.from(selectedFiltersToolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+                  const toolbarFallback = toolbarButtons[Math.min(selectedFiltersLastFocusedIndexRef.current, toolbarButtons.length - 1)];
+                  if (toolbarFallback) toolbarFallback.focus();
+                  else searchRef.current?.focus();
+                }}
                 expressionReturnFocusKeys
                 hideRootAndOperator
                 embeddedInToolbar

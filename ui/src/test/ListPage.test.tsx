@@ -406,6 +406,38 @@ describe("ListPage active filter chips", () => {
     expect(anyCondition.compareDocumentPosition(noneGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("removes a leaf through a flattened canonical None presentation", () => {
+    const onObjectFilterChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "one" } } },
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+            ] } }] } }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Title Includes one" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith({ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
+      { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+    ] } }] } });
+  });
+
   it("opens nested expression leaves in their standard filter editors", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     queryClient.setQueryData(["tags", "all"], [{ id: 42, name: "Example Tag" }]);
