@@ -2852,7 +2852,8 @@ describe("FilterDialog", () => {
     });
   });
 
-  it("shows a new draft when Advanced adds a criterion that already exists", () => {
+  it("shows existing repeated conditions when Combine Filters adds the same criterion", () => {
+    const onApply = vi.fn();
     renderWithQueryClient(
       <FilterDialog
         open
@@ -2860,9 +2861,11 @@ describe("FilterDialog", () => {
         criteria={VIDEO_CRITERIA}
         activeFilter={{ _filterExpression: { operator: "AND", children: [
           { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2010-01-01" } } },
+          { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
           { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
         ] } }}
-        onApply={vi.fn()}
+        onApply={onApply}
         supportsFilterExpressions
         initialView="advanced"
       />,
@@ -2872,10 +2875,24 @@ describe("FilterDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add condition" }));
     fireEvent.click(screen.getByRole("tab", { name: "Date" }));
 
-    expect(screen.getByRole("heading", { name: "Add Date condition" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Date condition 1" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Value")).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Save condition" })).toBeDisabled();
+    const first = screen.getByRole("group", { name: "Date condition 1" });
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    const third = screen.getByRole("group", { name: "Date condition 3" });
+    const fourth = screen.getByRole("group", { name: "Date condition 4" });
+    expect(within(first).getByLabelText("Value")).toHaveValue("2000-01-01");
+    expect(within(second).getByLabelText("Value")).toHaveValue("2010-01-01");
+    expect(within(third).getByLabelText("Value")).toHaveValue("2020-01-01");
+    expect(within(fourth).getByLabelText("Value")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Back to Combine Filters" }));
+    expect(screen.getAllByRole("button", { name: /Edit condition \d+:/ })).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: { operator: "AND", children: [
+      { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2010-01-01" } } },
+      { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+      { filter: { titleCriterion: { modifier: "INCLUDES", value: "foo" } } },
+    ] } });
   });
 
   it("preserves an auxiliary toggle while editing a repeated criterion", () => {

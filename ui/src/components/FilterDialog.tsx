@@ -1364,7 +1364,45 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }, 0), 0);
   }, []);
 
+  const focusInlineCondition = (index: number) => {
+    window.setTimeout(() => window.setTimeout(() => {
+      const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${index}"]`);
+      getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
+    }, 0), 0);
+  };
+
   const selectNavigatorItem = useCallback((id: string) => {
+    const criterion = criteria.find((item) => item.id === id);
+    const parentPath = conditionDraft?.parentPath ?? [];
+    const parentGroup = expression ? getExpressionGroup(expression, parentPath) : undefined;
+    const hasMatchingSibling = Boolean(criterion && criterion.type !== "related" && parentGroup?.children.some((child) => child.filter
+      && getExpressionConditionCriterion(child.filter, criteria)?.id === id));
+    if (conditionDraft?.isNew && conditionDraft.returnView === "expression" && hasMatchingSibling && parentGroup) {
+      const newIndex = parentGroup.children.length;
+      inlineAddedConditionRef.current = {
+        path: [...parentPath, newIndex],
+        originPath: parentPath,
+        unwrapRootOnRemove: false,
+      };
+      setEditFilter((current) => {
+        const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
+        if (!currentExpression) return current;
+        return {
+          ...current,
+          [FILTER_EXPRESSION_STATE_KEY]: replaceExpressionGroup(currentExpression, parentPath, (group) => ({
+            ...group,
+            children: [...group.children, { filter: { _criterionId: id } }],
+          })),
+        };
+      });
+      setRelatedWorkspaceSelection(null);
+      setSimpleExpressionGroupPath(parentPath);
+      setExpandedCriterion(id);
+      setConditionDraft(null);
+      setInlineStackReturnsToExpression(true);
+      focusInlineCondition(newIndex);
+      return;
+    }
     setRelatedWorkspaceSelection(null);
     setExpandedCriterion(id);
     setConditionDraft((current) => current
@@ -1374,7 +1412,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       : current);
     if (conditionDraft) focusFirstConditionEditorControl();
     else focusFirstEditorControl();
-  }, [conditionDraft, criteria, focusFirstConditionEditorControl, focusFirstEditorControl]);
+  }, [conditionDraft, criteria, expression, focusFirstConditionEditorControl, focusFirstEditorControl]);
 
   useEffect(() => {
     if (lastActiveFilterSignatureRef.current !== activeFilterSignature) {
@@ -1482,10 +1520,23 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   }, []);
 
   const returnToExpression = useCallback(() => {
+    const addedCondition = inlineAddedConditionRef.current;
     setEditFilter((current) => {
-      const merged = mergeFilterExpressionWithSimpleCriteria(current, criteria);
-      return { ...expressionPassthroughFilter(current, criteria), ...(merged ? { [FILTER_EXPRESSION_STATE_KEY]: merged } : {}) };
+      let next = current;
+      const currentExpression = current[FILTER_EXPRESSION_STATE_KEY] as EditableFilterExpression | undefined;
+      const addedFilter = currentExpression && addedCondition ? getExpressionLeaf(currentExpression, addedCondition.path) : undefined;
+      const addedCriterion = addedFilter ? getExpressionConditionCriterion(addedFilter, criteria) : undefined;
+      if (currentExpression && addedCondition && addedFilter && addedCriterion
+        && !isCriterionValueValid(getCriterionFilterValue(addedFilter, addedCriterion), addedCriterion)) {
+        const expression = removeExpressionLeafAndPrune(currentExpression, addedCondition.path);
+        next = { ...current };
+        if (expression) next[FILTER_EXPRESSION_STATE_KEY] = expression;
+        else delete next[FILTER_EXPRESSION_STATE_KEY];
+      }
+      const merged = mergeFilterExpressionWithSimpleCriteria(next, criteria);
+      return { ...expressionPassthroughFilter(next, criteria), ...(merged ? { [FILTER_EXPRESSION_STATE_KEY]: merged } : {}) };
     });
+    inlineAddedConditionRef.current = null;
     setDialogView("expression");
     setConditionDraft(null);
     setInlineStackReturnsToExpression(false);
@@ -1714,13 +1765,6 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setConditionDraft(null);
     setInlineStackReturnsToExpression(false);
     window.setTimeout(() => searchRef.current?.focus(), 0);
-  };
-
-  const focusInlineCondition = (index: number) => {
-    window.setTimeout(() => window.setTimeout(() => {
-      const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${index}"]`);
-      getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
-    }, 0), 0);
   };
 
   const updateInlineCondition = (path: number[], criterion: CriterionDefinition, value: unknown) => {
