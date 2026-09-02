@@ -482,9 +482,7 @@ export function countActiveObjectFilters(criteriaDefinitions: CriterionDefinitio
     if (processedKeys.has(key)) continue;
     if (key === "_filterExpression") {
       const expression = objectFilter[key] as ChipFilterExpression | undefined;
-      const children = expression?.children ?? [];
-      if (expression?.operator === "AND" && children.every((child) => child.filter && !child.group)) count += children.length;
-      else count += 1;
+      count += countFilterExpressionLeaves(expression);
       processedKeys.add(key);
       continue;
     }

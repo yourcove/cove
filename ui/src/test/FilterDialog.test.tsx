@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilterButton, FilterDialog, RemoteIdFilterEditor, PERFORMER_CRITERIA, VIDEO_CRITERIA, TAG_CRITERIA, STUDIO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
+import { countActiveObjectFilters } from "../components/ActiveObjectFilterChips";
 import type { CriterionModifier } from "../api/types";
 import { writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 import { AppConfigProvider } from "../state/AppConfigContext";
@@ -2113,6 +2114,42 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("marks criteria nested anywhere in a complex expression as active", () => {
+    const activeFilter = {
+      _filterExpression: {
+        operator: "AND" as const,
+        children: [
+          { filter: { tagsCriterion: { modifier: "INCLUDES_ALL", value: [1] } } },
+          { group: { operator: "OR" as const, children: [
+            { filter: { resolutionCriterion: { modifier: "EQUALS", value: 2160 } } },
+            { group: { operator: "AND" as const, children: [
+              { filter: { performerFilterCriterion: { ageAtHostDateCriterion: { modifier: "EQUALS", value: 18 } } } },
+            ] } },
+          ] } },
+          { filter: { tagsCriterion: { modifier: "INCLUDES_ALL", value: [2] } } },
+        ],
+      },
+    };
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={activeFilter}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+      />,
+    );
+
+    for (const name of ["Tags", "Resolution", "Related Performers"]) {
+      const tab = screen.getByRole("tab", { name });
+      expect(tab).toHaveAccessibleDescription("Active filter");
+      expect(tab.querySelector("span")).toHaveClass("text-accent");
+    }
+    expect(screen.getByLabelText("4 active filters")).toHaveTextContent("4");
+    expect(countActiveObjectFilters(VIDEO_CRITERIA, activeFilter)).toBe(4);
+  });
+
   it("stacks repeated date conditions in the normal criterion panel", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(
@@ -2773,7 +2810,9 @@ describe("FilterDialog", () => {
       />,
     );
 
+    expect(screen.getByLabelText("1 active filters")).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "Add another URL" }));
+    expect(screen.getByLabelText("1 active filters")).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "Remove URL condition 2" }));
     expect(screen.queryByRole("group", { name: "URL condition 1" })).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("foo")).toBeInTheDocument();

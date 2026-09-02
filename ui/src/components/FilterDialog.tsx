@@ -502,6 +502,16 @@ function countFilterExpressionConditions(expression: FilterExpression<Record<str
   return expression.children.reduce((count, child) => count + (child.group ? countFilterExpressionConditions(child.group) : child.filter ? 1 : 0), 0);
 }
 
+function countValidFilterExpressionConditions(
+  expression: FilterExpression<Record<string, unknown>> | undefined,
+  criteria: CriterionDefinition[],
+): number {
+  if (!expression) return 0;
+  return expression.children.reduce((count, child) => count + (child.group
+    ? countValidFilterExpressionConditions(child.group, criteria)
+    : child.filter && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? 1 : 0), 0);
+}
+
 export function isComplexFilterExpression(expression: FilterExpression<Record<string, unknown>> | undefined): boolean {
   return Boolean(expression && (expression.operator !== "AND" || expression.children.some((child) => child.group)));
 }
@@ -576,6 +586,15 @@ function getExpressionConditionCriterion(
   const selectedId = typeof filter._criterionId === "string" ? filter._criterionId : undefined;
   return criteria.find((criterion) => criterion.id === selectedId
     || getCriterionFilterValue(filter, criterion) !== undefined);
+}
+
+function expressionHasActiveCriterion(
+  expression: FilterExpression<Record<string, unknown>> | undefined,
+  criterion: CriterionDefinition,
+): boolean {
+  return expression?.children.some((child) => child.filter
+    ? isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)
+    : expressionHasActiveCriterion(child.group, criterion)) ?? false;
 }
 
 function updateExpressionLeaf(
@@ -1227,7 +1246,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const directlyEditableExpressionChildren = directlyEditableExpressionGroup?.children ?? [];
   const validSimpleExpressionEntries = simpleExpressionChildren.flatMap((child, index) => child.filter
     && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? [{ child, index }] : []);
-  const displayedActiveCount = activeCriterionCount + (hasComplexExpression ? 1 : validSimpleExpressionEntries.length);
+  const displayedActiveCount = activeCriterionCount + countValidFilterExpressionConditions(expression, criteria);
 
   type NavigatorItem =
     | { kind: "criterion"; id: string; label: string; active: boolean; pinned: boolean; criterion: CriterionDefinition }
@@ -1246,8 +1265,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       id: criterion.id,
       label: criterion.label,
       active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)
-        || directlyEditableExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
-          && isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)),
+        || expressionHasActiveCriterion(expression, criterion),
       pinned: pinnedIds.has(criterion.id),
       criterion,
     }));
@@ -1270,7 +1288,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       { label: "Related items", items: related },
       { label: "All filters", items: remaining },
     ].filter((group) => group.items.length > 0);
-  }, [criteria, customSections, directlyEditableExpressionChildren, editFilter, filteredCriteria, pinnedIds, search]);
+  }, [criteria, customSections, editFilter, expression, filteredCriteria, pinnedIds, search]);
 
   const visibleNavigatorItems = useMemo(() => navigatorGroups.flatMap((group) => group.items), [navigatorGroups]);
   const rovingNavigatorId = navigatorFocusId && visibleNavigatorItems.some((item) => item.id === navigatorFocusId)
@@ -1297,12 +1315,11 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       id: criterion.id,
       label: criterion.label,
       active: isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion)
-        || directlyEditableExpressionChildren.some((child) => child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
-          && isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)),
+        || expressionHasActiveCriterion(expression, criterion),
       pinned: pinnedIds.has(criterion.id),
       criterion,
     } : undefined;
-  }, [criteria, customSections, directlyEditableExpressionChildren, editFilter, expandedCriterion, pinnedIds]);
+  }, [criteria, customSections, editFilter, expandedCriterion, expression, pinnedIds]);
   const relatedWorkspaceCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type === "related"
     ? selectedItem.criterion
     : undefined;
