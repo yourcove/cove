@@ -666,6 +666,28 @@ function expressionEntrySummary(
     : formatFilterChipValue(def, value, nameMap, ratingOptions);
 }
 
+function ExpressionEntryValue({
+  def,
+  value,
+  endpointValue,
+  entityNameMaps,
+  metadataServers,
+  ratingOptions,
+}: {
+  def: CriterionDefinition | undefined;
+  value: unknown;
+  endpointValue: unknown;
+  entityNameMaps: Record<string, Map<number, string>>;
+  metadataServers: MetadataServer[];
+  ratingOptions: RatingSystemOptions;
+}) {
+  const nameMap = def?.entityType ? entityNameMaps[def.entityType] : undefined;
+  const fallback = expressionEntrySummary(def, value, endpointValue, entityNameMaps, metadataServers, ratingOptions);
+  return def?.type === "multiId"
+    ? <MultiIdFilterChipDisplay def={def} value={value} nameMap={nameMap} fallback={fallback} />
+    : <>{fallback}</>;
+}
+
 function ExpressionLeafSummary({
   filter,
   criteriaDefinitions,
@@ -701,7 +723,7 @@ function ExpressionLeafSummary({
               {nestedEntries.map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => (
                 <span key={nestedKey} className="rounded bg-card px-1.5 py-0.5">
                   <span className="text-muted">{nestedDef?.label ?? relatedFallbackLabel(nestedKey)} </span>
-                  {expressionEntrySummary(nestedDef, nestedValue, nestedEndpoint, entityNameMaps, metadataServers, ratingOptions)}
+                  <ExpressionEntryValue def={nestedDef} value={nestedValue} endpointValue={nestedEndpoint} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
                 </span>
               ))}
               {related._matchAll === true && !q && nestedEntries.length === 0 ? <span className="rounded bg-card px-1.5 py-0.5">Any related performer</span> : null}
@@ -712,7 +734,7 @@ function ExpressionLeafSummary({
         const entryLabel = def?.auxiliaryToggleKey === key ? def.auxiliaryToggleLabel ?? def.label : def?.label ?? relatedFallbackLabel(key);
         const entryValue = def?.auxiliaryToggleKey === key && typeof value === "boolean"
           ? (value ? "Yes" : "No")
-          : expressionEntrySummary(def, value, endpointValue, entityNameMaps, metadataServers, ratingOptions);
+          : <ExpressionEntryValue def={def} value={value} endpointValue={endpointValue} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />;
         return (
           <span key={key} className={compact ? "" : "rounded bg-card px-1.5 py-0.5"}>
             {!compact || showCompactLabel ? <span className="text-muted">{entryLabel} </span> : null}
@@ -1066,6 +1088,7 @@ function RelatedExpressionLeafDisplay({
         const displayValue = nestedDef?.type === "remoteId"
           ? formatRemoteIdFilterChipValue(nestedValue, endpointValue, metadataServers)
           : formatFilterChipValue(nestedDef, nestedValue, nameMap, ratingOptions);
+        const displayContent = <ExpressionEntryValue def={nestedDef} value={nestedValue} endpointValue={endpointValue} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />;
         return nestedDef ? (
           <button
             key={key}
@@ -1075,9 +1098,9 @@ function RelatedExpressionLeafDisplay({
             className={`rounded px-1.5 py-0.5 text-left hover:bg-background/60 ${contained ? "" : "border border-border/80 bg-surface hover:border-accent"}`}
             aria-label={`Edit ${singular} filter: ${label} ${displayValue}`}
           >
-            <span className="text-muted">{label} </span>{displayValue}
+            <span className="text-muted">{label} </span>{displayContent}
           </button>
-        ) : <span key={key} className="rounded bg-card px-1.5 py-0.5"><span className="text-muted">{label} </span>{displayValue}</span>;
+        ) : <span key={key} className="rounded bg-card px-1.5 py-0.5"><span className="text-muted">{label} </span>{displayContent}</span>;
       })}
     </span>
   );

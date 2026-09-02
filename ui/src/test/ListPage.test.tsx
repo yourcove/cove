@@ -369,7 +369,9 @@ describe("ListPage active filter chips", () => {
               _filterExpression: {
                 operator: "OR",
                 children: [
-                  { filter: { tagsCriterion: { modifier: "INCLUDES", value: [42] } } },
+                  { filter: { tagsCriterion: { modifier: "INCLUDES", value: [42], excludes: [43], _names: { "42": "Example Tag", "43": "Excluded Tag" } } } },
+                  { filter: { performersCriterion: { modifier: "INCLUDES", value: [1], excludes: [2], _names: { "1": "Included Performer", "2": "Excluded Performer" } } } },
+                  { filter: { performerFilterCriterion: { objectFilter: { tagsCriterion: { modifier: "INCLUDES", value: [3], excludes: [4], _names: { "3": "Included Performer Tag", "4": "Excluded Performer Tag" } } } } } },
                   { group: { operator: "AND", children: [
                     { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
                     { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
@@ -394,7 +396,15 @@ describe("ListPage active filter chips", () => {
     expect(document.querySelector('[data-filter-operator="NONE"]')).toBeInTheDocument();
     const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
     expect(anyGroup).toHaveClass("text-violet-300");
-    const anyCondition = screen.getByRole("button", { name: "Edit filter: Tags Example Tag" });
+    const anyCondition = screen.getByRole("button", { name: /Edit filter: Tags Example Tag/ });
+    expect(anyCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(anyCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
+    const performersCondition = screen.getByRole("button", { name: /Edit filter: Performers Included Performer/ });
+    expect(performersCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(performersCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
+    const relatedTagsCondition = screen.getByRole("button", { name: /Edit performer filter: Tags Included Performer Tag/ });
+    expect(relatedTagsCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(relatedTagsCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
     const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
     expect(allGroup).toHaveClass("text-accent");
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
