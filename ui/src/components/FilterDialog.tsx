@@ -36,6 +36,7 @@ import {
   expressionPassthroughFilter,
   getCriterionFilterValue,
   getExpressionConditionCriterion,
+  getExpressionCriterionInstances,
   isCriterionValueValid,
   mergeFilterExpressionWithSimpleCriteria,
   migrateLegacyPerformerFavoriteCriterion,
@@ -96,6 +97,10 @@ interface ExpressionConditionDraft {
   returnView: "simple" | "expression";
   implicitRootAnd?: boolean;
 }
+
+type CriterionEditorInstance =
+  | { source: "expression"; index: number; path: number[]; filter: Record<string, unknown> }
+  | { source: "ordinary"; filter: Record<string, unknown> };
 
 export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, preselectCriterion, customSections, showCustomSectionDivider = true, supportsFilterExpressions = false, initialView = "simple", initialExpressionPath, subjectLabel = "items", openAtRoot = false }: FilterDialogProps) {
   const supportsExpressions = supportsFilterExpressions;
@@ -287,15 +292,23 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const selectedCompactCriterion = selectedItem?.kind === "criterion" && selectedItem.criterion.type !== "related"
     ? selectedItem.criterion
     : undefined;
-  const selectedExpressionInstances = selectedCompactCriterion ? directlyEditableExpressionChildren.flatMap((child, index) =>
-    child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === selectedCompactCriterion.id
-      ? [{ index, path: [...simpleExpressionGroupPath, index], filter: child.filter }]
-      : []) : [];
-  const selectedSingleExpressionInstance = selectedExpressionInstances.length === 1 ? selectedExpressionInstances[0] : undefined;
+  const selectedExpressionInstances = selectedCompactCriterion
+    ? getExpressionCriterionInstances(expression, selectedCompactCriterion, criteria)
+    : [];
+  const selectedOrdinaryCriterionInstance = Boolean(selectedCompactCriterion
+    && isCriterionValueValid(getCriterionFilterValue(editFilter, selectedCompactCriterion), selectedCompactCriterion));
+  const selectedCriterionInstances: CriterionEditorInstance[] = [
+    ...selectedExpressionInstances.map((instance) => ({ source: "expression" as const, ...instance })),
+    ...(selectedOrdinaryCriterionInstance ? [{ source: "ordinary" as const, filter: editFilter }] : []),
+  ];
+  const selectedSingleCriterionInstance = selectedCriterionInstances.length === 1 ? selectedCriterionInstances[0] : undefined;
+  const selectedSingleExpressionInstance = selectedSingleCriterionInstance?.source === "expression"
+    ? selectedSingleCriterionInstance
+    : undefined;
   const selectedHasIncompleteExpressionInstance = Boolean(selectedCompactCriterion && selectedExpressionInstances.some((instance) =>
     !isCriterionValueValid(getCriterionFilterValue(instance.filter, selectedCompactCriterion), selectedCompactCriterion)));
   const showInlineConditionStack = Boolean(!conditionDraft && selectedCompactCriterion && (
-    selectedExpressionInstances.length > 1
+    selectedCriterionInstances.length > 1
     || selectedHasIncompleteExpressionInstance
   ));
 
@@ -318,14 +331,23 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     }, 0), 0);
   }, []);
 
-  const focusInlineCondition = (index: number) => {
+  const focusInlineCondition = (path: number[]) => {
     window.setTimeout(() => window.setTimeout(() => {
-      const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${index}"]`);
+      const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-path="${path.join(".")}"]`);
       getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
     }, 0), 0);
   };
 
-  const selectNavigatorItem = useCallback((id: string) => {
+  const focusOrdinaryCriterionInstance = useCallback(() => {
+    window.setTimeout(() => window.setTimeout(() => {
+      const panel = dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
+      const condition = panel?.querySelector<HTMLElement>("[data-inline-condition-source='ordinary']");
+      (getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))
+        ?? getFirstEditorControl(panel))?.focus();
+    }, 0), 0);
+  }, []);
+
+  const selectNavigatorItem = useCallback((id: string, focusInstance?: "ordinary") => {
     const criterion = criteria.find((item) => item.id === id);
     const parentPath = conditionDraft?.parentPath ?? [];
     const parentGroup = expression ? getExpressionGroup(expression, parentPath) : undefined;
@@ -354,7 +376,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       setExpandedCriterion(id);
       setConditionDraft(null);
       setInlineStackReturnsToExpression(true);
-      focusInlineCondition(newIndex);
+      focusInlineCondition([...parentPath, newIndex]);
       return;
     }
     setRelatedWorkspaceSelection(null);
@@ -365,8 +387,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         : { ...current, filter: { _criterionId: id } }
       : current);
     if (conditionDraft) focusFirstConditionEditorControl();
+    else if (focusInstance === "ordinary") focusOrdinaryCriterionInstance();
     else focusFirstEditorControl();
-  }, [conditionDraft, criteria, expression, focusFirstConditionEditorControl, focusFirstEditorControl]);
+  }, [conditionDraft, criteria, expression, focusFirstConditionEditorControl, focusFirstEditorControl, focusOrdinaryCriterionInstance]);
 
   useEffect(() => {
     if (lastActiveFilterSignatureRef.current !== activeFilterSignature) {
@@ -442,7 +465,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       window.setTimeout(() => {
         if (openingView === "expression") backButtonRef.current?.focus();
         else if (openLeafInline && initialExpressionPath) {
-          const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-index="${initialExpressionPath.at(-1)}"]`);
+          const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-path="${initialExpressionPath.join(".")}"]`);
           getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
         }
         else if (openingLeafCriterion?.type === "related" && typeof preselectCriterion === "object" && preselectCriterion.nestedCriterionId) {
@@ -668,7 +691,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setRelatedWorkspaceSelection({ facet: target.facet, nestedCriterionId: target.nestedCriterionId });
         focusFirstEditorControl();
       } else {
-        selectNavigatorItem(nextId);
+        selectNavigatorItem(nextId, target.kind === "root" && criterion?.type !== "related" ? "ordinary" : undefined);
       }
     }
   }, [criteria, customSections, enterExpression, focusFirstEditorControl, selectNavigatorItem]);
@@ -788,7 +811,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       setInlineStackReturnsToExpression(true);
       setExpandedCriterion(criterion?.id ?? null);
       setDialogView("simple");
-      focusInlineCondition(path[0]);
+      focusInlineCondition(path);
       return;
     }
     viewReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -815,9 +838,11 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setRelatedWorkspaceSelection(null);
     setSimpleExpressionGroupPath(path.slice(0, -1));
     setExpandedCriterion(criterion.id);
-    const siblingCount = getExpressionGroup(expression, path.slice(0, -1))?.children.filter((child) => child.filter
-      && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id).length ?? 0;
-    if (siblingCount > 1) focusInlineCondition(path.at(-1) ?? 0);
+    const expressionInstances = getExpressionCriterionInstances(expression, criterion, criteria);
+    const hasOrdinaryInstance = isCriterionValueValid(getCriterionFilterValue(editFilter, criterion), criterion);
+    const showsInlineStack = expressionInstances.length + Number(hasOrdinaryInstance) > 1
+      || expressionInstances.some((instance) => !isCriterionValueValid(getCriterionFilterValue(instance.filter, criterion), criterion));
+    if (showsInlineStack) focusInlineCondition(path);
     else focusFirstEditorControl();
   };
 
@@ -887,7 +912,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       });
       setExpandedCriterion(criterion.id);
       setRelatedWorkspaceSelection(null);
-      focusInlineCondition(newIndex);
+      focusInlineCondition([...simpleExpressionGroupPath, newIndex]);
       return;
     }
     const newIndex = merged.operator === "AND" ? merged.children.length : 1;
@@ -907,7 +932,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setSimpleExpressionGroupPath([]);
     setExpandedCriterion(criterion.id);
     setRelatedWorkspaceSelection(null);
-    focusInlineCondition(newIndex);
+    focusInlineCondition([newIndex]);
   };
 
   const removeSimpleExpressionCondition = (index: number, inlinePosition?: number, parentPath: number[] = simpleExpressionGroupPath) => {
@@ -976,6 +1001,19 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       const toolbarButtons = Array.from(selectedFiltersToolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
       (target ?? toolbarButtons[Math.min(selectedFiltersLastFocusedIndexRef.current, toolbarButtons.length - 1)] ?? searchRef.current)?.focus();
     }, 0);
+  };
+
+  const removeOrdinaryCriterionInstance = (criterion: CriterionDefinition, inlinePosition: number) => {
+    setEditFilter((current) => removeCriterionFilterValue(current, criterion));
+    window.setTimeout(() => window.setTimeout(() => {
+      const conditions = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("[data-inline-condition-index]") ?? []);
+      const target = conditions[Math.min(inlinePosition, conditions.length - 1)];
+      if (target) getFirstInlineEditorControl(target.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
+      else {
+        const panel = dialogRef.current?.querySelector<HTMLElement>("[role='tabpanel']");
+        getFirstEditorControl(panel)?.focus();
+      }
+    }, 0), 0);
   };
 
   const conditionCriterionId = conditionDraft
@@ -1467,16 +1505,20 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                   <div className="rounded-xl border border-border bg-card p-4 text-sm text-secondary">{selectedItem.criterion.unsupportedReason ?? "This filter is not currently available."}</div>
                 ) : showInlineConditionStack ? (
                   <div className="space-y-4">
-                    {selectedExpressionInstances.map(({ index, path, filter }, position) => (
+                    {selectedCriterionInstances.map((instance, position) => (
                       <fieldset
-                        key={index}
-                        data-inline-condition-index={index}
+                        key={instance.source === "expression" ? `expression-${instance.path.join(".")}` : "ordinary"}
+                        data-inline-condition-index={instance.source === "expression" ? instance.index : "ordinary"}
+                        data-inline-condition-path={instance.source === "expression" ? instance.path.join(".") : undefined}
+                        data-inline-condition-source={instance.source}
                         aria-label={`${selectedItem.criterion.label} condition ${position + 1}`}
                         className="relative rounded-xl border border-border bg-card/30 p-4 pr-12"
                       >
                         <button
                           type="button"
-                          onClick={() => removeSimpleExpressionCondition(index, position, path.slice(0, -1))}
+                          onClick={() => instance.source === "expression"
+                            ? removeSimpleExpressionCondition(instance.index, position, instance.path.slice(0, -1))
+                            : removeOrdinaryCriterionInstance(selectedItem.criterion, position)}
                           title={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
                           aria-label={`Remove ${selectedItem.criterion.label} condition ${position + 1}`}
                           className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-red-500/10 hover:text-red-300"
@@ -1486,10 +1528,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                         <div data-inline-condition-editor>
                           <CriterionEditor
                             criterion={selectedItem.criterion}
-                            value={getCriterionFilterValue(filter, selectedItem.criterion)}
-                            auxiliaryToggleChecked={selectedItem.criterion.auxiliaryToggleKey ? Boolean(filter[selectedItem.criterion.auxiliaryToggleKey]) : undefined}
-                            onAuxiliaryToggleChange={(checked) => updateInlineAuxiliaryToggle(path, selectedItem.criterion, checked)}
-                            onChange={(value) => updateInlineCondition(path, selectedItem.criterion, value)}
+                            value={getCriterionFilterValue(instance.filter, selectedItem.criterion)}
+                            auxiliaryToggleChecked={selectedItem.criterion.auxiliaryToggleKey ? Boolean(instance.filter[selectedItem.criterion.auxiliaryToggleKey]) : undefined}
+                            onAuxiliaryToggleChange={(checked) => instance.source === "expression"
+                              ? updateInlineAuxiliaryToggle(instance.path, selectedItem.criterion, checked)
+                              : handleSetAuxiliaryToggle(selectedItem.criterion, checked)}
+                            onChange={(value) => instance.source === "expression"
+                              ? updateInlineCondition(instance.path, selectedItem.criterion, value)
+                              : handleSetCriterion(selectedItem.criterion, value)}
                           />
                         </div>
                       </fieldset>

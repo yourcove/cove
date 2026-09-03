@@ -356,6 +356,28 @@ export function getExpressionConditionCriterion(
     || getCriterionFilterValue(filter, criterion) !== undefined);
 }
 
+export interface FilterExpressionCriterionInstance {
+  index: number;
+  path: number[];
+  filter: Record<string, unknown>;
+}
+
+export function getExpressionCriterionInstances(
+  expression: FilterExpression<Record<string, unknown>> | undefined,
+  criterion: CriterionDefinition,
+  criteria: CriterionDefinition[],
+  parentPath: number[] = [],
+): FilterExpressionCriterionInstance[] {
+  if (!expression) return [];
+  return expression.children.flatMap((child, index) => {
+    const path = [...parentPath, index];
+    if (child.group) return getExpressionCriterionInstances(child.group, criterion, criteria, path);
+    return child.filter && getExpressionConditionCriterion(child.filter, criteria)?.id === criterion.id
+      ? [{ index, path, filter: child.filter }]
+      : [];
+  });
+}
+
 export function expressionHasActiveCriterion(
   expression: FilterExpression<Record<string, unknown>> | undefined,
   criterion: CriterionDefinition,
