@@ -230,15 +230,17 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         active: section.isActive(editFilter[section.filterKey]),
         pinned: false,
         section,
-      }));
+    }));
     const items = [...customItems, ...criterionItems];
-    const pinned = items.filter((item) => item.pinned).sort(sortItems);
-    const related = items.filter((item) => !item.pinned && item.kind === "criterion" && item.criterion.category === "related").sort(sortItems);
-    const remaining = items.filter((item) => !item.pinned && !(item.kind === "criterion" && item.criterion.category === "related")).sort(sortItems);
+    const active = items.filter((item) => item.active).sort(sortItems);
+    const pinned = items.filter((item) => !item.active && item.pinned).sort(sortItems);
+    const related = items.filter((item) => !item.active && !item.pinned && item.kind === "criterion" && item.criterion.category === "related").sort(sortItems);
+    const remaining = items.filter((item) => !item.active && !item.pinned && !(item.kind === "criterion" && item.criterion.category === "related")).sort(sortItems);
     return [
+      { label: "Active", items: active },
       { label: "Pinned", items: pinned },
-      { label: "Related items", items: related },
       { label: "All filters", items: remaining },
+      { label: "Related items", items: related },
     ].filter((group) => group.items.length > 0);
   }, [criteria, customSections, editFilter, expression, filteredCriteria, pinnedIds, search]);
 

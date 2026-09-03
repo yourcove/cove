@@ -886,6 +886,43 @@ describe("FilterDialog", () => {
     expect(screen.queryByRole("tabpanel", { name: "Title" })).not.toBeInTheDocument();
   });
 
+  it("lists active filters first and related items last", () => {
+    localStorage.setItem("filter-pinned", JSON.stringify(["rating", "title"]));
+    render(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ customCriterion: true, titleCriterion: { value: "example", modifier: "EQUALS" } }}
+        onApply={vi.fn()}
+        openAtRoot
+        customSections={[{
+          id: "custom",
+          label: "Custom",
+          filterKey: "customCriterion",
+          defaultValue: false,
+          isActive: (value) => value === true,
+          renderEditor: () => null,
+        }]}
+      />,
+    );
+
+    const groups = within(screen.getByRole("tablist", { name: "Available filter criteria" })).getAllByRole("region");
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+      "Active",
+      "Pinned",
+      "All filters",
+      "Related items",
+    ]);
+    expect(within(groups[0]).getByRole("tab", { name: "Title" })).toHaveAccessibleDescription("Active filter");
+    expect(within(groups[0]).getByRole("tab", { name: "Custom" })).toHaveAccessibleDescription("Active filter");
+    expect(within(groups[0]).getByRole("button", { name: "Unpin Title" })).toBeInTheDocument();
+    expect(within(groups[1]).getByRole("tab", { name: "Rating" })).toBeInTheDocument();
+    expect(within(groups[1]).queryByRole("tab", { name: "Title" })).not.toBeInTheDocument();
+    expect(within(groups[2]).queryByRole("tab", { name: "Title" })).not.toBeInTheDocument();
+    expect(within(groups[3]).getByRole("tab", { name: "Related Performers" })).toBeInTheDocument();
+  });
+
   it("keeps pin controls out of the tab order while allowing arrow-key access from the selected criterion", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -2114,8 +2151,7 @@ describe("FilterDialog", () => {
       />,
     );
 
-    expect(screen.queryByRole("region", { name: "Active" })).not.toBeInTheDocument();
-    const activeUrlTab = screen.getByRole("tab", { name: "URL" });
+    const activeUrlTab = within(screen.getByRole("region", { name: "Active" })).getByRole("tab", { name: "URL" });
     expect(activeUrlTab.querySelector("span")).toHaveClass("text-accent");
     expect(activeUrlTab).toHaveAccessibleDescription("Active filter");
     expect(activeUrlTab.querySelector(".lucide-check")).not.toBeInTheDocument();
@@ -2176,8 +2212,9 @@ describe("FilterDialog", () => {
       />,
     );
 
+    const activeRegion = screen.getByRole("region", { name: "Active" });
     for (const name of ["Tags", "Resolution", "Related Performers"]) {
-      const tab = screen.getByRole("tab", { name });
+      const tab = within(activeRegion).getByRole("tab", { name });
       expect(tab).toHaveAccessibleDescription("Active filter");
       expect(tab.querySelector("span")).toHaveClass("text-accent");
     }
