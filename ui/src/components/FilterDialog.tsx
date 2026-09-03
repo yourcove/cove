@@ -79,8 +79,6 @@ import {
   type ExpressionGroupDestination,
 } from "../utils/filterExpressionTree";
 
-export { FILTER_EXPRESSION_STATE_KEY, isComplexFilterExpression } from "../utils/filterExpressionTree";
-
 // ===== Criterion definitions =====
 
 export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash" | "related";
