@@ -1,11 +1,9 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { X, Search, Pin, PinOff, Plus, ArrowLeft, Film, Users, Workflow, ChevronDown, ChevronUp } from "lucide-react";
-import { useRatingOptions } from "./Rating";
 import type {
   RelatedFilterCriterion,
   FilterExpression,
 } from "../api/types";
-import { useOptionalAppConfig } from "../state/AppConfigContext";
 import {
   ActiveObjectFilterChips,
   getFilterChipTargetKey,
@@ -28,8 +26,7 @@ import {
   type EditableFilterExpression,
 } from "../utils/filterExpressionTree";
 import type { CriterionDefinition, FilterDialogCustomSection } from "./filterCriteriaTypes";
-import { FilterExpressionEditor as FilterExpressionEditorView, MAX_FILTER_EXPRESSION_CONDITIONS } from "./FilterExpressionEditor";
-import { describeFilterExpressionCondition } from "./filterExpressionExplanation";
+import { FilterExpressionEditor, MAX_FILTER_EXPRESSION_CONDITIONS } from "./FilterExpressionEditor";
 import { RelatedFilterWorkspace } from "./RelatedFilterWorkspace";
 import { CriterionEditor } from "./CriterionEditor";
 import { getFirstEditorControl, getFirstInlineEditorControl } from "./filterEditorFocus";
@@ -1607,48 +1604,6 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     </div>
   );
 }
-
-// ===== Criterion Editor =====
-
-
-function FilterExpressionEditor({
-  criteria,
-  value,
-  onChange,
-  onAddCondition,
-  onEditCondition,
-  subjectLabel,
-}: {
-  criteria: CriterionDefinition[];
-  value: FilterExpression<Record<string, unknown>>;
-  onChange: (value: FilterExpression<Record<string, unknown>>) => void;
-  onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
-  onEditCondition: (path: number[], target?: FilterChipTarget) => void;
-  subjectLabel: string;
-}) {
-  const ratingOptions = useRatingOptions();
-  const appConfig = useOptionalAppConfig();
-  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
-  return (
-    <FilterExpressionEditorView
-      criteria={criteria}
-      value={value}
-      onChange={onChange}
-      onAddCondition={onAddCondition}
-      onEditCondition={onEditCondition}
-      subjectLabel={subjectLabel}
-      describeCondition={(filter) => describeFilterExpressionCondition(filter, criteria, ratingOptions, metadataServers)}
-    />
-  );
-}
-
-
-
-// ===== Related-entity Editor =====
-
-
-// ===== Bool Editor =====
-
 
 // ===== Filter Button for ListPage =====
 

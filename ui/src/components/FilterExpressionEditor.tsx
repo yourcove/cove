@@ -28,6 +28,9 @@ import {
   type ExpressionGroupDestination,
 } from "../utils/filterExpressionTree";
 import type { CriterionDefinition } from "./filterCriteriaTypes";
+import { useRatingOptions } from "./Rating";
+import { useOptionalAppConfig } from "../state/AppConfigContext";
+import { describeFilterExpressionCondition } from "./filterExpressionExplanation";
 
 export function FilterExpressionEditor({
   criteria,
@@ -36,7 +39,6 @@ export function FilterExpressionEditor({
   onAddCondition,
   onEditCondition,
   subjectLabel,
-  describeCondition,
 }: {
   criteria: CriterionDefinition[];
   value: FilterExpression<Record<string, unknown>>;
@@ -44,12 +46,15 @@ export function FilterExpressionEditor({
   onAddCondition: (criterionId?: string, parentPath?: number[]) => void;
   onEditCondition: (path: number[], target?: FilterChipTarget) => void;
   subjectLabel: string;
-  describeCondition: (filter: Record<string, unknown>) => string;
 }) {
   const conditionCount = countFilterExpressionConditions(value);
   const [keyboardMove, setKeyboardMove] = useState<{ sourcePath: number[]; destinationIndex: number } | null>(null);
   const [draggedPath, setDraggedPath] = useState<number[] | null>(null);
   const [moveAnnouncement, setMoveAnnouncement] = useState("");
+  const ratingOptions = useRatingOptions();
+  const appConfig = useOptionalAppConfig();
+  const metadataServers = appConfig?.config?.scraping?.metadataServers ?? [];
+  const describeCondition = (filter: Record<string, unknown>) => describeFilterExpressionCondition(filter, criteria, ratingOptions, metadataServers);
   const destinations = useMemo(() => {
     const result: ExpressionGroupDestination[] = [];
     const visit = (group: EditableFilterExpression, path: number[], depth: number) => {
@@ -68,7 +73,7 @@ export function FilterExpressionEditor({
     };
     visit(value as EditableFilterExpression, [], 0);
     return result;
-  }, [describeCondition, value]);
+  }, [criteria, metadataServers, ratingOptions, value]);
   const legalDestinations = useCallback((sourcePath: number[]) => destinations.filter((destination) => !expressionPathsEqual(destination.path, sourcePath.slice(0, -1))), [destinations]);
   const moveCondition = useCallback((sourcePath: number[], destinationPath: number[]) => {
     const moved = moveExpressionLeaf(value as EditableFilterExpression, sourcePath, destinationPath);
