@@ -349,7 +349,7 @@ describe("DetailListToolbar", () => {
     await user.click(screen.getByRole("button", { name: "Edit Any group in Combine Filters" }));
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close filters" }));
-    await user.click(screen.getByRole("button", { name: "Filters, 1 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, 2 active" }));
     expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
   });
