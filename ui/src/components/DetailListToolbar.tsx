@@ -5,7 +5,8 @@ import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthP
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
-import { FilterButton, FilterDialog, migrateLegacyPerformerFavoriteCriterion, type CriterionDefinition, type FilterDialogPreselection } from "./FilterDialog";
+import { FilterButton, FilterDialog, migrateLegacyPerformerFavoriteCriterion, type FilterDialogPreselection } from "./FilterDialog";
+import type { CriterionDefinition } from "./filterCriteriaTypes";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
 import { ActiveObjectFilterChips, countActiveObjectFilters, getFilterChipTargetKey, removeObjectFilterChipTarget } from "./ActiveObjectFilterChips";

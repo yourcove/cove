@@ -25,7 +25,7 @@ import { StudioSelector } from "../components/StudioSelector";
 import { StringListEditor } from "../components/StringListEditor";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { SourceDownloadDialog } from "../components/SourceDownloadDialog";
-import { AUDIO_CRITERIA } from "../components/FilterDialog";
+import { AUDIO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";

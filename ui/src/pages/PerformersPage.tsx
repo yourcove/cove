@@ -8,7 +8,7 @@ import { StringListEditor } from "../components/StringListEditor";
 import { GENDER_OPTIONS } from "./PerformerEditModal";
 import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { PERFORMER_CRITERIA } from "../components/FilterDialog";
+import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { Users, Heart, Merge, User } from "lucide-react";

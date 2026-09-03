@@ -9,8 +9,8 @@ import {
   STUDIO_CRITERIA,
   TAG_CRITERIA,
   TEXT_CRITERIA,
-  type CriterionDefinition,
-} from "../components/FilterDialog";
+} from "../components/filterCriteriaCatalogs";
+import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 
 const criteriaSets = [
   ["video", VIDEO_CRITERIA],

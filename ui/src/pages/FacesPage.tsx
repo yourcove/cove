@@ -7,7 +7,7 @@ import type { Face } from "../api/types";
 import { faceDisplayName } from "../utils/faceDisplay";
 import { Fingerprint, Link2, Trash2 } from "lucide-react";
 import { ListPage, type DisplayMode } from "../components/ListPage";
-import type { CriterionDefinition } from "../components/FilterDialog";
+import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../components/RouteCardLinkOverlay";
 import { createNestedRouteLinkProps } from "../components/cardNavigation";
 import { FaceCompareDialog, readReferenceLinkInfo } from "../components/FaceCompareDialog";

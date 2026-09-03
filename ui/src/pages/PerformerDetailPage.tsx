@@ -24,7 +24,7 @@ import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { ContextualImageListView, ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
-import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, VIDEO_CRITERIA, TEXT_CRITERIA } from "../components/FilterDialog";
+import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, VIDEO_CRITERIA, TEXT_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";

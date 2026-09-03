@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
-import { VIDEO_CRITERIA } from "../components/FilterDialog";
+import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 
 vi.mock("../hooks/useRegisterKeyboardActionHandler", () => ({
