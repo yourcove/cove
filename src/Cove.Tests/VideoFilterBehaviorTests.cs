@@ -410,7 +410,7 @@ public class VideoFilterBehaviorTests
             expression);
 
         Assert.Equal(2, count);
-        Assert.Equal(["baz", "foo-only"], items.Select(video => video.Title).ToArray());
+        Assert.Equal(["baz", "foo-only"], items.Select(video => video.Title!).ToArray());
     }
 
     [Fact]
