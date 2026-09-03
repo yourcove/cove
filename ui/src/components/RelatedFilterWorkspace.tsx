@@ -3,7 +3,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -21,14 +20,7 @@ import {
 import { LabeledControl } from "./filterEditorControls";
 import { getFirstEditorControl } from "./filterEditorFocus";
 import type { CriterionDefinition } from "./filterCriteriaTypes";
-
-export interface RelatedCriterionEditorProps {
-  criterion: CriterionDefinition;
-  value: unknown;
-  auxiliaryToggleChecked?: boolean;
-  onAuxiliaryToggleChange?: (checked: boolean) => void;
-  onChange: (value: unknown) => void;
-}
+import { CriterionEditor } from "./CriterionEditor";
 
 export function parseSavedFilterObject(value: string | undefined): Record<string, unknown> {
   if (!value) return {};
@@ -46,14 +38,12 @@ export function RelatedFilterWorkspace({
   onChange,
   selection,
   onSelectionChange,
-  CriterionEditorComponent,
 }: {
   criterion: CriterionDefinition;
   value?: RelatedFilterCriterion;
   onChange: (v: unknown) => void;
   selection: { facet: RelatedFilterChipFacet; nestedCriterionId?: string } | null;
   onSelectionChange: (selection: { facet: RelatedFilterChipFacet; nestedCriterionId?: string } | null) => void;
-  CriterionEditorComponent: ComponentType<RelatedCriterionEditorProps>;
 }) {
   const entityType = criterion.entityType!;
   const singular = entityType === "performers" ? "performer" : "video";
@@ -404,7 +394,7 @@ export function RelatedFilterWorkspace({
                       <button type="button" onClick={() => removeNestedCriterion(selectedCriterion)} className="text-sm text-muted hover:text-foreground">Remove</button>
                     ) : null}
                   </div>
-                  <CriterionEditorComponent
+                  <CriterionEditor
                     criterion={selectedCriterion}
                     value={getNestedValue(selectedCriterion)}
                     auxiliaryToggleChecked={selectedCriterion.auxiliaryToggleKey ? Boolean(objectFilter[selectedCriterion.auxiliaryToggleKey]) : undefined}
