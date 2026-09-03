@@ -78,54 +78,11 @@ import {
   type EditableFilterExpression,
   type ExpressionGroupDestination,
 } from "../utils/filterExpressionTree";
+import type { CriteriaDefinitionList, CriterionDefinition, CriterionType, EntityType } from "./filterCriteriaTypes";
+
+export type { CriterionDefinition, CriterionType, EntityType } from "./filterCriteriaTypes";
 
 // ===== Criterion definitions =====
-
-export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash" | "related";
-export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "faces";
-
-export interface CriterionDefinition<TFilterKey extends string = string> {
-  id: string;
-  label: string;
-  type: CriterionType;
-  entityType?: EntityType;
-  filterKey: TFilterKey;
-  category?: "related";
-  /** Lazily resolves the criteria available inside a related-entity workspace. */
-  relatedCriteria?: () => CriterionDefinition[];
-  /** Criteria evaluated against the relationship host rather than the related entity itself. */
-  relatedContextCriteria?: CriterionDefinition[];
-  customFieldKey?: string;
-  customFieldType?: string;
-  modifiers?: CriterionModifier[];
-  expressionSupported?: boolean;
-  /**
-   * Modifier to start on when the criterion has no value yet. Needed whenever `modifiers` omits the editor's
-   * built-in default, which would otherwise leave the Match control with nothing selected and let the user save a
-   * criterion whose modifier isn't even offered. Honored by the number editor.
-   */
-  defaultModifier?: CriterionModifier;
-  /**
-   * Bounds and granularity for a numeric criterion. `step` sizes the input's increments; declaring BOTH `min` and
-   * `max` additionally marks the value as living on a known range, which the number editor shows as a slider —
-   * the useful question about a bounded value being "where on its range" rather than "which exact number".
-   */
-  min?: number;
-  max?: number;
-  step?: number;
-  /** Short note under a numeric editor explaining what its scale means (e.g. where the neutral point is). */
-  hint?: string;
-  options?: { value: string; label: string }[];
-  multiSelectOptions?: boolean;
-  hierarchyToggleLabel?: string;
-  auxiliaryToggleKey?: TFilterKey;
-  auxiliaryToggleLabel?: string;
-  secondaryFilterKey?: TFilterKey;
-  supported?: boolean;
-  unsupportedReason?: string;
-}
-
-type CriteriaDefinitionList<TFilterCriteria> = CriterionDefinition<Extract<keyof TFilterCriteria, string>>[];
 
 // Modifier labels
 const MODIFIER_LABELS: Record<CriterionModifier, string> = {
