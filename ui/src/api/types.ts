@@ -2281,6 +2281,8 @@ export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>>
   /** Legacy negative mode retained when loading older saved filters. */
   exclude?: boolean;
   ageAtHostDateCriterion?: IntCriterion;
+  performerIdsCriterion?: MultiIdCriterion;
+  performerOccurrenceTagsCriterion?: MultiIdCriterion;
   /** Client-only label retained with a saved-filter snapshot for a readable chip summary. */
   _savedFilterName?: string;
   /** Client-only marker for an explicit existence check with no nested conditions. */

@@ -38,6 +38,20 @@ To find videos containing a performer who was between 18 and 20 on the video dat
 
 **Age (then)** compares each performer’s birthdate with the video date. It is different from **Age (now)**, which uses the performer’s current age. A performer needs both a birthdate and a dated video for **Age (then)** to match.
 
+## Match an occurrence tag to one performer
+
+To find videos where one exact performer has an occurrence tag such as **Hair Down**:
+
+1. Open **Videos**, then **Filters**.
+2. Select **Related Performers**.
+3. Select **Specific Performer** and choose the performer.
+4. Select **Occurrence Tags** and choose **Hair Down**.
+5. Apply the filters.
+
+Both conditions are evaluated against the same performer appearance. A video does not match when the selected performer appears but **Hair Down** is attached only to somebody else in that video.
+
+You can use performer properties instead of an exact identity. For example, add **Gender** set to Female, **Eye Color** set to Blue, **Age (then)** set to Between `18` and `20`, and **Occurrence Tags** set to **Hair Down** inside one **Related Performers** condition. Cove then requires one performer appearance to satisfy all four conditions.
+
 ## Require performers from two different groups
 
 To find a video containing both a male performer aged 20–30 and a female performer aged 30–40, add two **Related Performers** conditions:
@@ -99,16 +113,17 @@ To find videos where an appearance has selected performer occurrence tags or the
 3. Return to the main filter dialog and choose **Combine filters…**.
 4. Open the group menu, choose **Create subgroup**, select the occurrence-tag condition and related-performer condition, then choose **Any**.
 
-These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** only when the alternatives are properties of the related performer itself.
+These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** when the alternatives apply to a single related performer appearance.
 
 ## Choose the correct performer tags
 
-Video search exposes two different tag relationships:
+Video search exposes three related tag choices:
 
-- **Performer Occurrence Tags** are attached to a performer’s appearance in one video.
+- Top-level **Performer Occurrence Tags** finds a video when any performer appearance has the selected tags.
+- **Related Performers → Occurrence Tags** binds the selected occurrence tags to the same performer as the other conditions in that related-performer filter.
 - **Related Performers → Tags** are permanent tags attached to the performer record.
 
-Use occurrence tags for facts about a specific appearance. Use related-performer tags for stable performer metadata.
+Use occurrence tags for facts about a specific appearance. Put them inside **Related Performers** when identity, age, or another performer property must describe that same appearance. Use related-performer tags for stable performer metadata.
 
 ## Review before publication
 

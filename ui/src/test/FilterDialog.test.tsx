@@ -104,6 +104,41 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("binds an exact performer and occurrence tags inside a related performer condition", async () => {
+    performersFind.mockResolvedValue({ items: [{ id: 11, name: "Sample Performer" }] });
+    tagsFind.mockResolvedValue({ items: [{ id: 21, name: "Sample Occurrence" }] });
+    const onApply = vi.fn();
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    await user.click(screen.getByText("Related Performers"));
+    await user.click(screen.getByRole("tab", { name: "Specific Performer" }));
+    await user.type(screen.getByRole("combobox", { name: "Search performers" }), "Sample");
+    await user.click(await screen.findByRole("button", { name: "Include Sample Performer" }));
+    await user.click(screen.getByRole("tab", { name: "Occurrence Tags" }));
+    await user.type(screen.getByRole("combobox", { name: "Search tags" }), "Sample");
+    await user.click(await screen.findByRole("button", { name: "Include Sample Occurrence" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        performerIdsCriterion: {
+          value: [11],
+          modifier: "INCLUDES",
+          _names: { "11": "Sample Performer" },
+        },
+        performerOccurrenceTagsCriterion: {
+          value: [21],
+          modifier: "INCLUDES_ALL",
+          _names: { "21": "Sample Occurrence" },
+        },
+      },
+    });
+  });
+
   it("adds another related performer condition without opening Combine Filters", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(
@@ -4173,7 +4208,9 @@ describe("FilterDialog", () => {
               { filter: { performerFilterCriterion: {
                 mode: "every",
                 conditionOperator: "or",
+                performerIdsCriterion: { modifier: "INCLUDES", value: [3], _names: { "3": "Example Performer" } },
                 ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 20 },
+                performerOccurrenceTagsCriterion: { modifier: "INCLUDES_ALL", value: [4], _names: { "4": "Example Occurrence" } },
                 objectFilter: { favoriteCriterion: { value: true } },
               } } },
               { filter: { tagsCriterion: {
@@ -4198,7 +4235,9 @@ describe("FilterDialog", () => {
     expect(screen.getByText("Find videos where")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit condition 1: Date is greater than 2020-01-01" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit condition 2: Date is less than 2000-01-01" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Edit condition 1: Every performer/ })).toBeInTheDocument();
+    const relatedCondition = screen.getByRole("button", { name: /Edit condition 1: Every performer/ });
+    expect(relatedCondition).toHaveAccessibleName(expect.stringContaining("Specific Performer: Example Performer"));
+    expect(relatedCondition).toHaveAccessibleName(expect.stringContaining("Occurrence Tags: Example Occurrence"));
     expect(screen.getByRole("button", { name: /Edit condition 2: Tags:/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Edit condition 3: Remote ID:/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Explain this search" })).not.toBeInTheDocument();

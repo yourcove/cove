@@ -20,29 +20,66 @@ public static class RelatedFilterQuery
         CancellationToken ct = default)
     {
         if (criterion == null) return query;
-        var performerIds = await MatchingPerformerIdsAsync(db, criterion, ct);
         var visiblePerformerIds = await VisiblePerformerIdsAsync(db, ct);
-        if (criterion.ConditionOperator == RelatedFilterConditionOperator.Or && criterion.AgeAtHostDateCriterion != null)
+        var visibleLinks = db.Set<VideoPerformer>().Where(link => visiblePerformerIds.Contains(link.PerformerId));
+        var hasPerformerCondition = HasPerformerCondition(criterion);
+        var performerIds = hasPerformerCondition ? await MatchingPerformerIdsAsync(db, criterion, ct) : null;
+        var occurrenceCriterion = criterion.PerformerOccurrenceTagsCriterion;
+        ExpandedHierarchyCriterion? expandedOccurrenceTags = null;
+        if (HierarchicalCriterionExpander.RequiresExpansion(occurrenceCriterion))
         {
-            var visibleLinks = db.Set<VideoPerformer>().Where(link => visiblePerformerIds.Contains(link.PerformerId));
-            var ageLinks = ApplyVideoPerformerAgeCriterion(visibleLinks, criterion.AgeAtHostDateCriterion);
-            var matchingLinks = HasPerformerCondition(criterion)
-                ? visibleLinks.Where(link => performerIds.Contains(link.PerformerId)).Union(ageLinks)
-                : ageLinks;
-            return ApplyVideoPerformerLinkMatch(query, visiblePerformerIds, matchingLinks, Mode(criterion), UsesLegacyNone(criterion));
+            expandedOccurrenceTags = await HierarchicalCriterionExpander.ExpandTagsAsync(db, occurrenceCriterion!, ct);
+            occurrenceCriterion = expandedOccurrenceTags.Criterion;
         }
-        if (criterion.AgeAtHostDateCriterion != null)
-            return ApplyVideoPerformerAgeMatch(query, performerIds, visiblePerformerIds, criterion.AgeAtHostDateCriterion, Mode(criterion), UsesLegacyNone(criterion));
-        return Mode(criterion) switch
+
+        IQueryable<VideoPerformer> matchingLinks;
+        if (criterion.ConditionOperator == RelatedFilterConditionOperator.Or)
         {
-            RelatedFilterMode.Every => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId))
-                && !video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId) && !performerIds.Contains(link.PerformerId))),
-            RelatedFilterMode.None when !UsesLegacyNone(criterion) => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId))
-                && !video.VideoPerformers.Any(link => performerIds.Contains(link.PerformerId))),
-            RelatedFilterMode.None => query.Where(video => !video.VideoPerformers.Any(link => performerIds.Contains(link.PerformerId))),
-            _ => query.Where(video => video.VideoPerformers.Any(link => performerIds.Contains(link.PerformerId))),
-        };
+            IQueryable<VideoPerformer>? union = null;
+            if (hasPerformerCondition)
+                union = visibleLinks.Where(link => performerIds!.Contains(link.PerformerId));
+            if (HasMultiIdCondition(criterion.PerformerIdsCriterion))
+                union = Union(union, ApplyVideoPerformerIdCriterion(visibleLinks, criterion.PerformerIdsCriterion!));
+            if (criterion.AgeAtHostDateCriterion != null)
+                union = Union(union, ApplyVideoPerformerAgeCriterion(visibleLinks, criterion.AgeAtHostDateCriterion));
+            if (HasMultiIdCondition(occurrenceCriterion))
+                union = Union(union, ApplyVideoPerformerOccurrenceTagCriterion(
+                    db,
+                    visibleLinks,
+                    occurrenceCriterion!,
+                    expandedOccurrenceTags?.ValueGroups,
+                    expandedOccurrenceTags?.RequiredIdGroups));
+            matchingLinks = union ?? visibleLinks;
+        }
+        else
+        {
+            matchingLinks = visibleLinks;
+            if (hasPerformerCondition)
+                matchingLinks = matchingLinks.Where(link => performerIds!.Contains(link.PerformerId));
+            if (HasMultiIdCondition(criterion.PerformerIdsCriterion))
+                matchingLinks = ApplyVideoPerformerIdCriterion(matchingLinks, criterion.PerformerIdsCriterion!);
+            if (criterion.AgeAtHostDateCriterion != null)
+                matchingLinks = ApplyVideoPerformerAgeCriterion(matchingLinks, criterion.AgeAtHostDateCriterion);
+            if (HasMultiIdCondition(occurrenceCriterion))
+                matchingLinks = ApplyVideoPerformerOccurrenceTagCriterion(
+                    db,
+                    matchingLinks,
+                    occurrenceCriterion!,
+                    expandedOccurrenceTags?.ValueGroups,
+                    expandedOccurrenceTags?.RequiredIdGroups);
+        }
+
+        return ApplyVideoPerformerLinkMatch(query, visiblePerformerIds, matchingLinks, Mode(criterion), UsesLegacyNone(criterion));
     }
+
+    private static IQueryable<T> Union<T>(IQueryable<T>? current, IQueryable<T> branch)
+        => current == null ? branch : current.Union(branch);
+
+    private static bool HasMultiIdCondition(MultiIdCriterion? criterion)
+        => criterion != null && (criterion.Modifier is CriterionModifier.IsNull or CriterionModifier.NotNull
+            || criterion.Value.Any(id => id > 0)
+            || criterion.Excludes?.Any(id => id > 0) == true
+            || criterion.RequiredIds?.Any(id => id > 0) == true);
 
     private static IQueryable<Video> ApplyVideoPerformerLinkMatch(
         IQueryable<Video> query,
@@ -95,97 +132,114 @@ public static class RelatedFilterQuery
         };
     }
 
-    private static IQueryable<Video> ApplyVideoPerformerAgeMatch(
-        IQueryable<Video> query,
-        IQueryable<int> performerIds,
-        IQueryable<int> visiblePerformerIds,
-        IntCriterion criterion,
-        RelatedFilterMode mode,
-        bool legacyNone)
+    private static IQueryable<VideoPerformer> ApplyVideoPerformerIdCriterion(
+        IQueryable<VideoPerformer> links,
+        MultiIdCriterion criterion)
     {
-        var value = criterion.Value;
-        var value2 = criterion.Value2 ?? value;
-        var matched = criterion.Modifier switch
+        var ids = criterion.Value.Where(id => id > 0).Distinct().ToArray();
+        if (criterion.Modifier == CriterionModifier.IsNull)
+            links = links.Where(_ => false);
+        else if (criterion.Modifier != CriterionModifier.NotNull && ids.Length > 0)
         {
-            CriterionModifier.Equals => query.Where(video => video.Date != null && video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && link.Performer!.Birthdate != null &&
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) == value)),
-            CriterionModifier.NotEquals => query.Where(video => video.Date != null && video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && link.Performer!.Birthdate != null &&
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) != value)),
-            CriterionModifier.GreaterThan => query.Where(video => video.Date != null && video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && link.Performer!.Birthdate != null &&
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) > value)),
-            CriterionModifier.LessThan => query.Where(video => video.Date != null && video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && link.Performer!.Birthdate != null &&
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) < value)),
-            CriterionModifier.Between => query.Where(video => video.Date != null && video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && link.Performer!.Birthdate != null &&
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) >= value &&
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) <= value2)),
-            CriterionModifier.NotBetween => query.Where(video => video.Date != null && video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && link.Performer!.Birthdate != null &&
-                (video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) < value ||
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) > value2))),
-            CriterionModifier.IsNull => query.Where(video => video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && (video.Date == null || link.Performer!.Birthdate == null))),
-            CriterionModifier.NotNull => query.Where(video => video.Date != null && video.VideoPerformers.Any(link =>
-                performerIds.Contains(link.PerformerId) && link.Performer!.Birthdate != null)),
-            _ => query.Where(_ => false),
-        };
-        var matchedIds = matched.Select(video => video.Id);
-        if (mode == RelatedFilterMode.AtLeastOne) return matched;
-        if (mode == RelatedFilterMode.None)
-            return legacyNone
-                ? query.Where(video => !matchedIds.Contains(video.Id))
-                : query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)) && !matchedIds.Contains(video.Id));
+            if (criterion.Modifier == CriterionModifier.Includes)
+                links = links.Where(link => ids.Contains(link.PerformerId));
+            else if (criterion.Modifier == CriterionModifier.IncludesAll)
+            {
+                foreach (var id in ids)
+                    links = links.Where(link => link.PerformerId == id);
+            }
+            else if (criterion.Modifier == CriterionModifier.Excludes)
+                links = links.Where(link => !ids.Contains(link.PerformerId));
+            else if (criterion.Modifier == CriterionModifier.ExcludesAll)
+            {
+                var matchingAll = links;
+                foreach (var id in ids)
+                    matchingAll = matchingAll.Where(link => link.PerformerId == id);
+                links = links.Where(link => !matchingAll.Any(match => match.VideoId == link.VideoId && match.PerformerId == link.PerformerId));
+            }
+        }
 
-        return criterion.Modifier switch
+        var excludedIds = criterion.Excludes?.Where(id => id > 0).Distinct().ToArray() ?? [];
+        if (excludedIds.Length > 0)
+            links = links.Where(link => !excludedIds.Contains(link.PerformerId));
+
+        foreach (var requiredId in criterion.RequiredIds?.Where(id => id > 0).Distinct() ?? [])
+            links = links.Where(link => link.PerformerId == requiredId);
+
+        return links;
+    }
+
+    private static IQueryable<VideoPerformer> ApplyVideoPerformerOccurrenceTagCriterion(
+        CoveContext db,
+        IQueryable<VideoPerformer> links,
+        MultiIdCriterion criterion,
+        IReadOnlyList<int[]>? valueGroups,
+        IReadOnlyList<int[]>? requiredIdGroups)
+    {
+        var applications = db.TagApplications.AsNoTracking()
+            .Where(application => application.HostType == AffinityHostType.Video
+                && application.ContextType == "performer"
+                && application.ContextId != null);
+        var groups = valueGroups?.Where(group => group.Length > 0).ToArray()
+            ?? criterion.Value.Where(tagId => tagId > 0).Select(tagId => new[] { tagId }).ToArray();
+        var tagIds = groups.SelectMany(group => group).Distinct().ToArray();
+
+        if (criterion.Modifier == CriterionModifier.IsNull)
+            links = links.Where(link => !applications.Any(application =>
+                application.HostId == link.VideoId && application.ContextId == link.PerformerId));
+        else if (criterion.Modifier == CriterionModifier.NotNull)
+            links = links.Where(link => applications.Any(application =>
+                application.HostId == link.VideoId && application.ContextId == link.PerformerId));
+        else if (tagIds.Length > 0)
         {
-            CriterionModifier.Equals => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)) && !video.VideoPerformers.Any(link =>
-                visiblePerformerIds.Contains(link.PerformerId) && (!performerIds.Contains(link.PerformerId) || video.Date == null || link.Performer!.Birthdate == null ||
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) != value))),
-            CriterionModifier.NotEquals => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)) && !video.VideoPerformers.Any(link =>
-                visiblePerformerIds.Contains(link.PerformerId) && (!performerIds.Contains(link.PerformerId) || video.Date == null || link.Performer!.Birthdate == null ||
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) == value))),
-            CriterionModifier.GreaterThan => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)) && !video.VideoPerformers.Any(link =>
-                visiblePerformerIds.Contains(link.PerformerId) && (!performerIds.Contains(link.PerformerId) || video.Date == null || link.Performer!.Birthdate == null ||
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) <= value))),
-            CriterionModifier.LessThan => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)) && !video.VideoPerformers.Any(link =>
-                visiblePerformerIds.Contains(link.PerformerId) && (!performerIds.Contains(link.PerformerId) || video.Date == null || link.Performer!.Birthdate == null ||
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) >= value))),
-            CriterionModifier.Between => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)) && !video.VideoPerformers.Any(link =>
-                visiblePerformerIds.Contains(link.PerformerId) && (!performerIds.Contains(link.PerformerId) || video.Date == null || link.Performer!.Birthdate == null ||
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) < value ||
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) > value2))),
-            CriterionModifier.NotBetween => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)) && !video.VideoPerformers.Any(link =>
-                visiblePerformerIds.Contains(link.PerformerId) && (!performerIds.Contains(link.PerformerId) || video.Date == null || link.Performer!.Birthdate == null ||
-                (video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) >= value &&
-                video.Date.Value.Year - link.Performer.Birthdate.Value.Year
-                - ((video.Date.Value.Month < link.Performer.Birthdate.Value.Month || (video.Date.Value.Month == link.Performer.Birthdate.Value.Month && video.Date.Value.Day < link.Performer.Birthdate.Value.Day)) ? 1 : 0) <= value2)))),
-            CriterionModifier.IsNull => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId))
-                && !video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)
-                    && (!performerIds.Contains(link.PerformerId) || video.Date != null && link.Performer!.Birthdate != null))),
-            CriterionModifier.NotNull => query.Where(video => video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId))
-                && !video.VideoPerformers.Any(link => visiblePerformerIds.Contains(link.PerformerId)
-                    && (!performerIds.Contains(link.PerformerId) || video.Date == null || link.Performer!.Birthdate == null))),
-            _ => query.Where(_ => false),
-        };
+            if (criterion.Modifier == CriterionModifier.Includes)
+                links = links.Where(link => applications.Any(application =>
+                    application.HostId == link.VideoId
+                    && application.ContextId == link.PerformerId
+                    && tagIds.Contains(application.TagId)));
+            else if (criterion.Modifier == CriterionModifier.IncludesAll)
+            {
+                foreach (var group in groups)
+                    links = links.Where(link => applications.Any(application =>
+                        application.HostId == link.VideoId
+                        && application.ContextId == link.PerformerId
+                        && group.Contains(application.TagId)));
+            }
+            else if (criterion.Modifier == CriterionModifier.Excludes)
+                links = links.Where(link => !applications.Any(application =>
+                    application.HostId == link.VideoId
+                    && application.ContextId == link.PerformerId
+                    && tagIds.Contains(application.TagId)));
+            else if (criterion.Modifier == CriterionModifier.ExcludesAll)
+            {
+                var matchingAll = links;
+                foreach (var group in groups)
+                    matchingAll = matchingAll.Where(link => applications.Any(application =>
+                        application.HostId == link.VideoId
+                        && application.ContextId == link.PerformerId
+                        && group.Contains(application.TagId)));
+                links = links.Where(link => !matchingAll.Any(match =>
+                    match.VideoId == link.VideoId && match.PerformerId == link.PerformerId));
+            }
+        }
+
+        var excludedTagIds = criterion.Excludes?.Where(tagId => tagId > 0).Distinct().ToArray() ?? [];
+        if (excludedTagIds.Length > 0)
+            links = links.Where(link => !applications.Any(application =>
+                application.HostId == link.VideoId
+                && application.ContextId == link.PerformerId
+                && excludedTagIds.Contains(application.TagId)));
+
+        var requiredGroups = requiredIdGroups is { Count: > 0 }
+            ? requiredIdGroups
+            : criterion.RequiredIds?.Where(tagId => tagId > 0).Distinct().Select(tagId => new[] { tagId }).ToArray() ?? [];
+        foreach (var group in requiredGroups)
+            links = links.Where(link => applications.Any(application =>
+                application.HostId == link.VideoId
+                && application.ContextId == link.PerformerId
+                && group.Contains(application.TagId)));
+
+        return links;
     }
 
     public static async Task<IQueryable<Image>> ApplyToImagesAsync(

@@ -719,6 +719,229 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task RelatedPerformerCriterion_MatchesExactPerformerOccurrenceTagsOnSameLink()
+    {
+        await using var context = CreateContext();
+        var tag = new Tag { Name = "Occurrence Tag" };
+        var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
+        var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
+        var targetTaggedVideo = CreateVideoWithFile("target-tagged", performer: targetPerformer);
+        targetTaggedVideo.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+        var wrongPerformerTaggedVideo = CreateVideoWithFile("wrong-performer-tagged", performer: targetPerformer);
+        wrongPerformerTaggedVideo.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+
+        context.Tags.Add(tag);
+        context.Videos.AddRange(targetTaggedVideo, wrongPerformerTaggedVideo);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, targetTaggedVideo.Id, targetPerformer.Id, tag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, wrongPerformerTaggedVideo.Id, otherPerformer.Id, tag.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    PerformerIdsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [targetPerformer.Id] },
+                    PerformerOccurrenceTagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [tag.Id] },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("target-tagged", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerCriterion_MatchesAttributesAgeAndOccurrenceTagsOnSameLink()
+    {
+        await using var context = CreateContext();
+        var tag = new Tag { Name = "Occurrence Tag" };
+        var matchingPerformer = CreatePerformer("Matching", new DateOnly(2006, 1, 1));
+        matchingPerformer.Gender = GenderEnum.Female;
+        matchingPerformer.EyeColor = "Blue";
+        var otherPerformer = CreatePerformer("Other", new DateOnly(1990, 1, 1));
+        otherPerformer.Gender = GenderEnum.Male;
+        otherPerformer.EyeColor = "Brown";
+
+        var matches = CreateVideoWithFile("matches", videoDate: new DateOnly(2025, 6, 2), performer: matchingPerformer);
+        matches.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+        var splitAcrossPerformers = CreateVideoWithFile("split-across-performers", videoDate: new DateOnly(2025, 6, 2), performer: matchingPerformer);
+        splitAcrossPerformers.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+
+        context.Tags.Add(tag);
+        context.Videos.AddRange(matches, splitAcrossPerformers);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, matches.Id, matchingPerformer.Id, tag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, splitAcrossPerformers.Id, otherPerformer.Id, tag.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    ObjectFilter = new PerformerFilter
+                    {
+                        GenderCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = "Female" },
+                        EyeColorCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = "Blue" },
+                    },
+                    AgeAtHostDateCriterion = new IntCriterion { Modifier = CriterionModifier.Between, Value = 18, Value2 = 20 },
+                    PerformerOccurrenceTagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [tag.Id] },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("matches", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerCriterion_IncludesAllOccurrenceTagsOnTheSameLink()
+    {
+        await using var context = CreateContext();
+        var firstTag = new Tag { Name = "First Occurrence Tag" };
+        var secondTag = new Tag { Name = "Second Occurrence Tag" };
+        var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
+        var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
+        var bothOnTarget = CreateVideoWithFile("both-on-target", performer: targetPerformer);
+        bothOnTarget.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+        var splitAcrossPerformers = CreateVideoWithFile("split-across-performers", performer: targetPerformer);
+        splitAcrossPerformers.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+
+        context.Tags.AddRange(firstTag, secondTag);
+        context.Videos.AddRange(bothOnTarget, splitAcrossPerformers);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, bothOnTarget.Id, targetPerformer.Id, firstTag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, bothOnTarget.Id, targetPerformer.Id, secondTag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, splitAcrossPerformers.Id, targetPerformer.Id, firstTag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, splitAcrossPerformers.Id, otherPerformer.Id, secondTag.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    PerformerIdsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [targetPerformer.Id] },
+                    PerformerOccurrenceTagsCriterion = new MultiIdCriterion
+                    {
+                        Modifier = CriterionModifier.IncludesAll,
+                        Value = [firstTag.Id, secondTag.Id],
+                    },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("both-on-target", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerCriterion_ExpandsOccurrenceTagDescendantsOnTheSameLink()
+    {
+        await using var context = CreateContext();
+        var parentTag = new Tag { Name = "Parent Occurrence Tag" };
+        var childTag = new Tag { Name = "Child Occurrence Tag" };
+        var targetPerformer = CreatePerformer("Target", new DateOnly(2000, 1, 1));
+        var otherPerformer = CreatePerformer("Other", new DateOnly(2000, 1, 1));
+        var targetTagged = CreateVideoWithFile("target-tagged", performer: targetPerformer);
+        var otherTagged = CreateVideoWithFile("other-tagged", performer: targetPerformer);
+        otherTagged.VideoPerformers.Add(new VideoPerformer { Performer = otherPerformer });
+
+        context.Tags.AddRange(parentTag, childTag);
+        context.Videos.AddRange(targetTagged, otherTagged);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.Set<TagParent>().Add(new TagParent { ParentId = parentTag.Id, ChildId = childTag.Id });
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, targetTagged.Id, targetPerformer.Id, childTag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, otherTagged.Id, otherPerformer.Id, childTag.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            new VideoFilter
+            {
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    PerformerIdsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [targetPerformer.Id] },
+                    PerformerOccurrenceTagsCriterion = new MultiIdCriterion
+                    {
+                        Modifier = CriterionModifier.Includes,
+                        Value = [parentTag.Id],
+                        Depth = -1,
+                    },
+                },
+            },
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, count);
+        Assert.Equal("target-tagged", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task RelatedPerformerOccurrenceTags_RespectRelationshipModesAndNulls()
+    {
+        await using var context = CreateContext();
+        var tag = new Tag { Name = "Occurrence Tag" };
+        var firstPerformer = CreatePerformer("First", new DateOnly(2000, 1, 1));
+        var secondPerformer = CreatePerformer("Second", new DateOnly(2000, 1, 1));
+        Video WithBothPerformers(string title)
+        {
+            var video = CreateVideoWithFile(title, performer: firstPerformer);
+            video.VideoPerformers.Add(new VideoPerformer { Performer = secondPerformer });
+            return video;
+        }
+
+        var allTagged = WithBothPerformers("all-tagged");
+        var mixed = WithBothPerformers("mixed");
+        var noneTagged = WithBothPerformers("none-tagged");
+        var noPerformers = CreateVideoWithFile("no-performers");
+        context.Tags.Add(tag);
+        context.Videos.AddRange(allTagged, mixed, noneTagged, noPerformers);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        context.TagApplications.AddRange(
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, allTagged.Id, firstPerformer.Id, tag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, allTagged.Id, secondPerformer.Id, tag.Id),
+            CreatePerformerOccurrenceApplication(AffinityHostType.Video, mixed.Id, firstPerformer.Id, tag.Id));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        async Task<string[]> FindAsync(RelatedFilterMode mode, CriterionModifier modifier)
+        {
+            var (items, _) = await new VideoRepository(context).FindAsync(
+                new VideoFilter
+                {
+                    PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                    {
+                        Mode = mode,
+                        PerformerOccurrenceTagsCriterion = new MultiIdCriterion
+                        {
+                            Modifier = modifier,
+                            Value = modifier is CriterionModifier.IsNull or CriterionModifier.NotNull ? [] : [tag.Id],
+                        },
+                    },
+                },
+                new FindFilter { Page = 1, PerPage = 50, Sort = "title" },
+                TestContext.Current.CancellationToken);
+            return items.Select(video => video.Title ?? string.Empty).ToArray();
+        }
+
+        Assert.Equal(["all-tagged", "mixed"], await FindAsync(RelatedFilterMode.AtLeastOne, CriterionModifier.Includes));
+        Assert.Equal(["all-tagged"], await FindAsync(RelatedFilterMode.Every, CriterionModifier.Includes));
+        Assert.Equal(["none-tagged"], await FindAsync(RelatedFilterMode.None, CriterionModifier.Includes));
+        Assert.Equal(["mixed", "none-tagged"], await FindAsync(RelatedFilterMode.AtLeastOne, CriterionModifier.IsNull));
+    }
+
+    [Fact]
     public async Task PerformerTagsCriterion_Includes_MatchesVideosByPerformerOccurrenceTag()
     {
         await using var context = CreateContext();

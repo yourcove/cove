@@ -162,6 +162,8 @@ public class FilterCriteriaParityTests
                 "performerFilterCriterion": {
                     "findFilter": { "q": "favorite" },
                     "objectFilter": { "favoriteCriterion": { "value": true } },
+                    "performerIdsCriterion": { "value": [11], "modifier": "includes" },
+                    "performerOccurrenceTagsCriterion": { "value": [21], "modifier": "includesAll" },
                     "exclude": true,
                     "_savedFilterName": "Favorite performers"
                 }
@@ -173,6 +175,10 @@ public class FilterCriteriaParityTests
 
         Assert.Equal("favorite", result?.ObjectFilter?.PerformerFilterCriterion?.FindFilter?.Q);
         Assert.True(result?.ObjectFilter?.PerformerFilterCriterion?.ObjectFilter?.FavoriteCriterion?.Value);
+        Assert.Equal([11], result?.ObjectFilter?.PerformerFilterCriterion?.PerformerIdsCriterion?.Value);
+        Assert.Equal(CriterionModifier.Includes, result?.ObjectFilter?.PerformerFilterCriterion?.PerformerIdsCriterion?.Modifier);
+        Assert.Equal([21], result?.ObjectFilter?.PerformerFilterCriterion?.PerformerOccurrenceTagsCriterion?.Value);
+        Assert.Equal(CriterionModifier.IncludesAll, result?.ObjectFilter?.PerformerFilterCriterion?.PerformerOccurrenceTagsCriterion?.Modifier);
         Assert.True(result?.ObjectFilter?.PerformerFilterCriterion?.Exclude);
     }
 

@@ -212,6 +212,10 @@ public class RelatedFilterCriterion<TFilter> where TFilter : class
     public bool Exclude { get; set; }
     /// <summary>Optional age of the related performer on the host entity's date. Currently supported by video performer relationships.</summary>
     public IntCriterion? AgeAtHostDateCriterion { get; set; }
+    /// <summary>Optional exact performer identities. Currently supported by video performer relationships.</summary>
+    public MultiIdCriterion? PerformerIdsCriterion { get; set; }
+    /// <summary>Optional tags attached to the performer occurrence on the host. Currently supported by video performer relationships.</summary>
+    public MultiIdCriterion? PerformerOccurrenceTagsCriterion { get; set; }
 }
 
 public enum FilterExpressionOperator
