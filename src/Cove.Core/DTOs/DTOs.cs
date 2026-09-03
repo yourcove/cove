@@ -22,6 +22,11 @@ public class VideoFilteredQueryRequest : FilteredQueryRequest<VideoFilter>
     public FilterExpression<VideoFilter>? FilterExpression { get; set; }
 }
 
+public class PerformerFilteredQueryRequest : FilteredQueryRequest<PerformerFilter>
+{
+    public FilterExpression<PerformerFilter>? FilterExpression { get; set; }
+}
+
 public record GlobalSearchItemDto(int Id, string Title, string? Subtitle);
 public record GlobalSearchGroupDto(string Type, IReadOnlyList<GlobalSearchItemDto> Items);
 public record GlobalSearchResponseDto(IReadOnlyList<GlobalSearchGroupDto> Groups, IReadOnlyList<string> FailedTypes);

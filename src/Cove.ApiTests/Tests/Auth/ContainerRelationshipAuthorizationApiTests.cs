@@ -246,6 +246,19 @@ public sealed class ContainerRelationshipAuthorizationApiTests(
             FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 25, Sort = "audio_count", Direction = Cove.Core.Enums.SortDirection.Desc },
         }, TestContext.Current.CancellationToken);
         filteredPerformers.Items.Should().ContainSingle(item => item.Id == performer.Id);
+        var expressionFilteredPerformers = await user.FindPerformersAsync(new PerformerFilteredQueryRequest
+        {
+            FilterExpression = new FilterExpression<PerformerFilter>
+            {
+                Children =
+                [
+                    new() { Filter = new PerformerFilter { AudioCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 1 } } },
+                    new() { Filter = new PerformerFilter { TextCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 1 } } },
+                ],
+            },
+            FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 25 },
+        }, TestContext.Current.CancellationToken);
+        expressionFilteredPerformers.Items.Should().ContainSingle(item => item.Id == performer.Id);
         foreach (var sort in new[] { "audio_count", "text_count" })
         {
             var sortedPerformers = await user.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>

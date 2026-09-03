@@ -55,11 +55,13 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
     }
 
     [HttpPost("find")]
-    public async Task<ActionResult<PaginatedResponse<PerformerDto>>> FindPost([FromBody] FilteredQueryRequest<PerformerFilter> req, CancellationToken ct)
+    public async Task<ActionResult<PaginatedResponse<PerformerDto>>> FindPost([FromBody] PerformerFilteredQueryRequest req, CancellationToken ct)
     {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
         var findFilter = req.FindFilter ?? new FindFilter();
         var filter = req.ObjectFilter ?? new PerformerFilter();
-        var (items, totalCount) = await performerRepo.FindAsync(filter, findFilter, ct);
+        var (items, totalCount) = await performerRepo.FindAsync(filter, findFilter, ct, req.FilterExpression);
         var usageCountsByPerformerId = await LoadPerformerUsageCountsAsync(items.Select(item => item.Id), ct);
         var customFieldValues = await _customFields.GetValuesAsync(CustomFieldEntityTypes.Performer, items.Select(item => item.Id), ct);
         var dtos = items.Select(p => MapToDto(p, usageCountsByPerformerId.GetValueOrDefault(p.Id), GetCustomFields(customFieldValues, p.Id))).ToList();

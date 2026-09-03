@@ -4031,6 +4031,39 @@ describe("FilterDialog", () => {
     expect(screen.getByRole("button", { name: "Change Any of 4 operator" })).toHaveTextContent("Any of 4");
   });
 
+  it("represents repeated related-video conditions in the outer performer expression", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={PERFORMER_CRITERIA}
+        subjectLabel="performers"
+        activeFilter={{
+          _filterExpression: {
+            operator: "AND",
+            children: [
+              { filter: { videoFilterCriterion: {
+                mode: "every",
+                objectFilter: { tagsCriterion: { modifier: "INCLUDES", value: [1, 2], _names: { "1": "Required category", "2": "Solo category" } } },
+              } } },
+              { filter: { videoFilterCriterion: {
+                objectFilter: { tagsCriterion: { modifier: "INCLUDES", value: [1], _names: { "1": "Required category" } } },
+              } } },
+            ],
+          },
+        }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Combine Filters" }));
+    expect(screen.getByText("Find performers where")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 1: Every video.*Required category.*Solo category/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit condition 2: At least one video.*Required category/ })).toBeInTheDocument();
+  });
+
   it("presents mixed groups in logical order without rewriting the expression", async () => {
     const onApply = vi.fn();
     renderWithQueryClient(

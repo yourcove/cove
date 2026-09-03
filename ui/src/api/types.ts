@@ -3158,6 +3158,10 @@ export interface VideoFilteredQueryRequest extends FilteredQueryRequest<VideoFil
   filterExpression?: FilterExpression<VideoFilterCriteria>;
 }
 
+export interface PerformerFilteredQueryRequest extends FilteredQueryRequest<PerformerFilterCriteria> {
+  filterExpression?: FilterExpression<PerformerFilterCriteria>;
+}
+
 export interface ImageAggregate { count: number; fileSize: number }
 export interface AudioAggregate { count: number; duration: number; fileSize: number }
 export interface TextAggregate { count: number; fileSize: number }

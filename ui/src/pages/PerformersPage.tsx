@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { performers } from "../api/client";
-import type { EntityEngagement, FindFilter, Performer, PerformerCreate, PerformerFilterCriteria } from "../api/types";
+import type { EntityEngagement, FilterExpression, FindFilter, Performer, PerformerCreate, PerformerFilterCriteria } from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { StringListEditor } from "../components/StringListEditor";
 import { GENDER_OPTIONS } from "./PerformerEditModal";
 import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
-import { PERFORMER_CRITERIA } from "../components/FilterDialog";
+import { FILTER_EXPRESSION_STATE_KEY, PERFORMER_CRITERIA } from "../components/FilterDialog";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { Users, Heart, Merge, User } from "lucide-react";
 import { MergeDialog } from "../components/MergeDialog";
@@ -68,14 +68,18 @@ export function PerformersPage({ onNavigate }: Props) {
   const { hasPermission } = useAuth();
   const canWritePerformer = canWriteEntity("performer", hasPermission);
 
-  const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const filterExpression = objectFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<PerformerFilterCriteria> | undefined;
+  const backendObjectFilter = useMemo(() => Object.fromEntries(
+    Object.entries(objectFilter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY),
+  ), [objectFilter]);
+  const hasObjectFilter = Object.keys(backendObjectFilter).length > 0 || Boolean(filterExpression?.children.length);
   const listData = useInfiniteListData<Performer>({
-    queryKey: ["performers", filter, objectFilter],
+    queryKey: ["performers", filter, backendObjectFilter, filterExpression],
     filter,
     chunkSize: defaultState.filter.perPage ?? 40,
     queryPage: (nextFilter) =>
       hasObjectFilter
-        ? performers.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as PerformerFilterCriteria })
+        ? performers.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as PerformerFilterCriteria, filterExpression })
         : performers.find(nextFilter),
   });
 
@@ -124,6 +128,7 @@ export function PerformersPage({ onNavigate }: Props) {
         onWallColumnCountChange={setWallColumnCount}
         onNew={canWritePerformer ? () => setShowCreate(true) : undefined}
         criteriaDefinitions={PERFORMER_CRITERIA}
+        supportsFilterExpressions
         objectFilter={objectFilter}
         onObjectFilterChange={setObjectFilter}
         selectedIds={selectedIds}
