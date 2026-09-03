@@ -1,5 +1,6 @@
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace Cove.Data.Repositories;
 
@@ -274,7 +275,39 @@ public static class RelatedFilterQuery
         CancellationToken ct = default)
     {
         if (criterion == null) return query;
-        var videoIds = await MatchingVideoIdsAsync(db, criterion, ct);
+        // Project the authorized relationship sets before applying them to the performer query. The raw link
+        // projection has no independent visibility semantics; video authorization is enforced by the video-ID
+        // subquery and performer authorization remains on the caller's performer query.
+        var canUseUnfilteredVideoTree = db.CanReadVideoTagTreeWithoutAuthorizationFilters
+            && UsesOnlyVideoTagFilter(criterion);
+        var matchingVideoIds = await MatchingVideoIdsAsync(db, criterion, canUseUnfilteredVideoTree, ct);
+        var links = db.Database.IsRelational()
+            ? db.Set<UnfilteredVideoPerformerLink>()
+            : db.Set<VideoPerformer>().Select(link => new UnfilteredVideoPerformerLink
+            {
+                VideoId = link.VideoId,
+                PerformerId = link.PerformerId,
+            });
+        var matchingPerformerIds = links
+            .Where(link => matchingVideoIds.Contains(link.VideoId))
+            .Select(link => link.PerformerId)
+            .Distinct();
+        var mode = Mode(criterion);
+        if (mode == RelatedFilterMode.AtLeastOne)
+        {
+            if (!canUseUnfilteredVideoTree)
+            {
+                var authorizedVideoIds = await matchingVideoIds.Distinct().ToArrayAsync(ct);
+                matchingPerformerIds = links
+                    .Where(link => authorizedVideoIds.Contains(link.VideoId))
+                    .Select(link => link.PerformerId)
+                    .Distinct();
+            }
+            return query.Where(performer => matchingPerformerIds.Contains(performer.Id));
+        }
+        if (mode == RelatedFilterMode.None && UsesLegacyNone(criterion))
+            return query.Where(performer => !matchingPerformerIds.Contains(performer.Id));
+
         var visibleVideos = await new VideoRepository(db).BuildFilteredQueryAsync(
             null,
             null,
@@ -282,14 +315,23 @@ public static class RelatedFilterQuery
             allowReadScopeOptimization: false,
             ct: ct);
         var visibleVideoIds = visibleVideos.Select(video => video.Id);
-        return Mode(criterion) switch
+        var visibleLinks = links
+            .Where(link => visibleVideoIds.Contains(link.VideoId));
+        var performersWithVisibleVideos = visibleLinks
+            .Select(link => link.PerformerId)
+            .Distinct();
+        var performersWithNonMatchingVisibleVideos = visibleLinks
+            .Where(link => !matchingVideoIds.Contains(link.VideoId))
+            .Select(link => link.PerformerId)
+            .Distinct();
+
+        return mode switch
         {
-            RelatedFilterMode.Every => query.Where(performer => performer.VideoPerformers.Any(link => visibleVideoIds.Contains(link.VideoId))
-                && !performer.VideoPerformers.Any(link => visibleVideoIds.Contains(link.VideoId) && !videoIds.Contains(link.VideoId))),
-            RelatedFilterMode.None when !UsesLegacyNone(criterion) => query.Where(performer => performer.VideoPerformers.Any(link => visibleVideoIds.Contains(link.VideoId))
-                && !performer.VideoPerformers.Any(link => videoIds.Contains(link.VideoId))),
-            RelatedFilterMode.None => query.Where(performer => !performer.VideoPerformers.Any(link => videoIds.Contains(link.VideoId))),
-            _ => query.Where(performer => performer.VideoPerformers.Any(link => videoIds.Contains(link.VideoId))),
+            RelatedFilterMode.Every => query.Where(performer => performersWithVisibleVideos.Contains(performer.Id)
+                && !performersWithNonMatchingVisibleVideos.Contains(performer.Id)),
+            RelatedFilterMode.None when !UsesLegacyNone(criterion) => query.Where(performer => performersWithVisibleVideos.Contains(performer.Id)
+                && !matchingPerformerIds.Contains(performer.Id)),
+            _ => query,
         };
     }
 
@@ -368,6 +410,7 @@ public static class RelatedFilterQuery
     private static async Task<IQueryable<int>> MatchingVideoIdsAsync(
         CoveContext db,
         RelatedFilterCriterion<VideoFilter> criterion,
+        bool ignoreAuthorizationFilters,
         CancellationToken ct)
     {
         var repository = new VideoRepository(db);
@@ -402,9 +445,20 @@ public static class RelatedFilterQuery
                     union = union == null ? branch : union.Union(branch);
                 }
             }
-            if (union != null) return union.Select(video => video.Id);
+            if (union != null)
+                return (ignoreAuthorizationFilters ? union.IgnoreQueryFilters() : union).Select(video => video.Id);
         }
         var videos = await repository.BuildFilteredQueryAsync(criterion.ObjectFilter, criterion.FindFilter, false, false, ct);
-        return videos.Select(video => video.Id);
+        return (ignoreAuthorizationFilters ? videos.IgnoreQueryFilters() : videos).Select(video => video.Id);
+    }
+
+    private static bool UsesOnlyVideoTagFilter(RelatedFilterCriterion<VideoFilter> criterion)
+    {
+        if (criterion.FindFilter != null || criterion.ObjectFilter?.TagsCriterion == null)
+            return false;
+
+        return typeof(VideoFilter).GetProperties()
+            .Where(property => property.Name != nameof(VideoFilter.TagsCriterion))
+            .All(property => !HasFilterValue(property.GetValue(criterion.ObjectFilter)));
     }
 }

@@ -177,6 +177,14 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<VideoCaption>()
             .ToTable("video_captions");
 
+        modelBuilder.Entity<UnfilteredVideoPerformerLink>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("video_performers");
+            entity.Property(link => link.VideoId).HasColumnName("VideoId");
+            entity.Property(link => link.PerformerId).HasColumnName("PerformerId");
+        });
+
         // Secondary tables that historically defaulted to their CLR type name (PascalCase). Map them to
         // snake_case so every table follows one convention. (The 20260707 migration renames them in the DB.)
         modelBuilder.Entity<VideoUrl>().ToTable("video_urls");

@@ -1,6 +1,7 @@
 using Cove.Api.Controllers;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -10,6 +11,42 @@ namespace Cove.Tests;
 
 public class RelatedEntityFilterTests
 {
+    [Fact]
+    public async Task PerformersCanRequireARelatedTaggedVideoAlongsideAPerformerFilter()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        fixture.Performers[0].Gender = GenderEnum.Female;
+        fixture.Performers[1].Gender = GenderEnum.Female;
+        fixture.Performers[2].Gender = GenderEnum.Male;
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                GenderCriterion = new StringCriterion
+                {
+                    Modifier = CriterionModifier.MatchesRegex,
+                    Value = "^(?:Female)$",
+                },
+                VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                {
+                    ObjectFilter = new VideoFilter
+                    {
+                        TagsCriterion = new MultiIdCriterion
+                        {
+                            Modifier = CriterionModifier.IncludesAll,
+                            Value = [202],
+                        },
+                    },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([301, 302], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
     [Theory]
     [InlineData("videos", 402, 403)]
     [InlineData("images", 502, 503)]
