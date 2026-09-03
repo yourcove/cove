@@ -783,13 +783,17 @@ function FilterExpressionChipDisplay({
   const presentationPath = presentationChildren === expression.children ? path : [...path, 0];
   const hasNestedGroup = presentationChildren.some((child) => Boolean(child.group));
   const showOperator = nested || operator !== "AND" || !hideRootAndOperator || hasNestedGroup;
+  const operatorText = operator === "NOT" ? presentation.label : `${presentation.label} of ${presentationChildren.length}`;
   return (
-    <span data-filter-operator={operator} data-filter-group-label={presentation.label} className={`inline-flex min-w-0 flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${presentation.containerClassName}`}>
-      {showOperator && onEdit ? (
-        <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`} aria-label={`Edit ${presentation.label} group in Combine Filters`}>{presentation.label}</button>
-      ) : showOperator ? <span className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`}>{presentation.label}</span> : null}
+    <div data-filter-operator={operator} data-filter-group-label={presentation.label} data-filter-outline-group={operator} className="flex w-full min-w-0 gap-1.5">
+      <span aria-hidden="true" className={`w-0.5 shrink-0 self-stretch rounded-full ${presentation.railClassName}`} />
+      <div className="min-w-0 flex-1 space-y-1">
+        {showOperator && onEdit ? (
+          <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`} aria-label={`Edit ${presentation.label} group in Combine Filters`}>{operatorText}</button>
+        ) : showOperator ? <span className={`inline-block rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`}>{operatorText}</span> : null}
+        <div className="flex min-w-0 flex-wrap items-start gap-1 max-sm:flex-col">
       {sortFilterExpressionChildrenForDisplay(presentationChildren, operator).map(({ child, index }) => {
-        if (child.group) return <FilterExpressionChipDisplay key={index} expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...presentationPath, index]} onEdit={onEdit} onRemove={onRemove} expressionReturnFocusKeys={expressionReturnFocusKeys} hideRootAndOperator={hideRootAndOperator} />;
+        if (child.group) return <div key={index} className="w-full pl-1 sm:pl-2"><FilterExpressionChipDisplay expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...presentationPath, index]} onEdit={onEdit} onRemove={onRemove} expressionReturnFocusKeys={expressionReturnFocusKeys} hideRootAndOperator={hideRootAndOperator} /></div>;
         if (!child.filter || isIncompleteExpressionDraft(child.filter)) return null;
         if (!onEdit) return <ExpressionLeafSummary key={index} filter={child.filter} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />;
 
@@ -798,7 +802,7 @@ function FilterExpressionChipDisplay({
         const entries = getLogicalFilterEntries(criteriaDefinitions, child.filter);
         const relatedEntry = entries.length === 1 && entries[0].def?.type === "related" ? entries[0] : undefined;
         return (
-          <span key={index} className="inline-flex min-w-0 items-stretch overflow-hidden rounded-md border border-border/80 bg-surface">
+          <span key={index} className="inline-flex min-w-0 items-stretch overflow-hidden rounded-md border border-border/80 bg-surface max-sm:w-full">
             {relatedEntry?.def ? (
               <RelatedExpressionLeafDisplay contained path={childPath} def={relatedEntry.def} value={child.filter} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} onEdit={onEdit} expressionReturnFocusKeys={expressionReturnFocusKeys} />
             ) : (
@@ -816,7 +820,9 @@ function FilterExpressionChipDisplay({
           </span>
         );
       })}
-    </span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1323,11 +1329,11 @@ function ActiveObjectFilterChipsContent({
             : displayValue;
         if (isFilterExpression) {
           return (
-            <div key={key} className="group flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border bg-card text-xs text-foreground transition-colors hover:border-accent">
+            <div key={key} className="group flex w-full min-w-0 items-stretch text-xs text-foreground">
               <div
                 ref={(element) => { if (element) buttonRefs.current.set(key, element.querySelector("button")!); else buttonRefs.current.delete(key); }}
                 data-active-filter-key={key}
-                className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-1"
+                className="w-full min-w-0"
               >
                 <FilterExpressionChipDisplay
                   expression={value as ChipFilterExpression}

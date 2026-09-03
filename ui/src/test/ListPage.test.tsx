@@ -396,6 +396,8 @@ describe("ListPage active filter chips", () => {
     expect(document.querySelector('[data-filter-operator="NONE"]')).toBeInTheDocument();
     const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
     expect(anyGroup).toHaveClass("text-violet-300");
+    expect(anyGroup).toHaveTextContent("Any of 5");
+    expect(anyGroup.closest("[data-filter-outline-group]")).toHaveAttribute("data-filter-outline-group", "OR");
     const anyCondition = screen.getByRole("button", { name: /Edit filter: Tags Example Tag/ });
     expect(anyCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
     expect(anyCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
@@ -407,6 +409,7 @@ describe("ListPage active filter chips", () => {
     expect(relatedTagsCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
     const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
     expect(allGroup).toHaveClass("text-accent");
+    expect(allGroup).toHaveTextContent("All of 2");
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
     const noneGroup = screen.getByRole("button", { name: "Edit None group in Combine Filters" });
