@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ImageIcon, X } from "lucide-react";
 import { ImageInput } from "./ImageInput";
 import { ExtensionSlot } from "../router/RouteRegistry";
@@ -18,7 +18,8 @@ interface CoverImageDialogProps {
   aspectRatio?: string;
   objectFit?: "cover" | "contain";
   deleteLabel?: string;
-  extraActions?: ReactNode;
+  extraActions?: ReactNode | ((imageOperationPending: boolean) => ReactNode);
+  externalPending?: boolean;
 }
 
 export function CoverImageDialog({
@@ -36,7 +37,10 @@ export function CoverImageDialog({
   objectFit = "cover",
   deleteLabel = "Use Default",
   extraActions,
+  externalPending = false,
 }: CoverImageDialogProps) {
+  const [imageOperationPending, setImageOperationPending] = useState(false);
+
   if (!open) return null;
 
   const handleSuccess = () => {
@@ -64,6 +68,8 @@ export function CoverImageDialog({
             aspectRatio={aspectRatio}
             objectFit={objectFit}
             deleteLabel={deleteLabel}
+            disabled={externalPending}
+            onBusyChange={setImageOperationPending}
           />
         ) : (
           <div className="space-y-2">
@@ -91,7 +97,7 @@ export function CoverImageDialog({
           fallback={null}
         />
 
-        {extraActions ? <div className="mt-3 border-t border-border pt-3">{extraActions}</div> : null}
+        {extraActions ? <div className="mt-3 border-t border-border pt-3">{typeof extraActions === "function" ? extraActions(imageOperationPending) : extraActions}</div> : null}
       </div>
     </div>
   );
