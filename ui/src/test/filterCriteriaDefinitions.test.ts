@@ -120,6 +120,14 @@ describe("filter criteria definitions", () => {
       filterKey: "videoFilterCriterion",
       category: "related",
     }));
+    expect(PERFORMER_CRITERIA).toContainEqual(expect.objectContaining({
+      id: "relatedAudios",
+      label: "Related Audios",
+      type: "related",
+      entityType: "audios",
+      filterKey: "audioFilterCriterion",
+      category: "related",
+    }));
   });
 
   it("does not expose unsupported performer path filtering", () => {

@@ -6,7 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Film, Search, Users } from "lucide-react";
+import { ArrowLeft, Film, Headphones, Search, Users } from "lucide-react";
 import { savedFilters as savedFiltersApi } from "../api/client";
 import type { RelatedFilterCriterion } from "../api/types";
 import type { RelatedFilterChipFacet } from "./ActiveObjectFilterChips";
@@ -46,11 +46,11 @@ export function RelatedFilterWorkspace({
   onSelectionChange: (selection: { facet: RelatedFilterChipFacet; nestedCriterionId?: string } | null) => void;
 }) {
   const entityType = criterion.entityType!;
-  const singular = entityType === "performers" ? "performer" : "video";
-  const plural = entityType === "performers" ? "performers" : "videos";
+  const singular = entityType === "performers" ? "performer" : entityType === "audios" ? "audio" : "video";
+  const plural = entityType === "performers" ? "performers" : entityType === "audios" ? "audios" : "videos";
   const resultPlural = entityType === "performers" ? "videos" : "performers";
   const relativePronoun = entityType === "performers" ? "who" : "that";
-  const EntityIcon = entityType === "performers" ? Users : Film;
+  const EntityIcon = entityType === "performers" ? Users : entityType === "audios" ? Headphones : Film;
   const nestedCriteria = useMemo(() => [
     ...(criterion.relatedContextCriteria ?? []),
     ...(criterion.relatedCriteria?.() ?? getRelatedCriteria(entityType)),

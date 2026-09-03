@@ -384,6 +384,32 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("builds a performer filter from related audios", async () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={PERFORMER_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    fireEvent.click(screen.getByText("Related Audios"));
+    expect(screen.getByLabelText("Audios").querySelector(".lucide-headphones")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "At least one matching audio" })).toBeInTheDocument();
+    expect(screen.getByText(/Find performers by audio/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Duration" }));
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "120" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    const group = screen.getByRole("group", { name: "Related Audios filters" });
+    expect(group.querySelectorAll(".lucide-headphones")).toHaveLength(1);
+    expect(within(group).getByRole("button", { name: "Edit audio filter: Duration" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      audioFilterCriterion: {
+        objectFilter: { durationCriterion: { value: 120, modifier: "EQUALS" } },
+      },
+    });
+  });
+
   it.each([
     ["every", "Every performer matches"],
     ["none", "No performer matches"],

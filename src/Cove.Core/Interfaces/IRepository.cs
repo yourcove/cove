@@ -361,6 +361,7 @@ public class PerformerFilter
     public MultiIdCriterion? GroupsCriterion { get; set; }
     public IntCriterion? TagCountCriterion { get; set; }
     public RelatedFilterCriterion<VideoFilter>? VideoFilterCriterion { get; set; }
+    public RelatedFilterCriterion<AudioFilter>? AudioFilterCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }

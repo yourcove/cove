@@ -407,6 +407,7 @@ function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefi
     !knownKeys.has(key)
     && key !== "performerFilterCriterion"
     && key !== "videoFilterCriterion"
+    && key !== "audioFilterCriterion"
     && !key.startsWith("_")
     && hasMeaningfulRelatedValue(item)));
   const objectFilter = sanitizeFilterCriteria(rawObjectFilter, nestedCriteria, unknownValues);

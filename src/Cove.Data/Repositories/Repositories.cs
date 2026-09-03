@@ -341,7 +341,9 @@ public class PerformerRepository : IPerformerRepository
         // The root-plan optimization may ignore query filters on the whole query tree, including the
         // relationship counts below, so keep the normal authorization filters for count queries.
         var usesRelatedMediaCount = filter?.VideoFilterCriterion != null
+            || filter?.AudioFilterCriterion != null
             || FilterExpressionQuery.Contains(expression, leaf => leaf.VideoFilterCriterion != null
+                || leaf.AudioFilterCriterion != null
                 || leaf.AudioCountCriterion != null
                 || leaf.TextCountCriterion != null)
             || filter?.AudioCountCriterion != null
@@ -617,7 +619,10 @@ public class PerformerRepository : IPerformerRepository
         query = ApplyPerformerSearch(query, findFilter?.Q);
 
         if (includeRelatedFilters)
+        {
             query = await RelatedFilterQuery.ApplyToPerformersAsync(_db, query, filter?.VideoFilterCriterion, ct);
+            query = await RelatedFilterQuery.ApplyAudioFilterToPerformersAsync(_db, query, filter?.AudioFilterCriterion, ct);
+        }
 
         query = await FilterExpressionQuery.ApplyAsync(query, expression, async (input, leaf) =>
         {
