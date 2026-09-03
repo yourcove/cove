@@ -955,9 +955,10 @@ describe("FilterDialog", () => {
       />,
     );
     const selectedFilters = screen.getByRole("toolbar", { name: "Selected filters" });
-    expect(selectedFilters).toHaveClass("min-h-0", "shrink", "overflow-y-auto");
+    expect(selectedFilters).toHaveClass("min-h-0", "shrink", "overflow-y-auto", "overscroll-contain");
     expect(selectedFilters).not.toHaveClass("max-h-[min(12rem,35dvh)]");
     expect(screen.getByRole("complementary", { name: "Filter criteria" }).parentElement).toHaveClass("min-h-[min(12rem,35dvh)]");
+    expect(screen.getByRole("tablist", { name: "Available filter criteria" })).toHaveClass("overscroll-contain");
     expect(selectedFilters).toHaveTextContent("Title:= example");
     expect(selectedFilters).toHaveTextContent("Organized:Yes");
     expect(screen.queryByRole("button", { name: "Clear criterion" })).not.toBeInTheDocument();
@@ -2553,9 +2554,14 @@ describe("FilterDialog", () => {
     expect(editExpression).toHaveTextContent("");
     const clearAll = screen.getByRole("button", { name: "Clear all" });
     expect(clearAll).toHaveTextContent("Clear all");
-    expect(clearAll).toHaveClass("absolute", "right-3", "top-2");
+    expect(clearAll.parentElement).toHaveClass("absolute", "right-2", "top-2");
     expect(screen.getByRole("toolbar", { name: "Selected filters" })).toHaveClass("relative");
     expect(screen.getAllByRole("button", { name: "Clear all" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Hide selected filters", expanded: true }));
+    expect(screen.getByText("3 selected filters")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit Any group in Combine Filters" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show selected filters", expanded: false }));
+    expect(screen.getByRole("button", { name: "Edit Any group in Combine Filters" })).toBeInTheDocument();
     fireEvent.click(editExpression);
     expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -2566,6 +2572,21 @@ describe("FilterDialog", () => {
     expect(screen.queryByRole("toolbar", { name: "Selected filters" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenCalledWith({});
+  });
+
+  it("locks background scrolling while the dialog is open", () => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "auto";
+    const onClose = vi.fn();
+    const onApply = vi.fn();
+    const { rerender } = render(
+      <FilterDialog open onClose={onClose} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+    );
+
+    expect(document.body.style.overflow).toBe("hidden");
+    rerender(<FilterDialog open={false} onClose={onClose} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />);
+    expect(document.body.style.overflow).toBe("auto");
+    document.body.style.overflow = previousOverflow;
   });
 
   it("removes nested combined-filter conditions from their own chips", async () => {

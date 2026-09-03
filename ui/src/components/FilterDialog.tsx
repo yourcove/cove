@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal, Workflow, GripVertical, ChevronDown, ChevronRight } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, Minus, Star, ArrowLeft, Film, Users, MoreHorizontal, Workflow, GripVertical, ChevronDown, ChevronRight, ChevronUp } from "lucide-react";
 import { tags as tagsApi, performers as performersApi, studios as studiosApi, groups as groupsApi, galleries as galleriesApi, videos as videosApi, tagGroups as tagGroupsApi, faces as facesApi, metadata, savedFilters as savedFiltersApi } from "../api/client";
 import { GroupedTagOptionList, groupTagsForSelector } from "./TagSelector";
 import { IsoDateInput } from "./IsoDateInput";
@@ -1150,6 +1150,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const supportsExpressions = supportsFilterExpressions;
   const [editFilter, setEditFilter] = useState<Record<string, unknown>>({ ...activeFilter });
   const [dialogView, setDialogView] = useState<FilterDialogView>(() => initialView === "advanced" && isComplexFilterExpression(activeFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined) ? "expression" : "simple");
+  const [selectedFiltersCollapsed, setSelectedFiltersCollapsed] = useState(false);
   const [conditionDraft, setConditionDraft] = useState<ExpressionConditionDraft | null>(null);
   const [simpleExpressionGroupPath, setSimpleExpressionGroupPath] = useState<number[]>(() => initialExpressionPath?.slice(0, -1) ?? []);
   const [inlineStackReturnsToExpression, setInlineStackReturnsToExpression] = useState(false);
@@ -1427,6 +1428,15 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   }, [open]);
 
   useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!open) {
       inlineAddedConditionRef.current = null;
       if (wasOpenRef.current) {
@@ -1435,6 +1445,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setExpandedCriterion(null);
         setRelatedWorkspaceSelection(null);
         setDialogView("simple");
+        setSelectedFiltersCollapsed(false);
         setConditionDraft(null);
         setSimpleExpressionGroupPath([]);
         setInlineStackReturnsToExpression(false);
@@ -2165,7 +2176,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         {dialogView === "simple" && !conditionDraft && !relatedWorkspaceCriterion && (expressionConditionCount > 0 || Object.keys(activeEditFilter).length > 0) ? (
           <div
             ref={selectedFiltersToolbarRef}
-            className="relative flex min-h-0 shrink flex-wrap items-center gap-2 overflow-y-auto border-b border-border px-3 py-2 [&_button:focus-visible]:relative [&_button:focus-visible]:z-10 [&_button:focus-visible]:bg-accent/25 [&_button:focus-visible]:outline-none [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-accent md:px-4"
+            className="relative flex min-h-0 shrink flex-wrap items-center gap-2 overflow-y-auto overscroll-contain border-b border-border px-3 py-2 [&_button:focus-visible]:relative [&_button:focus-visible]:z-10 [&_button:focus-visible]:bg-accent/25 [&_button:focus-visible]:outline-none [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-accent md:px-4"
             role="toolbar"
             aria-label="Selected filters"
             aria-orientation="horizontal"
@@ -2203,6 +2214,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             }}
           >
             <span id={selectedFiltersInstructionsId} className="sr-only">Use Left and Right Arrow to move between selected filter parts and Clear all. Press Down Arrow to move to filter search. Press Enter to activate the focused control.</span>
+            {hasComplexExpression && selectedFiltersCollapsed ? (
+              <span className="flex h-6 items-center text-xs font-medium text-secondary">{displayedActiveCount} selected filters</span>
+            ) : <>
             {validSimpleExpressionEntries.map(({ child, index }) => {
               const { _criterionId: _draftCriterionId, ...displayFilter } = child.filter ?? {};
               return (
@@ -2296,8 +2310,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
               ariaLabel="Selected filters"
               className="!m-0 !border-0 !bg-transparent !p-0"
             /> : null}
+            </>}
             {hasComplexExpression ? (
-              <button type="button" onClick={handleClear} className="absolute right-3 top-2 z-10 h-6 rounded-md border border-border/80 bg-surface/95 px-2 text-xs font-medium text-secondary shadow-sm hover:bg-red-500/10 hover:text-red-300 md:right-4">Clear all</button>
+              <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+                <button type="button" aria-label={selectedFiltersCollapsed ? "Show selected filters" : "Hide selected filters"} aria-expanded={!selectedFiltersCollapsed} onClick={() => setSelectedFiltersCollapsed((current) => !current)} className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/80 bg-surface/95 text-secondary shadow-sm hover:bg-card hover:text-foreground">{selectedFiltersCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}</button>
+                <button type="button" onClick={handleClear} className="h-6 rounded-md border border-border/80 bg-surface/95 px-2 text-xs font-medium text-secondary shadow-sm hover:bg-red-500/10 hover:text-red-300">Clear all</button>
+              </div>
             ) : null}
           </div>
         ) : null}
@@ -2382,7 +2400,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                 />
               </label>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2 md:p-3" role="tablist" aria-label="Available filter criteria" aria-orientation="vertical">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 md:p-3" role="tablist" aria-label="Available filter criteria" aria-orientation="vertical">
               {navigatorGroups.map((group) => (
                 <section key={group.label} className="mb-4" aria-label={group.label}>
                   <h3 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">{group.label}</h3>

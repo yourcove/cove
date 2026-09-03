@@ -1141,10 +1141,13 @@ function ActiveObjectFilterChipsContent({
 }: ActiveObjectFilterChipsProps & { entityNameMaps: Record<string, Map<number, string>>; metadataServers: MetadataServer[] }) {
   const managesRovingKeyboard = rovingKeyboardAccess && !embeddedInToolbar;
   const ratingOptions = useRatingOptions();
-  const logicalEntries = useMemo(
-    () => getLogicalFilterEntries(criteriaDefinitions, objectFilter, customFilterSections),
-    [criteriaDefinitions, customFilterSections, objectFilter],
-  );
+  const logicalEntries = useMemo(() => {
+    const entries = getLogicalFilterEntries(criteriaDefinitions, objectFilter, customFilterSections);
+    const expressionIndex = entries.findIndex((entry) => entry.key === "_filterExpression");
+    if (expressionIndex <= 0) return entries;
+    return [entries[expressionIndex], ...entries.slice(0, expressionIndex), ...entries.slice(expressionIndex + 1)];
+  }, [criteriaDefinitions, customFilterSections, objectFilter]);
+  const hasFilterExpression = logicalEntries.some((entry) => entry.key === "_filterExpression");
   const keys = logicalEntries.map((entry) => entry.key);
   const keysSignature = keys.join("\u0000");
   const [focusedKey, setFocusedKey] = useState<string | null>(() => keys[0] ?? null);
@@ -1235,7 +1238,7 @@ function ActiveObjectFilterChipsContent({
   return (
     <div
       ref={toolbarRef}
-      className={`mx-1 mt-2 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface/50 p-1 [&_button:focus-visible]:relative [&_button:focus-visible]:z-10 [&_button:focus-visible]:bg-accent/25 [&_button:focus-visible]:outline-none [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-accent ${className}`}
+      className={`relative mx-1 mt-2 flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface/50 p-1 [&_button:focus-visible]:relative [&_button:focus-visible]:z-10 [&_button:focus-visible]:bg-accent/25 [&_button:focus-visible]:outline-none [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-accent ${className}`}
       role={embeddedInToolbar ? undefined : rovingKeyboardAccess ? "toolbar" : "region"}
       aria-label={embeddedInToolbar ? undefined : ariaLabel}
       aria-orientation={!embeddedInToolbar && rovingKeyboardAccess ? "horizontal" : undefined}
@@ -1392,7 +1395,9 @@ function ActiveObjectFilterChipsContent({
           tabIndex={managesRovingKeyboard ? -1 : undefined}
           onClick={onClearAll}
           aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home" : undefined}
-          className="h-[26px] rounded-md px-2 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-300"
+          className={hasFilterExpression
+            ? "absolute right-1 top-1 z-10 h-6 rounded-md border border-border/80 bg-surface/95 px-2 text-xs font-medium text-muted shadow-sm hover:bg-red-500/10 hover:text-red-300"
+            : "h-[26px] rounded-md px-2 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-300"}
         >
           Clear all
         </button>

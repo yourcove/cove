@@ -366,6 +366,7 @@ describe("ListPage active filter chips", () => {
             isLoading={false}
             criteriaDefinitions={VIDEO_CRITERIA}
             objectFilter={{
+              organizedCriterion: { value: true },
               _filterExpression: {
                 operator: "OR",
                 children: [
@@ -395,6 +396,8 @@ describe("ListPage active filter chips", () => {
     expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
     expect(document.querySelector('[data-filter-operator="NONE"]')).toBeInTheDocument();
     const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
+    const organized = screen.getByRole("button", { name: "Edit filter: Organized" });
+    expect(anyGroup.compareDocumentPosition(organized) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(anyGroup).toHaveClass("text-violet-300");
     expect(anyGroup).toHaveTextContent("Any of 5");
     expect(anyGroup.closest("[data-filter-outline-group]")).toHaveAttribute("data-filter-outline-group", "OR");
@@ -410,6 +413,10 @@ describe("ListPage active filter chips", () => {
     const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
     expect(allGroup).toHaveClass("text-accent");
     expect(allGroup).toHaveTextContent("All of 2");
+    const appliedFilters = screen.getByRole("region", { name: "Applied filters" });
+    const clearAll = within(appliedFilters).getByRole("button", { name: "Clear all" });
+    expect(appliedFilters).toHaveClass("relative");
+    expect(clearAll).toHaveClass("absolute", "right-1", "top-1");
     expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
     const noneGroup = screen.getByRole("button", { name: "Edit None group in Combine Filters" });
