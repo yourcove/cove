@@ -10,7 +10,7 @@ import { Merge, Layers, Tag as TagIcon } from "lucide-react";
 import { MergeDialog } from "../components/MergeDialog";
 import { TagTile } from "../components/EntityCards";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
-import { TAG_CRITERIA } from "../components/FilterDialog";
+import { TAG_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { ExtensionSlot } from "../router/RouteRegistry";

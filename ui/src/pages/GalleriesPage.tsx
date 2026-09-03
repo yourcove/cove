@@ -9,7 +9,7 @@ import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHand
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { FolderOpen, Images as ImagesIcon, Trash2, Loader2, Edit, Box, Film, Check, Search, Download } from "lucide-react";
 import { GalleryTile, PopoverButton, VideosPopoverContent, ImagesPopoverContent, EntityReferencePopovers } from "../components/EntityCards";
-import { GALLERY_CRITERIA } from "../components/FilterDialog";
+import { GALLERY_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { BulkEditDialog, GALLERY_BULK_FIELDS } from "../components/BulkEditDialog";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";

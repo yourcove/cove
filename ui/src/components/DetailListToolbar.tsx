@@ -5,7 +5,10 @@ import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthP
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
-import { FilterButton, FilterDialog, migrateLegacyPerformerFavoriteCriterion, type CriterionDefinition, type FilterDialogPreselection } from "./FilterDialog";
+import { FilterDialog, type FilterDialogPreselection } from "./FilterDialog";
+import { FilterButton } from "./FilterButton";
+import type { CriterionDefinition } from "./filterCriteriaTypes";
+import { migrateLegacyPerformerFavoriteCriterion } from "./filterCriterionState";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
 import { ActiveObjectFilterChips, countActiveObjectFilters, getFilterChipTargetKey, removeObjectFilterChipTarget } from "./ActiveObjectFilterChips";

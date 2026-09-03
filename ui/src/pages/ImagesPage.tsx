@@ -9,7 +9,7 @@ import { useInfiniteListData } from "../hooks/useInfiniteListData";
 import { useVisualSimilarityApi } from "../hooks/useVisualSimilarityApi";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { ImageIcon, Trash2, Loader2, Edit, FolderOpen, Play, Search, ThumbsUp, Eye, Heart } from "lucide-react";
-import { IMAGE_CRITERIA } from "../components/FilterDialog";
+import { IMAGE_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { ImageTile } from "../components/EntityCards";
 import { ImageSelectionActions } from "../components/ImageSelectionActions";
 import type { LightboxImage } from "../components/Lightbox";

@@ -1,4 +1,4 @@
-import type { CriterionDefinition } from "../../components/FilterDialog";
+import type { CriterionDefinition } from "../../components/filterCriteriaTypes";
 import type { BoolCriterion, CriterionModifier, IntCriterion, MultiIdCriterion, StringCriterion, TimestampCriterion } from "../../api/types";
 import type { SegmentsPageContentView } from "./types";
 

@@ -12,7 +12,7 @@ import { extensionRuntimeModules, extensionRuntimeVersion } from "./scripts/exte
 function changelogPlugin() {
   const virtualId = "virtual:changelog-raw";
   const resolvedId = "\0" + virtualId;
-  const changelogPath = path.resolve(__dirname, "..", "CHANGELOG.md");
+  const changelogPath = path.resolve(import.meta.dirname, "..", "CHANGELOG.md");
   return {
     name: "cove-changelog",
     resolveId(id: string) {
@@ -34,7 +34,7 @@ function changelogPlugin() {
 const extensionRuntimeEntries = Object.fromEntries(
   extensionRuntimeModules.map((definition) => [
     `extension-runtime-${definition.id}`,
-    path.resolve(__dirname, `./src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`),
+    path.resolve(import.meta.dirname, `./src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`),
   ])
 );
 
@@ -90,7 +90,7 @@ export default defineConfig(({ command }) => {
     plugins: [react(), tailwindcss(), changelogPlugin(), extensionRuntimeImportMapPlugin(useDevRuntimeModules)],
     resolve: {
       alias: {
-        "@": path.resolve(__dirname, "./src"),
+        "@": path.resolve(import.meta.dirname, "./src"),
       },
     },
     server: {
@@ -114,7 +114,7 @@ export default defineConfig(({ command }) => {
       rollupOptions: {
         preserveEntrySignatures: "strict",
         input: {
-          index: path.resolve(__dirname, "./index.html"),
+          index: path.resolve(import.meta.dirname, "./index.html"),
           ...extensionRuntimeEntries,
         },
         output: {

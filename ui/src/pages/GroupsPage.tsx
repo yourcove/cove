@@ -9,7 +9,7 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { Layers, Trash2, Loader2, Edit } from "lucide-react";
 import { GroupTile } from "../components/EntityCards";
-import { GROUP_CRITERIA } from "../components/FilterDialog";
+import { GROUP_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { IsoDateInput } from "../components/IsoDateInput";
 import { BulkEditDialog, GROUP_BULK_FIELDS } from "../components/BulkEditDialog";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";

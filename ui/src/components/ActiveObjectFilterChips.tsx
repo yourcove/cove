@@ -3,7 +3,7 @@ import { Film, Users, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { groups, performers, studios, tagGroups, tags } from "../api/client";
 import { formatHumanDuration } from "../utils/durationFormat";
-import type { CriterionDefinition, FilterDialogCustomSection } from "./FilterDialog";
+import type { CriterionDefinition, FilterDialogCustomSection } from "./filterCriteriaTypes";
 import { getMultiIdModifierLabel } from "../utils/filterModifierLabels";
 import type { MetadataServer, RatingSystemOptions } from "../api/types";
 import { convertToRatingFormat, formatDisplayRating, normalizeRatingOptions, RatingStars, useRatingOptions } from "./Rating";

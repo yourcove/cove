@@ -8,7 +8,7 @@ import { EntityReferenceSelector } from "../components/EntityReferenceSelector";
 import { toggleOptionsFromEvent, useMultiSelect, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { Building2, Merge } from "lucide-react";
-import { STUDIO_CRITERIA } from "../components/FilterDialog";
+import { STUDIO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { MergeDialog } from "../components/MergeDialog";
 import { StudioTagger } from "../components/StudioTagger";
 import { StudioTile, CardExtensionSlot } from "../components/EntityCards";
