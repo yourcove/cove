@@ -1,5 +1,7 @@
+using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
 using Cove.Core.DTOs;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 
 namespace Cove.ApiTests.Tests.Metadata;
@@ -145,6 +147,137 @@ public sealed class MetadataOperationsApiTests(
         job.Type.Should().Be("clean");
         job.Status.Should().Be(JobStatus.Completed);
         (await AsUser().GetVideosAsync(TestContext.Current.CancellationToken)).Should().NotContain(candidate => candidate.Id == video.Id);
+    }
+
+    [Fact]
+    public async Task GivenVideoWithLiveAndMissingFiles_WhenCleanCompletes_ThenOnlyMissingFileRowIsRemoved()
+    {
+        // Arrange
+        var video = await AsUser().CreateVideoAsync($"Partial file clean {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var livePath = AsTestFileSystem().CreateLibraryFile($"clean-live-{Guid.NewGuid():N}.mp4", [1]);
+        var missingPath = AsTestFileSystem().CreateLibraryFile($"clean-missing-{Guid.NewGuid():N}.mp4", [2]);
+        var liveFileId = await AsDbUser().CreateOwnedFileAsync(EntityKinds.Video, video.Id, livePath, TestContext.Current.CancellationToken);
+        var missingFileId = await AsDbUser().CreateOwnedFileAsync(EntityKinds.Video, video.Id, missingPath, TestContext.Current.CancellationToken);
+        File.Delete(missingPath);
+
+        // Act
+        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto(), TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+
+        // Assert
+        job.Status.Should().Be(JobStatus.Completed);
+        var cleaned = (await AsUser().GetVideosAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(candidate => candidate.Id == video.Id).Which;
+        cleaned.Files.Should().ContainSingle(file => Path.GetFullPath(file.Path) == Path.GetFullPath(livePath));
+        (await AsDbUser().FileRowExistsAsync(liveFileId, TestContext.Current.CancellationToken)).Should().BeTrue();
+        (await AsDbUser().FileRowExistsAsync(missingFileId, TestContext.Current.CancellationToken)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GivenMissingFilesInsideAndOutsideSelectedPath_WhenCleanCompletes_ThenOnlySelectedFileRowIsRemoved()
+    {
+        // Arrange
+        var video = await AsUser().CreateVideoAsync($"Scoped file clean {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var selectedDirectory = $"selected-{Guid.NewGuid():N}";
+        var selectedPath = AsTestFileSystem().CreateLibraryNestedFile(Path.Combine(selectedDirectory, "missing.mp4"), [1]);
+        var retainedPath = AsTestFileSystem().CreateLibraryNestedFile(Path.Combine($"retained-{Guid.NewGuid():N}", "missing.mp4"), [2]);
+        var selectedFileId = await AsDbUser().CreateOwnedFileAsync(EntityKinds.Video, video.Id, selectedPath, TestContext.Current.CancellationToken);
+        var retainedFileId = await AsDbUser().CreateOwnedFileAsync(EntityKinds.Video, video.Id, retainedPath, TestContext.Current.CancellationToken);
+        File.Delete(selectedPath);
+        File.Delete(retainedPath);
+
+        // Act
+        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto
+        {
+            Paths = [Path.Combine(AsTestFileSystem().LibraryPath, selectedDirectory)],
+        }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+
+        // Assert
+        job.Status.Should().Be(JobStatus.Completed);
+        var cleaned = (await AsUser().GetVideosAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(candidate => candidate.Id == video.Id).Which;
+        cleaned.Files.Should().ContainSingle(file => Path.GetFullPath(file.Path) == Path.GetFullPath(retainedPath));
+        (await AsDbUser().FileRowExistsAsync(selectedFileId, TestContext.Current.CancellationToken)).Should().BeFalse();
+        (await AsDbUser().FileRowExistsAsync(retainedFileId, TestContext.Current.CancellationToken)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GivenVideoWithMissingFile_WhenCleanIsDryRun_ThenMissingFileRowIsPreserved()
+    {
+        // Arrange
+        var video = await AsUser().CreateVideoAsync($"Dry-run file clean {Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var missingPath = AsTestFileSystem().CreateLibraryFile($"clean-dry-run-{Guid.NewGuid():N}.mp4", [1]);
+        var missingFileId = await AsDbUser().CreateOwnedFileAsync(EntityKinds.Video, video.Id, missingPath, TestContext.Current.CancellationToken);
+        File.Delete(missingPath);
+
+        // Act
+        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto { DryRun = true }, TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+
+        // Assert
+        job.Status.Should().Be(JobStatus.Completed);
+        var retained = (await AsUser().GetVideosAsync(TestContext.Current.CancellationToken)).Should().ContainSingle(candidate => candidate.Id == video.Id).Which;
+        retained.Files.Should().ContainSingle(file => Path.GetFullPath(file.Path) == Path.GetFullPath(missingPath));
+        (await AsDbUser().FileRowExistsAsync(missingFileId, TestContext.Current.CancellationToken)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GivenAudioAndTextWithLiveAndMissingFiles_WhenCleanCompletes_ThenTheirMissingFileRowsAreRemoved()
+    {
+        // Arrange
+        var suffix = Guid.NewGuid().ToString("N");
+        var audio = await AsUser().CreateAudioAsync($"Partial audio clean {suffix}", TestContext.Current.CancellationToken);
+        var text = await AsUser().CreateTextAsync($"Partial text clean {suffix}", TestContext.Current.CancellationToken);
+        var audioLivePath = AsTestFileSystem().CreateLibraryFile($"audio-live-{suffix}.mp3", [1]);
+        var audioMissingPath = AsTestFileSystem().CreateLibraryFile($"audio-missing-{suffix}.mp3", [2]);
+        var textLivePath = AsTestFileSystem().CreateLibraryFile($"text-live-{suffix}.txt", [3]);
+        var textMissingPath = AsTestFileSystem().CreateLibraryFile($"text-missing-{suffix}.txt", [4]);
+        await AsDbUser().CreateOwnedFileAsync(EntityKinds.Audio, audio.Id, audioLivePath, TestContext.Current.CancellationToken);
+        var audioMissingFileId = await AsDbUser().CreateOwnedFileAsync(EntityKinds.Audio, audio.Id, audioMissingPath, TestContext.Current.CancellationToken);
+        await AsDbUser().CreateOwnedFileAsync(EntityKinds.Text, text.Id, textLivePath, TestContext.Current.CancellationToken);
+        var textMissingFileId = await AsDbUser().CreateOwnedFileAsync(EntityKinds.Text, text.Id, textMissingPath, TestContext.Current.CancellationToken);
+        File.Delete(audioMissingPath);
+        File.Delete(textMissingPath);
+
+        // Act
+        var jobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto(), TestContext.Current.CancellationToken);
+        var job = await AsUser().WaitForTerminalJobAsync(jobId, TestContext.Current.CancellationToken);
+
+        // Assert
+        job.Status.Should().Be(JobStatus.Completed);
+        var cleanedAudio = await AsUser().GetAudioByIdAsync(audio.Id, TestContext.Current.CancellationToken);
+        cleanedAudio.Files.Should().ContainSingle();
+        cleanedAudio.FileCount.Should().Be(1);
+        var cleanedText = await AsUser().GetTextByIdAsync(text.Id, TestContext.Current.CancellationToken);
+        cleanedText.Files.Should().ContainSingle();
+        cleanedText.FileCount.Should().Be(1);
+        (await AsDbUser().FileRowExistsAsync(audioMissingFileId, TestContext.Current.CancellationToken)).Should().BeFalse();
+        (await AsDbUser().FileRowExistsAsync(textMissingFileId, TestContext.Current.CancellationToken)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GivenImageInsideSurvivingArchive_WhenCleanCompletes_ThenVirtualImageFileIsPreserved()
+    {
+        // Arrange
+        var suffix = Guid.NewGuid().ToString("N");
+        var gallery = await AsUser().CreateGalleryAsync(new GalleryBuilder().WithTitle($"Zip clean {suffix}").Build(), TestContext.Current.CancellationToken);
+        var archivePath = AsTestFileSystem().CreateGalleryArchive($"zip-clean-{suffix}.zip", "image.png", ApiTestImages.OnePixelPng());
+        File.SetLastWriteTimeUtc(archivePath, DateTime.UtcNow.AddMinutes(-1));
+        await AsDbUser().AttachGalleryArchiveAsync(gallery.Id, archivePath, TestContext.Current.CancellationToken);
+        var rescanJobId = await AsUser().RescanGalleryAsync(gallery.Id, TestContext.Current.CancellationToken);
+        (await AsUser().WaitForTerminalJobAsync(rescanJobId, TestContext.Current.CancellationToken)).Status.Should().Be(JobStatus.Completed);
+        var importedImage = (await AsUser().GetImagesAsync(TestContext.Current.CancellationToken)).Should().ContainSingle().Which;
+        var virtualFile = importedImage.Files.Should().ContainSingle().Which;
+
+        // Act
+        var cleanJobId = await AsUser().StartMetadataCleanAsync(new CleanOptionsDto(), TestContext.Current.CancellationToken);
+        var cleanJob = await AsUser().WaitForTerminalJobAsync(cleanJobId, TestContext.Current.CancellationToken);
+
+        // Assert
+        cleanJob.Status.Should().Be(JobStatus.Completed);
+        File.Exists(archivePath).Should().BeTrue();
+        var retainedImage = await AsUser().GetImageByIdAsync(importedImage.Id, TestContext.Current.CancellationToken);
+        retainedImage.Files.Should().ContainSingle(file => file.Id == virtualFile.Id);
+        (await AsDbUser().FileRowExistsAsync(virtualFile.Id, TestContext.Current.CancellationToken)).Should().BeTrue();
     }
 
     [Fact]

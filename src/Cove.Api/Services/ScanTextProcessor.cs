@@ -168,7 +168,7 @@ internal sealed class ScanTextProcessor(
     }
 
 
-    private static void RefreshTextSummary(TextDocument textDocument)
+    internal static void RefreshTextSummary(TextDocument textDocument)
     {
         var files = textDocument.Files.ToList();
         textDocument.FileCount = files.Count;
