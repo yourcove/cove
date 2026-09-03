@@ -2875,6 +2875,7 @@ export interface PerformerFilterCriteria {
   groupsCriterion?: MultiIdCriterion;
   tagCountCriterion?: IntCriterion;
   videoFilterCriterion?: RelatedFilterCriterion<VideoFilterCriteria>;
+  audioFilterCriterion?: RelatedFilterCriterion<AudioFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }

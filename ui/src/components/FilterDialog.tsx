@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { X, Search, Pin, PinOff, Plus, ArrowLeft, Film, Users, Workflow, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Search, Pin, PinOff, Plus, ArrowLeft, Film, Headphones, Users, Workflow, ChevronDown, ChevronUp } from "lucide-react";
 import type {
   RelatedFilterCriterion,
   FilterExpression,
@@ -1139,12 +1139,14 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
             ) : null}
             {relatedWorkspaceCriterion ? (
               <span
-                aria-label={relatedWorkspaceCriterion.entityType === "performers" ? "Performers" : "Videos"}
+                aria-label={relatedWorkspaceCriterion.entityType === "performers" ? "Performers" : relatedWorkspaceCriterion.entityType === "audios" ? "Audios" : "Videos"}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent"
               >
                 {relatedWorkspaceCriterion.entityType === "performers"
                   ? <Users className="h-4 w-4" />
-                  : <Film className="h-4 w-4" />}
+                  : relatedWorkspaceCriterion.entityType === "audios"
+                    ? <Headphones className="h-4 w-4" />
+                    : <Film className="h-4 w-4" />}
               </span>
             ) : null}
             <h2 id="filter-dialog-title" className="truncate text-lg font-semibold text-foreground">
@@ -1336,6 +1338,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                     onFocusFallback={() => {
                       const searchLabel = relatedWorkspaceCriterion.entityType === "performers"
                         ? "Search performer filter criteria"
+                        : relatedWorkspaceCriterion.entityType === "audios"
+                          ? "Search audio filter criteria"
                         : "Search video filter criteria";
                       window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>(`[aria-label="${searchLabel}"]`)?.focus(), 0);
                     }}
@@ -1604,8 +1608,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
                   disabled={relatedConditionLimitReached}
                   data-simple-return-focus={`repeat-${relatedWorkspaceCriterion.id}`}
                   className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"
-                  title={`Add another ${relatedWorkspaceCriterion.entityType === "performers" ? "performer" : "video"} condition`}
-                  aria-label={`Add another ${relatedWorkspaceCriterion.entityType === "performers" ? "performer" : "video"} condition`}
+                  title={`Add another ${relatedWorkspaceCriterion.entityType === "performers" ? "performer" : relatedWorkspaceCriterion.entityType === "audios" ? "audio" : "video"} condition`}
+                  aria-label={`Add another ${relatedWorkspaceCriterion.entityType === "performers" ? "performer" : relatedWorkspaceCriterion.entityType === "audios" ? "audio" : "video"} condition`}
                 >
                   <Plus className="h-4 w-4" />
                 </button>

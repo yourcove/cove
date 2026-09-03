@@ -276,6 +276,128 @@ public class RelatedEntityFilterTests
     }
 
     [Fact]
+    public async Task PerformersCanSearchRelatedAudios()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                AudioFilterCriterion = new RelatedFilterCriterion<AudioFilter>
+                {
+                    FindFilter = new FindFilter { Q = "Beta Audio" },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([301, 302], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task PerformersCanRequireARelatedAudioWithACodec()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        fixture.Context.Performers.Add(new Performer { Id = 304, Name = "No audios" });
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                AudioFilterCriterion = new RelatedFilterCriterion<AudioFilter>
+                {
+                    ObjectFilter = new AudioFilter
+                    {
+                        AudioCodecCriterion = new StringCriterion
+                        {
+                            Modifier = CriterionModifier.NotNull,
+                            Value = string.Empty,
+                        },
+                    },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([301, 302, 303], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task PerformersCanRequireEveryRelatedAudioToMatch()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                AudioFilterCriterion = new RelatedFilterCriterion<AudioFilter>
+                {
+                    Mode = RelatedFilterMode.Every,
+                    ObjectFilter = new AudioFilter
+                    {
+                        DurationCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 100 },
+                    },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([302, 303], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task NoRelatedAudioModeRequiresAtLeastOneAudio()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        fixture.Context.Performers.Add(new Performer { Id = 304, Name = "No audios" });
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                AudioFilterCriterion = new RelatedFilterCriterion<AudioFilter>
+                {
+                    Mode = RelatedFilterMode.None,
+                    ObjectFilter = new AudioFilter
+                    {
+                        DurationCriterion = new IntCriterion { Modifier = CriterionModifier.GreaterThan, Value = 200 },
+                    },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([301, 302, 303], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task PerformerFilterExpressionCombinesRepeatedRelatedAudioCriteria()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            null,
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken,
+            new FilterExpression<PerformerFilter>
+            {
+                Operator = FilterExpressionOperator.And,
+                Children =
+                [
+                    new() { Filter = new PerformerFilter { AudioFilterCriterion = new RelatedFilterCriterion<AudioFilter> { FindFilter = new FindFilter { Q = "Alpha Audio" } } } },
+                    new() { Filter = new PerformerFilter { AudioFilterCriterion = new RelatedFilterCriterion<AudioFilter> { FindFilter = new FindFilter { Q = "Gamma Audio" } } } },
+                ],
+            });
+
+        Assert.Equal([301], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
     public async Task PerformerFilterExpressionCombinesRepeatedRelatedVideoCriteria()
     {
         await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();

@@ -9,6 +9,7 @@ import {
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Minus, Plus, Search, X } from "lucide-react";
 import {
+  audios as audiosApi,
   faces as facesApi,
   galleries as galleriesApi,
   groups as groupsApi,
@@ -60,6 +61,7 @@ export function MultiIdEditor({ value, onChange, entityType, modifiers, hierarch
         case "groups": return (await groupsApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "name", direction: "asc" })).items;
         case "galleries": return (await galleriesApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "title", direction: "asc" })).items;
         case "videos": return (await videosApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "title", direction: "asc" })).items;
+        case "audios": return (await audiosApi.find({ q: trimmedSearchText || undefined, perPage: 50, sort: "title", direction: "asc" })).items;
         case "faces": return (await facesApi.list({ q: trimmedSearchText || undefined, merged: false, page: 1, perPage: 50 })).items;
         default: return [];
       }
@@ -530,6 +532,7 @@ const MULTI_ID_ENTITY_LABELS: Record<EntityType, { singular: string; plural: str
   groups: { singular: "group", plural: "groups" },
   galleries: { singular: "gallery", plural: "galleries" },
   videos: { singular: "video", plural: "videos" },
+  audios: { singular: "audio", plural: "audios" },
   faces: { singular: "face", plural: "faces" },
 };
 
@@ -566,6 +569,10 @@ async function getMultiIdEntityLabel(entityType: EntityType, id: number): Promis
     case "videos": {
       const video = await videosApi.get(id);
       return { id, label: video.title?.trim() || video.code?.trim() || video.files?.[0]?.basename || "Untitled video" };
+    }
+    case "audios": {
+      const audio = await audiosApi.get(id);
+      return { id, label: audio.title?.trim() || audio.files?.[0]?.basename || "Untitled audio" };
     }
     case "faces": {
       const face = await facesApi.get(id);

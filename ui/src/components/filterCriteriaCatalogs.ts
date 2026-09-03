@@ -84,6 +84,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "relatedVideos", label: "Related Videos", type: "related", entityType: "videos", filterKey: "videoFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("videos") },
+  { id: "relatedAudios", label: "Related Audios", type: "related", entityType: "audios", filterKey: "audioFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("audios") },
   { id: "age", label: "Age (now)", type: "number", filterKey: "ageCriterion" },
   { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [
     { value: "Male", label: "Male" },
@@ -363,6 +364,8 @@ export function getRelatedCriteria(entityType: EntityType | undefined): Criterio
     ? PERFORMER_CRITERIA
     : entityType === "videos"
     ? VIDEO_CRITERIA
+    : entityType === "audios"
+    ? AUDIO_CRITERIA
     : [];
   return criteria.filter((criterion) => criterion.type !== "related");
 }

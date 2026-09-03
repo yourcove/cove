@@ -335,6 +335,83 @@ public static class RelatedFilterQuery
         };
     }
 
+    public static async Task<IQueryable<Performer>> ApplyAudioFilterToPerformersAsync(
+        CoveContext db,
+        IQueryable<Performer> query,
+        RelatedFilterCriterion<AudioFilter>? criterion,
+        CancellationToken ct = default)
+    {
+        if (criterion == null) return query;
+        var matchingAudioIds = await MatchingAudioIdsAsync(db, criterion, ct);
+        var links = db.Set<AudioPerformer>().AsNoTracking();
+        var matchingPerformerIds = links
+            .Where(link => matchingAudioIds.Contains(link.AudioId))
+            .Select(link => link.PerformerId)
+            .Distinct();
+        var mode = Mode(criterion);
+        if (mode == RelatedFilterMode.AtLeastOne)
+            return query.Where(performer => matchingPerformerIds.Contains(performer.Id));
+        if (mode == RelatedFilterMode.None && UsesLegacyNone(criterion))
+            return query.Where(performer => !matchingPerformerIds.Contains(performer.Id));
+
+        var visibleAudios = await AudioFilterQuery.BuildAsync(db, null, null, includeRelatedFilters: false, ct);
+        var visibleAudioIds = visibleAudios.Select(audio => audio.Id);
+        var visibleLinks = links.Where(link => visibleAudioIds.Contains(link.AudioId));
+        var performersWithVisibleAudios = visibleLinks.Select(link => link.PerformerId).Distinct();
+        var performersWithNonMatchingVisibleAudios = visibleLinks
+            .Where(link => !matchingAudioIds.Contains(link.AudioId))
+            .Select(link => link.PerformerId)
+            .Distinct();
+
+        return mode switch
+        {
+            RelatedFilterMode.Every => query.Where(performer => performersWithVisibleAudios.Contains(performer.Id)
+                && !performersWithNonMatchingVisibleAudios.Contains(performer.Id)),
+            RelatedFilterMode.None => query.Where(performer => performersWithVisibleAudios.Contains(performer.Id)
+                && !matchingPerformerIds.Contains(performer.Id)),
+            _ => query,
+        };
+    }
+
+    private static async Task<IQueryable<int>> MatchingAudioIdsAsync(
+        CoveContext db,
+        RelatedFilterCriterion<AudioFilter> criterion,
+        CancellationToken ct)
+    {
+        if (criterion.ConditionOperator == RelatedFilterConditionOperator.Or)
+        {
+            IQueryable<Audio>? union = null;
+            if (!string.IsNullOrWhiteSpace(criterion.FindFilter?.Q))
+                union = await AudioFilterQuery.BuildAsync(db, null, criterion.FindFilter, includeRelatedFilters: false, ct);
+            if (criterion.ObjectFilter != null)
+            {
+                foreach (var property in typeof(AudioFilter).GetProperties())
+                {
+                    var value = property.GetValue(criterion.ObjectFilter);
+                    if (!HasFilterValue(value)) continue;
+                    if (property.Name == nameof(AudioFilter.CustomFieldCriteria))
+                    {
+                        foreach (var customFieldCriterion in criterion.ObjectFilter.CustomFieldCriteria)
+                        {
+                            var branch = await AudioFilterQuery.BuildAsync(db,
+                                new AudioFilter { CustomFieldCriteria = [customFieldCriterion] }, null, false, ct);
+                            union = union == null ? branch : union.Union(branch);
+                        }
+                        continue;
+                    }
+                    var branchFilter = new AudioFilter();
+                    property.SetValue(branchFilter, value);
+                    var branchQuery = await AudioFilterQuery.BuildAsync(db, branchFilter, null, false, ct);
+                    union = union == null ? branchQuery : union.Union(branchQuery);
+                }
+            }
+            if (union != null) return union.Select(audio => audio.Id);
+        }
+
+        var audios = await AudioFilterQuery.BuildAsync(db, criterion.ObjectFilter, criterion.FindFilter, includeRelatedFilters: false, ct);
+        return audios.Select(audio => audio.Id);
+    }
+
     private static async Task<IQueryable<int>> MatchingPerformerIdsAsync(
         CoveContext db,
         RelatedFilterCriterion<PerformerFilter> criterion,

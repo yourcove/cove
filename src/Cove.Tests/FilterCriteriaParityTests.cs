@@ -323,6 +323,27 @@ public class FilterCriteriaParityTests
     }
 
     [Fact]
+    public void PerformerFilter_RelatedAudioFilter_Deserializes()
+    {
+        var json = """
+        {
+            "objectFilter": {
+                "audioFilterCriterion": {
+                    "objectFilter": {
+                        "durationCriterion": { "value": 120, "modifier": "greaterThan" }
+                    }
+                }
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<FilteredQueryRequest<PerformerFilter>>(json, Options);
+
+        Assert.Equal(120, result?.ObjectFilter?.AudioFilterCriterion?.ObjectFilter?.DurationCriterion?.Value);
+        Assert.Equal(CriterionModifier.GreaterThan, result?.ObjectFilter?.AudioFilterCriterion?.ObjectFilter?.DurationCriterion?.Modifier);
+    }
+
+    [Fact]
     public void PerformerFilterExpression_RepeatedRelatedVideoFilters_Deserialize()
     {
         var json = """

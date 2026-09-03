@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Film, Users, X } from "lucide-react";
+import { Film, Headphones, Users, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { groups, performers, studios, tagGroups, tags } from "../api/client";
 import { formatHumanDuration } from "../utils/durationFormat";
@@ -192,7 +192,7 @@ export function formatFilterChipValue(def: CriterionDefinition | undefined, valu
   };
 
   if (def?.type === "related") {
-    const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
+    const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : def.entityType === "audios" ? "audio" : "item";
     const q = criterion.findFilter?.q?.trim();
     const conditionCount = criterion.objectFilter ? Object.keys(criterion.objectFilter).length : 0;
     const details = criterion._savedFilterName?.trim()
@@ -725,6 +725,7 @@ function ExpressionLeafSummary({
     <span className={compact ? "flex min-w-0 flex-wrap items-center gap-1" : `flex min-w-0 flex-wrap items-center gap-1 px-1.5 py-1 ${contained ? "" : "rounded-md border border-border/80 bg-surface"}`}>
       {entries.map(({ key, value, endpointValue, def }, entryIndex) => {
         if (def?.type === "related") {
+          const RelatedIcon = def.entityType === "performers" ? Users : def.entityType === "audios" ? Headphones : Film;
           const related = value && typeof value === "object" ? value as Record<string, unknown> : {};
           const nestedCriteria = [...(def.relatedContextCriteria ?? []), ...(def.relatedCriteria?.() ?? [])];
           const nestedObject = related.objectFilter && typeof related.objectFilter === "object" ? related.objectFilter as Record<string, unknown> : {};
@@ -733,7 +734,7 @@ function ExpressionLeafSummary({
           const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
           return (
             <span key={key} className="inline-flex min-w-0 flex-wrap items-center gap-1" aria-label={`${def.label} condition`}>
-              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><Users className="h-3 w-3" aria-hidden="true" />{related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label}{related.conditionOperator === "or" ? " · any condition" : ""}</span>
+              <span className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-medium text-foreground"><RelatedIcon className="h-3 w-3" aria-hidden="true" />{related.mode === "every" ? `Every ${def.label}` : related.mode === "none" || related.exclude ? `No ${def.label}` : def.label}{related.conditionOperator === "or" ? " · any condition" : ""}</span>
               {q ? <span className="rounded bg-card px-1.5 py-0.5">Search “{q}”</span> : null}
               {nestedEntries.map(({ key: nestedKey, value: nestedValue, endpointValue: nestedEndpoint, def: nestedDef }) => (
                 <span key={nestedKey} className="rounded bg-card px-1.5 py-0.5">
@@ -741,7 +742,7 @@ function ExpressionLeafSummary({
                   <ExpressionEntryValue def={nestedDef} value={nestedValue} endpointValue={nestedEndpoint} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} />
                 </span>
               ))}
-              {related._matchAll === true && !q && nestedEntries.length === 0 ? <span className="rounded bg-card px-1.5 py-0.5">Any related performer</span> : null}
+              {related._matchAll === true && !q && nestedEntries.length === 0 ? <span className="rounded bg-card px-1.5 py-0.5">Any related {def.entityType === "performers" ? "performer" : def.entityType === "audios" ? "audio" : "video"}</span> : null}
             </span>
           );
         }
@@ -926,8 +927,8 @@ function RelatedFilterChipGroup({
   const nestedCriteria = [...contextCriteria, ...(def.relatedCriteria?.() ?? [])];
   const contextFilter = Object.fromEntries(contextCriteria.flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, (related as Record<string, unknown>)[criterion.filterKey]]] : []));
   const nestedEntries = getLogicalFilterEntries(nestedCriteria, { ...contextFilter, ...(related.objectFilter ?? {}) });
-  const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
-  const EntityIcon = def.entityType === "performers" ? Users : Film;
+  const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : def.entityType === "audios" ? "audio" : "item";
+  const EntityIcon = def.entityType === "performers" ? Users : def.entityType === "audios" ? Headphones : Film;
   const relationshipMode = related.mode ?? (related.exclude ? "none" : "atLeastOne");
   const conditionWord = related.conditionOperator === "or" ? "any" : "all";
   const modeLabel = relationshipMode === "every"
@@ -1095,7 +1096,7 @@ function RelatedExpressionLeafDisplay({
   const nestedObject = related.objectFilter && typeof related.objectFilter === "object" ? related.objectFilter as Record<string, unknown> : {};
   const contextObject = Object.fromEntries((def.relatedContextCriteria ?? []).flatMap((criterion) => Object.hasOwn(related, criterion.filterKey) ? [[criterion.filterKey, related[criterion.filterKey]]] : []));
   const nestedEntries = getLogicalFilterEntries(nestedCriteria, { ...contextObject, ...nestedObject });
-  const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : "item";
+  const singular = def.entityType === "performers" ? "performer" : def.entityType === "videos" ? "video" : def.entityType === "audios" ? "audio" : "item";
   const q = typeof (related.findFilter as { q?: unknown } | undefined)?.q === "string" ? (related.findFilter as { q: string }).q.trim() : "";
   const modeLabel = related.mode === "every" ? `Every ${singular}` : related.mode === "none" || related.exclude ? `No ${singular}` : def.label;
   return (
