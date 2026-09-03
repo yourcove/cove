@@ -27,7 +27,7 @@ public sealed record VideoAggregate(int Count, double Duration, long FileSize);
 
 public interface IPerformerRepository : IRepository<Performer>
 {
-    Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<PerformerFilter>? expression = null);
     Task<Performer?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
 
     /// <summary>

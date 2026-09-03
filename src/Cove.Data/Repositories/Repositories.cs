@@ -320,7 +320,8 @@ public class PerformerRepository : IPerformerRepository
         FindFilter? findFilter,
         bool includeRelatedFilters = true,
         bool allowReadScopeOptimization = true,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        FilterExpression<PerformerFilter>? expression = null)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -340,6 +341,9 @@ public class PerformerRepository : IPerformerRepository
         // The root-plan optimization may ignore query filters on the whole query tree, including the
         // relationship counts below, so keep the normal authorization filters for count queries.
         var usesRelatedMediaCount = filter?.VideoFilterCriterion != null
+            || FilterExpressionQuery.Contains(expression, leaf => leaf.VideoFilterCriterion != null
+                || leaf.AudioCountCriterion != null
+                || leaf.TextCountCriterion != null)
             || filter?.AudioCountCriterion != null
             || filter?.TextCountCriterion != null
             || string.Equals(findFilter?.Sort, "audio_count", StringComparison.OrdinalIgnoreCase)
@@ -654,12 +658,24 @@ public class PerformerRepository : IPerformerRepository
         if (includeRelatedFilters)
             query = await RelatedFilterQuery.ApplyToPerformersAsync(_db, query, filter?.VideoFilterCriterion, ct);
 
+        query = await FilterExpressionQuery.ApplyAsync(query, expression, async (input, leaf) =>
+        {
+            var leafQuery = await BuildFilteredQueryAsync(
+                leaf,
+                findFilter: null,
+                includeRelatedFilters: includeRelatedFilters,
+                allowReadScopeOptimization: false,
+                ct: ct,
+                expression: null);
+            return input.Intersect(leafQuery);
+        });
+
         return query;
     }
 
-    public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<PerformerFilter>? expression = null)
     {
-        var query = await BuildFilteredQueryAsync(filter, findFilter, ct: ct);
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct: ct, expression: expression);
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
 

@@ -322,6 +322,30 @@ public class FilterCriteriaParityTests
         Assert.Equal(CriterionModifier.Equals, result?.ObjectFilter?.VideoFilterCriterion?.ObjectFilter?.RatingCriterion?.Modifier);
     }
 
+    [Fact]
+    public void PerformerFilterExpression_RepeatedRelatedVideoFilters_Deserialize()
+    {
+        var json = """
+        {
+            "filterExpression": {
+                "operator": "and",
+                "children": [
+                    { "filter": { "videoFilterCriterion": { "mode": "every", "objectFilter": { "tagsCriterion": { "value": [1, 2], "modifier": "includes" } } } } },
+                    { "filter": { "videoFilterCriterion": { "objectFilter": { "tagsCriterion": { "value": [1], "modifier": "includes" } } } } }
+                ]
+            }
+        }
+        """;
+
+        var result = JsonSerializer.Deserialize<PerformerFilteredQueryRequest>(json, Options);
+
+        Assert.Equal(FilterExpressionOperator.And, result?.FilterExpression?.Operator);
+        Assert.Equal(2, result?.FilterExpression?.Children.Count);
+        Assert.Equal(RelatedFilterMode.Every, result?.FilterExpression?.Children[0].Filter?.VideoFilterCriterion?.Mode);
+        Assert.Equal([1, 2], result?.FilterExpression?.Children[0].Filter?.VideoFilterCriterion?.ObjectFilter?.TagsCriterion?.Value);
+        Assert.Equal([1], result?.FilterExpression?.Children[1].Filter?.VideoFilterCriterion?.ObjectFilter?.TagsCriterion?.Value);
+    }
+
     // ===== TAG FILTER CRITERIA EXISTENCE =====
 
     [Fact]

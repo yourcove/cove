@@ -1,6 +1,7 @@
 using Cove.Api.Controllers;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Enums;
 using Cove.Core.Interfaces;
 using Cove.Data.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -10,6 +11,42 @@ namespace Cove.Tests;
 
 public class RelatedEntityFilterTests
 {
+    [Fact]
+    public async Task PerformersCanRequireARelatedTaggedVideoAlongsideAPerformerFilter()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        fixture.Performers[0].Gender = GenderEnum.Female;
+        fixture.Performers[1].Gender = GenderEnum.Female;
+        fixture.Performers[2].Gender = GenderEnum.Male;
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            new PerformerFilter
+            {
+                GenderCriterion = new StringCriterion
+                {
+                    Modifier = CriterionModifier.MatchesRegex,
+                    Value = "^(?:Female)$",
+                },
+                VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                {
+                    ObjectFilter = new VideoFilter
+                    {
+                        TagsCriterion = new MultiIdCriterion
+                        {
+                            Modifier = CriterionModifier.IncludesAll,
+                            Value = [202],
+                        },
+                    },
+                },
+            },
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([301, 302], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
     [Theory]
     [InlineData("videos", 402, 403)]
     [InlineData("images", 502, 503)]
@@ -236,6 +273,79 @@ public class RelatedEntityFilterTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal([302, 303], result.Items.Select(performer => performer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task PerformerFilterExpressionCombinesRepeatedRelatedVideoCriteria()
+    {
+        await using var fixture = await EntityListSortBehaviorHarnessTests.SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        var disallowedPerformer = new Performer { Id = 304, Name = "Disallowed category" };
+        fixture.Context.Videos.AddRange(
+            new Video
+            {
+                Id = 404,
+                Title = "Required category video",
+                VideoTags = [new VideoTag { TagId = 202 }],
+                VideoPerformers = [new VideoPerformer { Performer = disallowedPerformer }],
+            },
+            new Video
+            {
+                Id = 405,
+                Title = "Disallowed category video",
+                VideoTags = [new VideoTag { TagId = 201 }],
+                VideoPerformers = [new VideoPerformer { Performer = disallowedPerformer }],
+            });
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await new PerformerRepository(fixture.Context).FindAsync(
+            null,
+            DefaultFindFilter(),
+            TestContext.Current.CancellationToken,
+            new FilterExpression<PerformerFilter>
+            {
+                Operator = FilterExpressionOperator.And,
+                Children =
+                [
+                    new()
+                    {
+                        Filter = new PerformerFilter
+                        {
+                            VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                            {
+                                Mode = RelatedFilterMode.Every,
+                                ObjectFilter = new VideoFilter
+                                {
+                                    TagsCriterion = new MultiIdCriterion
+                                    {
+                                        Modifier = CriterionModifier.Includes,
+                                        Value = [202, 203],
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    new()
+                    {
+                        Filter = new PerformerFilter
+                        {
+                            VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                            {
+                                ObjectFilter = new VideoFilter
+                                {
+                                    TagsCriterion = new MultiIdCriterion
+                                    {
+                                        Modifier = CriterionModifier.Includes,
+                                        Value = [202],
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ],
+            });
+
+        Assert.Equal([301, 302], result.Items.Select(performer => performer.Id).ToArray());
     }
 
     [Fact]

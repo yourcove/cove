@@ -24,6 +24,20 @@ public partial class CoveContext
         _embeddingReadAuthorizationFilterSuppressionDepth > 0;
 
     internal bool AuthorizationBypassedForReadOptimization => AuthorizationFiltersBypassed;
+    internal bool CanReadVideoTagTreeWithoutAuthorizationFilters
+    {
+        get
+        {
+            if (CurrentShareLinkId is not null) return false;
+            if (AuthorizationFiltersBypassed) return true;
+            var principal = CurrentPrincipal;
+            return principal?.Has(PermissionKeys.VideosRead) == true
+                && principal.Has(PermissionKeys.TagsRead)
+                && !principal.ReadRestrictedEntityKinds.Contains(EntityKinds.Video)
+                && !principal.ReadRestrictedEntityKinds.Contains(EntityKinds.Tag);
+        }
+    }
+
     internal bool CanUseUnfilteredEmbeddingAnn(EmbeddingHostType? hostType)
     {
         if (EmbeddingReadAuthorizationFilterBypassed)

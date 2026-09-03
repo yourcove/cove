@@ -73,6 +73,7 @@ import type {
   PerformerScrapeRequest,
   FilteredQueryRequest,
   VideoFilteredQueryRequest,
+  PerformerFilteredQueryRequest,
   VideoFilterCriteria,
   VideoAggregate,
   ImageAggregate,
@@ -761,7 +762,7 @@ export const entityEngagement = {
 export const performers = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Performer>>(`/performers${buildQuery(filter, extra)}`),
-  findFiltered: (req: FilteredQueryRequest<PerformerFilterCriteria>) =>
+  findFiltered: (req: PerformerFilteredQueryRequest) =>
     request<PaginatedResponse<Performer>>("/performers/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Performer>(`/performers/${id}`),
   countries: () => request<PerformerCountryOption[]>("/performers/countries"),
