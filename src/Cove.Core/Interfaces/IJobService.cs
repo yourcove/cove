@@ -298,7 +298,7 @@ public interface IScanService
 
 public interface ICleanService
 {
-    string StartClean(bool dryRun = false);
+    string StartClean(bool dryRun = false, IReadOnlyList<string>? paths = null);
 }
 
 public interface IBackupService

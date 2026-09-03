@@ -103,6 +103,15 @@ public sealed class DatabaseClient
         return file.Id;
     }
 
+    public async Task<bool> FileRowExistsAsync(int fileId, CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        return await db.Set<BaseFileEntity>().AnyAsync(file => file.Id == fileId, cancellationToken);
+    }
+
     public async Task CreateAuditEventAsync(
         string action,
         string detail,

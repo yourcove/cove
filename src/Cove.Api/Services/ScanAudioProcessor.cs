@@ -250,7 +250,7 @@ internal sealed class ScanAudioProcessor(
         return new AudioProbeMetadata(title);
     }
 
-    private static void RefreshAudioSummary(Audio audio)
+    internal static void RefreshAudioSummary(Audio audio)
     {
         var files = audio.Files.ToList();
         audio.FileCount = files.Count;
