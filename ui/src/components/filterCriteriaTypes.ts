@@ -1,4 +1,5 @@
 import type { CriterionModifier } from "../api/types";
+import type { ReactNode } from "react";
 
 export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash" | "related";
 export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "faces";
@@ -36,3 +37,15 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
 }
 
 export type CriteriaDefinitionList<TFilterCriteria> = CriterionDefinition<Extract<keyof TFilterCriteria, string>>[];
+
+export interface FilterDialogCustomSection {
+  id: string;
+  label: string;
+  filterKey: string;
+  defaultValue: unknown;
+  isActive: (value: unknown) => boolean;
+  shouldKeepDraft?: (value: unknown) => boolean;
+  sanitize?: (value: unknown) => unknown;
+  renderEditor: (value: unknown, onChange: (value: unknown) => void) => ReactNode;
+  summarize?: (value: unknown) => string;
+}

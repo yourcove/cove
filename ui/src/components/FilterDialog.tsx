@@ -78,9 +78,9 @@ import {
   type EditableFilterExpression,
   type ExpressionGroupDestination,
 } from "../utils/filterExpressionTree";
-import type { CriteriaDefinitionList, CriterionDefinition, CriterionType, EntityType } from "./filterCriteriaTypes";
+import type { CriteriaDefinitionList, CriterionDefinition, CriterionType, EntityType, FilterDialogCustomSection } from "./filterCriteriaTypes";
 
-export type { CriterionDefinition, CriterionType, EntityType } from "./filterCriteriaTypes";
+export type { CriterionDefinition, CriterionType, EntityType, FilterDialogCustomSection } from "./filterCriteriaTypes";
 
 // ===== Criterion definitions =====
 
@@ -918,18 +918,6 @@ interface FilterDialogProps {
   initialExpressionPath?: number[];
   subjectLabel?: string;
   openAtRoot?: boolean;
-}
-
-export interface FilterDialogCustomSection {
-  id: string;
-  label: string;
-  filterKey: string;
-  defaultValue: unknown;
-  isActive: (value: unknown) => boolean;
-  shouldKeepDraft?: (value: unknown) => boolean;
-  sanitize?: (value: unknown) => unknown;
-  renderEditor: (value: unknown, onChange: (value: unknown) => void) => ReactNode;
-  summarize?: (value: unknown) => string;
 }
 
 function getFirstEditorControl(panel: HTMLElement | null | undefined): HTMLElement | null {
