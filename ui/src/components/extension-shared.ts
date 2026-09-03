@@ -104,7 +104,8 @@ export type { DisplayMode, ListPageProps } from "./ListPage";
 // Cove's canonical multi-mode results renderer (grid / list / wall / feed / vertical) for a given entity type —
 // lets extensions render entity lists exactly like the native pages instead of reimplementing each layout.
 export { RelatedEntityListView, getRelatedEntityDisplayModes } from "./RelatedEntityListView";
-export { FilterButton, FilterDialog } from "./FilterDialog";
+export { FilterDialog } from "./FilterDialog";
+export { FilterButton } from "./FilterButton";
 export { VIDEO_CRITERIA } from "./filterCriteriaCatalogs";
 export type { CriterionDefinition, FilterDialogCustomSection } from "./filterCriteriaTypes";
 export { BulkEditDialog, VIDEO_BULK_FIELDS, PERFORMER_BULK_FIELDS } from "./BulkEditDialog";
