@@ -73,6 +73,32 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task VideosController_ListAndDetail_OrderFilesByIdForStableFallbackTitles()
+    {
+        await using var context = CreateContext();
+        var video = new Video { Title = null };
+        video.Files.Add(new VideoFile { Id = 20, Basename = "later.mp4", Path = "/library/later.mp4" });
+        video.Files.Add(new VideoFile { Id = 10, Basename = "primary.mp4", Path = "/library/primary.mp4" });
+        context.Videos.Add(video);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var controller = CreateVideosControllerWithRepository(context);
+        var listResponse = await controller.Find(q: null, page: 1, perPage: 25, ct: TestContext.Current.CancellationToken);
+        var listResult = Assert.IsType<OkObjectResult>(listResponse.Result);
+        var page = Assert.IsType<PaginatedResponse<VideoDto>>(listResult.Value);
+        var listVideo = Assert.Single(page.Items);
+
+        var detailResponse = await controller.GetById(video.Id, TestContext.Current.CancellationToken);
+        var detailResult = Assert.IsType<OkObjectResult>(detailResponse.Result);
+        var detailVideo = Assert.IsType<VideoDto>(detailResult.Value);
+
+        Assert.Equal([10, 20], listVideo.Files.Select(file => file.Id));
+        Assert.Equal([10, 20], detailVideo.Files.Select(file => file.Id));
+        Assert.Equal("primary.mp4", listVideo.Files[0].Basename);
+        Assert.Equal(listVideo.Files[0].Basename, detailVideo.Files[0].Basename);
+    }
+
+    [Fact]
     public async Task PathCriterion_UnderPath_UsesFolderBoundaries()
     {
         await using var context = CreateContext();
