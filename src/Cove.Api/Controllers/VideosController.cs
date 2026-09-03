@@ -894,7 +894,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     }
 
     private static IEnumerable<VideoFile> EffectiveFiles(Video video)
-        => video.Files.Count > 0 ? video.Files : video.ParentVideo?.Files ?? Enumerable.Empty<VideoFile>();
+        => (video.Files.Count > 0 ? video.Files : video.ParentVideo?.Files ?? Enumerable.Empty<VideoFile>())
+            .OrderBy(file => file.Id);
 
     private static List<VideoRemoteIdDto> NormalizeRemoteIds(IEnumerable<VideoRemoteIdDto> remoteIds)
         => remoteIds
