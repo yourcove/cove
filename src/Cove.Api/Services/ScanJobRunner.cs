@@ -417,7 +417,7 @@ internal sealed class ScanJobRunner(
                                     if (!RecordValidationOutcome(file, validation))
                                         return;
 
-                                    var gallery = await galleryProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file), prevalidatedEntries: validation.GalleryEntries);
+                                    var gallery = await galleryProcessor.ProcessAsync(workerDb, file.Path, null, ct, file.Stat, null, parentFolderId: ResolveFolderId(file), prevalidatedEntries: validation.GalleryEntries, contentChanged: work.ContentChanged);
                                     await workerDb.SaveChangesAsync(ct);
                                     RecordPersistedFile(isKnownFile);
                                     PublishScanEntityEvent("Gallery", gallery.Id, isKnownFile);

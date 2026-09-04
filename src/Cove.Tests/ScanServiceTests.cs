@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.IO.Compression;
 using Cove.Core.Events;
 using Cove.Api.Services;
 using Cove.Core.Entities;
@@ -629,6 +630,153 @@ public class ScanServiceTests
             Assert.Empty(await db.Galleries.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Empty(await db.GalleryFiles.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
             Assert.Contains("1 invalid media file skipped", environment.JobService.LatestSubTask);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ChangedGalleryArchiveReconcilesImagesAndMetadata()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var archivePath = Path.Combine(tempRoot, "gallery.zip");
+            CreateGalleryArchive(archivePath, ("removed.jpg", new byte[] { 1 }), ("kept.jpg", new byte[] { 2 }));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            int keptImageId;
+            await using (var initialScope = environment.Services.CreateAsyncScope())
+            {
+                var initialDb = initialScope.ServiceProvider.GetRequiredService<CoveContext>();
+                keptImageId = (await initialDb.Images.SingleAsync(image => image.Title == "kept", TestContext.Current.CancellationToken)).Id;
+            }
+
+            var replacementTime = DateTime.UtcNow.AddMinutes(-1);
+            CreateGalleryArchive(archivePath, ("kept.jpg", new byte[] { 3, 4 }), ("added.jpg", new byte[] { 5 }));
+            File.SetLastWriteTimeUtc(archivePath, replacementTime);
+            var replacementInfo = new FileInfo(archivePath);
+            environment.Service.StartScan();
+
+            await using var scope = environment.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+            var galleryFile = await db.GalleryFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            var images = await db.Images
+                .Include(image => image.Files)
+                .OrderBy(image => image.Title)
+                .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(replacementInfo.Length, galleryFile.Size);
+            Assert.Equal(ScanPath.NormalizeFileModTime(replacementInfo.LastWriteTimeUtc), galleryFile.ModTime);
+            Assert.Equal(new[] { "added", "kept" }, images.Select(image => image.Title));
+            Assert.Equal(new long[] { 1, 2 }, images.SelectMany(image => image.Files).OrderBy(file => file.Size).Select(file => file.Size));
+            Assert.Equal(keptImageId, images.Single(image => image.Title == "kept").Id);
+            Assert.Contains("1 updated", environment.JobService.LatestSubTask);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ForcedUnchangedGalleryRescanPreservesExistingImages()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var archivePath = Path.Combine(tempRoot, "gallery.zip");
+            CreateGalleryArchive(archivePath, ("image.jpg", new byte[] { 1 }));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            int imageId;
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                imageId = (await db.Images.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Id;
+            }
+
+            environment.Service.StartScan(new ScanOperationOptions { Rescan = true });
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            Assert.Equal(imageId, (await verificationDb.Images.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Id);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_InvalidChangedGalleryArchivePreservesExistingGallery()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var archivePath = Path.Combine(tempRoot, "gallery.zip");
+            CreateGalleryArchive(archivePath, ("image.jpg", new byte[] { 1 }));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            GalleryFile originalFile;
+            int originalImageId;
+            await using (var scope = environment.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+                originalFile = await db.GalleryFiles.AsNoTracking().SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+                originalImageId = (await db.Images.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Id;
+            }
+
+            await File.WriteAllBytesAsync(archivePath, [1, 2, 3, 4, 5], TestContext.Current.CancellationToken);
+            File.SetLastWriteTimeUtc(archivePath, DateTime.UtcNow.AddMinutes(-1));
+            environment.Service.StartScan();
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var preservedFile = await verificationDb.GalleryFiles.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(originalFile.Size, preservedFile.Size);
+            Assert.Equal(originalFile.ModTime, preservedFile.ModTime);
+            Assert.Equal(originalImageId, (await verificationDb.Images.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Id);
+            Assert.Contains("1 invalid media file skipped", environment.JobService.LatestSubTask);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartScan_ChangedGalleryArchiveDeduplicatesInternalEntryNames()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var archivePath = Path.Combine(tempRoot, "gallery.zip");
+            CreateGalleryArchive(archivePath, ("original.jpg", new byte[] { 1 }));
+            await using var environment = await CreateBareEnvironmentAsync(tempRoot);
+            environment.Service.StartScan();
+
+            CreateGalleryArchive(archivePath, ("duplicate.jpg", new byte[] { 2 }), ("duplicate.jpg", new byte[] { 3 }));
+            File.SetLastWriteTimeUtc(archivePath, DateTime.UtcNow.AddMinutes(-1));
+            environment.Service.StartScan();
+
+            await using var scope = environment.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
+            var image = await db.Images.Include(item => item.Files).SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal("duplicate", image.Title);
+            Assert.Equal(1, image.Files.Single().Size);
         }
         finally
         {
@@ -2031,6 +2179,20 @@ public class ScanServiceTests
         BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(46, 8), 104);
         BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(70, 8), declaredFileSize);
         return bytes;
+    }
+
+    private static void CreateGalleryArchive(string path, params (string Name, byte[] Contents)[] entries)
+    {
+        if (File.Exists(path))
+            File.Delete(path);
+
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        foreach (var (name, contents) in entries)
+        {
+            var entry = archive.CreateEntry(name);
+            using var stream = entry.Open();
+            stream.Write(contents);
+        }
     }
 
     private static async Task<TestEnvironment> CreateBareEnvironmentAsync(
