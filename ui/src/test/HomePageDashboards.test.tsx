@@ -242,6 +242,26 @@ describe("HomePage dashboards", () => {
     expect(addWidget.parentElement?.children[1]).toBe(addWidget);
   });
 
+  it("scrolls an appended widget into view after adding it", async () => {
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    try {
+      renderHome();
+
+      fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Recently Added Videos/ }));
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" }));
+      expect(screen.queryByRole("heading", { name: "Add Widget" })).not.toBeInTheDocument();
+      expect(scrollIntoView.mock.contexts[0]).toContainElement(screen.getByText("Recently Added Videos", { selector: "span" }));
+    } finally {
+      if (originalScrollIntoView) Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
+      else delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
+
   it("preserves configuration when an extension widget is unavailable", async () => {
     state.active = dashboard(1, "Home", true, [{
       instanceId: "pulse-1",

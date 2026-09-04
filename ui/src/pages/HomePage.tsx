@@ -457,6 +457,8 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
   const [operation, setOperation] = useState<"duplicate" | "delete" | "default" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const allowNavigation = useRef(false);
+  const pendingScrollWidgetId = useRef<string | null>(null);
+  const widgetElements = useRef(new Map<string, HTMLElement>());
   const editorUrl = useRef(`${window.location.pathname}${window.location.search}`);
   const editorHistoryState = useRef(window.history.state);
   const dirty = JSON.stringify({ name: draft.name, widgets: draft.widgets }) !== JSON.stringify({ name: dashboard.name, widgets: dashboard.widgets });
@@ -496,6 +498,18 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
     setConfiguringId(null);
   }, [busy]);
 
+  useEffect(() => {
+    const instanceId = pendingScrollWidgetId.current;
+    if (!instanceId) return;
+    const element = widgetElements.current.get(instanceId);
+    if (!element) {
+      if (!draft.widgets.some((widget) => widget.instanceId === instanceId)) pendingScrollWidgetId.current = null;
+      return;
+    }
+    pendingScrollWidgetId.current = null;
+    element.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [draft.widgets]);
+
   const confirmDiscard = () => !dirty || window.confirm("Discard your unsaved dashboard changes?");
   const save = async () => {
     setSaving(true);
@@ -528,6 +542,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
 
   const addWidget = (widget: DashboardWidget) => {
     if (busy) return;
+    pendingScrollWidgetId.current = widget.instanceId;
     setDraft((current) => ({ ...current, widgets: [...current.widgets, widget] }));
     setShowCatalog(false);
   };
@@ -631,7 +646,13 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
         onReorder={(widgets) => { if (!busy) setDraft((current) => ({ ...current, widgets })); }}
         className="space-y-3"
         renderItem={(widget, { dragHandleProps, isDragging, isOver }) => (
-          <section className={`rounded-lg border bg-card/30 transition-colors ${isDragging || isOver ? "border-accent" : "border-border"}`}>
+          <section
+            ref={(element) => {
+              if (element) widgetElements.current.set(widget.instanceId, element);
+              else widgetElements.current.delete(widget.instanceId);
+            }}
+            className={`rounded-lg border bg-card/30 transition-colors ${isDragging || isOver ? "border-accent" : "border-border"}`}
+          >
             <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
               <span {...(busy ? {} : dragHandleProps)} aria-disabled={busy} className={busy ? "cursor-not-allowed text-muted opacity-50" : "cursor-grab text-muted active:cursor-grabbing"}><GripVertical className="h-4 w-4" /></span>
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{widget.label}</span>
