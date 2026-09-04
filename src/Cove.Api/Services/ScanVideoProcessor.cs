@@ -86,7 +86,6 @@ internal sealed class ScanVideoProcessor(
             {
                 await fileIdentity.RefreshChangedFingerprintsAsync(
                     existing, path,
-                    phashEnabled: scanOptions?.GeneratePhashes == true,
                     md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
                     moveIndex,
                     ct);

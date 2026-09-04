@@ -50,10 +50,15 @@ internal sealed class ScanAudioProcessor(
             existing.Path = BaseFileEntity.ComputePath(dirPath, basename);
 
             var existingAudio = existing.Audio ?? throw new InvalidOperationException($"Audio file {path} is not attached to an audio entity");
-            await EnrichAudioFileAsync(existingAudio, existing, path, ct, mediaProbeJson, moveIndex);
-            // A re-encode invalidates the stored phash; blank it so the generation phase recomputes it.
-            if (contentChanged && scanOptions?.GenerateAudioPhashes == true)
-                ScanFileIdentityService.BlankFingerprint(existing, "phash");
+            await EnrichAudioFileAsync(existingAudio, existing, path, ct, mediaProbeJson, moveIndex, refreshFingerprints: !contentChanged);
+            if (contentChanged)
+            {
+                await fileIdentity.RefreshChangedFingerprintsAsync(
+                    existing, path,
+                    md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
+                    moveIndex,
+                    ct);
+            }
             RefreshAudioSummary(existingAudio);
             return (existingAudio, false, false);
         }
@@ -137,7 +142,8 @@ internal sealed class ScanAudioProcessor(
         string path,
         CancellationToken ct,
         string? mediaProbeJson = null,
-        MoveDetectionIndex? moveIndex = null)
+        MoveDetectionIndex? moveIndex = null,
+        bool refreshFingerprints = true)
     {
         var metadata = mediaProbeJson == null
             ? await ProbeAudioAsync(audioFile, path, ct)
@@ -146,6 +152,9 @@ internal sealed class ScanAudioProcessor(
 
         if (string.IsNullOrWhiteSpace(audio.Title) || string.Equals(audio.Title, fallbackTitle, StringComparison.OrdinalIgnoreCase))
             audio.Title = metadata.Title ?? fallbackTitle;
+
+        if (!refreshFingerprints)
+            return;
 
         // Always-on identity fingerprint so a later scan can recognise this file if it moves/renames.
         var oshash = await ScanFileIdentityService.ComputeOshashAsync(path, moveIndex, ct);
