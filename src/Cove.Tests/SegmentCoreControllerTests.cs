@@ -4,6 +4,7 @@ using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
@@ -2237,6 +2238,12 @@ public class SegmentCoreControllerTests
 
         var context = new SegmentCoreTestContext(options);
         await context.Database.EnsureCreatedAsync();
+        context.Users.AddRange(
+            new User { Id = 1, Username = "user-1", PasswordHash = "test" },
+            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+            new User { Id = 9, Username = "user-9", PasswordHash = "test" },
+            new User { Id = 11, Username = "user-11", PasswordHash = "test" });
+        await context.SaveChangesAsync();
         return new TestContextScope(context, connection);
     }
 

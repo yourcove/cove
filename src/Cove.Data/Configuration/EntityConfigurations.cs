@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 
 namespace Cove.Data.Configuration;
 
@@ -772,6 +773,7 @@ public class SegmentDisplayRuleConfiguration : IEntityTypeConfiguration<SegmentD
         builder.HasKey(rule => rule.Id);
         builder.HasOne(rule => rule.Profile).WithMany(profile => profile.Rules).HasForeignKey(rule => rule.ProfileId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(rule => rule.Tag).WithMany().HasForeignKey(rule => rule.TagId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne<User>().WithMany().HasForeignKey(rule => rule.UserId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(rule => rule.ProfileId);
         builder.HasIndex(rule => rule.UserId);
@@ -788,6 +790,7 @@ public class SegmentDisplayProfileConfiguration : IEntityTypeConfiguration<Segme
         builder.Property(profile => profile.Name).IsRequired().HasMaxLength(200);
         builder.Property(profile => profile.Description).HasMaxLength(1000);
         builder.Property(profile => profile.Version).HasDefaultValue(1);
+        builder.HasOne<User>().WithMany().HasForeignKey(profile => profile.UserId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(profile => profile.UserId);
         builder.HasIndex(profile => new { profile.UserId, profile.IsDefault });
@@ -903,6 +906,7 @@ public class FaceSuggestionDecisionConfiguration : IEntityTypeConfiguration<Face
             .WithMany()
             .HasForeignKey(decision => decision.PerformerId)
             .OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<User>().WithMany().HasForeignKey(decision => decision.UserId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(decision => new { decision.FaceId, decision.PerformerId, decision.UserId }).IsUnique();
         builder.HasIndex(decision => new { decision.FaceId, decision.UserId });
@@ -940,6 +944,7 @@ public class UserEntityAffinityConfiguration : IEntityTypeConfiguration<UserEnti
     {
         builder.ToTable("user_entity_affinities");
         builder.HasKey(affinity => affinity.Id);
+        builder.HasOne<User>().WithMany().HasForeignKey(affinity => affinity.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(affinity => new { affinity.UserId, affinity.HostType, affinity.HostId }).IsUnique();
         builder.HasIndex(affinity => new { affinity.UserId, affinity.IsFavorite });
         builder.HasIndex(affinity => new { affinity.UserId, affinity.LastConsumedAt });
@@ -971,6 +976,7 @@ public class UserBookmarkConfiguration : IEntityTypeConfiguration<UserBookmark>
     {
         builder.ToTable("user_bookmarks");
         builder.HasKey(bookmark => new { bookmark.UserId, bookmark.HostType, bookmark.HostId });
+        builder.HasOne<User>().WithMany().HasForeignKey(bookmark => bookmark.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(bookmark => new { bookmark.UserId, bookmark.CreatedAt });
     }
 }
@@ -981,6 +987,7 @@ public class InteractionConfiguration : IEntityTypeConfiguration<Interaction>
     {
         builder.ToTable("interactions");
         builder.HasKey(interaction => interaction.Id);
+        builder.HasOne<User>().WithMany().HasForeignKey(interaction => interaction.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.Property(interaction => interaction.Meta).HasColumnType("jsonb");
         builder.HasIndex(interaction => new { interaction.UserId, interaction.HostType, interaction.HostId, interaction.At });
     }
@@ -992,6 +999,7 @@ public class RatingConfiguration : IEntityTypeConfiguration<Rating>
     {
         builder.ToTable("ratings");
         builder.HasKey(rating => rating.Id);
+        builder.HasOne<User>().WithMany().HasForeignKey(rating => rating.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.Property(rating => rating.Aspect).IsRequired().HasMaxLength(100);
         builder.Property(rating => rating.Value).HasAnnotation("Range", new[] { 0, 100 });
         builder.HasIndex(rating => new { rating.UserId, rating.HostType, rating.HostId, rating.Aspect }).IsUnique();
@@ -1028,7 +1036,7 @@ public class SavedFilterConfiguration : IEntityTypeConfiguration<SavedFilter>
         builder.Property(f => f.FindFilter).HasColumnType("jsonb");
         builder.Property(f => f.ObjectFilter).HasColumnType("jsonb");
         builder.Property(f => f.UIOptions).HasColumnType("jsonb");
-        builder.HasOne(f => f.User).WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne(f => f.User).WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(f => new { f.UserId, f.Mode });
     }
 }

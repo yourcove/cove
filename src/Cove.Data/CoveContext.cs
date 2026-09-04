@@ -203,12 +203,14 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<UserSession>(entity =>
         {
             entity.ToTable("user_sessions");
+            entity.HasOne<User>().WithMany().HasForeignKey(session => session.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(session => new { session.UserId, session.LastSeenAt });
         });
 
         modelBuilder.Entity<PlaybackSession>(entity =>
         {
             entity.ToTable("playback_sessions");
+            entity.HasOne<User>().WithMany().HasForeignKey(session => session.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(session => new { session.UserId, session.HostType, session.HostId, session.StartedAt });
             // The per-entity session within a user-global session. This is the lookup + concurrency key now;
             // a reload reuses the same UserSession (within the idle timeout) so it merges into one row.
@@ -229,6 +231,7 @@ public partial class CoveContext : DbContext
         modelBuilder.Entity<PlaybackInterval>(entity =>
         {
             entity.ToTable("playback_intervals");
+            entity.HasOne<User>().WithMany().HasForeignKey(interval => interval.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(interval => new { interval.UserId, interval.HostType, interval.HostId });
             entity.HasIndex(interval => new { interval.PlaybackSessionId, interval.StartSec });
             entity.HasIndex(interval => new { interval.UserId, interval.Surface, interval.RecordedAt });
@@ -1286,21 +1289,6 @@ public partial class CoveContext : DbContext
 
     private void CleanupEngagementRowsForDeletedEntities()
     {
-        var deletedUserIds = ChangeTracker.Entries<User>()
-            .Where(entry => entry.State == EntityState.Deleted && entry.Entity.Id > 0)
-            .Select(entry => entry.Entity.Id)
-            .Distinct()
-            .ToArray();
-        if (deletedUserIds.Length > 0)
-        {
-            UserEntityAffinities.RemoveRange(UserEntityAffinities.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            Interactions.RemoveRange(Interactions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            PlaybackSessions.RemoveRange(PlaybackSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            UserSessions.RemoveRange(UserSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            Ratings.RemoveRange(Ratings.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-            UserBookmarks.RemoveRange(UserBookmarks.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToList());
-        }
-
         foreach (var target in CollectDeletedEngagementTargets())
         {
             UserEntityAffinities.RemoveRange(UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToList());
@@ -1313,21 +1301,6 @@ public partial class CoveContext : DbContext
 
     private async Task CleanupEngagementRowsForDeletedEntitiesAsync(CancellationToken cancellationToken)
     {
-        var deletedUserIds = ChangeTracker.Entries<User>()
-            .Where(entry => entry.State == EntityState.Deleted && entry.Entity.Id > 0)
-            .Select(entry => entry.Entity.Id)
-            .Distinct()
-            .ToArray();
-        if (deletedUserIds.Length > 0)
-        {
-            UserEntityAffinities.RemoveRange(await UserEntityAffinities.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            Interactions.RemoveRange(await Interactions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            PlaybackSessions.RemoveRange(await PlaybackSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            UserSessions.RemoveRange(await UserSessions.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            Ratings.RemoveRange(await Ratings.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-            UserBookmarks.RemoveRange(await UserBookmarks.IgnoreQueryFilters().Where(row => deletedUserIds.Contains(row.UserId)).ToListAsync(cancellationToken));
-        }
-
         foreach (var target in CollectDeletedEngagementTargets())
         {
             UserEntityAffinities.RemoveRange(await UserEntityAffinities.IgnoreQueryFilters().Where(row => row.HostType == target.AffinityHostType && row.HostId == target.HostId).ToListAsync(cancellationToken));

@@ -145,6 +145,7 @@ public class DynamicGroupsAndBookmarksTests
             .Options;
         await using var context = new DynamicGroupTestContext(options, principalAccessor);
         await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        context.Users.Add(new User { Id = 7, Username = "user-7", PasswordHash = "test" });
 
         var now = DateTime.UtcNow;
         var videos = Enumerable.Range(1, 20)

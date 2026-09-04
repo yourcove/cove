@@ -1,5 +1,6 @@
 using Cove.Core.Auth;
 using Cove.Core.Entities.Auth;
+using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Auth;
@@ -9,6 +10,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cove.Tests;
@@ -57,6 +59,93 @@ public class UserServiceTests
             .UseInMemoryDatabase($"{name}-{Guid.NewGuid():N}")
             .Options;
         return new TestCoveContext(options);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_removes_user_owned_library_data_and_preserves_unowned_data()
+    {
+        await using var db = NewDb("delete-owned-data");
+        var user = new User
+        {
+            Username = "disposable",
+            PasswordHash = "hash",
+            PasswordAlgo = "test",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var profile = new SegmentDisplayProfile { Name = "Personal", UserId = user.Id, Version = 1 };
+        var systemProfile = new SegmentDisplayProfile { Name = "System", IsSystem = true, Version = 1 };
+        db.SegmentDisplayProfiles.AddRange(profile, systemProfile);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var playback = new PlaybackSession
+        {
+            UserId = user.Id,
+            HostType = InteractionHostType.Video,
+            HostId = 1,
+            SessionId = Guid.NewGuid(),
+        };
+        db.PlaybackSessions.Add(playback);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        db.SavedFilters.AddRange(
+            new SavedFilter { Mode = "videos", Name = "Mine", UserId = user.Id },
+            new SavedFilter { Mode = "videos", Name = "Legacy", UserId = null });
+        db.Ratings.Add(new Rating { UserId = user.Id, HostType = RatingHostType.Video, HostId = 1, Value = 80 });
+        db.UserEntityAffinities.Add(new UserEntityAffinity { UserId = user.Id, HostType = AffinityHostType.Video, HostId = 1, IsFavorite = true });
+        db.UserBookmarks.Add(new UserBookmark { UserId = user.Id, HostType = AffinityHostType.Video, HostId = 1 });
+        db.Interactions.Add(new Interaction { UserId = user.Id, HostType = InteractionHostType.Video, HostId = 1, Kind = InteractionKind.OpenDetail });
+        db.PlaybackIntervals.Add(new PlaybackInterval { UserId = user.Id, PlaybackSessionId = playback.Id, HostType = InteractionHostType.Video, HostId = 1, StartSec = 0, EndSec = 1 });
+        db.UserSessions.Add(new UserSession { UserId = user.Id });
+        db.FaceSuggestionDecisions.Add(new FaceSuggestionDecision { UserId = user.Id, FaceId = 1, PerformerId = 1 });
+        db.SegmentDisplayRules.AddRange(
+            new SegmentDisplayRule { ProfileId = profile.Id },
+            new SegmentDisplayRule { ProfileId = systemProfile.Id, UserId = user.Id },
+            new SegmentDisplayRule { ProfileId = systemProfile.Id });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        await new UserService(db, new NoopAudit(), NullLogger<UserService>.Instance)
+            .DeleteAsync(user.Id, null, TestContext.Current.CancellationToken);
+
+        Assert.False(await db.Users.AnyAsync(row => row.Id == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SavedFilters.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.Ratings.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.UserEntityAffinities.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.UserBookmarks.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.Interactions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.PlaybackSessions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.PlaybackIntervals.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.UserSessions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.FaceSuggestionDecisions.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SegmentDisplayProfiles.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SegmentDisplayRules.AnyAsync(row => row.UserId == user.Id, TestContext.Current.CancellationToken));
+        Assert.False(await db.SegmentDisplayRules.AnyAsync(row => row.ProfileId == profile.Id, TestContext.Current.CancellationToken));
+        Assert.Single(await db.SavedFilters.Where(row => row.UserId == null).ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Single(await db.SegmentDisplayProfiles.Where(row => row.IsSystem).ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Single(await db.SegmentDisplayRules.Where(row => row.ProfileId == systemProfile.Id).ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void User_owned_entities_cascade_when_their_user_is_deleted()
+    {
+        using var db = NewDb("user-owned-model");
+        var ownedTypes = db.Model.GetEntityTypes()
+            .Where(entityType => entityType.ClrType.Assembly == typeof(User).Assembly
+                && entityType.FindProperty("UserId") is not null)
+            .ToList();
+
+        foreach (var entityType in ownedTypes)
+        {
+            var userForeignKey = entityType.GetForeignKeys().SingleOrDefault(foreignKey =>
+                foreignKey.PrincipalEntityType.ClrType == typeof(User)
+                && foreignKey.Properties.Select(property => property.Name).SequenceEqual(["UserId"]));
+            Assert.True(userForeignKey is not null, $"{entityType.DisplayName()} does not have a UserId foreign key to User.");
+            Assert.Equal(DeleteBehavior.Cascade, userForeignKey!.DeleteBehavior);
+        }
     }
 
     [Fact]
