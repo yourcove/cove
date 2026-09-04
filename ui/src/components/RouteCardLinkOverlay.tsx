@@ -1,5 +1,6 @@
 import { createRouteLinkProps } from "./cardNavigation";
 import type { Route } from "../router/location";
+import type { MouseEventHandler } from "react";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 export function RouteCardLinkOverlay({
@@ -8,12 +9,16 @@ export function RouteCardLinkOverlay({
   label,
   disabled,
   selectionSafeZone,
+  onMouseMove,
+  onMouseLeave,
 }: {
   route: Route;
   onClick: () => void;
   label: string;
   disabled?: boolean;
   selectionSafeZone?: boolean;
+  onMouseMove?: MouseEventHandler<HTMLAnchorElement>;
+  onMouseLeave?: MouseEventHandler<HTMLAnchorElement>;
 }) {
   if (disabled) {
     return null;
@@ -25,6 +30,8 @@ export function RouteCardLinkOverlay({
     <a
       {...linkProps}
       aria-label={label}
+      onMouseMove={onMouseMove}
+      onMouseLeave={onMouseLeave}
       className="absolute inset-0 z-[1]"
       style={selectionSafeZone
         ? { clipPath: "polygon(42px 0, 100% 0, 100% 100%, 0 100%, 0 42px, 42px 42px)" }

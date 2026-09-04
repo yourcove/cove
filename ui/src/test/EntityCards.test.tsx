@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +8,7 @@ vi.mock("../components/Rating", () => ({
 }));
 
 import { AudioTile, GalleryPreviewList, GalleryTile, GroupTile, ImageTile, PerformerTile, TextTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
+import { images } from "../api/client";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
 
 const videoFile = {
@@ -328,21 +329,21 @@ describe("PerformerTile", () => {
 
 describe("GalleryTile", () => {
   it("shows a formatted gallery date below the title", () => {
-    render(<GalleryTile gallery={{ ...baseGallery, date: "2024-01-15" } as any} onClick={vi.fn()} />);
+    renderWithQueryClient(<GalleryTile gallery={{ ...baseGallery, date: "2024-01-15" } as any} onClick={vi.fn()} />);
 
     expect(screen.getByText("Sample Gallery")).toBeInTheDocument();
     expect(screen.getByText("2024-01-15")).toBeInTheDocument();
   });
 
   it("does not reserve date content when a gallery is undated", () => {
-    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     expect(container.querySelector(".card-body")).toHaveTextContent("Sample Gallery");
     expect(container.querySelector(".card-body p + p")).not.toBeInTheDocument();
   });
 
   it("shows the aggregate like count from gallery engagement", () => {
-    const { container } = render(
+    const { container } = renderWithQueryClient(
       <GalleryTile
         gallery={baseGallery as any}
         engagement={{ likeCount: 6 } as any}
@@ -356,7 +357,7 @@ describe("GalleryTile", () => {
 
   it("uses media-enabled tag links in the shared reference popover", () => {
     vi.useFakeTimers();
-    render(
+    renderWithQueryClient(
       <GalleryTile
         gallery={{ ...baseGallery, tags: [{ id: 19, name: "Animated Gallery Tag", imagePath: "/gallery-tag.jpg" }] } as any}
         onClick={vi.fn()}
@@ -373,7 +374,7 @@ describe("GalleryTile", () => {
   });
 
   it("shows image and video counts once in the footer popovers", () => {
-    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     const imagesButton = screen.getByTitle("Images");
     const videosButton = screen.getByTitle("Videos");
@@ -388,20 +389,41 @@ describe("GalleryTile", () => {
   });
 
   it("uses a square media frame so gallery cards match image-card dimensions", () => {
-    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     expect(container.querySelector(".aspect-square")).toBeInTheDocument();
     expect(container.querySelector(".aspect-video")).not.toBeInTheDocument();
   });
 
   it("uses the effective gallery cover endpoint when no explicit cover path is present", () => {
-    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
 
     expect((container.querySelector("img") as HTMLImageElement | null)?.getAttribute("src")).toContain("/api/galleries/7/cover");
   });
 
+  it("scrubs only while the navigation overlay pointer is within the gallery media", async () => {
+    const findSpy = vi.spyOn(images, "find").mockResolvedValue({ items: [{ id: 55 }], totalCount: 12 } as any);
+    const { container } = renderWithQueryClient(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+    const scrubber = screen.getByTestId("gallery-scrub-thumbnail");
+    vi.spyOn(scrubber, "getBoundingClientRect").mockReturnValue({ left: 10, right: 110, top: 20, bottom: 120, width: 100, height: 100 } as DOMRect);
+    const overlay = container.querySelector('a[aria-label="Open gallery Sample Gallery"]')!;
+
+    fireEvent.mouseMove(overlay, { clientX: 60, clientY: 160 });
+    expect(findSpy).not.toHaveBeenCalled();
+
+    fireEvent.mouseMove(overlay, { clientX: 60, clientY: 60 });
+    await waitFor(() => expect(findSpy).toHaveBeenCalledOnce());
+    await waitFor(() => expect(scrubber.querySelectorAll("img")).toHaveLength(2));
+    fireEvent.load(scrubber.querySelectorAll("img")[1]!);
+    expect(scrubber.querySelectorAll("img")).toHaveLength(1);
+
+    fireEvent.mouseMove(overlay, { clientX: 60, clientY: 160 });
+    expect(scrubber.querySelectorAll("img")).toHaveLength(1);
+    expect((scrubber.querySelector("img") as HTMLImageElement).src).toContain("/api/galleries/7/cover");
+  });
+
   it("shows the studio logo overlay and shared studio and performer popovers", () => {
-    render(
+    renderWithQueryClient(
       <GalleryTile
         gallery={{
           ...baseGallery,
