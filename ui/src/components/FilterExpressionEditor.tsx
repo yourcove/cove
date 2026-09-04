@@ -27,7 +27,7 @@ import {
   type EditableFilterExpression,
   type ExpressionGroupDestination,
 } from "../utils/filterExpressionTree";
-import type { CriterionDefinition } from "./filterCriteriaTypes";
+import { MAX_DISTINCT_RELATED_CONDITIONS, type CriterionDefinition } from "./filterCriteriaTypes";
 import { useRatingOptions } from "./Rating";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { describeFilterExpressionCondition } from "./filterExpressionExplanation";
@@ -198,6 +198,16 @@ function ExpressionGroupEditor({
   const displayedChildren = sortFilterExpressionChildrenForDisplay(group.children, mode);
   const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
   const hasGroupActions = !root || (mode !== "NOT" && group.children.length > 0 && canCreateNestedGroup);
+  const supportsDistinctPerformerMatches = criteria.some((criterion) => criterion.filterKey === "performerFilterCriterion"
+    && criterion.supportsDistinctSiblingMatches);
+  const relatedPerformerConditionCount = supportsDistinctPerformerMatches ? group.children.filter((child) => {
+    const related = child.filter?.performerFilterCriterion;
+    if (!related || typeof related !== "object") return false;
+    const value = related as { mode?: string; exclude?: boolean };
+    return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
+  }).length : 0;
+  const canUseDistinctPerformerMatches = relatedPerformerConditionCount > 1
+    && relatedPerformerConditionCount <= MAX_DISTINCT_RELATED_CONDITIONS;
   const operatorText = mode === "NOT" || mode === "NONE" ? presentation.label : `${presentation.label} of ${displayedChildren.length}`;
   useEffect(() => {
     setSelected(new Set());
@@ -377,6 +387,17 @@ function ExpressionGroupEditor({
           </> : null}
         </div>
       </div>
+      {!collapsed && mode === "AND" && (canUseDistinctPerformerMatches || group.distinctRelatedMatches) ? <label className="flex min-h-9 items-center gap-2 rounded-md px-2 text-sm text-secondary">
+        <input
+          type="checkbox"
+          checked={group.distinctRelatedMatches === true}
+          disabled={!canUseDistinctPerformerMatches && group.distinctRelatedMatches !== true}
+          onChange={(event) => onChange({ ...group, distinctRelatedMatches: event.target.checked || undefined })}
+        />
+        {relatedPerformerConditionCount > MAX_DISTINCT_RELATED_CONDITIONS
+          ? `Distinct matching supports up to ${MAX_DISTINCT_RELATED_CONDITIONS} related-performer conditions`
+          : "Match each related-performer condition to a different performer"}
+      </label> : null}
       {!collapsed ? <div className="space-y-2" data-testid="expression-group-children">
         {displayedChildren.map(({ child, index }, displayIndex) => {
           const displayPosition = displayIndex + 1;

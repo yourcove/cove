@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash" | "related";
 export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "audios" | "faces";
+export const MAX_DISTINCT_RELATED_CONDITIONS = 8;
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
   id: string;
@@ -15,6 +16,8 @@ export interface CriterionDefinition<TFilterKey extends string = string> {
   relatedCriteria?: () => CriterionDefinition[];
   /** Criteria evaluated against the relationship host rather than the related entity itself. */
   relatedContextCriteria?: CriterionDefinition[];
+  /** Enables distinct sibling matching for repeated instances of this related criterion. */
+  supportsDistinctSiblingMatches?: boolean;
   customFieldKey?: string;
   customFieldType?: string;
   modifiers?: CriterionModifier[];

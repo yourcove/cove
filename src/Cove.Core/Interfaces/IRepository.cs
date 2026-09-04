@@ -231,6 +231,8 @@ public enum FilterExpressionOperator
 public class FilterExpression<TFilter> where TFilter : class
 {
     public FilterExpressionOperator Operator { get; set; } = FilterExpressionOperator.And;
+    /// <summary>Requires positive sibling related filters of the same kind to match different related entities.</summary>
+    public bool DistinctRelatedMatches { get; set; }
     public List<FilterExpressionNode<TFilter>> Children { get; set; } = [];
 }
 

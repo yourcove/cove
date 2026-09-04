@@ -1,6 +1,7 @@
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 
 namespace Cove.Data.Repositories;
 
@@ -21,6 +22,67 @@ public static class RelatedFilterQuery
     {
         if (criterion == null) return query;
         var visiblePerformerIds = await VisiblePerformerIdsAsync(db, ct);
+        var matchingLinks = await BuildMatchingVideoPerformerLinksAsync(db, criterion, visiblePerformerIds, ct);
+        return ApplyVideoPerformerLinkMatch(query, visiblePerformerIds, matchingLinks, Mode(criterion), UsesLegacyNone(criterion));
+    }
+
+    public static async Task<IQueryable<Video>> ApplyDistinctVideoPerformersAsync(
+        CoveContext db,
+        IQueryable<Video> query,
+        IReadOnlyList<RelatedFilterCriterion<PerformerFilter>> criteria,
+        CancellationToken ct = default)
+    {
+        if (criteria.Count < 2) return query;
+        var visiblePerformerIds = await VisiblePerformerIdsAsync(db, ct);
+        var matchingLinks = new List<IQueryable<VideoPerformer>>(criteria.Count);
+        foreach (var criterion in criteria)
+            matchingLinks.Add(await BuildMatchingVideoPerformerLinksAsync(db, criterion, visiblePerformerIds, ct));
+
+        var video = Expression.Parameter(typeof(Video), "video");
+        var predicate = BuildDistinctVideoPerformerPredicate(video, matchingLinks, 0, []);
+        return query.Where(Expression.Lambda<Func<Video, bool>>(predicate, video));
+    }
+
+    private static Expression BuildDistinctVideoPerformerPredicate(
+        ParameterExpression video,
+        IReadOnlyList<IQueryable<VideoPerformer>> matchingLinks,
+        int index,
+        IReadOnlyList<ParameterExpression> previousLinks)
+    {
+        var link = Expression.Parameter(typeof(VideoPerformer), $"link{index}");
+        var match = Expression.Parameter(typeof(VideoPerformer), $"match{index}");
+        Expression condition = Expression.Call(
+            typeof(Queryable),
+            nameof(Queryable.Any),
+            [typeof(VideoPerformer)],
+            matchingLinks[index].Expression,
+            Expression.Quote(Expression.Lambda<Func<VideoPerformer, bool>>(
+                Expression.AndAlso(
+                    Expression.Equal(Expression.Property(match, nameof(VideoPerformer.VideoId)), Expression.Property(video, nameof(Video.Id))),
+                    Expression.Equal(Expression.Property(match, nameof(VideoPerformer.PerformerId)), Expression.Property(link, nameof(VideoPerformer.PerformerId)))),
+                match)));
+
+        foreach (var previous in previousLinks)
+            condition = Expression.AndAlso(condition,
+                Expression.NotEqual(Expression.Property(link, nameof(VideoPerformer.PerformerId)), Expression.Property(previous, nameof(VideoPerformer.PerformerId))));
+
+        if (index + 1 < matchingLinks.Count)
+            condition = Expression.AndAlso(condition, BuildDistinctVideoPerformerPredicate(video, matchingLinks, index + 1, [.. previousLinks, link]));
+
+        return Expression.Call(
+            typeof(Enumerable),
+            nameof(Enumerable.Any),
+            [typeof(VideoPerformer)],
+            Expression.Property(video, nameof(Video.VideoPerformers)),
+            Expression.Lambda<Func<VideoPerformer, bool>>(condition, link));
+    }
+
+    private static async Task<IQueryable<VideoPerformer>> BuildMatchingVideoPerformerLinksAsync(
+        CoveContext db,
+        RelatedFilterCriterion<PerformerFilter> criterion,
+        IQueryable<int> visiblePerformerIds,
+        CancellationToken ct)
+    {
         var visibleLinks = db.Set<VideoPerformer>().Where(link => visiblePerformerIds.Contains(link.PerformerId));
         var hasPerformerCondition = HasPerformerCondition(criterion);
         var performerIds = hasPerformerCondition ? await MatchingPerformerIdsAsync(db, criterion, ct) : null;
@@ -69,7 +131,7 @@ public static class RelatedFilterQuery
                     expandedOccurrenceTags?.RequiredIdGroups);
         }
 
-        return ApplyVideoPerformerLinkMatch(query, visiblePerformerIds, matchingLinks, Mode(criterion), UsesLegacyNone(criterion));
+        return matchingLinks;
     }
 
     private static IQueryable<T> Union<T>(IQueryable<T>? current, IQueryable<T> branch)

@@ -570,6 +570,14 @@ public class VideoFilterBehaviorTests
         Assert.Equal("NOT filter-expression groups must contain exactly one child.", emptyError);
         Assert.False(FilterExpressionQuery.TryValidate(multiple, out var multipleError));
         Assert.Equal("NOT filter-expression groups must contain exactly one child.", multipleError);
+        var distinctOr = new FilterExpression<VideoFilter>
+        {
+            Operator = FilterExpressionOperator.Or,
+            DistinctRelatedMatches = true,
+            Children = [new() { Filter = new VideoFilter() }],
+        };
+        Assert.False(FilterExpressionQuery.TryValidate(distinctOr, out var distinctOrError));
+        Assert.Equal("Distinct related matches are supported only by AND filter-expression groups.", distinctOrError);
     }
 
     [Fact]
@@ -614,6 +622,60 @@ public class VideoFilterBehaviorTests
 
         Assert.Equal(1, count);
         Assert.Equal("matches", Assert.Single(items).Title);
+    }
+
+    [Fact]
+    public async Task DistinctRelatedPerformerExpression_RequiresEachClauseToMatchADifferentPerformer()
+    {
+        await using var context = CreateContext();
+        var manA = CreatePerformer("Man A", null);
+        manA.Gender = GenderEnum.Male;
+        var manB = CreatePerformer("Man B", null);
+        manB.Gender = GenderEnum.Male;
+        var womanA = CreatePerformer("Woman A", null);
+        womanA.Gender = GenderEnum.Female;
+        var womanB = CreatePerformer("Woman B", null);
+        womanB.Gender = GenderEnum.Female;
+
+        var oneManTwoWomen = CreateVideoWithFile("one-man-two-women", performer: manA);
+        oneManTwoWomen.VideoPerformers.Add(new VideoPerformer { Performer = womanA });
+        oneManTwoWomen.VideoPerformers.Add(new VideoPerformer { Performer = womanB });
+        var twoMenOneWoman = CreateVideoWithFile("two-men-one-woman", performer: manA);
+        twoMenOneWoman.VideoPerformers.Add(new VideoPerformer { Performer = manB });
+        twoMenOneWoman.VideoPerformers.Add(new VideoPerformer { Performer = womanA });
+        context.Videos.AddRange(oneManTwoWomen, twoMenOneWoman);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        static VideoFilter Gender(string value) => new()
+        {
+            PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+            {
+                ObjectFilter = new PerformerFilter
+                {
+                    GenderCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = value },
+                },
+            },
+        };
+        var expression = new FilterExpression<VideoFilter>
+        {
+            DistinctRelatedMatches = true,
+            Children =
+            [
+                new() { Filter = Gender("Male") },
+                new() { Filter = Gender("Female") },
+                new() { Filter = Gender("Female") },
+                new() { Filter = new VideoFilter { PerformerCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 3 } } },
+            ],
+        };
+
+        var (items, count) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken,
+            expression);
+
+        Assert.Equal(1, count);
+        Assert.Equal("one-man-two-women", Assert.Single(items).Title);
     }
 
     [Fact]

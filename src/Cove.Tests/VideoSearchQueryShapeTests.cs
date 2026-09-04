@@ -46,6 +46,30 @@ public sealed class VideoSearchQueryShapeTests
         Assert.Contains("TagId", sql, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DistinctRelatedPerformerFilter_TranslatesForPostgres()
+    {
+        await using var db = CreatePostgresContext();
+        static RelatedFilterCriterion<PerformerFilter> Gender(string value) => new()
+        {
+            ObjectFilter = new PerformerFilter
+            {
+                GenderCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = value },
+            },
+        };
+
+        var query = await RelatedFilterQuery.ApplyDistinctVideoPerformersAsync(
+            db,
+            db.Videos,
+            [Gender("Male"), Gender("Female"), Gender("Female")],
+            TestContext.Current.CancellationToken);
+        var sql = query.Select(video => video.Id).ToQueryString();
+
+        Assert.Contains("video_performers", sql, StringComparison.Ordinal);
+        Assert.Contains("<>", sql, StringComparison.Ordinal);
+        Assert.Contains("Female", sql, StringComparison.Ordinal);
+    }
+
     private static CoveContext CreatePostgresContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()

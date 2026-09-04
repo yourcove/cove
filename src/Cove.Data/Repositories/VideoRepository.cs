@@ -101,7 +101,7 @@ public class VideoRepository : IVideoRepository
         // Build a lightweight filter-only query (no Includes) for COUNT and filter predicates
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Video>(false, null)).Apply(_db.Videos.AsQueryable());
 
-        async Task<IQueryable<Video>> ApplyLeafAsync(IQueryable<Video> query, VideoFilter leaf)
+        async Task<IQueryable<Video>> ApplyLeafAsync(IQueryable<Video> query, VideoFilter leaf, bool applyPerformerCriterion = true)
         {
             ExpandedHierarchyCriterion? expandedTags = null;
             if (HierarchicalCriterionExpander.RequiresExpansion(leaf.TagsCriterion))
@@ -117,14 +117,69 @@ public class VideoRepository : IVideoRepository
             }
 
             query = ApplyFilters(query, leaf, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-            return includeRelatedFilters
+            return includeRelatedFilters && applyPerformerCriterion
                 ? await RelatedFilterQuery.ApplyToVideosAsync(_db, query, leaf.PerformerFilterCriterion, ct)
                 : query;
         }
 
+        async Task<IQueryable<Video>> ApplyExpressionNodeAsync(IQueryable<Video> input, FilterExpressionNode<VideoFilter> node)
+            => node.Filter != null ? await ApplyLeafAsync(input, node.Filter) : await ApplyExpressionAsync(input, node.Group!);
+
+        async Task<IQueryable<Video>> ApplyExpressionAsync(IQueryable<Video> input, FilterExpression<VideoFilter> group)
+        {
+            if (group.Operator == FilterExpressionOperator.And)
+            {
+                var distinctCriteria = includeRelatedFilters && group.DistinctRelatedMatches
+                    ? group.Children
+                        .Where(child => child.Filter?.PerformerFilterCriterion is { Mode: RelatedFilterMode.AtLeastOne, Exclude: false })
+                        .Select(child => child.Filter!.PerformerFilterCriterion!)
+                        .ToArray()
+                    : [];
+                if (distinctCriteria.Length > 8)
+                    throw new ArgumentException("Distinct related-performer groups may not contain more than 8 matching conditions.", nameof(expression));
+                var current = distinctCriteria.Length > 1
+                    ? await RelatedFilterQuery.ApplyDistinctVideoPerformersAsync(_db, input, distinctCriteria, ct)
+                    : input;
+                foreach (var child in group.Children)
+                {
+                    var handledDistinctCriterion = distinctCriteria.Length > 1
+                        && child.Filter?.PerformerFilterCriterion is { Mode: RelatedFilterMode.AtLeastOne, Exclude: false };
+                    current = child.Filter != null
+                        ? await ApplyLeafAsync(current, child.Filter, !handledDistinctCriterion)
+                        : await ApplyExpressionAsync(current, child.Group!);
+                }
+                return current;
+            }
+            if (group.Operator == FilterExpressionOperator.Not)
+                return input.Except(await ApplyExpressionNodeAsync(input, group.Children[0]));
+            if (group.Operator == FilterExpressionOperator.JustOne)
+            {
+                IQueryable<Video>? seen = null;
+                IQueryable<Video>? exactlyOne = null;
+                foreach (var child in group.Children)
+                {
+                    var branch = await ApplyExpressionNodeAsync(input, child);
+                    if (seen == null) { seen = branch; exactlyOne = branch; continue; }
+                    exactlyOne = exactlyOne!.Except(branch).Union(branch.Except(seen));
+                    seen = seen.Union(branch);
+                }
+                return exactlyOne ?? input;
+            }
+            IQueryable<Video>? union = null;
+            foreach (var child in group.Children)
+            {
+                var branch = await ApplyExpressionNodeAsync(input, child);
+                union = union == null ? branch : union.Union(branch);
+            }
+            return union ?? input;
+        }
+
         if (filter != null)
             filterQuery = await ApplyLeafAsync(filterQuery, filter);
-        filterQuery = await FilterExpressionQuery.ApplyAsync(filterQuery, expression, ApplyLeafAsync);
+        if (!FilterExpressionQuery.TryValidate(expression, out var expressionError))
+            throw new ArgumentException(expressionError, nameof(expression));
+        if (expression is { Children.Count: > 0 })
+            filterQuery = await ApplyExpressionAsync(filterQuery, expression);
 
         filterQuery = ApplyVideoSearch(filterQuery, findFilter?.Q);
 

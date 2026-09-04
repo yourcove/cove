@@ -2295,6 +2295,7 @@ export type FilterExpressionNode<TFilter = Record<string, unknown>> =
 
 export interface FilterExpression<TFilter = Record<string, unknown>> {
   operator: "AND" | "OR" | "JUST_ONE" | "NOT";
+  distinctRelatedMatches?: boolean;
   children: FilterExpressionNode<TFilter>[];
 }
 

@@ -98,6 +98,11 @@ public static class FilterExpressionQuery
             error = $"Unsupported filter-expression operator '{group.Operator}'.";
             return false;
         }
+        if (group.DistinctRelatedMatches && group.Operator != FilterExpressionOperator.And)
+        {
+            error = "Distinct related matches are supported only by AND filter-expression groups.";
+            return false;
+        }
         if (group.Operator == FilterExpressionOperator.Not && group.Children.Count != 1)
         {
             error = "NOT filter-expression groups must contain exactly one child.";

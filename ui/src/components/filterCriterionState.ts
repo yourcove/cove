@@ -14,7 +14,7 @@ import {
   type EditableFilterExpression,
 } from "../utils/filterExpressionTree";
 import { getRelatedCriteria } from "./filterCriteriaCatalogs";
-import type { CriterionDefinition } from "./filterCriteriaTypes";
+import { MAX_DISTINCT_RELATED_CONDITIONS, type CriterionDefinition } from "./filterCriteriaTypes";
 
 export const NULL_VALUE_MODIFIERS = new Set<CriterionModifier>(["IS_NULL", "NOT_NULL"]);
 const RANGE_VALUE_MODIFIERS = new Set<CriterionModifier>(["BETWEEN", "NOT_BETWEEN"]);
@@ -299,7 +299,23 @@ export function sanitizeFilterExpression(expression: EditableFilterExpression | 
   }
   const operator = expression.operator === "OR" || expression.operator === "JUST_ONE" ? expression.operator : expression.operator === "NOT" ? "NOT" : "AND";
   if (operator === "NOT" && children.length !== 1) return undefined;
-  return children.length > 0 ? { operator, children } : undefined;
+  const supportsDistinctPerformerMatches = criteria.some((criterion) => criterion.filterKey === "performerFilterCriterion"
+    && criterion.supportsDistinctSiblingMatches);
+  const distinctPerformerConditions = supportsDistinctPerformerMatches ? children.filter((child) => {
+    const related = child.filter?.performerFilterCriterion;
+    if (!related || typeof related !== "object") return false;
+    const value = related as { mode?: string; exclude?: boolean };
+    return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
+  }).length : 0;
+  const keepDistinctMatches = operator === "AND"
+    && expression.distinctRelatedMatches
+    && distinctPerformerConditions >= 2
+    && distinctPerformerConditions <= MAX_DISTINCT_RELATED_CONDITIONS;
+  return children.length > 0 ? {
+    operator,
+    ...(keepDistinctMatches ? { distinctRelatedMatches: true } : {}),
+    children,
+  } : undefined;
 }
 
 export function filterToExpression(filter: Record<string, unknown>, criteria: CriterionDefinition[]): FilterExpression<Record<string, unknown>> {

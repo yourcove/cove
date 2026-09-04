@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilterDialog } from "../components/FilterDialog";
 import { FilterButton } from "../components/FilterButton";
-import { PERFORMER_CRITERIA, STUDIO_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
+import { IMAGE_CRITERIA, PERFORMER_CRITERIA, STUDIO_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { RemoteIdFilterEditor } from "../components/PrimitiveCriterionEditors";
 import { countActiveObjectFilters } from "../components/ActiveObjectFilterChips";
@@ -2586,6 +2586,60 @@ describe("FilterDialog", () => {
       { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
       { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
     ] } });
+  });
+
+  it("can require separate related-performer conditions to match different performers", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } } } } },
+          { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } } } } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Combine Filters" }));
+    const distinct = screen.getByRole("checkbox", { name: "Match each related-performer condition to a different performer" });
+    fireEvent.click(distinct);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: {
+      operator: "AND",
+      distinctRelatedMatches: true,
+      children: [
+        { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } } } } },
+        { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } } } } },
+      ],
+    } });
+  });
+
+  it("does not offer distinct performer matching for unsupported lists or relationship modes", () => {
+    const expression = { operator: "AND" as const, distinctRelatedMatches: true, children: [
+      { filter: { performerFilterCriterion: { mode: "every" as const, objectFilter: { favoriteCriterion: { value: true } } } } },
+      { filter: { performerFilterCriterion: { mode: "none" as const, objectFilter: { favoriteCriterion: { value: false } } } } },
+    ] };
+    const { rerender } = renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{ _filterExpression: expression }} onApply={vi.fn()} supportsFilterExpressions initialView="advanced" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Combine Filters" }));
+    const staleDistinct = screen.getByRole("checkbox", { name: /different performer/ });
+    expect(staleDistinct).toBeChecked();
+    expect(staleDistinct).toBeEnabled();
+
+    rerender(<QueryClientProvider client={new QueryClient()}>
+      <FilterDialog open onClose={vi.fn()} criteria={IMAGE_CRITERIA} activeFilter={{ _filterExpression: { operator: "AND", children: [
+        { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: true } } } } },
+        { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } } } },
+      ] } }} onApply={vi.fn()} supportsFilterExpressions initialView="advanced" />
+    </QueryClientProvider>);
+    expect(screen.queryByRole("checkbox", { name: /different performer/ })).not.toBeInTheDocument();
   });
 
   it("keeps expression chips and ordinary filters in one roving group after rerenders and removals", async () => {
