@@ -23,6 +23,7 @@ import {
 import {
   countFilterExpressionConditions,
   expressionPathsEqual,
+  getExpressionLeaf,
   moveExpressionLeaf,
   type EditableFilterExpression,
   type ExpressionGroupDestination,
@@ -63,6 +64,9 @@ export function FilterExpressionEditor({
       if (mode !== "NOT") result.push({
         path,
         depth,
+        relatedScopeFilterKey: group.relatedScope?.filterKey,
+        relatedScopeMatchMode: group.relatedScope?.matchMode,
+        childCount: group.children.length,
         label: path.length === 0
           ? `Outermost ${FILTER_EXPRESSION_OPERATOR_PRESENTATION[mode].label} group`
           : `${FILTER_EXPRESSION_OPERATOR_PRESENTATION[mode].label} group${firstLeaf ? ` containing ${describeCondition(firstLeaf)}` : ""}`,
@@ -74,7 +78,18 @@ export function FilterExpressionEditor({
     visit(value as EditableFilterExpression, [], 0);
     return result;
   }, [criteria, metadataServers, ratingOptions, value]);
-  const legalDestinations = useCallback((sourcePath: number[]) => destinations.filter((destination) => !expressionPathsEqual(destination.path, sourcePath.slice(0, -1))), [destinations]);
+  const legalDestinations = useCallback((sourcePath: number[]) => {
+    const sourceFilter = getExpressionLeaf(value, sourcePath);
+    return destinations.filter((destination) => {
+      if (expressionPathsEqual(destination.path, sourcePath.slice(0, -1))) return false;
+      if (!destination.relatedScopeFilterKey) return true;
+      if (destination.relatedScopeMatchMode === "distinct" && destination.childCount >= MAX_DISTINCT_RELATED_CONDITIONS) return false;
+      const related = sourceFilter?.[destination.relatedScopeFilterKey];
+      if (!related || typeof related !== "object") return false;
+      const criterion = related as { mode?: string; exclude?: boolean };
+      return criterion.exclude !== true && (criterion.mode === undefined || criterion.mode === "atLeastOne");
+    });
+  }, [destinations, value]);
   const moveCondition = useCallback((sourcePath: number[], destinationPath: number[]) => {
     const moved = moveExpressionLeaf(value as EditableFilterExpression, sourcePath, destinationPath);
     if (!moved.insertedPath) return;
@@ -196,18 +211,16 @@ function ExpressionGroupEditor({
   const mode = getFilterExpressionPresentationOperator(group as EditableFilterExpression);
   const presentation = FILTER_EXPRESSION_OPERATOR_PRESENTATION[mode];
   const displayedChildren = sortFilterExpressionChildrenForDisplay(group.children, mode);
-  const canCreateNestedGroup = groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
+  const canCreateNestedGroup = !group.relatedScope && groupPath.length + 2 <= MAX_FILTER_EXPRESSION_DEPTH;
   const hasGroupActions = !root || (mode !== "NOT" && group.children.length > 0 && canCreateNestedGroup);
-  const supportsDistinctPerformerMatches = criteria.some((criterion) => criterion.filterKey === "performerFilterCriterion"
-    && criterion.supportsDistinctSiblingMatches);
-  const relatedPerformerConditionCount = supportsDistinctPerformerMatches ? group.children.filter((child) => {
-    const related = child.filter?.performerFilterCriterion;
-    if (!related || typeof related !== "object") return false;
-    const value = related as { mode?: string; exclude?: boolean };
-    return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
-  }).length : 0;
-  const canUseDistinctPerformerMatches = relatedPerformerConditionCount > 1
-    && relatedPerformerConditionCount <= MAX_DISTINCT_RELATED_CONDITIONS;
+  const relatedScopeCriterion = group.relatedScope
+    ? criteria.find((criterion) => criterion.type === "related" && criterion.filterKey === group.relatedScope?.filterKey)
+    : undefined;
+  const relatedItemName = relatedScopeCriterion?.entityType === "galleries"
+    ? "gallery"
+    : relatedScopeCriterion?.entityType?.replace(/s$/, "") ?? "item";
+  const distinctScopeAtLimit = group.relatedScope?.matchMode === "distinct"
+    && group.children.length >= MAX_DISTINCT_RELATED_CONDITIONS;
   const operatorText = mode === "NOT" || mode === "NONE" ? presentation.label : `${presentation.label} of ${displayedChildren.length}`;
   useEffect(() => {
     setSelected(new Set());
@@ -274,12 +287,20 @@ function ExpressionGroupEditor({
     const indexes = [...selected].sort((a, b) => a - b);
     if (nextMode === "NONE" ? indexes.length < 1 : indexes.length < 2) return;
     const selectedChildren = indexes.map((index) => group.children[index]);
+    const scopedCriterion = nextMode === "AND" ? criteria.find((criterion) => criterion.type === "related"
+      && criterion.supportsDistinctSiblingMatches
+      && selectedChildren.every((child) => {
+        const related = child.filter?.[criterion.filterKey];
+        if (!related || typeof related !== "object") return false;
+        const value = related as { mode?: string; exclude?: boolean };
+        return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
+      })) : undefined;
     const first = indexes[0];
     const selectedSet = new Set(indexes);
     const children: FilterExpression<Record<string, unknown>>["children"] = group.children.flatMap((child, index) => index === first
       ? [{ group: (nextMode === "NONE"
         ? { operator: "OR" as const, children: selectedChildren, _semanticNone: true }
-        : { operator: nextMode, children: selectedChildren }) as EditableFilterExpression }]
+        : { operator: nextMode, children: selectedChildren, ...(scopedCriterion ? { relatedScope: { filterKey: scopedCriterion.filterKey, matchMode: "reuse" as const } } : {}) }) as EditableFilterExpression }]
       : selectedSet.has(index) ? [] : [child]);
     setSelected(new Set());
     setGroupingMode(false);
@@ -299,9 +320,11 @@ function ExpressionGroupEditor({
   const setOperator = (nextMode: "AND" | "OR" | "JUST_ONE" | "NONE") => {
     setOpenMenu(null);
     setOperatorPickerOpen(false);
+    const { relatedScope: _relatedScope, ...unscopedGroup } = group;
+    const nextGroup = nextMode === "AND" ? group : unscopedGroup;
     onChange(nextMode === "NONE"
-      ? { ...group, operator: "OR", _semanticNone: true } as EditableFilterExpression
-      : { ...group, operator: nextMode, _semanticNone: undefined } as EditableFilterExpression);
+      ? { ...nextGroup, operator: "OR", _semanticNone: true } as EditableFilterExpression
+      : { ...nextGroup, operator: nextMode, _semanticNone: undefined } as EditableFilterExpression);
     window.setTimeout(() => operatorButtonRef.current?.focus(), 0);
   };
   const toggleSelection = (index: number) => setSelected((current) => {
@@ -315,12 +338,13 @@ function ExpressionGroupEditor({
     window.setTimeout(() => trigger?.focus(), 0);
   };
   const isActiveMoveDestination = Boolean(activeKeyboardDestination && expressionPathsEqual(activeKeyboardDestination.path, groupPath));
-  const isAvailableDropDestination = Boolean(draggedPath && mode !== "NOT" && !expressionPathsEqual(draggedPath.slice(0, -1), groupPath));
+  const isAvailableDropDestination = Boolean(draggedPath
+    && legalDestinations(draggedPath).some((destination) => expressionPathsEqual(destination.path, groupPath)));
 
   return (
     <section
       className={`relative space-y-2 rounded-lg bg-card/20 py-2 pl-4 pr-2 ${isActiveMoveDestination ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : isAvailableDropDestination ? "ring-1 ring-accent/50" : ""}`}
-      aria-label={`${presentation.label} group`}
+      aria-label={relatedScopeCriterion ? `${relatedScopeCriterion.label} ${presentation.label} group` : `${presentation.label} group`}
       data-expression-node-path={groupPathKey || undefined}
       data-expression-drop-path={groupPathKey}
       tabIndex={root ? undefined : -1}
@@ -330,7 +354,7 @@ function ExpressionGroupEditor({
           event.stopPropagation();
           return;
         }
-        if (mode === "NOT") return;
+        if (!isAvailableDropDestination) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
       }}
@@ -340,7 +364,7 @@ function ExpressionGroupEditor({
           event.stopPropagation();
           return;
         }
-        if (mode === "NOT") return;
+        if (!isAvailableDropDestination) return;
         event.preventDefault();
         event.stopPropagation();
         onMoveCondition(draggedPath, groupPath);
@@ -357,6 +381,7 @@ function ExpressionGroupEditor({
     >
       <span aria-hidden="true" className={`absolute bottom-2 left-1.5 top-2 w-0.5 rounded-full ${presentation.railClassName}`} />
       <div className="flex min-h-10 flex-wrap items-center gap-2">
+        {relatedScopeCriterion ? <span className="rounded-md bg-accent/10 px-2 py-1 text-sm font-semibold text-accent">{relatedScopeCriterion.label}</span> : null}
         {mode === "NOT" ? (
           <span className={`rounded-md px-2 py-1 text-sm font-semibold ${presentation.labelClassName}`}>{operatorText}</span>
         ) : (
@@ -372,7 +397,7 @@ function ExpressionGroupEditor({
         )}
         <div data-expression-group-actions className="relative ml-auto flex items-center gap-1">
           {!root ? <button type="button" aria-label={`${collapsed ? "Expand" : "Collapse"} ${presentation.label} group`} aria-expanded={!collapsed} onClick={() => { setOperatorPickerOpen(false); setOpenMenu(null); setMoveMenuIndex(null); setCollapsed((current) => !current); }} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground">{collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button> : null}
-          {mode !== "NOT" ? <button ref={addConditionRef} type="button" aria-label="Add condition" title="Add condition" disabled={conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS} onClick={() => { setOperatorPickerOpen(false); setOpenMenu(null); setMoveMenuIndex(null); setCollapsed(false); onAddCondition(undefined, groupPath); }} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /></button> : null}
+          {mode !== "NOT" ? <button ref={addConditionRef} type="button" aria-label={relatedScopeCriterion ? `Add ${relatedItemName} condition` : "Add condition"} title={distinctScopeAtLimit ? `Distinct assignment supports up to ${MAX_DISTINCT_RELATED_CONDITIONS} conditions` : "Add condition"} disabled={conditionCount >= MAX_FILTER_EXPRESSION_CONDITIONS || distinctScopeAtLimit} onClick={() => { setOperatorPickerOpen(false); setOpenMenu(null); setMoveMenuIndex(null); setCollapsed(false); onAddCondition(relatedScopeCriterion?.id, groupPath); }} data-expression-return-focus={`add-${groupPath.join(".")}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-secondary hover:bg-card hover:text-foreground disabled:opacity-40"><Plus className="h-4 w-4" /></button> : null}
           {hasGroupActions ? <>
           <button ref={groupMenuButtonRef} type="button" data-expression-group-control={operator === "NOT" ? groupPathKey : undefined} aria-label={`More actions for ${root ? "root " : ""}group`} aria-expanded={openMenu === "group"} onClick={() => { setOperatorPickerOpen(false); setMoveMenuIndex(null); setOpenMenu((current) => current === "group" ? null : "group"); }} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-card hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
           {openMenu === "group" ? (
@@ -387,17 +412,12 @@ function ExpressionGroupEditor({
           </> : null}
         </div>
       </div>
-      {!collapsed && mode === "AND" && (canUseDistinctPerformerMatches || group.distinctRelatedMatches) ? <label className="flex min-h-9 items-center gap-2 rounded-md px-2 text-sm text-secondary">
-        <input
-          type="checkbox"
-          checked={group.distinctRelatedMatches === true}
-          disabled={!canUseDistinctPerformerMatches && group.distinctRelatedMatches !== true}
-          onChange={(event) => onChange({ ...group, distinctRelatedMatches: event.target.checked || undefined })}
-        />
-        {relatedPerformerConditionCount > MAX_DISTINCT_RELATED_CONDITIONS
-          ? `Distinct matching supports up to ${MAX_DISTINCT_RELATED_CONDITIONS} related-performer conditions`
-          : "Match each related-performer condition to a different performer"}
-      </label> : null}
+      {!collapsed && mode === "AND" && relatedScopeCriterion ? <div className="flex flex-wrap items-center gap-2 px-2" role="group" aria-label={`How ${relatedScopeCriterion.label.toLowerCase()} conditions choose matches`}>
+        <span className="text-xs font-medium text-muted">Match assignment</span>
+        <button type="button" aria-pressed={group.relatedScope?.matchMode !== "distinct"} onClick={() => onChange({ ...group, relatedScope: { filterKey: relatedScopeCriterion.filterKey, matchMode: "reuse" } })} className={`min-h-8 rounded-md px-2.5 text-sm ${group.relatedScope?.matchMode !== "distinct" ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"}`}>May reuse a {relatedItemName}</button>
+        <button type="button" aria-pressed={group.relatedScope?.matchMode === "distinct"} disabled={group.children.length > MAX_DISTINCT_RELATED_CONDITIONS} onClick={() => onChange({ ...group, relatedScope: { filterKey: relatedScopeCriterion.filterKey, matchMode: "distinct" } })} className={`min-h-8 rounded-md px-2.5 text-sm ${group.relatedScope?.matchMode === "distinct" ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"} disabled:opacity-40`}>Use a different {relatedItemName} for each</button>
+        {group.children.length > MAX_DISTINCT_RELATED_CONDITIONS ? <span className="text-xs text-muted">Distinct assignment supports up to {MAX_DISTINCT_RELATED_CONDITIONS} conditions.</span> : null}
+      </div> : null}
       {!collapsed ? <div className="space-y-2" data-testid="expression-group-children">
         {displayedChildren.map(({ child, index }, displayIndex) => {
           const displayPosition = displayIndex + 1;

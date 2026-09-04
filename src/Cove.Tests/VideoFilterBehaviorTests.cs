@@ -573,11 +573,79 @@ public class VideoFilterBehaviorTests
         var distinctOr = new FilterExpression<VideoFilter>
         {
             Operator = FilterExpressionOperator.Or,
-            DistinctRelatedMatches = true,
+            RelatedScope = new() { FilterKey = "performerFilterCriterion", MatchMode = RelatedScopeMatchMode.Distinct },
             Children = [new() { Filter = new VideoFilter() }],
         };
         Assert.False(FilterExpressionQuery.TryValidate(distinctOr, out var distinctOrError));
         Assert.Equal("Distinct related matches are supported only by AND filter-expression groups.", distinctOrError);
+        var mixedScope = new FilterExpression<VideoFilter>
+        {
+            RelatedScope = new() { FilterKey = "performerFilterCriterion", MatchMode = RelatedScopeMatchMode.Distinct },
+            Children =
+            [
+                new() { Filter = new VideoFilter { PerformerFilterCriterion = new() { ObjectFilter = new PerformerFilter { GenderCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = "Female" } } } } },
+                new() { Filter = new VideoFilter { PerformerCountCriterion = new() { Modifier = CriterionModifier.Equals, Value = 2 } } },
+            ],
+        };
+        Assert.False(FilterExpressionQuery.TryValidate(mixedScope, out var mixedScopeError));
+        Assert.Equal("Every condition in a related filter-expression scope must use 'performerFilterCriterion'.", mixedScopeError);
+
+        var titleScope = new FilterExpression<VideoFilter>
+        {
+            RelatedScope = new() { FilterKey = "titleCriterion", MatchMode = RelatedScopeMatchMode.Reuse },
+            Children =
+            [
+                new() { Filter = new VideoFilter { TitleCriterion = new() { Modifier = CriterionModifier.Includes, Value = "one" } } },
+                new() { Filter = new VideoFilter { TitleCriterion = new() { Modifier = CriterionModifier.Includes, Value = "two" } } },
+            ],
+        };
+        Assert.False(FilterExpressionQuery.TryValidate(titleScope, out var titleScopeError));
+        Assert.Equal("Every condition in a related filter-expression scope must use 'titleCriterion'.", titleScopeError);
+
+        var everyScope = new FilterExpression<VideoFilter>
+        {
+            RelatedScope = new() { FilterKey = "performerFilterCriterion", MatchMode = RelatedScopeMatchMode.Reuse },
+            Children =
+            [
+                new() { Filter = new VideoFilter { PerformerFilterCriterion = new() { Mode = RelatedFilterMode.Every, ObjectFilter = new PerformerFilter() } } },
+                new() { Filter = new VideoFilter { PerformerFilterCriterion = new() { ObjectFilter = new PerformerFilter() } } },
+            ],
+        };
+        Assert.False(FilterExpressionQuery.TryValidate(everyScope, out var everyScopeError));
+        Assert.Equal("Related filter-expression scopes require positive at-least-one conditions.", everyScopeError);
+
+        var nullChildScope = new FilterExpression<VideoFilter>
+        {
+            RelatedScope = new() { FilterKey = "performerFilterCriterion", MatchMode = RelatedScopeMatchMode.Reuse },
+            Children = [null!, new() { Filter = new VideoFilter { PerformerFilterCriterion = new() { ObjectFilter = new PerformerFilter() } } }],
+        };
+        Assert.False(FilterExpressionQuery.TryValidate(nullChildScope, out var nullChildScopeError));
+        Assert.Equal("Related filter-expression scopes must contain at least two direct filter conditions.", nullChildScopeError);
+
+        var unsupportedDistinctScope = new FilterExpression<PerformerFilter>
+        {
+            RelatedScope = new() { FilterKey = "videoFilterCriterion", MatchMode = RelatedScopeMatchMode.Distinct },
+            Children =
+            [
+                new() { Filter = new PerformerFilter { VideoFilterCriterion = new() { ObjectFilter = new VideoFilter() } } },
+                new() { Filter = new PerformerFilter { VideoFilterCriterion = new() { ObjectFilter = new VideoFilter() } } },
+            ],
+        };
+        Assert.False(FilterExpressionQuery.TryValidate(unsupportedDistinctScope, out var unsupportedDistinctScopeError));
+        Assert.Equal("Distinct assignment is not supported for related scope 'videoFilterCriterion'.", unsupportedDistinctScopeError);
+
+        var dualFormat = new FilterExpression<VideoFilter>
+        {
+            DistinctRelatedMatches = true,
+            RelatedScope = new() { FilterKey = "performerFilterCriterion", MatchMode = RelatedScopeMatchMode.Reuse },
+            Children =
+            [
+                new() { Filter = new VideoFilter { PerformerFilterCriterion = new() { ObjectFilter = new PerformerFilter() } } },
+                new() { Filter = new VideoFilter { PerformerFilterCriterion = new() { ObjectFilter = new PerformerFilter() } } },
+            ],
+        };
+        Assert.False(FilterExpressionQuery.TryValidate(dualFormat, out var dualFormatError));
+        Assert.Equal("Filter-expression groups may not combine legacy distinct matching with a related scope.", dualFormatError);
     }
 
     [Fact]
@@ -658,12 +726,18 @@ public class VideoFilterBehaviorTests
         };
         var expression = new FilterExpression<VideoFilter>
         {
-            DistinctRelatedMatches = true,
             Children =
             [
-                new() { Filter = Gender("Male") },
-                new() { Filter = Gender("Female") },
-                new() { Filter = Gender("Female") },
+                new() { Group = new FilterExpression<VideoFilter>
+                {
+                    RelatedScope = new() { FilterKey = "performerFilterCriterion", MatchMode = RelatedScopeMatchMode.Distinct },
+                    Children =
+                    [
+                        new() { Filter = Gender("Male") },
+                        new() { Filter = Gender("Female") },
+                        new() { Filter = Gender("Female") },
+                    ],
+                } },
                 new() { Filter = new VideoFilter { PerformerCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 3 } } },
             ],
         };
@@ -676,6 +750,26 @@ public class VideoFilterBehaviorTests
 
         Assert.Equal(1, count);
         Assert.Equal("one-man-two-women", Assert.Single(items).Title);
+
+        var legacyExpression = new FilterExpression<VideoFilter>
+        {
+            DistinctRelatedMatches = true,
+            Children =
+            [
+                new() { Filter = Gender("Male") },
+                new() { Filter = Gender("Female") },
+                new() { Filter = Gender("Female") },
+                new() { Filter = new VideoFilter { PerformerCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 3 } } },
+            ],
+        };
+        var (legacyItems, legacyCount) = await new VideoRepository(context).FindAsync(
+            null,
+            new FindFilter { Page = 1, PerPage = 50 },
+            TestContext.Current.CancellationToken,
+            legacyExpression);
+
+        Assert.Equal(1, legacyCount);
+        Assert.Equal("one-man-two-women", Assert.Single(legacyItems).Title);
     }
 
     [Fact]

@@ -18,10 +18,14 @@ import {
   getExpressionGroup,
   getExpressionLeaf,
   isComplexFilterExpression,
+  isFilterEligibleForRelatedScope,
   normalizeFilterExpressionForEditing,
+  remapExpressionLeafPath,
+  repairRelatedScopes,
   removeExpressionLeafAndPrune,
   removeExpressionGroup,
   replaceExpressionGroup,
+  toEditableFilterExpression,
   updateExpressionLeaf,
   type EditableFilterExpression,
 } from "../utils/filterExpressionTree";
@@ -133,9 +137,13 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const inlineAddedConditionRef = useRef<{ path: number[]; originPath: number[]; unwrapRootOnRemove: boolean } | null>(null);
   const wasOpenRef = useRef(false);
   const activeFilterSignature = useMemo(() => JSON.stringify(activeFilter ?? {}), [activeFilter]);
-  const normalizedActiveFilter = useMemo(
-    () => normalizeFilterExpressionForEditing(migrateLegacyPerformerFavoriteCriterion(JSON.parse(activeFilterSignature) as Record<string, unknown>, criteria)),
+  const sourceActiveFilter = useMemo(
+    () => migrateLegacyPerformerFavoriteCriterion(JSON.parse(activeFilterSignature) as Record<string, unknown>, criteria),
     [activeFilterSignature, criteria],
+  );
+  const normalizedActiveFilter = useMemo(
+    () => normalizeFilterExpressionForEditing(sourceActiveFilter, criteria),
+    [sourceActiveFilter, criteria],
   );
   const lastActiveFilterSignatureRef = useRef(activeFilterSignature);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
@@ -436,8 +444,12 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       inlineAddedConditionRef.current = null;
       previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const openingFilter = cloneActiveFilter();
+      const sourceExpression = sourceActiveFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
       const openingExpression = normalizedActiveFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
-      const openingLeaf = initialExpressionPath && openingExpression ? getExpressionLeaf(openingExpression, initialExpressionPath) : undefined;
+      const openingExpressionPath = initialExpressionPath && sourceExpression && openingExpression
+        ? remapExpressionLeafPath(sourceExpression, openingExpression, initialExpressionPath) ?? initialExpressionPath
+        : initialExpressionPath;
+      const openingLeaf = openingExpressionPath && openingExpression ? getExpressionLeaf(openingExpression, openingExpressionPath) : undefined;
       const openingLeafCriterion = openingLeaf ? getExpressionConditionCriterion(openingLeaf, criteria) : undefined;
       const openLeafInline = Boolean(openingLeafCriterion && openingLeafCriterion.type !== "related" && openingExpression);
       const openingView = openingLeaf ? "simple" : initialView === "advanced" && isComplexFilterExpression(openingExpression) ? "expression" : "simple";
@@ -448,8 +460,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         setEditFilter(openingFilter);
       }
       setDialogView(openingView);
-      setSimpleExpressionGroupPath(initialExpressionPath?.slice(0, -1) ?? []);
-      setConditionDraft(openingLeaf && !openLeafInline ? { filter: openingLeaf, path: initialExpressionPath, parentPath: initialExpressionPath!.slice(0, -1), isNew: false, returnView: "simple" } : null);
+      setSimpleExpressionGroupPath(openingExpressionPath?.slice(0, -1) ?? []);
+      setConditionDraft(openingLeaf && !openLeafInline ? { filter: openingLeaf, path: openingExpressionPath, parentPath: openingExpressionPath!.slice(0, -1), isNew: false, returnView: "simple" } : null);
       setInlineStackReturnsToExpression(false);
       setSearch("");
       setNavigatorFocusId(null);
@@ -464,8 +476,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       setExpandedCriterion(nextSelected);
       window.setTimeout(() => {
         if (openingView === "expression") backButtonRef.current?.focus();
-        else if (openLeafInline && initialExpressionPath) {
-          const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-path="${initialExpressionPath.join(".")}"]`);
+        else if (openLeafInline && openingExpressionPath) {
+          const condition = dialogRef.current?.querySelector<HTMLElement>(`[data-inline-condition-path="${openingExpressionPath.join(".")}"]`);
           getFirstInlineEditorControl(condition?.querySelector<HTMLElement>("[data-inline-condition-editor]"))?.focus();
         }
         else if (openingLeafCriterion?.type === "related" && typeof preselectCriterion === "object" && preselectCriterion.nestedCriterionId) {
@@ -478,7 +490,7 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       }, 0);
     }
     wasOpenRef.current = true;
-  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, initialExpressionPath, initialView, normalizedActiveFilter, open, openAtRoot, preselectCriterion]);
+  }, [cloneActiveFilter, criteria, customSections, focusFirstEditorControl, initialExpressionPath, initialView, normalizedActiveFilter, open, openAtRoot, preselectCriterion, sourceActiveFilter]);
 
   const dismiss = useCallback(() => {
     setEditFilter(cloneActiveFilter());
@@ -521,7 +533,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
         else delete next[FILTER_EXPRESSION_STATE_KEY];
       }
       const merged = mergeFilterExpressionWithSimpleCriteria(next, criteria);
-      return { ...expressionPassthroughFilter(next, criteria), ...(merged ? { [FILTER_EXPRESSION_STATE_KEY]: merged } : {}) };
+      const editable = merged ? toEditableFilterExpression(merged, criteria) : undefined;
+      return { ...expressionPassthroughFilter(next, criteria), ...(editable ? { [FILTER_EXPRESSION_STATE_KEY]: editable } : {}) };
     });
     inlineAddedConditionRef.current = null;
     setDialogView("expression");
@@ -542,7 +555,8 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     simpleReturnFocusKeyRef.current = returnFocusKey ?? viewReturnFocusRef.current?.dataset.simpleReturnFocus ?? null;
     setEditFilter((current) => {
       const merged = mergeFilterExpressionWithSimpleCriteria(current, criteria);
-      return { ...expressionPassthroughFilter(current, criteria), ...(merged ? { [FILTER_EXPRESSION_STATE_KEY]: merged } : {}) };
+      const editable = merged ? toEditableFilterExpression(merged, criteria) : undefined;
+      return { ...expressionPassthroughFilter(current, criteria), ...(editable ? { [FILTER_EXPRESSION_STATE_KEY]: editable } : {}) };
     });
     setExpandedCriterion(null);
     setRelatedWorkspaceSelection(null);
@@ -730,7 +744,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
 
   const handleApply = () => {
     const hasExpression = Boolean(editFilter[FILTER_EXPRESSION_STATE_KEY]);
-    const mergedExpression = hasExpression ? sanitizeFilterExpression(mergeFilterExpressionWithSimpleCriteria(editFilter, criteria) as EditableFilterExpression | undefined, criteria) : undefined;
+    const expressionDraft = hasExpression ? mergeFilterExpressionWithSimpleCriteria(editFilter, criteria) : undefined;
+    const mergedExpression = expressionDraft
+      ? sanitizeFilterExpression(toEditableFilterExpression(expressionDraft, criteria), criteria)
+      : undefined;
     onApply(hasExpression
       ? { ...expressionPassthroughFilter(editFilter, criteria), ...(mergedExpression ? { [FILTER_EXPRESSION_STATE_KEY]: mergedExpression } : {}) }
       : activeEditFilter);
@@ -853,13 +870,20 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setEditFilter((current) => {
       const base = mergeFilterExpressionWithSimpleCriteria(current, criteria) ?? { operator: "AND" as const, children: [] };
       if (conditionDraft.isNew && countFilterExpressionConditions(base) >= MAX_FILTER_EXPRESSION_CONDITIONS) return current;
-      if (conditionDraft.isNew && !conditionDraft.implicitRootAnd && getExpressionGroup(base, conditionDraft.parentPath)?.operator === "NOT") return current;
+      const targetGroup = conditionDraft.isNew && !conditionDraft.implicitRootAnd ? getExpressionGroup(base, conditionDraft.parentPath) : undefined;
+      if (targetGroup?.operator === "NOT") return current;
+      if (targetGroup?.relatedScope?.matchMode === "distinct"
+        && isFilterEligibleForRelatedScope(sanitized, targetGroup.relatedScope.filterKey)
+        && targetGroup.children.length >= 8) return current;
+      const canAppendToRoot = base.operator === "AND"
+        && (!base.relatedScope || isFilterEligibleForRelatedScope(sanitized, base.relatedScope.filterKey));
+      if (conditionDraft.isNew && base.relatedScope?.matchMode === "distinct" && canAppendToRoot && base.children.length >= 8) return current;
       const next = conditionDraft.isNew && conditionDraft.implicitRootAnd
-        ? base.operator === "AND"
+        ? canAppendToRoot
           ? { ...base, children: [...base.children, { filter: sanitized }] }
           : { operator: "AND" as const, children: [{ group: base }, { filter: sanitized }] }
         : conditionDraft.isNew
-        ? replaceExpressionGroup(base, conditionDraft.parentPath, (group) => ({ ...group, children: [...group.children, { filter: sanitized }] }))
+        ? repairRelatedScopes(replaceExpressionGroup(base, conditionDraft.parentPath, (group) => ({ ...group, children: [...group.children, { filter: sanitized }] })))
         : updateExpressionLeaf(base, conditionDraft.path ?? [], sanitized);
       return { ...expressionPassthroughFilter(current, criteria), [FILTER_EXPRESSION_STATE_KEY]: next };
     });
@@ -877,6 +901,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
   const addRelatedCondition = (criterion: CriterionDefinition) => {
     const merged = mergeFilterExpressionWithSimpleCriteria(editFilter, criteria);
     if (!merged || countFilterExpressionConditions(merged) >= MAX_FILTER_EXPRESSION_CONDITIONS) return;
+    if (merged.relatedScope?.matchMode === "distinct"
+      && merged.relatedScope.filterKey === criterion.filterKey
+      && merged.children.length >= 8) return;
     simpleReturnFocusKeyRef.current = `repeat-${criterion.id}`;
     setConditionDraft({
       filter: { _criterionId: criterion.id },
@@ -915,7 +942,9 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
       focusInlineCondition([...simpleExpressionGroupPath, newIndex]);
       return;
     }
-    const newIndex = merged.operator === "AND" ? merged.children.length : 1;
+    const canAppendToRoot = merged.operator === "AND"
+      && (!merged.relatedScope || merged.relatedScope.filterKey === criterion.filterKey);
+    const newIndex = canAppendToRoot ? merged.children.length : 1;
     inlineAddedConditionRef.current = {
       path: [newIndex],
       originPath: simpleExpressionGroupPath,
@@ -924,7 +953,10 @@ export function FilterDialog({ open, onClose, criteria, activeFilter, onApply, p
     setEditFilter((current) => {
       const base = mergeFilterExpressionWithSimpleCriteria(current, criteria);
       if (!base || countFilterExpressionConditions(base) >= MAX_FILTER_EXPRESSION_CONDITIONS) return current;
-      const next = base.operator === "AND"
+      const canAppend = base.operator === "AND"
+        && (!base.relatedScope || base.relatedScope.filterKey === criterion.filterKey);
+      if (base.relatedScope?.matchMode === "distinct" && canAppend && base.children.length >= 8) return current;
+      const next = canAppend
         ? { ...base, children: [...base.children, { filter: { _criterionId: criterion.id } }] }
         : { operator: "AND" as const, children: [{ group: base }, { filter: { _criterionId: criterion.id } }] };
       return { ...expressionPassthroughFilter(current, criteria), [FILTER_EXPRESSION_STATE_KEY]: next };

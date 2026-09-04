@@ -27,6 +27,8 @@ public static class FilterExpressionQuery
     {
         if (!TryValidate(expression, out var error)) throw new ArgumentException(error, nameof(expression));
         if (expression == null || expression.Children.Count == 0) return input;
+        if (expression.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct)
+            throw new NotSupportedException($"Distinct assignment is not supported for related scope '{expression.RelatedScope.FilterKey}' by this repository.");
 
         if (expression.Operator == FilterExpressionOperator.And)
         {
@@ -98,10 +100,70 @@ public static class FilterExpressionQuery
             error = $"Unsupported filter-expression operator '{group.Operator}'.";
             return false;
         }
-        if (group.DistinctRelatedMatches && group.Operator != FilterExpressionOperator.And)
+        if ((group.DistinctRelatedMatches || group.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct)
+            && group.Operator != FilterExpressionOperator.And)
         {
             error = "Distinct related matches are supported only by AND filter-expression groups.";
             return false;
+        }
+        if (group.RelatedScope is { FilterKey.Length: 0 })
+        {
+            error = "Related filter-expression scopes must identify a filter key.";
+            return false;
+        }
+        if (group.RelatedScope != null)
+        {
+            if (group.DistinctRelatedMatches)
+            {
+                error = "Filter-expression groups may not combine legacy distinct matching with a related scope.";
+                return false;
+            }
+            if (!Enum.IsDefined(group.RelatedScope.MatchMode))
+            {
+                error = $"Unsupported related-scope match mode '{group.RelatedScope.MatchMode}'.";
+                return false;
+            }
+            if (group.Operator != FilterExpressionOperator.And)
+            {
+                error = "Related filter-expression scopes are supported only by AND groups.";
+                return false;
+            }
+            if (group.Children.Count < 2 || group.Children.Any(child => child == null || child.Filter == null || child.Group != null))
+            {
+                error = "Related filter-expression scopes must contain at least two direct filter conditions.";
+                return false;
+            }
+            var relatedProperty = typeof(TFilter).GetProperties().FirstOrDefault(property =>
+                string.Equals(property.Name, group.RelatedScope.FilterKey, StringComparison.OrdinalIgnoreCase));
+            if (relatedProperty == null
+                || !relatedProperty.PropertyType.IsGenericType
+                || relatedProperty.PropertyType.GetGenericTypeDefinition() != typeof(RelatedFilterCriterion<>)
+                || group.Children.Any(child => relatedProperty.GetValue(child.Filter) == null))
+            {
+                error = $"Every condition in a related filter-expression scope must use '{group.RelatedScope.FilterKey}'.";
+                return false;
+            }
+            if (group.Children.Any(child =>
+            {
+                var criterion = relatedProperty.GetValue(child.Filter)!;
+                return (RelatedFilterMode)criterion.GetType().GetProperty(nameof(RelatedFilterCriterion<object>.Mode))!.GetValue(criterion)! != RelatedFilterMode.AtLeastOne
+                    || (bool)criterion.GetType().GetProperty(nameof(RelatedFilterCriterion<object>.Exclude))!.GetValue(criterion)!;
+            }))
+            {
+                error = "Related filter-expression scopes require positive at-least-one conditions.";
+                return false;
+            }
+            if (group.RelatedScope.MatchMode == RelatedScopeMatchMode.Distinct
+                && (typeof(TFilter) != typeof(VideoFilter) || !string.Equals(relatedProperty.Name, nameof(VideoFilter.PerformerFilterCriterion), StringComparison.Ordinal)))
+            {
+                error = $"Distinct assignment is not supported for related scope '{group.RelatedScope.FilterKey}'.";
+                return false;
+            }
+            if (group.RelatedScope.MatchMode == RelatedScopeMatchMode.Distinct && group.Children.Count > 8)
+            {
+                error = "Distinct related filter-expression scopes may not contain more than 8 conditions.";
+                return false;
+            }
         }
         if (group.Operator == FilterExpressionOperator.Not && group.Children.Count != 1)
         {

@@ -17,6 +17,7 @@ import {
   normalizeFilterExpressionOperator,
   sortFilterExpressionChildrenForDisplay,
 } from "../utils/filterExpressionPresentation";
+import { repairRelatedScopes } from "../utils/filterExpressionTree";
 
 export type RelatedFilterChipFacet = "criterion" | "search" | "existence" | "mode";
 
@@ -410,7 +411,9 @@ function removeFilterExpressionLeaf(
     else children.splice(index, 1);
   }
 
-  return children.length > 0 ? { ...expression, children } : undefined;
+  return children.length > 0
+    ? repairRelatedScopes({ ...expression, operator: expression.operator as "AND" | "OR" | "NOT" | "JUST_ONE", children } as Parameters<typeof repairRelatedScopes>[0])
+    : undefined;
 }
 
 export function removeObjectFilterChipTarget(
@@ -659,6 +662,7 @@ function countFilterExpressionLeaves(value: unknown): number {
 
 type ChipFilterExpression = {
   operator?: string;
+  relatedScope?: { filterKey?: string; matchMode?: "reuse" | "distinct" };
   children?: Array<{ filter?: Record<string, unknown>; group?: ChipFilterExpression }>;
 };
 
@@ -794,13 +798,18 @@ function FilterExpressionChipDisplay({
   const hasNestedGroup = presentationChildren.some((child) => Boolean(child.group));
   const showOperator = nested || operator !== "AND" || !hideRootAndOperator || hasNestedGroup;
   const operatorText = operator === "NOT" ? presentation.label : `${presentation.label} of ${presentationChildren.length}`;
+  const relatedScopeCriterion = expression.relatedScope
+    ? criteriaDefinitions.find((criterion) => criterion.filterKey === expression.relatedScope?.filterKey)
+    : undefined;
+  const groupText = relatedScopeCriterion ? `${relatedScopeCriterion.label} · ${operatorText}` : operatorText;
   return (
     <div data-filter-operator={operator} data-filter-group-label={presentation.label} data-filter-outline-group={operator} className="flex w-full min-w-0 gap-1.5">
       <span aria-hidden="true" className={`w-0.5 shrink-0 self-stretch rounded-full ${presentation.railClassName}`} />
       <div className="min-w-0 flex-1 space-y-1">
         {showOperator && onEdit ? (
-          <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`} aria-label={`Edit ${presentation.label} group in Combine Filters`}>{operatorText}</button>
-        ) : showOperator ? <span className={`inline-block rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`}>{operatorText}</span> : null}
+          <button type="button" onClick={() => onEdit({ kind: "root", key: "_filterExpression", path })} data-simple-return-focus={expressionReturnFocusKeys ? `expression-group-${path.join(".") || "root"}` : undefined} className={`rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`} aria-label={`Edit ${presentation.label} group in Combine Filters`}>{groupText}</button>
+        ) : showOperator ? <span className={`inline-block rounded px-1.5 py-0.5 font-semibold ${presentation.labelClassName}`}>{groupText}</span> : null}
+        {relatedScopeCriterion ? <span className="inline-block rounded bg-card px-1.5 py-0.5 text-xs text-muted">{expression.relatedScope?.matchMode === "distinct" ? "Separate matches" : "Matches may overlap"}</span> : null}
         <div className="flex min-w-0 flex-wrap items-start gap-1 max-sm:flex-col">
       {sortFilterExpressionChildrenForDisplay(presentationChildren, operator).map(({ child, index }) => {
         if (child.group) return <div key={index} className="w-full pl-1 sm:pl-2"><FilterExpressionChipDisplay expression={child.group} criteriaDefinitions={criteriaDefinitions} entityNameMaps={entityNameMaps} metadataServers={metadataServers} ratingOptions={ratingOptions} nested path={[...presentationPath, index]} onEdit={onEdit} onRemove={onRemove} expressionReturnFocusKeys={expressionReturnFocusKeys} hideRootAndOperator={hideRootAndOperator} /></div>;

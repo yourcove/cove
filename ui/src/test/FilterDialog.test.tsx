@@ -8,7 +8,7 @@ import { FilterButton } from "../components/FilterButton";
 import { IMAGE_CRITERIA, PERFORMER_CRITERIA, STUDIO_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { RemoteIdFilterEditor } from "../components/PrimitiveCriterionEditors";
-import { countActiveObjectFilters } from "../components/ActiveObjectFilterChips";
+import { countActiveObjectFilters, removeObjectFilterChipTarget } from "../components/ActiveObjectFilterChips";
 import type { CriterionModifier } from "../api/types";
 import { writeStoredRatingOptionsOverride } from "../utils/ratingPreferences";
 import { AppConfigProvider } from "../state/AppConfigContext";
@@ -210,19 +210,25 @@ describe("FilterDialog", () => {
       _filterExpression: {
         operator: "AND",
         children: [
+          { group: {
+            operator: "AND",
+            relatedScope: { filterKey: "performerFilterCriterion", matchMode: "reuse" },
+            children: [
+              { filter: {
+                performerFilterCriterion: {
+                  objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } },
+                  ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
+                },
+              } },
+              { filter: {
+                performerFilterCriterion: {
+                  objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } },
+                  ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 },
+                },
+              } },
+            ],
+          } },
           { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
-          { filter: {
-            performerFilterCriterion: {
-              objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } },
-              ageAtHostDateCriterion: { modifier: "BETWEEN", value: 18, value2: 25 },
-            },
-          } },
-          { filter: {
-            performerFilterCriterion: {
-              objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } },
-              ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 },
-            },
-          } },
         ],
       },
     });
@@ -2598,6 +2604,7 @@ describe("FilterDialog", () => {
         activeFilter={{ _filterExpression: { operator: "AND", children: [
           { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } } } } },
           { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } } } } },
+          { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
         ] } }}
         onApply={onApply}
         supportsFilterExpressions
@@ -2605,19 +2612,41 @@ describe("FilterDialog", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Combine Filters" }));
-    const distinct = screen.getByRole("checkbox", { name: "Match each related-performer condition to a different performer" });
+    expect(screen.getByRole("region", { name: "Related Performers All group" })).toBeInTheDocument();
+    const distinct = screen.getByRole("button", { name: "Use a different performer for each" });
+    expect(distinct).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(distinct);
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({ _filterExpression: {
       operator: "AND",
-      distinctRelatedMatches: true,
       children: [
-        { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } } } } },
-        { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } } } } },
+        { group: {
+          operator: "AND",
+          relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
+          children: [
+            { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Male)$", _selectedValues: ["Male"] } } } } },
+            { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { modifier: "MATCHES_REGEX", value: "^(?:Female)$", _selectedValues: ["Female"] } } } } },
+          ],
+        } },
+        { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
       ],
     } });
+  });
+
+  it("repairs a related scope when a chip removes one of its two conditions", () => {
+    const next = removeObjectFilterChipTarget({ _filterExpression: {
+      operator: "AND",
+      relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
+      children: [
+        { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: true } } } } },
+        { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } } } },
+      ],
+    } }, VIDEO_CRITERIA, { kind: "expression", parentKey: "_filterExpression", path: [0] });
+
+    expect(next._filterExpression).toEqual({ operator: "AND", children: [
+      { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } } } },
+    ] });
   });
 
   it("does not offer distinct performer matching for unsupported lists or relationship modes", () => {
@@ -2629,9 +2658,7 @@ describe("FilterDialog", () => {
       <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{ _filterExpression: expression }} onApply={vi.fn()} supportsFilterExpressions initialView="advanced" />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Combine Filters" }));
-    const staleDistinct = screen.getByRole("checkbox", { name: /different performer/ });
-    expect(staleDistinct).toBeChecked();
-    expect(staleDistinct).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /different performer/ })).not.toBeInTheDocument();
 
     rerender(<QueryClientProvider client={new QueryClient()}>
       <FilterDialog open onClose={vi.fn()} criteria={IMAGE_CRITERIA} activeFilter={{ _filterExpression: { operator: "AND", children: [
@@ -2639,7 +2666,42 @@ describe("FilterDialog", () => {
         { filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } } } },
       ] } }} onApply={vi.fn()} supportsFilterExpressions initialView="advanced" />
     </QueryClientProvider>);
-    expect(screen.queryByRole("checkbox", { name: /different performer/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /different performer/ })).not.toBeInTheDocument();
+  });
+
+  it("does not let a distinct related scope grow past its assignment limit", () => {
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={VIDEO_CRITERIA}
+        activeFilter={{ _filterExpression: {
+          operator: "AND",
+          children: [
+            { group: {
+              operator: "AND",
+              relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
+              children: Array.from({ length: 8 }, () => ({ filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: true } } } } })),
+            } },
+            { filter: { titleCriterion: { modifier: "INCLUDES", value: "outside" } } },
+          ],
+        } }}
+        onApply={vi.fn()}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Add performer condition" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Use a different performer for each" })).toHaveAttribute("aria-pressed", "true");
+    const scope = screen.getByRole("region", { name: "Related Performers All group" });
+    const titleCondition = screen.getByRole("button", { name: /Edit condition 2: Title/ }).closest<HTMLElement>('[role="group"]');
+    const handle = within(titleCondition!).getByRole("button", { name: /Move condition/ });
+    const dataTransfer = { effectAllowed: "none", dropEffect: "none", setData: vi.fn() };
+    fireEvent.dragStart(handle, { dataTransfer });
+    fireEvent.dragOver(scope, { dataTransfer });
+    fireEvent.drop(scope, { dataTransfer });
+    expect(within(scope).queryByRole("button", { name: /Title/ })).not.toBeInTheDocument();
   });
 
   it("keeps expression chips and ordinary filters in one roving group after rerenders and removals", async () => {

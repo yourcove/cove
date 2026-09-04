@@ -1,6 +1,8 @@
 import type { FilterExpression } from "../api/types";
+import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 
 export const FILTER_EXPRESSION_STATE_KEY = "_filterExpression";
+const MAX_FILTER_EXPRESSION_DEPTH = 8;
 
 export type EditableFilterExpression = FilterExpression<Record<string, unknown>> & {
   _semanticNone?: boolean;
@@ -11,24 +13,65 @@ export interface ExpressionGroupDestination {
   path: number[];
   depth: number;
   label: string;
+  relatedScopeFilterKey?: string;
+  relatedScopeMatchMode?: "reuse" | "distinct";
+  childCount: number;
 }
 
-export function toEditableFilterExpression(expression: FilterExpression<Record<string, unknown>>): EditableFilterExpression {
+export function isFilterEligibleForRelatedScope(filter: Record<string, unknown> | undefined, filterKey: string) {
+  const related = filter?.[filterKey];
+  if (!related || typeof related !== "object") return false;
+  const value = related as { mode?: string; exclude?: boolean };
+  return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
+}
+
+function isEligibleRelatedScopeChild(child: FilterExpression<Record<string, unknown>>["children"][number], filterKey: string) {
+  return isFilterEligibleForRelatedScope(child.filter, filterKey);
+}
+
+export function toEditableFilterExpression(
+  expression: FilterExpression<Record<string, unknown>>,
+  criteria: CriterionDefinition[] = [],
+  depth = 1,
+): EditableFilterExpression {
   const children = expression.children.map((child) => child.group
-    ? { group: toEditableFilterExpression(child.group) }
+    ? { group: toEditableFilterExpression(child.group, criteria, depth + 1) }
     : child);
-  if (expression.operator !== "NOT" || children.length !== 1) return { ...expression, children };
-  const onlyChild = children[0];
+  const { distinctRelatedMatches: legacyDistinct, ...expressionWithoutLegacy } = expression;
+  let editable: EditableFilterExpression = expression.relatedScope
+    ? { ...expressionWithoutLegacy, children }
+    : { ...expression, children };
+  if (!expression.relatedScope && expression.operator === "AND") {
+    const candidates = criteria.filter((candidate) => candidate.type === "related"
+      && candidate.supportsDistinctSiblingMatches
+      && children.filter((child) => isEligibleRelatedScopeChild(child, candidate.filterKey)).length >= 2);
+    const criterion = legacyDistinct
+      ? candidates.find((candidate) => candidate.filterKey === "performerFilterCriterion")
+      : candidates[0];
+    if (criterion) {
+      const scopedChildren = children.filter((child) => isEligibleRelatedScopeChild(child, criterion.filterKey));
+      const otherChildren = children.filter((child) => !isEligibleRelatedScopeChild(child, criterion.filterKey));
+      if (otherChildren.length > 0 && depth >= MAX_FILTER_EXPRESSION_DEPTH) return editable;
+      const scope = {
+        operator: "AND" as const,
+        relatedScope: { filterKey: criterion.filterKey, matchMode: legacyDistinct ? "distinct" as const : "reuse" as const },
+        children: scopedChildren,
+      };
+      editable = otherChildren.length === 0 ? scope : { operator: "AND", children: [{ group: scope }, ...otherChildren] };
+    }
+  }
+  if (editable.operator !== "NOT" || editable.children.length !== 1) return editable;
+  const onlyChild = editable.children[0];
   if ("filter" in onlyChild && onlyChild.filter) return { operator: "OR", children: [onlyChild], _semanticNone: true };
   if (onlyChild.group?.operator === "OR" && !(onlyChild.group as EditableFilterExpression)._semanticNone) {
     return { operator: "OR", children: onlyChild.group.children, _semanticNone: true };
   }
-  return { ...expression, children };
+  return editable;
 }
 
-export function normalizeFilterExpressionForEditing(filter: Record<string, unknown>): Record<string, unknown> {
+export function normalizeFilterExpressionForEditing(filter: Record<string, unknown>, criteria: CriterionDefinition[] = []): Record<string, unknown> {
   const expression = filter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<Record<string, unknown>> | undefined;
-  return expression ? { ...filter, [FILTER_EXPRESSION_STATE_KEY]: toEditableFilterExpression(expression) } : filter;
+  return expression ? { ...filter, [FILTER_EXPRESSION_STATE_KEY]: toEditableFilterExpression(expression, criteria) } : filter;
 }
 
 export function countFilterExpressionConditions(expression: FilterExpression<Record<string, unknown>> | undefined): number {
@@ -37,7 +80,7 @@ export function countFilterExpressionConditions(expression: FilterExpression<Rec
 }
 
 export function isComplexFilterExpression(expression: FilterExpression<Record<string, unknown>> | undefined): boolean {
-  return Boolean(expression && (expression.operator !== "AND" || expression.children.some((child) => child.group)));
+  return Boolean(expression && (expression.relatedScope || expression.operator !== "AND" || expression.children.some((child) => child.group)));
 }
 
 export function replaceExpressionGroup(
@@ -74,6 +117,31 @@ export function getExpressionLeaf(root: FilterExpression<Record<string, unknown>
   return child.group ? getExpressionLeaf(child.group, rest) : undefined;
 }
 
+function collectExpressionLeaves(
+  expression: FilterExpression<Record<string, unknown>>,
+  path: number[] = [],
+): Array<{ filter: Record<string, unknown>; path: number[] }> {
+  return expression.children.flatMap((child, index) => child.filter
+    ? [{ filter: child.filter, path: [...path, index] }]
+    : child.group ? collectExpressionLeaves(child.group, [...path, index]) : []);
+}
+
+export function remapExpressionLeafPath(
+  source: FilterExpression<Record<string, unknown>>,
+  destination: FilterExpression<Record<string, unknown>>,
+  sourcePath: number[],
+): number[] | undefined {
+  const sourceLeaf = getExpressionLeaf(source, sourcePath);
+  if (!sourceLeaf) return undefined;
+  const identityMatch = collectExpressionLeaves(destination).find(({ filter }) => filter === sourceLeaf);
+  if (identityMatch) return identityMatch.path;
+  const signature = JSON.stringify(sourceLeaf);
+  const matchingSourceLeaves = collectExpressionLeaves(source).filter(({ filter }) => JSON.stringify(filter) === signature);
+  const occurrence = matchingSourceLeaves.findIndex(({ path }) => expressionPathsEqual(path, sourcePath));
+  if (occurrence < 0) return undefined;
+  return collectExpressionLeaves(destination).filter(({ filter }) => JSON.stringify(filter) === signature)[occurrence]?.path;
+}
+
 export function getExpressionGroup(root: FilterExpression<Record<string, unknown>>, path: number[]): FilterExpression<Record<string, unknown>> | undefined {
   if (path.length === 0) return root;
   const [index, ...rest] = path;
@@ -85,11 +153,30 @@ export function updateExpressionLeaf(root: FilterExpression<Record<string, unkno
   const parentPath = path.slice(0, -1);
   const index = path.at(-1);
   if (index === undefined) return root;
-  return replaceExpressionGroup(root, parentPath, (group) => {
+  return repairRelatedScopes(replaceExpressionGroup(root, parentPath, (group) => {
     const children = group.children.slice();
     children[index] = { filter };
     return { ...group, children };
-  });
+  }));
+}
+
+export function repairRelatedScopes(group: FilterExpression<Record<string, unknown>>): FilterExpression<Record<string, unknown>> {
+  const children = group.children.map((child) => child.group ? { group: repairRelatedScopes(child.group) } : child);
+  if (!group.relatedScope) return { ...group, children };
+  if (group.operator !== "AND") {
+    const { relatedScope: _relatedScope, ...unscoped } = group;
+    return { ...unscoped, children };
+  }
+  const scopedChildren = children.filter((child) => isEligibleRelatedScopeChild(child, group.relatedScope!.filterKey));
+  const otherChildren = children.filter((child) => !isEligibleRelatedScopeChild(child, group.relatedScope!.filterKey));
+  if (otherChildren.length === 0 && scopedChildren.length >= 2) return { ...group, children };
+  const { relatedScope, ...unscoped } = group;
+  if (scopedChildren.length < 2) return { ...unscoped, operator: "AND", children: [...scopedChildren, ...otherChildren] };
+  return {
+    ...unscoped,
+    operator: "AND",
+    children: [{ group: { operator: "AND", relatedScope, children: scopedChildren } }, ...otherChildren],
+  };
 }
 
 export function expressionPathsEqual(left: number[], right: number[]) {

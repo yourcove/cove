@@ -299,21 +299,30 @@ export function sanitizeFilterExpression(expression: EditableFilterExpression | 
   }
   const operator = expression.operator === "OR" || expression.operator === "JUST_ONE" ? expression.operator : expression.operator === "NOT" ? "NOT" : "AND";
   if (operator === "NOT" && children.length !== 1) return undefined;
-  const supportsDistinctPerformerMatches = criteria.some((criterion) => criterion.filterKey === "performerFilterCriterion"
-    && criterion.supportsDistinctSiblingMatches);
-  const distinctPerformerConditions = supportsDistinctPerformerMatches ? children.filter((child) => {
-    const related = child.filter?.performerFilterCriterion;
+  const scopedCriterion = expression.relatedScope
+    ? criteria.find((criterion) => criterion.type === "related"
+      && criterion.filterKey === expression.relatedScope?.filterKey
+      && criterion.supportsDistinctSiblingMatches)
+    : undefined;
+  const scopedConditions = scopedCriterion ? children.filter((child) => {
+    const related = child.filter?.[scopedCriterion.filterKey];
     if (!related || typeof related !== "object") return false;
     const value = related as { mode?: string; exclude?: boolean };
     return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
   }).length : 0;
-  const keepDistinctMatches = operator === "AND"
-    && expression.distinctRelatedMatches
-    && distinctPerformerConditions >= 2
-    && distinctPerformerConditions <= MAX_DISTINCT_RELATED_CONDITIONS;
+  const keepRelatedScope = operator === "AND"
+    && scopedCriterion
+    && scopedConditions === children.length
+    && scopedConditions >= 2
+    && (expression.relatedScope?.matchMode !== "distinct" || scopedConditions <= MAX_DISTINCT_RELATED_CONDITIONS);
+  const keepLegacyDistinct = operator === "AND" && expression.distinctRelatedMatches === true && !expression.relatedScope;
   return children.length > 0 ? {
     operator,
-    ...(keepDistinctMatches ? { distinctRelatedMatches: true } : {}),
+    ...(keepLegacyDistinct ? { distinctRelatedMatches: true } : {}),
+    ...(keepRelatedScope ? { relatedScope: {
+      filterKey: scopedCriterion.filterKey,
+      matchMode: expression.relatedScope?.matchMode === "distinct" ? "distinct" : "reuse",
+    } } : {}),
     children,
   } : undefined;
 }
@@ -358,7 +367,7 @@ export function mergeFilterExpressionWithSimpleCriteria(
   const simpleExpression = filterToExpression(filter, criteria);
   if (!expression) return simpleExpression.children.length > 0 ? simpleExpression : undefined;
   if (simpleExpression.children.length === 0) return expression;
-  return expression.operator === "AND"
+  return expression.operator === "AND" && !expression.relatedScope
     ? { ...expression, children: [...expression.children, ...simpleExpression.children] }
     : { operator: "AND", children: [{ group: expression }, ...simpleExpression.children] };
 }

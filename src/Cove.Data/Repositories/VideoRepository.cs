@@ -129,7 +129,10 @@ public class VideoRepository : IVideoRepository
         {
             if (group.Operator == FilterExpressionOperator.And)
             {
-                var distinctCriteria = includeRelatedFilters && group.DistinctRelatedMatches
+                var distinctPerformerScope = group.DistinctRelatedMatches
+                    || (group.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct
+                        && string.Equals(group.RelatedScope.FilterKey, nameof(VideoFilter.PerformerFilterCriterion), StringComparison.OrdinalIgnoreCase));
+                var distinctCriteria = includeRelatedFilters && distinctPerformerScope
                     ? group.Children
                         .Where(child => child.Filter?.PerformerFilterCriterion is { Mode: RelatedFilterMode.AtLeastOne, Exclude: false })
                         .Select(child => child.Filter!.PerformerFilterCriterion!)

@@ -227,11 +227,26 @@ public enum FilterExpressionOperator
     JustOne,
 }
 
+public enum RelatedScopeMatchMode
+{
+    Reuse,
+    Distinct,
+}
+
+/// <summary>Scopes an expression group to repeated conditions over one related-entity collection.</summary>
+public class RelatedFilterScope
+{
+    public string FilterKey { get; set; } = "";
+    public RelatedScopeMatchMode MatchMode { get; set; }
+}
+
 /// <summary>A recursively composable boolean expression over partial entity filters.</summary>
 public class FilterExpression<TFilter> where TFilter : class
 {
     public FilterExpressionOperator Operator { get; set; } = FilterExpressionOperator.And;
-    /// <summary>Requires positive sibling related filters of the same kind to match different related entities.</summary>
+    /// <summary>Scopes this group to conditions over one related-entity collection.</summary>
+    public RelatedFilterScope? RelatedScope { get; set; }
+    /// <summary>Legacy distinct-match marker retained for existing saved filters and URLs.</summary>
     public bool DistinctRelatedMatches { get; set; }
     public List<FilterExpressionNode<TFilter>> Children { get; set; } = [];
 }

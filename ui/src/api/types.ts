@@ -2295,6 +2295,11 @@ export type FilterExpressionNode<TFilter = Record<string, unknown>> =
 
 export interface FilterExpression<TFilter = Record<string, unknown>> {
   operator: "AND" | "OR" | "JUST_ONE" | "NOT";
+  relatedScope?: {
+    filterKey: string;
+    matchMode: "reuse" | "distinct";
+  };
+  /** Legacy marker accepted when opening older URLs and saved filters. */
   distinctRelatedMatches?: boolean;
   children: FilterExpressionNode<TFilter>[];
 }
