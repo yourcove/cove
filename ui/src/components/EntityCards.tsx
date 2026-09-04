@@ -19,6 +19,7 @@ import { SegmentPreviewMedia } from "./SegmentPreviewMedia";
 import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 import { EntityMedia, TagMediaHover } from "./EntityMedia";
 import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
+import { GalleryScrubThumbnail, type GalleryScrubThumbnailHandle } from "./GalleryScrubThumbnail";
 import { getAgeAtDate } from "../utils/performerAge";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
@@ -63,6 +64,8 @@ interface EntityTileFrameProps {
   dragHandleProps?: EntityTileDragHandleProps;
   isDragging?: boolean;
   isOver?: boolean;
+  onOverlayMouseMove?: (clientX: number, clientY: number) => void;
+  onOverlayMouseLeave?: () => void;
 }
 
 /**
@@ -105,13 +108,15 @@ export function EntityTileFrame({
   dragHandleProps,
   isDragging,
   isOver,
+  onOverlayMouseMove,
+  onOverlayMouseLeave,
 }: EntityTileFrameProps) {
   return (
     <div
       onClick={selecting ? (event) => onClick(toggleOptionsFromEvent(event)) : undefined}
       className={`entity-card group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors ${selected ? "border-accent ring-2 ring-accent" : "border-border hover:border-accent/60"} ${isDragging ? "opacity-50" : ""} ${isOver ? "outline outline-2 outline-accent" : ""} ${className}`}
     >
-      <RouteCardLinkOverlay route={route} onClick={onClick} label={label} disabled={selecting} selectionSafeZone={selectable && (selected !== undefined || selecting)} />
+      <RouteCardLinkOverlay route={route} onClick={onClick} label={label} disabled={selecting} selectionSafeZone={selectable && (selected !== undefined || selecting)} onMouseMove={onOverlayMouseMove ? (event) => onOverlayMouseMove(event.clientX, event.clientY) : undefined} onMouseLeave={onOverlayMouseLeave} />
       <div className={`card-media relative flex shrink-0 items-center justify-center overflow-hidden ${mediaClassName}`}>
         {media}
         {selectable && (selected !== undefined || selecting) ? <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} /> : null}
@@ -1384,6 +1389,7 @@ interface GalleryTileProps {
 }
 
 export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected, onSelect, selecting, bookmarkInitiallySaved }: GalleryTileProps & { engagement?: EntityEngagement }) {
+  const scrubThumbnailRef = useRef<GalleryScrubThumbnailHandle>(null);
   const imageFit = useConfiguredImageFit();
   const likeCount = engagement?.likeCount ?? 0;
   const hasFooter = likeCount > 0 || gallery.imageCount > 0 || gallery.videoCount > 0 || gallery.tags.length > 0 || gallery.performers.length > 0 || Boolean(gallery.studioName) || gallery.organized;
@@ -1398,6 +1404,8 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
       selected={selected}
       onSelect={onSelect}
       selecting={selecting}
+      onOverlayMouseMove={(clientX, clientY) => scrubThumbnailRef.current?.updatePreview(clientX, clientY)}
+      onOverlayMouseLeave={() => scrubThumbnailRef.current?.resetPreview()}
       mediaClassName="aspect-square bg-surface"
       bodyClassName="p-2"
       media={(
@@ -1411,13 +1419,16 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
             fit={imageFit}
             loading="lazy"
             className="h-full w-full"
-            renderDefault={() => galleryCoverSrc ? (
-              <>
-                <CoverImage src={galleryCoverSrc} alt={title} className="h-full w-full" loading="lazy" onError={(event) => { const image = event.currentTarget; image.style.display = "none"; const fallback = image.nextElementSibling as HTMLElement | null; if (fallback) fallback.style.display = "flex"; }} />
-                <div className="hidden h-full w-full items-center justify-center"><FolderOpen className="h-10 w-10 text-muted" /></div>
-              </>
-            ) : (
-              <FolderOpen className="h-10 w-10 text-muted" />
+            renderDefault={() => (
+              <GalleryScrubThumbnail
+                ref={scrubThumbnailRef}
+                gallery={gallery}
+                coverUrl={galleryCoverSrc}
+                coverWidth={960}
+                fit={imageFit}
+                alt={title}
+                enableScrubbing={!selecting}
+              />
             )}
           />
           <RatingBanner rating={engagement?.rating} />
@@ -1449,7 +1460,10 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
         </>
       )}
       body={(
-        <p className="card-title line-clamp-2 font-semibold text-foreground group-hover:text-accent">{title}</p>
+        <div className="min-w-0">
+          <p className="card-title line-clamp-2 font-semibold text-foreground group-hover:text-accent">{title}</p>
+          {gallery.date ? <p className="mt-0.5 truncate text-xs text-secondary">{formatDate(gallery.date)}</p> : null}
+        </div>
       )}
       footer={hasFooter ? (
         <>
