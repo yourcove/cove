@@ -609,8 +609,9 @@ export function VideosPage({ onNavigate }: Props) {
     <ListPage
       title="Videos"
       metadataByline={!visualSearchActive && !canShowCompilationGroups ? (
-        <MediaAggregateMetadata duration={filteredAggregate?.duration} fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />
+        <MediaAggregateMetadata duration={filteredAggregate?.duration} fileSize={filteredAggregate?.fileSize} loading={false} />
       ) : undefined}
+      summaryLoading={!visualSearchActive && !canShowCompilationGroups && (loading || filteredAggregateLoading)}
       pageKey="videos"
       filterMode="videos"
       filter={filter}

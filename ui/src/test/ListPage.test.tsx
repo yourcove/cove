@@ -99,6 +99,33 @@ describe("ListPage active filter chips", () => {
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
   });
 
+  it("withholds a loaded count while related summary metadata is still loading", () => {
+    const queryClient = new QueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={81}
+            loadState={{ status: "success", data: {} }}
+            summaryLoading
+            metadataByline={<span>Calculating…</span>}
+          >
+            <div>collection content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByText("Calculating…")).not.toBeInTheDocument();
+    expect(screen.queryByText("1-40 of 81")).not.toBeInTheDocument();
+    expect(screen.getByText("collection content")).toBeInTheDocument();
+  });
+
   it("keeps the focused search control mounted while collection results become pending", () => {
     const queryClient = new QueryClient();
     const renderListPage = (loadState: { status: "success"; data: unknown } | { status: "pending" }) => (
