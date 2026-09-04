@@ -1130,6 +1130,12 @@ public class VideoFileConfiguration : IEntityTypeConfiguration<VideoFile>
         // by an Index Only Scan, which is what the video-list "path" sort relies on.
         builder.HasIndex(v => new { v.VideoId, v.Path })
             .HasFilter("\"VideoId\" IS NOT NULL");
+        // Fingerprint filters join files to a selected fingerprint type by file ID. Keep that join on
+        // the comparatively small set of video-backed files instead of scanning every media file.
+        builder.HasIndex(v => v.Id)
+            .HasDatabaseName("IX_files_Id_VideoId_video")
+            .IncludeProperties(v => v.VideoId)
+            .HasFilter("\"VideoId\" IS NOT NULL");
     }
 }
 
