@@ -61,7 +61,7 @@ public sealed class PerformerMetadataServiceApiTests(
         imported.Gender.Should().Be("Female");
         imported.Birthdate.Should().Be("1992-04-01");
         imported.Ethnicity.Should().Be("Caucasian");
-        imported.Country.Should().Be("United Kingdom");
+        imported.Country.Should().Be("GB");
         imported.EyeColor.Should().Be("Hazel");
         imported.HairColor.Should().Be("Auburn");
         imported.HeightCm.Should().Be(168);
@@ -78,7 +78,7 @@ public sealed class PerformerMetadataServiceApiTests(
         persisted.Gender.Should().Be("Female");
         persisted.Birthdate.Should().Be("1992-04-01");
         persisted.Ethnicity.Should().Be("Caucasian");
-        persisted.Country.Should().Be("United Kingdom");
+        persisted.Country.Should().Be("GB");
         persisted.EyeColor.Should().Be("Hazel");
         persisted.HairColor.Should().Be("Auburn");
         persisted.HeightCm.Should().Be(168);
@@ -198,7 +198,7 @@ public sealed class PerformerMetadataServiceApiTests(
         draft.Input.GetProperty("gender").GetString().Should().Be("FEMALE");
         draft.Input.GetProperty("birthdate").GetString().Should().Be(metadataPerformer.Performer.BirthDate);
         draft.Input.GetProperty("ethnicity").GetString().Should().Be(metadataPerformer.Performer.Ethnicity);
-        draft.Input.GetProperty("country").GetString().Should().Be(metadataPerformer.Performer.Country);
+        draft.Input.GetProperty("country").GetString().Should().Be(Cove.Core.Common.CountryCatalog.Normalize(metadataPerformer.Performer.Country));
         draft.Input.GetProperty("eye_color").GetString().Should().Be(metadataPerformer.Performer.EyeColor);
         draft.Input.GetProperty("hair_color").GetString().Should().Be(metadataPerformer.Performer.HairColor);
         draft.Input.GetProperty("height").GetString().Should().Be("168");
@@ -277,7 +277,7 @@ public sealed class PerformerMetadataServiceApiTests(
         performer.Gender.Should().Be(ToCoveGender(metadataPerformer.Performer.Gender));
         performer.Birthdate.Should().Be(metadataPerformer.Performer.BirthDate);
         performer.Ethnicity.Should().Be(metadataPerformer.Performer.Ethnicity);
-        performer.Country.Should().Be(metadataPerformer.Performer.Country);
+        performer.Country.Should().Be(Cove.Core.Common.CountryCatalog.Normalize(metadataPerformer.Performer.Country));
         performer.EyeColor.Should().Be(metadataPerformer.Performer.EyeColor);
         performer.HairColor.Should().Be(metadataPerformer.Performer.HairColor);
         performer.HeightCm.Should().Be(metadataPerformer.Performer.HeightCm);

@@ -78,7 +78,9 @@ public record PerformerDto(
 
 public record PerformerRemoteIdDto(string Endpoint, string RemoteId);
 
-public record PerformerSummaryDto(int Id, string Name, string? Disambiguation, string? Gender, string? Birthdate, bool Favorite, string? ImagePath, int VideoCount = 0, int ImageCount = 0, int GalleryCount = 0, int AudioCount = 0, int TextCount = 0);
+public record PerformerCountryOptionDto(string Value, string? Code, string Name, int PerformerCount, bool IsCustom);
+
+public record PerformerSummaryDto(int Id, string Name, string? Disambiguation, string? Gender, string? Birthdate, bool Favorite, string? ImagePath, int VideoCount = 0, int ImageCount = 0, int GalleryCount = 0, int AudioCount = 0, int TextCount = 0, string? Country = null, [param: PartialDate] string? DeathDate = null);
 
 public record GallerySummaryDto(int Id, string? Title, string? Date);
 
@@ -2049,9 +2051,11 @@ public record BulkVideoUpdateDto
 public record BulkPerformerUpdateDto
 {
     public List<int> Ids { get; init; } = [];
+    public List<string>? ClearFields { get; init; }
     public int? Rating { get; init; }
     public bool? Favorite { get; init; }
     public string? Gender { get; init; }
+    public string? Country { get; init; }
     public string? Details { get; init; }
     public List<int>? TagIds { get; init; }
     public BulkUpdateMode TagMode { get; init; } = BulkUpdateMode.Add;

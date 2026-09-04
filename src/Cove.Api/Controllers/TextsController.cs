@@ -888,7 +888,9 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0,
             performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0,
             performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0,
-            performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
+            performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0,
+            performer.Country,
+            PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision))).ToList(),
         text.Files.OrderBy(file => file.Id).Select(file => new TextFileDto(
             file.Id,
             CanReadFiles ? file.Path : string.Empty,

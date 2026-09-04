@@ -30,13 +30,7 @@ import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid, VirtualizedWallColumns } from "../components/VirtualizedEntityLayouts";
 import { getApiValidationFailureDetail } from "../utils/requestFailure";
 import { getPerformerAge } from "../utils/performerAge";
-
-/** Convert 2-letter ISO country code to flag emoji */
-function countryToFlag(code: string): string {
-  const upper = code.toUpperCase();
-  if (upper.length !== 2) return code;
-  return String.fromCodePoint(...[...upper].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
-}
+import { CountryLabel, CountrySelect } from "../components/Country";
 
 const SORT_OPTIONS = PERFORMER_SORT_OPTIONS;
 
@@ -268,7 +262,7 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
               </td>
               <td className="py-2 px-3 text-secondary capitalize">{p.gender?.toLowerCase()}</td>
               <td className="py-2 px-3 text-secondary">{age ?? ""}</td>
-              <td className="py-2 px-3 text-secondary">{p.country ?? ""}</td>
+              <td className="py-2 px-3 text-secondary"><CountryLabel value={p.country} /></td>
               <td className="py-2 px-3 text-secondary text-right">{p.videoCount}</td>
               <td className="py-2 px-3 text-secondary text-right">{rating ?? ""}</td>
               <td className="py-2 px-3">
@@ -326,6 +320,7 @@ export function PerformerCreateModal({ open, onClose, onCreated }: { open: boole
     mutationFn: (data: PerformerCreate) => performers.create(data),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["performers"] });
+      qc.invalidateQueries({ queryKey: ["performer-country-options"] });
       resetForm();
       if (createAnother) return;
       onClose();
@@ -370,7 +365,7 @@ export function PerformerCreateModal({ open, onClose, onCreated }: { open: boole
           <TextInput value={disambiguation} onChange={setDisambiguation} placeholder="Optional identity qualifier" />
         </Field>
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Field label="Gender">
             <select value={gender} onChange={(e) => setGender(e.target.value)} className={SELECT_CLASS}>
               <option value="">—</option>
@@ -385,9 +380,11 @@ export function PerformerCreateModal({ open, onClose, onCreated }: { open: boole
           <Field label="Death Date">
             <IsoDateInput value={deathDate} onChange={(e) => setDeathDate(e.target.value)} className={SELECT_CLASS} />
           </Field>
-          <Field label="Country">
-            <TextInput value={country} onChange={setCountry} placeholder="e.g. US" />
-          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Country">
+              <CountrySelect value={country} onChange={setCountry} />
+            </Field>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-4">

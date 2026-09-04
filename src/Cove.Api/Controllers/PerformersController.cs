@@ -76,6 +76,35 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         return Ok(await MapToDetailDtoAsync(performer, ct));
     }
 
+    [HttpGet("countries")]
+    [AllowShareLinkAccess]
+    [OutputCache(PolicyName = "ShortCache")]
+    public async Task<ActionResult<IReadOnlyList<PerformerCountryOptionDto>>> GetCountries(CancellationToken ct)
+    {
+        var counts = await db.Performers
+            .AsNoTracking()
+            .Where(performer => performer.Country != null && performer.Country != "")
+            .GroupBy(performer => performer.Country!)
+            .Select(group => new { Value = group.Key, Count = group.Count() })
+            .ToListAsync(ct);
+        var countsByValue = counts.ToDictionary(row => row.Value, row => row.Count, StringComparer.Ordinal);
+        var options = CountryCatalog.Countries
+            .Select(country => new PerformerCountryOptionDto(
+                country.Code,
+                country.Code,
+                country.Name,
+                countsByValue.GetValueOrDefault(country.Code),
+                false))
+            .ToList();
+
+        var custom = counts
+            .Where(row => CountryCatalog.FindByCode(row.Value) is null)
+            .Select(row => new PerformerCountryOptionDto(row.Value, null, row.Value, row.Count, true))
+            .OrderBy(option => option.Name, StringComparer.OrdinalIgnoreCase);
+        options.AddRange(custom);
+        return Ok(options);
+    }
+
     [HttpGet("{id:int}/groups")]
     [OutputCache(PolicyName = "ShortCache")]
     public async Task<ActionResult<PaginatedResponse<GroupDto>>> GetGroups(
@@ -826,7 +855,14 @@ public class PerformersController(IPerformerRepository performerRepo, MetadataSe
         {
             if (dto.Favorite.HasValue) p.Favorite = dto.Favorite.Value;
             if (dto.Gender != null) p.Gender = ParseEnum<GenderEnum>(dto.Gender);
+            if (dto.Country != null) p.Country = dto.Country;
             if (dto.Details != null) p.Details = dto.Details;
+
+            foreach (var field in dto.ClearFields?.Distinct(StringComparer.OrdinalIgnoreCase) ?? [])
+            {
+                if (field.Equals("country", StringComparison.OrdinalIgnoreCase))
+                    p.Country = null;
+            }
 
             if (dto.TagIds != null && dto.TagMode == BulkUpdateMode.Set)
             {

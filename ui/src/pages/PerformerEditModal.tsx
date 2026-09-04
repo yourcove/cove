@@ -12,6 +12,7 @@ import { RemoteIdsEditor, normalizeRemoteIds, type RemoteIdValue } from "../comp
 import { getApiValidationFailureDetail } from "../utils/requestFailure";
 import { SelectedTagChips, type SelectableTag } from "../components/TagSelector";
 import { useAutocomplete, type AutocompleteItem } from "../hooks/useAutocomplete";
+import { CountrySelect } from "../components/Country";
 
 interface Props {
   performer: Performer;
@@ -121,6 +122,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["performer", performer.id] });
       queryClient.invalidateQueries({ queryKey: ["performers"] });
+      queryClient.invalidateQueries({ queryKey: ["performer-country-options"] });
       onClose();
     },
   });
@@ -248,7 +250,7 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
         </Field>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Field label="Gender" fieldProvenance={performer.fieldProvenance} fieldKey="gender">
           <select
             value={gender}
@@ -275,9 +277,11 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
             className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
           />
         </Field>
-        <Field label="Country" fieldProvenance={performer.fieldProvenance} fieldKey="country">
-          <TextInput value={country} onChange={setCountry} placeholder="e.g. US" />
-        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Country" fieldProvenance={performer.fieldProvenance} fieldKey="country">
+            <CountrySelect value={country} onChange={setCountry} />
+          </Field>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

@@ -7,13 +7,14 @@ import type { BulkUpdateMode } from "../api/types";
 import { tagGroups } from "../api/client";
 import { StudioSelector } from "./StudioSelector";
 import { EntityReferenceMultiSelector, type EntityReferenceType } from "./EntityReferenceSelector";
+import { CountrySelect } from "./Country";
 
 // ===== Generic Bulk Edit Dialog =====
 
 export interface BulkEditField {
   key: string;
   label: string;
-  type: "rating" | "number" | "bool" | "string" | "date" | "select" | "multiId";
+  type: "rating" | "number" | "bool" | "string" | "date" | "select" | "multiId" | "country";
   entityType?: "tags" | "performers" | "studios" | "groups" | "galleries" | "tagGroups";
   options?: { label: string; value: string | number }[];
   modeKey?: string;
@@ -201,6 +202,9 @@ function BulkFieldEditor({
               onChange={(e) => onValueChange(e.target.value)}
               className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
             />
+          )}
+          {field.type === "country" && (
+            <CountrySelect value={(value as string) ?? ""} onChange={onValueChange} />
           )}
           {field.type === "select" && field.entityType === "studios" && (
             <div className="space-y-2">
@@ -397,6 +401,7 @@ export const PERFORMER_BULK_FIELDS: BulkEditField[] = [
     type: "select",
     options: ["Female", "Male", "TransgenderFemale", "TransgenderMale", "Intersex", "NonBinary"].map((value) => ({ value, label: value.replace(/([a-z])([A-Z])/g, "$1 $2") })),
   },
+  { key: "country", label: "Country", type: "country", nullable: true },
   { key: "details", label: "Details", type: "string" },
   { key: "tagIds", label: "Tags", type: "multiId", entityType: "tags", modeKey: "tagMode" },
 ];

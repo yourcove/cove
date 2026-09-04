@@ -10,6 +10,44 @@ namespace Cove.Tests;
 
 public class PerformerFilterBehaviorTests
 {
+    [Theory]
+    [InlineData(CriterionModifier.Equals, "Canada", "Canadian")]
+    [InlineData(CriterionModifier.NotEquals, "Canada", "American")]
+    [InlineData(CriterionModifier.Includes, "Canada", "Canadian")]
+    [InlineData(CriterionModifier.Excludes, "Canada", "American")]
+    public async Task CountryCriterion_NormalizesKnownNamesForSavedFilters(CriterionModifier modifier, string value, string expectedName)
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        context.Performers.AddRange(
+            new Performer { Name = "Canadian", Country = "CA" },
+            new Performer { Name = "American", Country = "US" });
+        if (modifier == CriterionModifier.Includes)
+            context.Performers.AddRange(
+                new Performer { Name = "Custom", Country = "Canada West" },
+                new Performer { Name = "Unrelated", Country = "Catalonia" });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var repository = new PerformerRepository(context);
+        var filter = new PerformerFilter
+        {
+            CountryCriterion = new StringCriterion { Value = value, Modifier = modifier },
+        };
+
+        var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20 }, TestContext.Current.CancellationToken);
+
+        if (modifier == CriterionModifier.Includes)
+        {
+            Assert.Equal(2, totalCount);
+            Assert.Equal(["Canadian", "Custom"], items.Select(item => item.Name).Order().ToArray());
+        }
+        else
+        {
+            Assert.Equal(1, totalCount);
+            Assert.Equal(expectedName, Assert.Single(items).Name);
+        }
+    }
+
     [Fact]
     public async Task StudiosCriterion_IncludesAll_RequiresVideosFromAllSelectedStudios()
     {

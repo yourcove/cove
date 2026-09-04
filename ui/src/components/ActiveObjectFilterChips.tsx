@@ -9,6 +9,7 @@ import type { MetadataServer, RatingSystemOptions } from "../api/types";
 import { convertToRatingFormat, formatDisplayRating, normalizeRatingOptions, RatingStars, useRatingOptions } from "./Rating";
 import { RESOLUTION_FILTER_OPTIONS } from "../utils/resolutionBuckets";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
+import { CountryLabel } from "./Country";
 
 const CHIP_MODIFIER_LABELS: Record<string, string> = {
   EQUALS: "=",
@@ -311,6 +312,14 @@ function RatingFilterChipDisplay({ value, options, fallback }: { value: unknown;
   return <span className="inline-flex items-center gap-1">{modifier} {renderStars(criterion.value)}</span>;
 }
 
+function CountryFilterChipDisplay({ value, fallback }: { value: unknown; fallback: string }) {
+  if (!value || typeof value !== "object") return <span title={fallback}>{fallback}</span>;
+  const criterion = value as { value?: unknown; modifier?: string };
+  if (criterion.modifier === "IS_NULL" || criterion.modifier === "NOT_NULL" || typeof criterion.value !== "string" || !criterion.value) return <span title={fallback}>{fallback}</span>;
+  const modifier = criterion.modifier ? CHIP_MODIFIER_LABELS[criterion.modifier] ?? criterion.modifier : "";
+  return <span className="inline-flex items-center gap-1">{modifier ? <span>{modifier}</span> : null}<CountryLabel value={criterion.value} /></span>;
+}
+
 interface ActiveObjectFilterChipsProps {
   criteriaDefinitions: CriterionDefinition[];
   objectFilter: Record<string, unknown>;
@@ -542,6 +551,8 @@ function ActiveObjectFilterChipsContent({
           : customSection?.summarize?.(value) ?? (isAuxiliaryToggle && typeof value === "boolean" ? (value ? "Yes" : "No") : formatFilterChipValue(def, value, nameMap, ratingOptions));
         const displayContent = !customSection && def?.type === "rating"
           ? <RatingFilterChipDisplay value={value} options={ratingOptions} fallback={displayValue} />
+          : !customSection && def?.type === "country"
+            ? <CountryFilterChipDisplay value={value} fallback={displayValue} />
           : !customSection && def?.type === "multiId"
             ? <MultiIdFilterChipDisplay def={def} value={value} nameMap={nameMap} fallback={displayValue} />
             : displayValue;
@@ -557,7 +568,7 @@ function ActiveObjectFilterChipsContent({
               aria-keyshortcuts={rovingKeyboardAccess ? "ArrowLeft ArrowRight Home End Delete Backspace" : undefined}
               data-active-filter-key={key}
               className="flex min-w-0 max-w-full flex-wrap items-center gap-1 px-2 text-left"
-              title={`${label}: ${displayValue}`}
+              title={def?.type === "country" ? undefined : `${label}: ${displayValue}`}
               aria-label={`Edit filter: ${label}`}
             >
               <span className="text-muted">{label}:</span>

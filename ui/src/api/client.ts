@@ -2,7 +2,7 @@ import type {
   MeResponse,
   GlobalSearchResponse,
   Video, VideoCreate, VideoUpdate, VideoListEntry,
-  Performer, PerformerCreate, PerformerUpdate,
+  Performer, PerformerCreate, PerformerUpdate, PerformerCountryOption,
   Tag, TagDetail, TagCreate, TagUpdate, TagSegmentWall,
   TagApplication, TagApplicationCreate, TagGroup, TagGroupCreate, TagGroupUpdate,
   TagGraphNode, TagGraphResponse,
@@ -763,6 +763,7 @@ export const performers = {
   findFiltered: (req: FilteredQueryRequest<PerformerFilterCriteria>) =>
     request<PaginatedResponse<Performer>>("/performers/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Performer>(`/performers/${id}`),
+  countries: () => request<PerformerCountryOption[]>("/performers/countries"),
   groups: (id: number, filter?: FindFilter) =>
     request<PaginatedResponse<Group>>(`/performers/${id}/groups${buildQuery(filter)}`),
   appearsWith: (id: number, filter?: FindFilter) =>

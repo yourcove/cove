@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ListPage } from "../components/ListPage";
 import { formatFilterChipValue, formatRemoteIdFilterChipValue } from "../components/ActiveObjectFilterChips";
-import { TAG_CRITERIA, VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
+import { PERFORMER_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { RouteRegistryProvider } from "../router/RouteRegistry";
@@ -77,6 +77,70 @@ describe("ListPage active filter chips", () => {
     expect(onFilterChange).toHaveBeenLastCalledWith({ page: 13, perPage: 40 });
     fireEvent.keyDown(window, { key: "ArrowLeft" });
     expect(onFilterChange).toHaveBeenLastCalledWith({ page: 11, perPage: 40 });
+  });
+
+  it("shows a flag and display name for a recognized country filter", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["performer-country-options"], [
+      { value: "CZ", code: "CZ", name: "Czechia", performerCount: 1, isCustom: false },
+    ]);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Performers"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={PERFORMER_CRITERIA}
+            objectFilter={{ countryCriterion: { value: "CZ", modifier: "EQUALS" } }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const chip = screen.getByRole("button", { name: "Edit filter: Country" });
+    expect(chip).toHaveTextContent("Country:=🇨🇿Czechia");
+    expect(chip).not.toHaveTextContent("CZ");
+    expect(chip).not.toHaveAttribute("title");
+    expect(await screen.findByTitle("Czechia (CZ)")).toBeInTheDocument();
+  });
+
+  it.each([
+    [{ value: "Atlantis", modifier: "EQUALS" }, "=Atlantis", "Atlantis"],
+    [{ modifier: "IS_NULL" }, "Is Null", "Is Null"],
+  ])("keeps country filter fallback %s readable and titled", (countryCriterion, text, title) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["performer-country-options"], []);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Performers"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={PERFORMER_CRITERIA}
+            objectFilter={{ countryCriterion }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const chip = screen.getByRole("button", { name: "Edit filter: Country" });
+    expect(chip).toHaveTextContent(`Country:${text}`);
+    expect(chip).not.toHaveAttribute("title");
+    expect(screen.getByTitle(title)).toBeInTheDocument();
   });
 
   it("keeps the top-level wall size control mapped to wall columns", () => {

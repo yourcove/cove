@@ -890,7 +890,9 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             counts?.ImageCount ?? performer.ImageCount,
             counts?.GalleryCount ?? performer.GalleryCount,
             counts?.AudioCount ?? 0,
-            counts?.TextCount ?? 0);
+            counts?.TextCount ?? 0,
+            performer.Country,
+            PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision));
     }
 
     private static IEnumerable<VideoFile> EffectiveFiles(Video video)

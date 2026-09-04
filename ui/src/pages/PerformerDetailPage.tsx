@@ -43,6 +43,7 @@ import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
+import { CountryLabel } from "../components/Country";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
 import { getPerformerAge, getUtcToday, hasDeathOccurred } from "../utils/performerAge";
@@ -247,7 +248,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
                 <InfoItem icon={<Calendar className="h-4 w-4" />} label="Born" value={`${formatDate(performer.birthdate)}${!deceased && age != null ? ` (${age})` : ""}`} fieldProvenance={performer.fieldProvenance} fieldKey="birthdate" />
               )}
               {performer.deathDate && <InfoItem icon={<Calendar className="h-4 w-4" />} label="Died" value={`${formatDate(performer.deathDate)}${deceased && age != null ? ` (age ${age})` : ""}`} fieldProvenance={performer.fieldProvenance} fieldKey="deathDate" />}
-              {performer.country && <InfoItem icon={<MapPin className="h-4 w-4" />} label="Country" value={performer.country} fieldProvenance={performer.fieldProvenance} fieldKey="country" />}
+              {performer.country && <InfoItem icon={<MapPin className="h-4 w-4" />} label="Country" value={<CountryLabel value={performer.country} />} fieldProvenance={performer.fieldProvenance} fieldKey="country" />}
               {performer.ethnicity && <InfoItem label="Ethnicity" value={performer.ethnicity} fieldProvenance={performer.fieldProvenance} fieldKey="ethnicity" />}
               {performer.heightCm && <InfoItem icon={<Ruler className="h-4 w-4" />} label="Height" value={`${performer.heightCm} cm`} fieldProvenance={performer.fieldProvenance} fieldKey="height_cm" />}
               {performer.weight && <InfoItem icon={<Scale className="h-4 w-4" />} label="Weight" value={`${performer.weight} kg`} fieldProvenance={performer.fieldProvenance} fieldKey="weight" />}
@@ -807,7 +808,7 @@ function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { perfor
 const EMPTY_SELECTION = new Set<number>();
 const noop = () => {};
 
-function InfoItem({ icon, label, value, fieldProvenance, fieldKey }: { icon?: React.ReactNode; label: string; value: string; fieldProvenance?: FieldProvenance[]; fieldKey?: string | string[] }) {
+function InfoItem({ icon, label, value, fieldProvenance, fieldKey }: { icon?: React.ReactNode; label: string; value: React.ReactNode; fieldProvenance?: FieldProvenance[]; fieldKey?: string | string[] }) {
   const valueNode = fieldKey ? <FieldProvenanceHover fieldProvenance={fieldProvenance} fieldKey={fieldKey}>{value}</FieldProvenanceHover> : value;
 
   return (

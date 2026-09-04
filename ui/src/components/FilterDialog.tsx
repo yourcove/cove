@@ -45,10 +45,11 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { getMultiIdModifierLabel } from "../utils/filterModifierLabels";
 import { pushOverlay } from "../utils/overlayState";
 import { LibraryFolderTree } from "./LibraryFolderTree";
+import { CountrySelect } from "./Country";
 
 // ===== Criterion definitions =====
 
-export type CriterionType = "string" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
+export type CriterionType = "string" | "country" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash";
 export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "faces";
 
 export interface CriterionDefinition<TFilterKey extends string = string> {
@@ -111,6 +112,7 @@ const MODIFIER_LABELS: Record<CriterionModifier, string> = {
 // Which modifiers each type supports
 const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   string: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
+  country: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   path: ["UNDER_PATH", "NOT_UNDER_PATH", "EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   remoteId: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   hash: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
@@ -223,6 +225,7 @@ function isCriterionValueValid(value: unknown, criterion: CriterionDefinition) {
       return getTagDurationClauses(criterionValue).some((clause) => isTagDurationClauseValid(clause));
     }
     case "string":
+    case "country":
     case "path":
     case "remoteId":
     case "hash":
@@ -463,7 +466,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
     { value: "NonBinary", label: "Non-Binary" },
   ] },
   { id: "ethnicity", label: "Ethnicity", type: "string", filterKey: "ethnicityCriterion" },
-  { id: "country", label: "Country", type: "string", filterKey: "countryCriterion" },
+  { id: "country", label: "Country", type: "country", filterKey: "countryCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "videoCount", label: "Video Count", type: "number", filterKey: "videoCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },
@@ -1368,6 +1371,8 @@ function CriterionEditor({
       return <HashEditor value={value as FingerprintCriterion | undefined} onChange={onChange} modifiers={modifiers} options={criterion.options ?? []} />;
     case "string":
       return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
+    case "country":
+      return <CountryEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "path":
       return <PathEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "remoteId":
@@ -1844,6 +1849,27 @@ function StringEditor({ value, onChange, modifiers }: { value?: StringCriterion;
           />
         </LabeledControl>
       )}
+    </div>
+  );
+}
+
+function CountryEditor({ value, onChange, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+  const modifier = value?.modifier ?? "EQUALS";
+  const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
+  const useSelector = modifier === "EQUALS" || modifier === "NOT_EQUALS";
+
+  return (
+    <div className="space-y-2">
+      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(nextModifier) => onChange({ value: value?.value ?? "", modifier: nextModifier })} />
+      {!isNull ? (
+        <LabeledControl label="Value">
+          {useSelector ? (
+            <CountrySelect value={value?.value ?? ""} onChange={(country) => onChange({ value: country, modifier })} />
+          ) : (
+            <input aria-label="Value" type="text" value={value?.value ?? ""} onChange={(event) => onChange({ value: event.target.value, modifier })} className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm" placeholder="Enter a stored code or custom value" />
+          )}
+        </LabeledControl>
+      ) : null}
     </div>
   );
 }

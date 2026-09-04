@@ -10,6 +10,7 @@ vi.mock("../components/Rating", () => ({
 import { AudioTile, GalleryPreviewList, GalleryTile, GroupTile, ImageTile, PerformerTile, TextTile, VideoCard, VideoCardPopovers } from "../components/EntityCards";
 import { images } from "../api/client";
 import { DetailsTab, FileInfoTab } from "../pages/VideoDetailPage";
+import { performers } from "../api/client";
 
 const videoFile = {
   id: 10,
@@ -270,6 +271,25 @@ describe("VideoCard navigation", () => {
   });
 });
 
+describe("PerformerTile country flag", () => {
+  it("keeps the name-row flag navigable while exposing only the country tooltip", async () => {
+    vi.spyOn(performers, "countries").mockResolvedValue([
+      { value: "CA", code: "CA", name: "Canada", performerCount: 1, isCustom: false },
+    ]);
+    const onClick = vi.fn();
+    renderWithQueryClient(<PerformerTile performer={{ id: 7, name: "Card performer", country: "CA" }} onClick={onClick} />);
+
+    const flag = await screen.findByLabelText("Canada");
+    expect(flag).toHaveTextContent("🇨🇦");
+    expect(flag).not.toHaveTextContent("Canada");
+    expect(flag.closest("a")).toHaveAttribute("href", "/performer/7");
+    expect(flag.closest("a")?.parentElement).toContainElement(screen.getByText("Card performer"));
+
+    fireEvent.click(flag);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("PerformerTile", () => {
   it("shows the performer fallback instead of an image when no image is present", () => {
     const { container } = render(
@@ -295,15 +315,23 @@ describe("PerformerTile", () => {
   });
 
   it("shows exact ages for complete dates and possible ranges for partial dates", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2037-03-02T12:00:00Z"));
     const { rerender } = render(
       <PerformerTile
-        performer={{ id: 7, name: "Summary Performer", birthdate: "2000-09-10", tags: [], videoCount: 3, imageCount: 2 }}
+        performer={{ id: 7, name: "Summary Performer", gender: "Female", birthdate: "2000-09-10", tags: [], videoCount: 3, imageCount: 2 }}
         referenceDate="2026-09-09"
         onClick={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("25 years old")).toBeInTheDocument();
+    expect(screen.getByText("25 years old")).toHaveAttribute("title", "2000-09-10, now 36 years old");
+    expect(screen.getByRole("link", { name: "25 years old; 2000-09-10, now 36 years old" })).toHaveAttribute("href", "/performer/7");
+    expect(screen.getByRole("link", { name: "25 years old; 2000-09-10, now 36 years old" })).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByLabelText("Female")).toBeInTheDocument();
+    expect(screen.getByText("25 years old").compareDocumentPosition(screen.getByLabelText("Female")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByLabelText("Female").parentElement).toHaveClass("ml-auto");
+    expect(screen.queryByText("2000-09-10")).not.toBeInTheDocument();
     expect(screen.getByTitle("Videos")).toHaveTextContent("3");
     expect(screen.getByTitle("Images")).toHaveTextContent("2");
 
@@ -324,6 +352,49 @@ describe("PerformerTile", () => {
       />,
     );
     expect(screen.getByText("25–26 years old")).toBeInTheDocument();
+  });
+
+  it("shows current age when a card has no historical reference date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2037-03-02T12:00:00Z"));
+
+    render(<PerformerTile performer={{ id: 7, name: "Summary Performer", birthdate: "2000-03-01", tags: [] }} onClick={vi.fn()} />);
+
+    expect(screen.getByText("37 years old")).toHaveAttribute("title", "2000-03-01, now 37 years old");
+    expect(screen.queryByText("2000-03-01")).not.toBeInTheDocument();
+  });
+
+  it("uses age at death instead of a hypothetical current age", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2037-03-02T12:00:00Z"));
+
+    render(<PerformerTile performer={{ id: 7, name: "Summary Performer", birthdate: "1980-03-01", deathDate: "2020-02-29", tags: [] }} onClick={vi.fn()} />);
+
+    expect(screen.getByText("39 years old")).toHaveAttribute("title", "1980-03-01, 39 years old at death");
+  });
+
+  it.each([
+    ["Male", "Male", "text-blue-400"],
+    ["TransgenderFemale", "Transgender female", "text-pink-400"],
+    ["TransgenderMale", "Transgender male", "text-blue-400"],
+    ["Intersex", "Intersex", null],
+    ["NonBinary", "Non-binary", "text-orange-400"],
+  ])("shows an accessible icon for %s", (gender, label, colorClass) => {
+    render(<PerformerTile performer={{ id: 7, name: "Summary Performer", gender, tags: [] }} onClick={vi.fn()} />);
+
+    const icon = screen.getByLabelText(label);
+    expect(icon).toHaveAttribute("title", label);
+    expect(icon.closest("a")).toHaveAttribute("href", "/performer/7");
+    expect(icon.closest("a")).toHaveAttribute("tabindex", "-1");
+    expect(icon.closest("a")).toHaveClass("relative", "z-10", "ml-auto");
+    if (colorClass) expect(icon).toHaveClass(colorClass);
+  });
+
+  it("does not render an empty foreground link for an unknown gender", () => {
+    render(<PerformerTile performer={{ id: 7, name: "Summary Performer", gender: "UnknownValue", tags: [] }} onClick={vi.fn()} />);
+
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Open performer Summary Performer" })).toHaveAttribute("href", "/performer/7");
   });
 });
 

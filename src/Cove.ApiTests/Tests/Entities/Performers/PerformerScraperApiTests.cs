@@ -222,7 +222,7 @@ public sealed class PerformerScraperApiTests(
         actual.Disambiguation.Should().Be("API test provider");
         actual.Gender.Should().Be("Female");
         actual.Birthdate.Should().Be("1990-02-03");
-        actual.Country.Should().Be("Canada");
+        actual.Country.Should().Be("CA");
         actual.Ethnicity.Should().Be("API test ethnicity");
         actual.EyeColor.Should().Be("Green");
         actual.HairColor.Should().Be("Brown");

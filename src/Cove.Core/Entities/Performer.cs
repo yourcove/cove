@@ -4,6 +4,8 @@ namespace Cove.Core.Entities;
 
 public class Performer : BaseEntity
 {
+    private string? _country;
+
     public string Name { get; set; } = string.Empty;
     public string? Disambiguation { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
@@ -14,7 +16,11 @@ public class Performer : BaseEntity
     public DateOnly? DeathDate { get; set; }
     public DatePrecision DeathDatePrecision { get; set; }
     public string? Ethnicity { get; set; }
-    public string? Country { get; set; }
+    public string? Country
+    {
+        get => _country;
+        set => _country = Common.CountryCatalog.Normalize(value);
+    }
     public string? EyeColor { get; set; }
     public string? HairColor { get; set; }
     public int? HeightCm { get; set; }

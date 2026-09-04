@@ -5,7 +5,7 @@ import { videos, images, performers, galleries, studios, groups, audios, texts, 
 import type { AffinityHostType, Audio, AudioFilterCriteria, EntityEngagement, Face, FaceAppearance, FieldProvenance, Gallery, Group, GroupItem, GroupSummary, Image, PerformerSummary, Video, SegmentRecord, Studio, Tag as TagType, TextDocument, TextFilterCriteria } from "../api/types";
 import { formatDate, FieldProvenanceHover, formatDuration, formatFileSize, getResolutionLabel } from "./shared";
 import { RatingBanner, RatingBadge } from "./Rating";
-import { BookOpenText, Building2, FileText, Fingerprint, FolderOpen, GripVertical, Headphones, Layers, Link2, Tag, User, Film, Box, Images as ImagesIcon, Heart, Eye, ThumbsUp, Mic2, MonitorPlay, PlayCircle, Merge } from "lucide-react";
+import { BookOpenText, Building2, FileText, Fingerprint, FolderOpen, GripVertical, Headphones, Layers, Link2, Tag, User, Film, Box, Images as ImagesIcon, Heart, Eye, ThumbsUp, Mic2, MonitorPlay, PlayCircle, Merge, Mars, NonBinary, Transgender, Venus, VenusAndMars, type LucideIcon } from "lucide-react";
 import { createRouteLinkProps, createNestedRouteLinkProps } from "./cardNavigation";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "./RouteCardLinkOverlay";
 import { ExtensionSlot, useHasExtensionSlot } from "../router/RouteRegistry";
@@ -20,7 +20,8 @@ import { toggleOptionsFromEvent, type MultiSelectToggleOptions } from "../hooks/
 import { EntityMedia, TagMediaHover } from "./EntityMedia";
 import { VideoPreviewThumbnail } from "./VideoPreviewThumbnail";
 import { GalleryScrubThumbnail, type GalleryScrubThumbnailHandle } from "./GalleryScrubThumbnail";
-import { getAgeAtDate } from "../utils/performerAge";
+import { getAgeAtDate, getPerformerAge, hasDeathOccurred } from "../utils/performerAge";
+import { CountryFlag } from "./Country";
 
 function CoverImage({ className = "", ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   const fitClass = useConfiguredImageFit() === "contain" ? "object-contain" : "object-cover";
@@ -1004,7 +1005,9 @@ interface PerformerTileEntity {
   name: string;
   imagePath?: string | null;
   country?: string;
+  gender?: string;
   birthdate?: string;
+  deathDate?: string;
   favorite?: boolean;
   tags?: Array<{ id: number; name: string }>;
   videoCount?: number;
@@ -1014,6 +1017,22 @@ interface PerformerTileEntity {
   textCount?: number;
   groupCount?: number;
   likeCount?: number;
+}
+
+const performerGenderIcons: Record<string, { icon: LucideIcon; label: string; colorClass?: string }> = {
+  Female: { icon: Venus, label: "Female", colorClass: "text-pink-400" },
+  Male: { icon: Mars, label: "Male", colorClass: "text-blue-400" },
+  TransgenderFemale: { icon: Transgender, label: "Transgender female", colorClass: "text-pink-400" },
+  TransgenderMale: { icon: Transgender, label: "Transgender male", colorClass: "text-blue-400" },
+  Intersex: { icon: VenusAndMars, label: "Intersex" },
+  NonBinary: { icon: NonBinary, label: "Non-binary", colorClass: "text-orange-400" },
+};
+
+function PerformerGenderIcon({ gender }: { gender?: string }) {
+  const definition = gender ? performerGenderIcons[gender] : undefined;
+  if (!definition) return null;
+  const Icon = definition.icon;
+  return <span className={`inline-flex ${definition.colorClass ?? ""}`.trim()} title={definition.label} aria-label={definition.label}><Icon aria-hidden="true" className="h-3.5 w-3.5" /></span>;
 }
 
 interface PerformerTileProps {
@@ -1038,7 +1057,15 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
   const likeCount = performer.likeCount ?? 0;
   const performerImageUrl = performer.imagePath || null;
   const hasFooter = (performer.tags?.length ?? 0) > 0 || videoCount > 0 || imageCount > 0 || galleryCount > 0 || audioCount > 0 || textCount > 0 || groupCount > 0 || likeCount > 0;
-  const age = getAgeAtDate(referenceDate, performer.birthdate);
+  const currentAge = getPerformerAge(performer.birthdate, performer.deathDate);
+  const age = referenceDate ? getAgeAtDate(referenceDate, performer.birthdate) : currentAge;
+  const isDeceased = hasDeathOccurred(performer.deathDate);
+  const hasGenderIcon = Boolean(performer.gender && performerGenderIcons[performer.gender]);
+  const ageTooltip = performer.birthdate
+    ? currentAge != null
+      ? isDeceased ? `${performer.birthdate}, ${currentAge} years old at death` : `${performer.birthdate}, now ${currentAge} years old`
+      : performer.birthdate
+    : undefined;
 
   return (
     <EntityTileFrame
@@ -1076,12 +1103,30 @@ export function PerformerTile({ performer, engagement, onClick, onNavigate, chil
       )}
       body={(
         <>
-          <p className="card-title line-clamp-2 font-semibold text-foreground group-hover:text-accent">{performer.name}</p>
-          {(performer.country || performer.birthdate) ? (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
-              {performer.country ? <span className="whitespace-nowrap">{performer.country}</span> : null}
-              {performer.birthdate ? <span className="whitespace-nowrap">{performer.birthdate}</span> : null}
-              {age != null ? <span className="whitespace-nowrap">{age} years old</span> : null}
+          <div className="flex min-w-0 items-start gap-2">
+            <p className="card-title min-w-0 flex-1 line-clamp-2 font-semibold text-foreground group-hover:text-accent">{performer.name}</p>
+            {performer.country ? (
+              selecting ? <CountryFlag value={performer.country} className="pointer-events-none shrink-0 text-base leading-none drop-shadow" /> : (
+                <a {...createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () => onClick())} tabIndex={-1} className="relative z-10 shrink-0 text-base leading-none drop-shadow">
+                  <CountryFlag value={performer.country} />
+                </a>
+              )
+            ) : null}
+          </div>
+          {hasGenderIcon || age != null ? (
+            <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted">
+              {age != null ? selecting ? (
+                <span className="relative z-10 whitespace-nowrap" title={ageTooltip} aria-label={`${age} years old; ${ageTooltip}`}>{age} years old</span>
+              ) : (
+                <a {...createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () => onClick())} tabIndex={-1} className="relative z-10 whitespace-nowrap" title={ageTooltip} aria-label={`${age} years old; ${ageTooltip}`}>{age} years old</a>
+              ) : null}
+              {hasGenderIcon ? selecting ? (
+                <span className="ml-auto"><PerformerGenderIcon gender={performer.gender} /></span>
+              ) : (
+                <a {...createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () => onClick())} tabIndex={-1} className="relative z-10 ml-auto">
+                  <PerformerGenderIcon gender={performer.gender} />
+                </a>
+              ) : null}
             </div>
           ) : null}
         </>
