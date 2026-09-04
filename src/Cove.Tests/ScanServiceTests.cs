@@ -1749,6 +1749,64 @@ public class ScanServiceTests
     }
 
     [Fact]
+    public async Task StartScan_ContentChangeRegeneratesPhashForEveryFileAttachedToVideo()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var firstPath = Path.Combine(tempRoot, "first.mp4");
+            var secondPath = Path.Combine(tempRoot, "second.mp4");
+            await WriteValidVideoAsync(firstPath);
+            await WriteValidVideoAsync(secondPath);
+            var fingerprints = new PathFingerprintService();
+            var oldModTime = DateTime.UtcNow.AddDays(-1);
+            await using var environment = await CreateEnvironmentAsync(
+                tempRoot,
+                firstPath,
+                storedModTime: oldModTime,
+                fingerprintService: fingerprints);
+
+            await using (var seedScope = environment.Services.CreateAsyncScope())
+            {
+                var db = seedScope.ServiceProvider.GetRequiredService<CoveContext>();
+                var video = await db.Videos.Include(item => item.Files).ThenInclude(file => file.Fingerprints)
+                    .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
+                var firstFile = Assert.Single(video.Files);
+                firstFile.Fingerprints.Add(new FileFingerprint { Type = "phash", Value = "stale-first" });
+                var secondInfo = new FileInfo(secondPath);
+                video.Files.Add(new VideoFile
+                {
+                    Basename = secondInfo.Name,
+                    ParentFolderId = firstFile.ParentFolderId,
+                    Size = secondInfo.Length,
+                    ModTime = oldModTime,
+                    Format = "mp4",
+                    Duration = 42,
+                    Fingerprints = [new FileFingerprint { Type = "phash", Value = "stale-second" }],
+                });
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            environment.Service.StartScan(new ScanOperationOptions { GeneratePhashes = true });
+
+            await using var verificationScope = environment.Services.CreateAsyncScope();
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CoveContext>();
+            var files = await verificationDb.VideoFiles.Include(file => file.Fingerprints)
+                .OrderBy(file => file.Basename)
+                .ToListAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(2, files.Count);
+            Assert.All(files, file => Assert.Equal($"phash-{file.Basename}", FingerprintValue(file, "phash")));
+            Assert.Equal(2, fingerprints.VideoPhashCallCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task StartScan_ContentChangePreservesExistingAssetsWhenReplacementGenerationFails()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"cove-scan-{Guid.NewGuid():N}");
@@ -2036,7 +2094,8 @@ public class ScanServiceTests
         IMediaProbeService? mediaProbeService = null,
         TimeProvider? timeProvider = null,
         string? imageBlobId = null,
-        NoOpThumbnailService? thumbnailService = null)
+        NoOpThumbnailService? thumbnailService = null,
+        IFingerprintService? fingerprintService = null)
     {
         var services = new ServiceCollection();
         var dbOptions = new DbContextOptionsBuilder<CoveContext>()
@@ -2111,7 +2170,7 @@ public class ScanServiceTests
             provider.GetRequiredService<IServiceScopeFactory>(),
             config,
             new EventBus(),
-            new NoOpFingerprintService(),
+            fingerprintService ?? new NoOpFingerprintService(),
             thumbnailService,
             new TextExtractionService(),
             galleryReader,
@@ -2254,6 +2313,27 @@ public class ScanServiceTests
 
         public string StartGenerateImagePhashes() => "noop";
     }
+
+    private sealed class PathFingerprintService : IFingerprintService
+    {
+        private int _videoPhashCallCount;
+        public int VideoPhashCallCount => Volatile.Read(ref _videoPhashCallCount);
+
+        public Task<string?> ComputeMd5Async(string path, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<string?> ComputeImagePhashAsync(string path, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<string?> ComputeVideoPhashAsync(string path, double duration, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _videoPhashCallCount);
+            return Task.FromResult<string?>($"phash-{Path.GetFileName(path)}");
+        }
+        public Task<string?> ComputeAudioPhashAsync(string path, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<string?> ComputeTextPhashAsync(string path, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public string StartGenerateVideoPhashes() => "noop";
+        public string StartGenerateImagePhashes() => "noop";
+    }
+
+    private static string FingerprintValue(BaseFileEntity file, string type) =>
+        Assert.Single(file.Fingerprints, fingerprint => fingerprint.Type == type).Value;
 
     private sealed class NoOpThumbnailService(string? generatedRoot = null) : IThumbnailService
     {

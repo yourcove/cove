@@ -61,20 +61,24 @@ internal sealed class ScanAssetGenerationService(
                 .Where(f => f.ParentFolder != null && videoDirs.Contains(f.ParentFolder.Path))
                 .ToListAsync(ct);
 
-            var videoFiles = candidateFiles
+            var processedVideoFiles = candidateFiles
                 .Where(file => processedVideoPaths.Contains(ScanPath.Normalize(FilesystemPaths.ToNativePath(file.Path))))
                 .Where(file => file.VideoId.HasValue && file.VideoId.Value != 0)
+                .ToList();
+            var representativeFileIds = processedVideoFiles
                 .GroupBy(file => file.VideoId)
-                .Select(group => group.First())
+                .ToDictionary(group => group.Key!.Value, group => group.First().Id);
+            var videoFiles = processedVideoFiles
                 .Where(file =>
                 {
                     var videoId = file.VideoId!.Value;
                     var contentChanged = changedVideoIds.Contains(videoId);
-                    return (options.GenerateCovers
+                    var isRepresentative = representativeFileIds[videoId] == file.Id;
+                    return (isRepresentative && options.GenerateCovers
                             && string.IsNullOrWhiteSpace(file.Video?.ImageBlobId)
                             && (contentChanged || !File.Exists(thumbnailService.GetThumbnailPathForVideo(videoId))))
-                        || (options.GeneratePreviews && (contentChanged || !File.Exists(thumbnailService.GetPreviewPath(videoId))))
-                        || (options.GenerateSprites && (contentChanged || !File.Exists(thumbnailService.GetSpritePath(videoId)) || !File.Exists(thumbnailService.GetSpriteVttPath(videoId))))
+                        || (isRepresentative && options.GeneratePreviews && (contentChanged || !File.Exists(thumbnailService.GetPreviewPath(videoId))))
+                        || (isRepresentative && options.GenerateSprites && (contentChanged || !File.Exists(thumbnailService.GetSpritePath(videoId)) || !File.Exists(thumbnailService.GetSpriteVttPath(videoId))))
                         || (options.GeneratePhashes && !file.Fingerprints.Any(fp => fp.Type == "phash" && !string.IsNullOrWhiteSpace(fp.Value)))
                         || (options.GenerateMd5 && !file.Fingerprints.Any(fp => fp.Type == "md5" && !string.IsNullOrWhiteSpace(fp.Value)));
                 })
@@ -93,11 +97,12 @@ internal sealed class ScanAssetGenerationService(
                 var spritePath = thumbnailService.GetSpritePath(videoId);
                 var spriteVttPath = thumbnailService.GetSpriteVttPath(videoId);
                 var contentChanged = changedVideoIds.Contains(videoId);
-                var needsCover = options.GenerateCovers
+                var isRepresentative = representativeFileIds[videoId] == videoFile.Id;
+                var needsCover = isRepresentative && options.GenerateCovers
                     && string.IsNullOrWhiteSpace(videoFile.Video?.ImageBlobId)
                     && (contentChanged || !File.Exists(thumbnailPath));
-                var needsPreview = options.GeneratePreviews && (contentChanged || !File.Exists(previewPath));
-                var needsSprite = options.GenerateSprites && (contentChanged || !File.Exists(spritePath) || !File.Exists(spriteVttPath));
+                var needsPreview = isRepresentative && options.GeneratePreviews && (contentChanged || !File.Exists(previewPath));
+                var needsSprite = isRepresentative && options.GenerateSprites && (contentChanged || !File.Exists(spritePath) || !File.Exists(spriteVttPath));
                 var failedThisVideo = false;
 
                 progress.Report(0.92 + (0.06 * done / total), $"Generating video assets ({done}/{videoFiles.Count})");
@@ -222,7 +227,7 @@ internal sealed class ScanAssetGenerationService(
             });
 
             if (failed > 0)
-                logger.LogWarning("Video asset generation completed with {Failed} failed of {Total} videos", failed, videoFiles.Count);
+                logger.LogWarning("Video asset generation completed with {Failed} failed of {Total} video files", failed, videoFiles.Count);
             failedItems += failed;
         }
 

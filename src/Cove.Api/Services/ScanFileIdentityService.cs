@@ -78,14 +78,15 @@ internal sealed class ScanFileIdentityService(IFingerprintService fingerprintSer
     public async Task RefreshChangedFingerprintsAsync(
         BaseFileEntity file,
         string path,
-        bool phashEnabled,
         bool md5Enabled,
         MoveDetectionIndex? moveIndex,
         CancellationToken ct)
     {
         var oshash = await ComputeOshashAsync(path, moveIndex, ct);
-        if (oshash != null)
+        if (!string.IsNullOrWhiteSpace(oshash))
             UpsertFingerprint(file, "oshash", oshash);
+        else
+            BlankFingerprint(file, "oshash");
 
         if (md5Enabled)
         {
@@ -100,9 +101,9 @@ internal sealed class ScanFileIdentityService(IFingerprintService fingerprintSer
             BlankFingerprint(file, "md5");
         }
 
-        // Perceptual hashes use media-specific pipelines in the asset-generation phase.
-        if (phashEnabled)
-            BlankFingerprint(file, "phash");
+        // Perceptual hashes use media-specific pipelines in the asset-generation phase. The old
+        // value describes different bytes even when this scan did not request a replacement.
+        BlankFingerprint(file, "phash");
     }
 
     public static void UpsertFingerprint(BaseFileEntity file, string type, string value)

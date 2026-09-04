@@ -56,7 +56,6 @@ internal sealed class ScanImageProcessor(
             {
                 await fileIdentity.RefreshChangedFingerprintsAsync(
                     existing, path,
-                    phashEnabled: scanOptions?.GenerateImagePhashes == true,
                     md5Enabled: config.CalculateMd5 || scanOptions?.GenerateMd5 == true,
                     moveIndex,
                     ct);
