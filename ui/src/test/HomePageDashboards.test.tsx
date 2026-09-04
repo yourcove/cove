@@ -231,6 +231,17 @@ describe("HomePage dashboards", () => {
     await act(async () => resolveUpdate(state.active!));
   });
 
+  it("places the add widget action below the dashboard editing toolbar", async () => {
+    renderHome();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+
+    const addWidget = screen.getByRole("button", { name: /Add Widget/ });
+    expect(addWidget.closest("header")).toBeNull();
+    expect(addWidget.parentElement?.firstElementChild?.tagName).toBe("HEADER");
+    expect(addWidget.parentElement?.children[1]).toBe(addWidget);
+  });
+
   it("preserves configuration when an extension widget is unavailable", async () => {
     state.active = dashboard(1, "Home", true, [{
       instanceId: "pulse-1",

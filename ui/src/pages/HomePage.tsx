@@ -622,6 +622,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
           <button disabled={busy || !draft.name.trim()} onClick={save} className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"><Check className="mr-1 inline h-4 w-4" />{saving ? "Saving…" : "Done"}</button>
         </div>
       </header>
+      <button disabled={busy} onClick={() => setShowCatalog(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-4 text-sm text-accent hover:border-accent/60 hover:bg-accent/5 disabled:opacity-50"><Plus className="h-4 w-4" />Add Widget</button>
       {error ? <div role="alert" className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
 
       <SortableList
@@ -649,7 +650,6 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
           </section>
         )}
       />
-      <button disabled={busy} onClick={() => setShowCatalog(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-4 text-sm text-accent hover:border-accent/60 hover:bg-accent/5 disabled:opacity-50"><Plus className="h-4 w-4" />Add Widget</button>
 
       {showCatalog ? (
         <WidgetCatalog
