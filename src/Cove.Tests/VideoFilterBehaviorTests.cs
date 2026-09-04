@@ -1111,6 +1111,19 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public void VideoFiles_HaveCoveringIndexForFingerprintJoins()
+    {
+        using var context = CreateContext();
+
+        var entityType = context.Model.FindEntityType(typeof(VideoFile));
+        var index = Assert.Single(entityType!.GetIndexes(), candidate => candidate.GetDatabaseName() == "IX_files_Id_VideoId_video");
+
+        Assert.Equal([nameof(VideoFile.Id)], index.Properties.Select(property => property.Name));
+        Assert.Equal("\"VideoId\" IS NOT NULL", index.GetFilter());
+        Assert.Equal([nameof(VideoFile.VideoId)], Assert.IsType<string[]>(index.FindAnnotation("Npgsql:IndexInclude")!.Value));
+    }
+
+    [Fact]
     public async Task HasSegmentsCriterion_FiltersVideosByRawSegmentPresence()
     {
         await using var context = CreateContext();
