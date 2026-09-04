@@ -1,6 +1,7 @@
 using Cove.Api.Services;
 using Cove.Core.Auth;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Events;
 using Cove.Core.Interfaces;
 using Cove.Data;
@@ -387,7 +388,15 @@ public sealed class DeletionSafetyTests
             Label = "Deletion fixture",
             EntityTypes = [CustomFieldEntityTypes.Video],
         };
-        db.AddRange(root, child, grandchild, tag, group, definition);
+        db.AddRange(
+            root,
+            child,
+            grandchild,
+            tag,
+            group,
+            definition,
+            new User { Id = 17, Username = "user-17", PasswordHash = "test" },
+            new User { Id = 18, Username = "user-18", PasswordHash = "test" });
         await db.SaveChangesAsync();
         db.AddRange(
             new GroupItem { GroupId = group.Id, HostType = "video", HostId = child.Id, Kind = GroupItemKind.Video },

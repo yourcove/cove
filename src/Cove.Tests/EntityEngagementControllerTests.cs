@@ -2,6 +2,7 @@ using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Data;
 using Cove.Data.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -177,6 +178,10 @@ public class EntityEngagementControllerTests
 
         var context = new EntityEngagementTestContext(options, principalAccessor);
         await context.Database.EnsureCreatedAsync();
+        context.Users.AddRange(
+            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+            new User { Id = 9, Username = "user-9", PasswordHash = "test" });
+        await context.SaveChangesAsync();
         return new TestContextScope(context, connection, principalAccessor);
     }
 

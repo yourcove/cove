@@ -570,6 +570,12 @@ public sealed class Phase11PlaybackTests
 
         var context = new PlaybackTestContext(options, principalAccessor);
         await context.Database.EnsureCreatedAsync();
+        context.Users.AddRange(
+            new User { Id = 7, Username = "user-7", PasswordHash = "test" },
+            new User { Id = 11, Username = "user-11", PasswordHash = "test" },
+            new User { Id = 12, Username = "user-12", PasswordHash = "test" },
+            new User { Id = 13, Username = "user-13", PasswordHash = "test" });
+        await context.SaveChangesAsync();
         return new TestContextScope(context, connection, principalAccessor);
     }
 

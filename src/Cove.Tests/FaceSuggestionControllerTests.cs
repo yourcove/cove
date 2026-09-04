@@ -2,6 +2,7 @@ using Cove.Api.Controllers;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
+using Cove.Core.Entities.Auth;
 using Cove.Core.Interfaces;
 using Cove.Data;
 using Cove.Data.Services;
@@ -179,6 +180,10 @@ public sealed class FaceSuggestionControllerTests
 
         var context = new FaceSuggestionTestContext(options, principalAccessor);
         await context.Database.EnsureCreatedAsync();
+        context.Users.AddRange(
+            new User { Id = 7, Username = "tester", PasswordHash = "test" },
+            new User { Id = 11, Username = "linker", PasswordHash = "test" });
+        await context.SaveChangesAsync();
         return new TestContextScope(context, connection, principalAccessor);
     }
 

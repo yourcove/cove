@@ -134,15 +134,17 @@ public class UserServiceTests
     {
         using var db = NewDb("user-owned-model");
         var ownedTypes = db.Model.GetEntityTypes()
-            .Where(entityType => entityType.FindProperty("UserId") is not null)
+            .Where(entityType => entityType.ClrType.Assembly == typeof(User).Assembly
+                && entityType.FindProperty("UserId") is not null)
             .ToList();
 
         foreach (var entityType in ownedTypes)
         {
-            var userForeignKey = Assert.Single(entityType.GetForeignKeys(), foreignKey =>
+            var userForeignKey = entityType.GetForeignKeys().SingleOrDefault(foreignKey =>
                 foreignKey.PrincipalEntityType.ClrType == typeof(User)
                 && foreignKey.Properties.Select(property => property.Name).SequenceEqual(["UserId"]));
-            Assert.Equal(DeleteBehavior.Cascade, userForeignKey.DeleteBehavior);
+            Assert.True(userForeignKey is not null, $"{entityType.DisplayName()} does not have a UserId foreign key to User.");
+            Assert.Equal(DeleteBehavior.Cascade, userForeignKey!.DeleteBehavior);
         }
     }
 
