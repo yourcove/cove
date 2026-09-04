@@ -941,32 +941,20 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
       {selectionDialogs}
       {toolbar}
       {addSubGroupDialog}
-      {canReorderMixedItems ? (
-        <SortableList
-          items={displayedMixedItems}
-          getKey={mixedItemKey}
-          onReorder={(nextItems) => reorderMixedMutation.mutate(nextItems)}
-          disabled={reorderMixedMutation.isPending || reorderItemMutation.isPending}
-          className="grid"
-          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minCardWidth}px, 1fr))`, gap: "1rem" }}
-          renderItem={(item, { dragHandleProps, isDragging, isOver }) => <GroupItemGridCard item={item} hydrated={hydratedItems.get(item.id)} onNavigate={onNavigate} selected={selectedIds.has(item.id)} onToggleSelect={() => toggle(item.id)} dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver} selecting={selectedCount > 0} />}
-        />
-      ) : (
-        <VirtualizedEntityGrid
-          items={displayedMixedItems}
-          getItemKey={mixedItemKey}
-          minCardWidth={`${minCardWidth}px`}
-          virtualMinColumnWidth={minCardWidth}
-          estimateRowHeight={210}
-          gap={16}
-          gapClassName="gap-4"
-          infinitePageSize={infinitePageSize}
-          hasNextPage={infiniteQuery.hasNextPage}
-          isFetchingNextPage={infiniteQuery.isFetchingNextPage}
-          loadMore={loadMore}
-          renderItem={(item) => <GroupItemGridCard item={item} hydrated={hydratedItems.get(item.id)} onNavigate={onNavigate} selected={selectedIds.has(item.id)} onToggleSelect={() => toggle(item.id)} selecting={selectedCount > 0} />}
-        />
-      )}
+      <VirtualizedEntityGrid
+        items={displayedMixedItems}
+        getItemKey={mixedItemKey}
+        minCardWidth={`${minCardWidth}px`}
+        virtualMinColumnWidth={minCardWidth}
+        estimateRowHeight={210}
+        gap={16}
+        gapClassName="gap-4"
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+        renderItem={(item) => <GroupItemGridCard item={item} hydrated={hydratedItems.get(item.id)} onNavigate={onNavigate} selected={selectedIds.has(item.id)} onToggleSelect={() => toggle(item.id)} selecting={selectedCount > 0} />}
+      />
       <DetailListPagination filter={mixedFilter} onFilterChange={setMixedFilter} totalCount={totalItemCount} allowInfinitePageSize />
     </div>
   );
@@ -1886,22 +1874,8 @@ function applyNamedItemOverride<T extends { title?: string }>(entity: T, title?:
   return title ? { ...entity, title } : entity;
 }
 
-function GroupItemCardShell({ children, dragHandleProps, isDragging, isOver }: { children: React.ReactNode; dragHandleProps?: any; isDragging?: boolean; isOver?: boolean }) {
-  return (
-    <div className={`group relative h-full ${isDragging ? "opacity-50" : ""} ${isOver ? "outline outline-2 outline-accent" : ""}`}>
-      {children}
-      {dragHandleProps ? (
-        <span
-          {...dragHandleProps}
-          onClick={(event) => event.stopPropagation()}
-          className="absolute bottom-1.5 right-1.5 z-20 inline-flex h-7 w-7 cursor-grab items-center justify-center rounded bg-black/70 text-white transition-colors hover:bg-black/85 active:cursor-grabbing"
-          title="Drag to reorder"
-        >
-          <GripVertical className="h-4 w-4" />
-        </span>
-      ) : null}
-    </div>
-  );
+function GroupItemCardShell({ children }: { children: React.ReactNode }) {
+  return <div className="group relative h-full">{children}</div>;
 }
 
 function GroupItemRow({ item, onNavigate, selected, onToggleSelect, dragHandleProps, isDragging, isOver }: {
@@ -1928,7 +1902,7 @@ function GroupItemRow({ item, onNavigate, selected, onToggleSelect, dragHandlePr
   );
 }
 
-function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelect, dragHandleProps, isDragging, isOver, selecting }: { item: MixedGroupItem; hydrated?: HydratedGroupItemState; onNavigate: (r: any) => void; selected: boolean; onToggleSelect: () => void; dragHandleProps?: any; isDragging?: boolean; isOver?: boolean; selecting?: boolean }) {
+function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelect, selecting }: { item: MixedGroupItem; hydrated?: HydratedGroupItemState; onNavigate: (r: any) => void; selected: boolean; onToggleSelect: () => void; selecting?: boolean }) {
   const host = groupItemHost(item);
   const route = host.route ?? { page: "group", id: item.source === "subgroup" ? item.group.id : item.item.groupId };
   // Per-item engagement so each card shows its rating banner. getEngagementHost resolves the correct
@@ -1947,9 +1921,6 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
         selected={selected}
         onSelect={onToggleSelect}
         selecting={selecting}
-        dragHandleProps={dragHandleProps}
-        isDragging={isDragging}
-        isOver={isOver}
       />
     );
   }
@@ -1959,7 +1930,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       case "video": {
         const video = applyVideoItemOverrides(hydrated.data.video, item);
         return (
-          <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
+          <GroupItemCardShell>
             <VideoCard
               video={video}
               engagement={engagement}
@@ -1975,7 +1946,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       case "image": {
         const image = applyNamedItemOverride(hydrated.data.image, item.item.title);
         return (
-          <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
+          <GroupItemCardShell>
             <ImageTile
               image={image}
               engagement={engagement}
@@ -1991,7 +1962,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       case "audio": {
         const audio = applyNamedItemOverride(hydrated.data.audio, item.item.title);
         return (
-          <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
+          <GroupItemCardShell>
             <AudioTile
               audio={audio}
               engagement={engagement}
@@ -2007,7 +1978,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       case "text": {
         const text = applyNamedItemOverride(hydrated.data.text, item.item.title);
         return (
-          <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
+          <GroupItemCardShell>
             <TextTile
               text={text}
               engagement={engagement}
@@ -2023,7 +1994,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       case "segment": {
         const segment = item.item.title ? { ...hydrated.data.segment, title: item.item.title } : hydrated.data.segment;
         return (
-          <GroupItemCardShell dragHandleProps={dragHandleProps} isDragging={isDragging} isOver={isOver}>
+          <GroupItemCardShell>
             <SegmentTile
               segment={segment}
               onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
@@ -2044,9 +2015,6 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
             selected={selected}
             onSelect={onToggleSelect}
             selecting={selecting}
-            dragHandleProps={dragHandleProps}
-            isDragging={isDragging}
-            isOver={isOver}
           />
         );
     }
@@ -2066,9 +2034,6 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       selected={selected}
       onSelect={onToggleSelect}
       selecting={selecting || selected}
-      dragHandleProps={dragHandleProps}
-      isDragging={isDragging}
-      isOver={isOver}
       mediaClassName="aspect-[4/3] bg-surface/70"
       media={<GroupItemKindIcon kind={host.kind} className="h-10 w-10 text-muted" />}
       body={(

@@ -136,7 +136,7 @@ vi.mock("../components/SortableList", () => ({
   SortableList: ({ items, renderItem }: { items: any[]; renderItem: (item: any, state: any) => React.ReactNode }) => (
     <div>
       {items.map((item, index) => (
-        <div key={item.id}>{renderItem(item, { dragHandleProps: {}, index, isDragging: false, isOver: false })}</div>
+        <div key={item.id}>{renderItem(item, { dragHandleProps: { role: "button", "aria-label": "Pick up item to reorder" }, index, isDragging: false, isOver: false })}</div>
       ))}
     </div>
   ),
@@ -289,6 +289,38 @@ describe("GroupDetailPage", () => {
       const sortOptionLists = screen.getAllByTestId("group-item-sort-options");
       expect(sortOptionLists.some((options) => options.textContent?.includes("Item #") && options.textContent.includes("Random"))).toBe(true);
     });
+  });
+
+  it("only offers group item drag handles in list view", async () => {
+    mockGroups.get.mockResolvedValue(buildGroup());
+    mockGroups.items.list.mockResolvedValue([
+      { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+      { id: 22, orderIndex: 1, videoId: 11, title: "Clip Two", kind: "videoRange", startSec: 2, endSec: 6 },
+    ]);
+    mockGroups.items.page.mockResolvedValue({
+      items: [
+        { id: 21, orderIndex: 0, videoId: 10, title: "Clip One", kind: "videoRange", startSec: 1, endSec: 5 },
+        { id: 22, orderIndex: 1, videoId: 11, title: "Clip Two", kind: "videoRange", startSec: 2, endSec: 6 },
+      ],
+      totalCount: 2,
+      page: 1,
+      perPage: 40,
+    });
+    mockGroups.items.playbackManifest.mockResolvedValue({ items: [] });
+    mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
+    mockGroups.subGroups.mockResolvedValue([]);
+    mockGroups.containingGroups.mockResolvedValue([]);
+
+    window.history.replaceState(null, "", "/group/4?view=grid");
+    const grid = renderPage();
+    await screen.findByRole("heading", { name: "Summer Compilation" });
+    await screen.findByText("Clip One");
+    expect(screen.queryByRole("button", { name: "Pick up item to reorder" })).not.toBeInTheDocument();
+    grid.unmountPage();
+
+    window.history.replaceState(null, "", "/group/4?view=list");
+    renderPage();
+    expect(await screen.findAllByRole("button", { name: "Pick up item to reorder" })).toHaveLength(2);
   });
 
   it("offers saved filters for group items", async () => {
