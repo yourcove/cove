@@ -34,6 +34,45 @@ Create and dispose one tracked scope per background-work unit. A queued `IJobSer
 
 Metadata and declarations read outside active execution must remain immutable and provider-independent. In particular, identity, dependencies, `GetUIManifest()`, `IJobExtension.Jobs`, and `IActionExtension.GetActions()` must not resolve scoped services or depend on a mutable provider generation.
 
+### Access host library data
+
+Extensions can read and write Cove entities through the host-provided EF Core `DbContext`. Register an extension-owned scoped service and inject `DbContext`; use `Set<TEntity>()` with entity types from `Cove.Core` rather than depending on Cove's concrete data layer:
+
+```csharp
+using Cove.Core.Entities;
+using Cove.Plugins;
+using Cove.Sdk;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+public sealed class LibraryReader(DbContext db)
+{
+    public Task<List<Video>> RecentVideosAsync(
+        CancellationToken ct = default) =>
+        db.Set<Video>()
+            .AsNoTracking()
+            .OrderByDescending(video => video.CreatedAt)
+            .Take(20)
+            .ToListAsync(ct);
+}
+
+public sealed class ExampleExtension : CoveExtensionBase
+{
+    public override void ConfigureServices(
+        IServiceCollection services,
+        ExtensionContext context)
+    {
+        services.AddScoped<LibraryReader>();
+    }
+}
+```
+
+Resolve `LibraryReader` only inside an active extension scope. For a request or host-dispatched operation, use the scoped service provider supplied for that operation. For queued or long-lived work, create a fresh tracked scope with `IExtensionServiceScopeFactory` as described above. Do not retain a `DbContext` beyond its scope or use one context concurrently.
+
+`CoveContext` and the concrete services in `Cove.Data` are host implementation details, not extension contracts. `Cove.Data` is intentionally not published as a NuGet package. A standalone extension should reference `Cove.Sdk` and use the `DbContext` base type plus entities and public interfaces from `Cove.Core`; it should not clone the Cove repository or add a project reference to `Cove.Data`.
+
+Normal EF Core rules apply to writes: track or add entities through the scoped context, call `SaveChangesAsync`, honor cancellation, and keep multi-step mutations transactional where partial completion would be invalid. Enforce the appropriate Cove permission on extension endpoints and actions before accessing host data; resolving the context does not authorize an operation by itself.
+
 ## SDK base classes
 
 `Cove.Sdk` provides manifest-aware base classes and a UI builder. They reduce lifecycle and dispatch boilerplate; they do not add capabilities that their implemented interfaces do not list.
