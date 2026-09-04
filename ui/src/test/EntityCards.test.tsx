@@ -327,6 +327,20 @@ describe("PerformerTile", () => {
 });
 
 describe("GalleryTile", () => {
+  it("shows a formatted gallery date below the title", () => {
+    render(<GalleryTile gallery={{ ...baseGallery, date: "2024-01-15" } as any} onClick={vi.fn()} />);
+
+    expect(screen.getByText("Sample Gallery")).toBeInTheDocument();
+    expect(screen.getByText("2024-01-15")).toBeInTheDocument();
+  });
+
+  it("does not reserve date content when a gallery is undated", () => {
+    const { container } = render(<GalleryTile gallery={baseGallery as any} onClick={vi.fn()} />);
+
+    expect(container.querySelector(".card-body")).toHaveTextContent("Sample Gallery");
+    expect(container.querySelector(".card-body p + p")).not.toBeInTheDocument();
+  });
+
   it("shows the aggregate like count from gallery engagement", () => {
     const { container } = render(
       <GalleryTile

@@ -1449,7 +1449,10 @@ export function GalleryTile({ gallery, engagement, onClick, onNavigate, selected
         </>
       )}
       body={(
-        <p className="card-title line-clamp-2 font-semibold text-foreground group-hover:text-accent">{title}</p>
+        <div className="min-w-0">
+          <p className="card-title line-clamp-2 font-semibold text-foreground group-hover:text-accent">{title}</p>
+          {gallery.date ? <p className="mt-0.5 truncate text-xs text-secondary">{formatDate(gallery.date)}</p> : null}
+        </div>
       )}
       footer={hasFooter ? (
         <>
