@@ -41,6 +41,44 @@ beforeEach(() => {
 });
 
 describe("ListPage active filter chips", () => {
+  it.each(["pending", "error", "legacy loading"] as const)("ignores repeated pagination input during %s and resumes when results arrive", (state) => {
+    const queryClient = new QueryClient();
+    const onFilterChange = vi.fn();
+    const renderPage = (ready: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 12, perPage: 40 }}
+            onFilterChange={onFilterChange}
+            totalCount={ready ? 800 : 0}
+            isLoading={!ready && state === "legacy loading"}
+            loadState={ready ? { status: "success", data: {} } : state === "legacy loading" ? undefined : state === "error" ? { status: "error", error: new Error("Request failed") } : { status: "pending" }}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(renderPage(true));
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 13, perPage: 40 });
+    onFilterChange.mockClear();
+
+    rerender(renderPage(false));
+    for (let i = 0; i < 5; i++) {
+      fireEvent.keyDown(window, { key: "ArrowRight", repeat: true });
+    }
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(onFilterChange).not.toHaveBeenCalled();
+
+    rerender(renderPage(true));
+    fireEvent.keyDown(window, { key: "ArrowRight", repeat: true });
+    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 13, perPage: 40 });
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 11, perPage: 40 });
+  });
+
   it("keeps the top-level wall size control mapped to wall columns", () => {
     const queryClient = new QueryClient();
     const onWallColumnCountChange = vi.fn();

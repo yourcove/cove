@@ -995,9 +995,21 @@ export function ListPage({
     onFilterChange({ ...filter, q: query, page: 1 });
   }, [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions]);
 
+  const resolvedLoadState = loadState ?? resolveQueryLoadState({
+    data: isLoading || error ? undefined : true,
+    isPending: isLoading,
+    error,
+    isEmpty: () => false,
+    retry: onRetry,
+  });
+
   const goTo = useCallback(
-    (p: number) => onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, p)) }),
-    [filter, onFilterChange, totalPages]
+    (p: number) => {
+      // An unavailable result count is not a one-page collection.
+      if (resolvedLoadState.status === "pending" || resolvedLoadState.status === "error") return;
+      onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, p)) });
+    },
+    [filter, onFilterChange, resolvedLoadState.status, totalPages]
   );
 
   // List-page keyboard shortcuts
@@ -1038,14 +1050,6 @@ export function ListPage({
   useKeySequence(listBindings);
 
   useDocumentTitle(title, manageDocumentTitle);
-
-  const resolvedLoadState = loadState ?? resolveQueryLoadState({
-    data: isLoading || error ? undefined : true,
-    isPending: isLoading,
-    error,
-    isEmpty: () => false,
-    retry: onRetry,
-  });
 
   useEffect(() => {
     if (infinitePageSize || resolvedLoadState.status === "pending" || resolvedLoadState.status === "error" || page <= totalPages) {
