@@ -138,7 +138,7 @@ internal sealed class ScanGalleryProcessor(
 
             logger.LogTrace("Found {ImageCount} images in gallery: {Path}", distinctEntries.Count, path);
 
-            await using var transaction = db.Database.IsRelational()
+            await using var transaction = existing != null && contentChanged && db.Database.IsRelational()
                 ? await db.Database.BeginTransactionAsync(ct)
                 : null;
 
@@ -172,9 +172,11 @@ internal sealed class ScanGalleryProcessor(
                     matched.File.Format = Path.GetExtension(entry.Name).TrimStart('.').ToLowerInvariant();
                 }
             }
-            else if (existing == null)
+            else
             {
-                // New gallery files need an ID before their derived ImageFiles can reference it.
+                // New gallery files need an ID before their derived ImageFiles can reference it. Existing
+                // empty galleries also keep the established two-save flow so authorization-backed derived
+                // counts can observe the newly persisted image before their relationship is summarized.
                 await db.SaveChangesAsync(ct);
             }
 
