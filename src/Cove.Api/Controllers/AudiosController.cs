@@ -85,11 +85,13 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     [HttpPost("find")]
     public async Task<ActionResult<PaginatedResponse<AudioDto>>> FindPost([FromBody] FilteredQueryRequest<AudioFilter> req, CancellationToken ct)
     {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
         var findFilter = req.FindFilter ?? new FindFilter();
         var page = Math.Max(1, findFilter.Page);
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
         var descending = findFilter.Direction == Cove.Core.Enums.SortDirection.Desc;
-        var query = await AudioFilterQuery.BuildAsync(db, req.ObjectFilter, findFilter, ct: ct);
+        var query = await AudioFilterQuery.BuildAsync(db, req.ObjectFilter, findFilter, ct: ct, expression: req.FilterExpression);
         query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
         if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, findFilter.Q, audio => audio.Title);
@@ -111,8 +113,10 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
     [HttpPost("aggregate")]
     public async Task<ActionResult<AudioAggregate>> Aggregate([FromBody] FilteredQueryRequest<AudioFilter> req, CancellationToken ct)
     {
+        if (!FilterExpressionQuery.TryValidate(req.FilterExpression, out var expressionError))
+            return BadRequest(new { message = expressionError });
         var findFilter = req.FindFilter ?? new FindFilter();
-        var query = await AudioFilterQuery.BuildAsync(db, req.ObjectFilter, findFilter, ct: ct);
+        var query = await AudioFilterQuery.BuildAsync(db, req.ObjectFilter, findFilter, ct: ct, expression: req.FilterExpression);
         if (req.Ids is { Count: > 0 }) query = query.Where(audio => req.Ids.Contains(audio.Id));
 
         return Ok(await query.GroupBy(_ => 1)

@@ -43,6 +43,78 @@ public static class RelatedFilterQuery
         return query.Where(Expression.Lambda<Func<Video, bool>>(predicate, video));
     }
 
+    public static async Task<IQueryable<Audio>> ApplyDistinctAudioPerformersAsync(
+        CoveContext db,
+        IQueryable<Audio> query,
+        IReadOnlyList<RelatedFilterCriterion<PerformerFilter>> criteria,
+        CancellationToken ct = default)
+    {
+        if (criteria.Count < 2) return query;
+        var matchingIds = new List<IQueryable<int>>(criteria.Count);
+        foreach (var criterion in criteria)
+            matchingIds.Add(await MatchingPerformerIdsAsync(db, criterion, ct));
+        var audio = Expression.Parameter(typeof(Audio), "audio");
+        var predicate = BuildDistinctAudioPerformerPredicate(audio, matchingIds, 0, []);
+        return query.Where(Expression.Lambda<Func<Audio, bool>>(predicate, audio));
+    }
+
+    private static Expression BuildDistinctAudioPerformerPredicate(
+        ParameterExpression audio,
+        IReadOnlyList<IQueryable<int>> matchingIds,
+        int index,
+        IReadOnlyList<ParameterExpression> previousLinks)
+    {
+        var link = Expression.Parameter(typeof(AudioPerformer), $"link{index}");
+        Expression condition = Expression.Call(
+            typeof(Queryable), nameof(Queryable.Contains), [typeof(int)],
+            matchingIds[index].Expression,
+            Expression.Property(link, nameof(AudioPerformer.PerformerId)));
+        foreach (var previous in previousLinks)
+            condition = Expression.AndAlso(condition,
+                Expression.NotEqual(Expression.Property(link, nameof(AudioPerformer.PerformerId)), Expression.Property(previous, nameof(AudioPerformer.PerformerId))));
+        if (index + 1 < matchingIds.Count)
+            condition = Expression.AndAlso(condition, BuildDistinctAudioPerformerPredicate(audio, matchingIds, index + 1, [.. previousLinks, link]));
+        return Expression.Call(typeof(Enumerable), nameof(Enumerable.Any), [typeof(AudioPerformer)],
+            Expression.Property(audio, nameof(Audio.AudioPerformers)),
+            Expression.Lambda<Func<AudioPerformer, bool>>(condition, link));
+    }
+
+    public static async Task<IQueryable<Performer>> ApplyDistinctAudiosToPerformersAsync(
+        CoveContext db,
+        IQueryable<Performer> query,
+        IReadOnlyList<RelatedFilterCriterion<AudioFilter>> criteria,
+        CancellationToken ct = default)
+    {
+        if (criteria.Count < 2) return query;
+        var matchingIds = new List<IQueryable<int>>(criteria.Count);
+        foreach (var criterion in criteria)
+            matchingIds.Add(await MatchingAudioIdsAsync(db, criterion, ct));
+        var performer = Expression.Parameter(typeof(Performer), "performer");
+        var predicate = BuildDistinctPerformerAudioPredicate(performer, matchingIds, 0, []);
+        return query.Where(Expression.Lambda<Func<Performer, bool>>(predicate, performer));
+    }
+
+    private static Expression BuildDistinctPerformerAudioPredicate(
+        ParameterExpression performer,
+        IReadOnlyList<IQueryable<int>> matchingIds,
+        int index,
+        IReadOnlyList<ParameterExpression> previousLinks)
+    {
+        var link = Expression.Parameter(typeof(AudioPerformer), $"link{index}");
+        Expression condition = Expression.Call(
+            typeof(Queryable), nameof(Queryable.Contains), [typeof(int)],
+            matchingIds[index].Expression,
+            Expression.Property(link, nameof(AudioPerformer.AudioId)));
+        foreach (var previous in previousLinks)
+            condition = Expression.AndAlso(condition,
+                Expression.NotEqual(Expression.Property(link, nameof(AudioPerformer.AudioId)), Expression.Property(previous, nameof(AudioPerformer.AudioId))));
+        if (index + 1 < matchingIds.Count)
+            condition = Expression.AndAlso(condition, BuildDistinctPerformerAudioPredicate(performer, matchingIds, index + 1, [.. previousLinks, link]));
+        return Expression.Call(typeof(Enumerable), nameof(Enumerable.Any), [typeof(AudioPerformer)],
+            Expression.Property(performer, nameof(Performer.AudioPerformers)),
+            Expression.Lambda<Func<AudioPerformer, bool>>(condition, link));
+    }
+
     private static Expression BuildDistinctVideoPerformerPredicate(
         ParameterExpression video,
         IReadOnlyList<IQueryable<VideoPerformer>> matchingLinks,

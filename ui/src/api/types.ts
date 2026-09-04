@@ -3170,6 +3170,7 @@ export interface GroupFilterCriteria {
 export interface FilteredQueryRequest<T = Record<string, unknown>> {
   findFilter?: FindFilter;
   objectFilter?: T;
+  filterExpression?: FilterExpression<T>;
   ids?: number[];
 }
 
@@ -3180,6 +3181,8 @@ export interface VideoFilteredQueryRequest extends FilteredQueryRequest<VideoFil
 export interface PerformerFilteredQueryRequest extends FilteredQueryRequest<PerformerFilterCriteria> {
   filterExpression?: FilterExpression<PerformerFilterCriteria>;
 }
+
+export type AudioFilteredQueryRequest = FilteredQueryRequest<AudioFilterCriteria>;
 
 export interface ImageAggregate { count: number; fileSize: number }
 export interface AudioAggregate { count: number; duration: number; fileSize: number }

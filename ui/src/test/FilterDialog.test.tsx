@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilterDialog } from "../components/FilterDialog";
 import { FilterButton } from "../components/FilterButton";
-import { IMAGE_CRITERIA, PERFORMER_CRITERIA, STUDIO_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
+import { AUDIO_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, STUDIO_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { RemoteIdFilterEditor } from "../components/PrimitiveCriterionEditors";
 import { countActiveObjectFilters, removeObjectFilterChipTarget } from "../components/ActiveObjectFilterChips";
@@ -2632,6 +2632,53 @@ describe("FilterDialog", () => {
         { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
       ],
     } });
+  });
+
+  it("can require audio performer conditions to match different performers", () => {
+    const onApply = vi.fn();
+    renderWithQueryClient(
+      <FilterDialog
+        open
+        onClose={vi.fn()}
+        criteria={AUDIO_CRITERIA}
+        activeFilter={{ _filterExpression: { operator: "AND", children: [
+          { filter: { performerFilterCriterion: { objectFilter: { nameCriterion: { modifier: "INCLUDES", value: "Alex" } } } } },
+          { filter: { performerFilterCriterion: { objectFilter: { nameCriterion: { modifier: "INCLUDES", value: "Alex" } } } } },
+        ] } }}
+        onApply={onApply}
+        supportsFilterExpressions
+        initialView="advanced"
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Related Performers All group" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "May reuse a performer" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Use a different performer for each" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({ _filterExpression: {
+      operator: "AND",
+      relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
+      children: [
+        { filter: { performerFilterCriterion: { objectFilter: { nameCriterion: { modifier: "INCLUDES", value: "Alex" } } } } },
+        { filter: { performerFilterCriterion: { objectFilter: { nameCriterion: { modifier: "INCLUDES", value: "Alex" } } } } },
+      ],
+    } });
+  });
+
+  it("can require performer audio conditions to match different audios", () => {
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={PERFORMER_CRITERIA} activeFilter={{ _filterExpression: {
+        operator: "AND",
+        children: [
+          { filter: { audioFilterCriterion: { objectFilter: { titleCriterion: { modifier: "INCLUDES", value: "Episode" } } } } },
+          { filter: { audioFilterCriterion: { objectFilter: { titleCriterion: { modifier: "INCLUDES", value: "Episode" } } } } },
+        ],
+      } }} onApply={vi.fn()} supportsFilterExpressions initialView="advanced" />,
+    );
+    expect(screen.getByRole("region", { name: "Related Audios All group" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "May reuse an audio" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Use a different audio for each" })).toBeEnabled();
   });
 
   it("repairs a related scope when a chip removes one of its two conditions", () => {

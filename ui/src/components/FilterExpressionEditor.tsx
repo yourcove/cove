@@ -219,6 +219,7 @@ function ExpressionGroupEditor({
   const relatedItemName = relatedScopeCriterion?.entityType === "galleries"
     ? "gallery"
     : relatedScopeCriterion?.entityType?.replace(/s$/, "") ?? "item";
+  const relatedItemArticle = /^[aeiou]/i.test(relatedItemName) ? "an" : "a";
   const distinctScopeAtLimit = group.relatedScope?.matchMode === "distinct"
     && group.children.length >= MAX_DISTINCT_RELATED_CONDITIONS;
   const operatorText = mode === "NOT" || mode === "NONE" ? presentation.label : `${presentation.label} of ${displayedChildren.length}`;
@@ -414,7 +415,7 @@ function ExpressionGroupEditor({
       </div>
       {!collapsed && mode === "AND" && relatedScopeCriterion ? <div className="flex flex-wrap items-center gap-2 px-2" role="group" aria-label={`How ${relatedScopeCriterion.label.toLowerCase()} conditions choose matches`}>
         <span className="text-xs font-medium text-muted">Match assignment</span>
-        <button type="button" aria-pressed={group.relatedScope?.matchMode !== "distinct"} onClick={() => onChange({ ...group, relatedScope: { filterKey: relatedScopeCriterion.filterKey, matchMode: "reuse" } })} className={`min-h-8 rounded-md px-2.5 text-sm ${group.relatedScope?.matchMode !== "distinct" ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"}`}>May reuse a {relatedItemName}</button>
+        <button type="button" aria-pressed={group.relatedScope?.matchMode !== "distinct"} onClick={() => onChange({ ...group, relatedScope: { filterKey: relatedScopeCriterion.filterKey, matchMode: "reuse" } })} className={`min-h-8 rounded-md px-2.5 text-sm ${group.relatedScope?.matchMode !== "distinct" ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"}`}>May reuse {relatedItemArticle} {relatedItemName}</button>
         <button type="button" aria-pressed={group.relatedScope?.matchMode === "distinct"} disabled={group.children.length > MAX_DISTINCT_RELATED_CONDITIONS} onClick={() => onChange({ ...group, relatedScope: { filterKey: relatedScopeCriterion.filterKey, matchMode: "distinct" } })} className={`min-h-8 rounded-md px-2.5 text-sm ${group.relatedScope?.matchMode === "distinct" ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"} disabled:opacity-40`}>Use a different {relatedItemName} for each</button>
         {group.children.length > MAX_DISTINCT_RELATED_CONDITIONS ? <span className="text-xs text-muted">Distinct assignment supports up to {MAX_DISTINCT_RELATED_CONDITIONS} conditions.</span> : null}
       </div> : null}

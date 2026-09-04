@@ -86,7 +86,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "favorite", label: "Favorite", type: "bool", filterKey: "favoriteCriterion" },
   { id: "relatedVideos", label: "Related Videos", type: "related", entityType: "videos", filterKey: "videoFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("videos") },
-  { id: "relatedAudios", label: "Related Audios", type: "related", entityType: "audios", filterKey: "audioFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("audios") },
+  { id: "relatedAudios", label: "Related Audios", type: "related", entityType: "audios", filterKey: "audioFilterCriterion", category: "related", supportsDistinctSiblingMatches: true, relatedCriteria: () => getRelatedCriteria("audios") },
   { id: "age", label: "Age (now)", type: "number", filterKey: "ageCriterion" },
   { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [
     { value: "Male", label: "Male" },
@@ -280,7 +280,7 @@ export const AUDIO_CRITERIA: CriteriaDefinitionList<AudioFilterCriteria> = [
   { id: "performerTags", label: "Performer Occurrence Tags", type: "multiId", entityType: "tags", filterKey: "performerTagsCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
-  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", relatedCriteria: () => getRelatedCriteria("performers") },
+  { id: "relatedPerformers", label: "Related Performers", type: "related", entityType: "performers", filterKey: "performerFilterCriterion", category: "related", supportsDistinctSiblingMatches: true, relatedCriteria: () => getRelatedCriteria("performers") },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "groups", label: "Groups", type: "multiId", entityType: "groups", filterKey: "groupsCriterion" },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },

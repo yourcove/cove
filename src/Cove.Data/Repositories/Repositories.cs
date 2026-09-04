@@ -663,17 +663,30 @@ public class PerformerRepository : IPerformerRepository
             query = await RelatedFilterQuery.ApplyAudioFilterToPerformersAsync(_db, query, filter?.AudioFilterCriterion, ct);
         }
 
-        query = await FilterExpressionQuery.ApplyAsync(query, expression, async (input, leaf) =>
-        {
-            var leafQuery = await BuildFilteredQueryAsync(
-                leaf,
-                findFilter: null,
-                includeRelatedFilters: includeRelatedFilters,
-                allowReadScopeOptimization: false,
-                ct: ct,
-                expression: null);
-            return input.Intersect(leafQuery);
-        });
+        query = await FilterExpressionQuery.ApplyAsync(
+            query,
+            expression,
+            async (input, leaf) =>
+            {
+                var leafQuery = await BuildFilteredQueryAsync(
+                    leaf,
+                    findFilter: null,
+                    includeRelatedFilters: includeRelatedFilters,
+                    allowReadScopeOptimization: false,
+                    ct: ct,
+                    expression: null);
+                return input.Intersect(leafQuery);
+            },
+            async (input, scope, leaves) =>
+            {
+                if (!string.Equals(scope.FilterKey, nameof(PerformerFilter.AudioFilterCriterion), StringComparison.OrdinalIgnoreCase))
+                    throw new NotSupportedException($"Distinct assignment is not supported for related scope '{scope.FilterKey}' by this repository.");
+                return await RelatedFilterQuery.ApplyDistinctAudiosToPerformersAsync(
+                    _db,
+                    input,
+                    leaves.Select(leaf => leaf.AudioFilterCriterion!).ToArray(),
+                    ct);
+            });
 
         return query;
     }

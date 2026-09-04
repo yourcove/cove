@@ -12,7 +12,8 @@ public static class AudioFilterQuery
         AudioFilter? filter,
         FindFilter? findFilter,
         bool includeRelatedFilters = true,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        FilterExpression<AudioFilter>? expression = null)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -37,10 +38,70 @@ public static class AudioFilterQuery
             performerSelectors: [audio => audio.AudioPerformers.Where(link => link.Performer != null).Select(link => link.Performer!)]);
         query = FullTextSearchHelpers.ApplyFilePathMatch(query, audioBase, findFilter?.Q, audio => audio.Files);
         query = ApplyFilter(db, query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-
-        return includeRelatedFilters
+        query = includeRelatedFilters
             ? await RelatedFilterQuery.ApplyToAudiosAsync(db, query, filter?.PerformerFilterCriterion, ct)
             : query;
+        if (!FilterExpressionQuery.TryValidate(expression, out var expressionError))
+            throw new ArgumentException(expressionError, nameof(expression));
+        return expression is { Children.Count: > 0 }
+            ? await ApplyExpressionAsync(db, query, expression, includeRelatedFilters, ct)
+            : query;
+    }
+
+    private static async Task<IQueryable<Audio>> ApplyExpressionAsync(
+        CoveContext db,
+        IQueryable<Audio> input,
+        FilterExpression<AudioFilter> group,
+        bool includeRelatedFilters,
+        CancellationToken ct)
+    {
+        async Task<IQueryable<Audio>> ApplyNodeAsync(IQueryable<Audio> source, FilterExpressionNode<AudioFilter> node)
+            => node.Filter != null
+                ? await ApplyLeafAsync(source, node.Filter)
+                : await ApplyExpressionAsync(db, source, node.Group!, includeRelatedFilters, ct);
+
+        async Task<IQueryable<Audio>> ApplyLeafAsync(IQueryable<Audio> source, AudioFilter leaf)
+        {
+            var matches = await BuildAsync(db, leaf, null, includeRelatedFilters, ct);
+            return source.Where(audio => matches.Any(match => match.Id == audio.Id));
+        }
+
+        if (group.Operator == FilterExpressionOperator.And)
+        {
+            var distinctPerformerScope = group.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct
+                && string.Equals(group.RelatedScope.FilterKey, nameof(AudioFilter.PerformerFilterCriterion), StringComparison.OrdinalIgnoreCase);
+            var current = distinctPerformerScope
+                ? await RelatedFilterQuery.ApplyDistinctAudioPerformersAsync(
+                    db, input, group.Children.Select(child => child.Filter!.PerformerFilterCriterion!).ToArray(), ct)
+                : input;
+            foreach (var child in group.Children)
+            {
+                current = await ApplyNodeAsync(current, child);
+            }
+            return current;
+        }
+        if (group.Operator == FilterExpressionOperator.Not)
+            return input.Except(await ApplyNodeAsync(input, group.Children[0]));
+        if (group.Operator == FilterExpressionOperator.JustOne)
+        {
+            IQueryable<Audio>? seen = null;
+            IQueryable<Audio>? exactlyOne = null;
+            foreach (var child in group.Children)
+            {
+                var branch = await ApplyNodeAsync(input, child);
+                if (seen == null) { seen = branch; exactlyOne = branch; continue; }
+                exactlyOne = exactlyOne!.Except(branch).Union(branch.Except(seen));
+                seen = seen.Union(branch);
+            }
+            return exactlyOne ?? input;
+        }
+        IQueryable<Audio>? union = null;
+        foreach (var child in group.Children)
+        {
+            var branch = await ApplyNodeAsync(input, child);
+            union = union == null ? branch : union.Union(branch);
+        }
+        return union ?? input;
     }
 
     private static IQueryable<Audio> ApplyFilter(CoveContext db, IQueryable<Audio> query, AudioFilter? filter, IReadOnlyList<int[]>? tagGroups, IReadOnlyList<int[]>? requiredTagGroups, IReadOnlyList<int[]>? studioGroups, IReadOnlyList<int[]>? requiredStudioGroups)

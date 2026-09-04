@@ -693,6 +693,69 @@ public class VideoFilterBehaviorTests
     }
 
     [Fact]
+    public async Task DistinctAudioPerformerExpression_RequiresDifferentMatchingPerformers()
+    {
+        await using var context = CreateContext();
+        var alexOne = CreatePerformer("Alex One", null);
+        var alexTwo = CreatePerformer("Alex Two", null);
+        var oneMatch = CreateAudio("one-match", alexOne);
+        var twoMatches = CreateAudio("two-matches", alexOne);
+        twoMatches.AudioPerformers.Add(new AudioPerformer { Performer = alexTwo });
+        context.Audios.AddRange(oneMatch, twoMatches);
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        FilterExpression<AudioFilter> Expression(RelatedScopeMatchMode matchMode) => new()
+        {
+            RelatedScope = new() { FilterKey = "performerFilterCriterion", MatchMode = matchMode },
+            Children =
+            [
+                new() { Filter = new AudioFilter { PerformerFilterCriterion = new() { ObjectFilter = new PerformerFilter { NameCriterion = new() { Modifier = CriterionModifier.Includes, Value = "Alex" } } } } },
+                new() { Filter = new AudioFilter { PerformerFilterCriterion = new() { ObjectFilter = new PerformerFilter { NameCriterion = new() { Modifier = CriterionModifier.Includes, Value = "Alex" } } } } },
+            ],
+        };
+
+        var reusable = await AudioFilterQuery.BuildAsync(context, null, null, expression: Expression(RelatedScopeMatchMode.Reuse));
+        Assert.Equal(2, await reusable.CountAsync(TestContext.Current.CancellationToken));
+        var distinct = await AudioFilterQuery.BuildAsync(context, null, null, expression: Expression(RelatedScopeMatchMode.Distinct));
+        Assert.Equal("two-matches", (await distinct.SingleAsync(TestContext.Current.CancellationToken)).Title);
+
+        var compound = Expression(RelatedScopeMatchMode.Distinct);
+        compound.Children[0].Filter!.TitleCriterion = new() { Modifier = CriterionModifier.Equals, Value = "missing" };
+        var compoundMatches = await AudioFilterQuery.BuildAsync(context, null, null, expression: compound);
+        Assert.Empty(await compoundMatches.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DistinctRelatedAudioExpression_RequiresDifferentMatchingAudios()
+    {
+        await using var context = CreateContext();
+        var oneAudio = CreatePerformer("One Audio", null);
+        var twoAudios = CreatePerformer("Two Audios", null);
+        context.Audios.Add(CreateAudio("Episode One", oneAudio));
+        context.Audios.Add(CreateAudio("Episode One", twoAudios));
+        context.Audios.Add(CreateAudio("Episode Two", twoAudios));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var expression = new FilterExpression<PerformerFilter>
+        {
+            RelatedScope = new() { FilterKey = "audioFilterCriterion", MatchMode = RelatedScopeMatchMode.Distinct },
+            Children =
+            [
+                new() { Filter = new PerformerFilter { AudioFilterCriterion = new() { ObjectFilter = new AudioFilter { TitleCriterion = new() { Modifier = CriterionModifier.Includes, Value = "Episode" } } } } },
+                new() { Filter = new PerformerFilter { AudioFilterCriterion = new() { ObjectFilter = new AudioFilter { TitleCriterion = new() { Modifier = CriterionModifier.Includes, Value = "Episode" } } } } },
+            ],
+        };
+
+        var (items, count) = await new PerformerRepository(context).FindAsync(null, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken, expression);
+        Assert.Equal(1, count);
+        Assert.Equal("Two Audios", Assert.Single(items).Name);
+
+        expression.Children[0].Filter!.NameCriterion = new() { Modifier = CriterionModifier.Equals, Value = "missing" };
+        var (compoundItems, compoundCount) = await new PerformerRepository(context).FindAsync(null, new FindFilter { Page = 1, PerPage = 50 }, TestContext.Current.CancellationToken, expression);
+        Assert.Equal(0, compoundCount);
+        Assert.Empty(compoundItems);
+    }
+
+    [Fact]
     public async Task DistinctRelatedPerformerExpression_RequiresEachClauseToMatchADifferentPerformer()
     {
         await using var context = CreateContext();

@@ -21,26 +21,33 @@ public static class FilterExpressionQuery
     public static async Task<IQueryable<TEntity>> ApplyAsync<TEntity, TFilter>(
         IQueryable<TEntity> input,
         FilterExpression<TFilter>? expression,
-        Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf)
+        Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf,
+        Func<IQueryable<TEntity>, RelatedFilterScope, IReadOnlyList<TFilter>, Task<IQueryable<TEntity>>>? applyDistinctScope = null)
         where TEntity : class
         where TFilter : class
     {
         if (!TryValidate(expression, out var error)) throw new ArgumentException(error, nameof(expression));
         if (expression == null || expression.Children.Count == 0) return input;
-        if (expression.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct)
-            throw new NotSupportedException($"Distinct assignment is not supported for related scope '{expression.RelatedScope.FilterKey}' by this repository.");
-
         if (expression.Operator == FilterExpressionOperator.And)
         {
+            if (expression.RelatedScope?.MatchMode == RelatedScopeMatchMode.Distinct)
+            {
+                if (applyDistinctScope == null)
+                    throw new NotSupportedException($"Distinct assignment is not supported for related scope '{expression.RelatedScope.FilterKey}' by this repository.");
+                var scoped = await applyDistinctScope(input, expression.RelatedScope, expression.Children.Select(child => child.Filter!).ToArray());
+                foreach (var child in expression.Children)
+                    scoped = await applyLeaf(scoped, child.Filter!);
+                return scoped;
+            }
             var current = input;
             foreach (var child in expression.Children)
-                current = await ApplyNodeAsync(current, child, applyLeaf);
+                current = await ApplyNodeAsync(current, child, applyLeaf, applyDistinctScope);
             return current;
         }
 
         if (expression.Operator == FilterExpressionOperator.Not)
         {
-            var excluded = await ApplyNodeAsync(input, expression.Children[0], applyLeaf);
+            var excluded = await ApplyNodeAsync(input, expression.Children[0], applyLeaf, applyDistinctScope);
             return input.Except(excluded);
         }
 
@@ -50,7 +57,7 @@ public static class FilterExpressionQuery
             IQueryable<TEntity>? exactlyOne = null;
             foreach (var child in expression.Children)
             {
-                var branch = await ApplyNodeAsync(input, child, applyLeaf);
+                var branch = await ApplyNodeAsync(input, child, applyLeaf, applyDistinctScope);
                 if (seen == null)
                 {
                     seen = branch;
@@ -67,7 +74,7 @@ public static class FilterExpressionQuery
         IQueryable<TEntity>? union = null;
         foreach (var child in expression.Children)
         {
-            var branch = await ApplyNodeAsync(input, child, applyLeaf);
+            var branch = await ApplyNodeAsync(input, child, applyLeaf, applyDistinctScope);
             union = union == null ? branch : union.Union(branch);
         }
         return union ?? input;
@@ -76,12 +83,13 @@ public static class FilterExpressionQuery
     private static Task<IQueryable<TEntity>> ApplyNodeAsync<TEntity, TFilter>(
         IQueryable<TEntity> input,
         FilterExpressionNode<TFilter> node,
-        Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf)
+        Func<IQueryable<TEntity>, TFilter, Task<IQueryable<TEntity>>> applyLeaf,
+        Func<IQueryable<TEntity>, RelatedFilterScope, IReadOnlyList<TFilter>, Task<IQueryable<TEntity>>>? applyDistinctScope)
         where TEntity : class
         where TFilter : class
         => node.Filter != null
             ? applyLeaf(input, node.Filter)
-            : ApplyAsync(input, node.Group, applyLeaf);
+            : ApplyAsync(input, node.Group, applyLeaf, applyDistinctScope);
 
     private static bool ValidateGroup<TFilter>(FilterExpression<TFilter> group, int depth, ref int leaves, ref string? error) where TFilter : class
     {
@@ -144,17 +152,23 @@ public static class FilterExpressionQuery
                 return false;
             }
             if (group.Children.Any(child =>
-            {
-                var criterion = relatedProperty.GetValue(child.Filter)!;
-                return (RelatedFilterMode)criterion.GetType().GetProperty(nameof(RelatedFilterCriterion<object>.Mode))!.GetValue(criterion)! != RelatedFilterMode.AtLeastOne
-                    || (bool)criterion.GetType().GetProperty(nameof(RelatedFilterCriterion<object>.Exclude))!.GetValue(criterion)!;
-            }))
+                {
+                    var criterion = relatedProperty.GetValue(child.Filter)!;
+                    return (RelatedFilterMode)criterion.GetType().GetProperty(nameof(RelatedFilterCriterion<object>.Mode))!.GetValue(criterion)! != RelatedFilterMode.AtLeastOne
+                        || (bool)criterion.GetType().GetProperty(nameof(RelatedFilterCriterion<object>.Exclude))!.GetValue(criterion)!;
+                }))
             {
                 error = "Related filter-expression scopes require positive at-least-one conditions.";
                 return false;
             }
+            var supportsDistinctAssignment = typeof(TFilter) == typeof(VideoFilter)
+                    && relatedProperty.Name == nameof(VideoFilter.PerformerFilterCriterion)
+                || typeof(TFilter) == typeof(AudioFilter)
+                    && relatedProperty.Name == nameof(AudioFilter.PerformerFilterCriterion)
+                || typeof(TFilter) == typeof(PerformerFilter)
+                    && relatedProperty.Name == nameof(PerformerFilter.AudioFilterCriterion);
             if (group.RelatedScope.MatchMode == RelatedScopeMatchMode.Distinct
-                && (typeof(TFilter) != typeof(VideoFilter) || !string.Equals(relatedProperty.Name, nameof(VideoFilter.PerformerFilterCriterion), StringComparison.Ordinal)))
+                && !supportsDistinctAssignment)
             {
                 error = $"Distinct assignment is not supported for related scope '{group.RelatedScope.FilterKey}'.";
                 return false;

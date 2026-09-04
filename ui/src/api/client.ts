@@ -74,6 +74,7 @@ import type {
   FilteredQueryRequest,
   VideoFilteredQueryRequest,
   PerformerFilteredQueryRequest,
+  AudioFilteredQueryRequest,
   VideoFilterCriteria,
   VideoAggregate,
   ImageAggregate,
@@ -1006,9 +1007,9 @@ export const images = {
 export const audios = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Audio>>(`/audios${buildQuery(filter, extra)}`),
-  findFiltered: (req: FilteredQueryRequest<AudioFilterCriteria>) =>
+  findFiltered: (req: AudioFilteredQueryRequest) =>
     request<PaginatedResponse<Audio>>("/audios/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
-  aggregate: (req: FilteredQueryRequest<AudioFilterCriteria>) =>
+  aggregate: (req: AudioFilteredQueryRequest) =>
     request<AudioAggregate>("/audios/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Audio>(`/audios/${id}`),
   create: (data: AudioCreate) => request<Audio>("/audios", { method: "POST", body: JSON.stringify(data) }),

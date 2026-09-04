@@ -14,18 +14,13 @@ public class FilteredQueryRequest<TFilter> where TFilter : class, new()
 {
     public FindFilter? FindFilter { get; set; }
     public TFilter? ObjectFilter { get; set; }
+    public FilterExpression<TFilter>? FilterExpression { get; set; }
     public List<int>? Ids { get; set; }
 }
 
-public class VideoFilteredQueryRequest : FilteredQueryRequest<VideoFilter>
-{
-    public FilterExpression<VideoFilter>? FilterExpression { get; set; }
-}
+public class VideoFilteredQueryRequest : FilteredQueryRequest<VideoFilter>;
 
-public class PerformerFilteredQueryRequest : FilteredQueryRequest<PerformerFilter>
-{
-    public FilterExpression<PerformerFilter>? FilterExpression { get; set; }
-}
+public class PerformerFilteredQueryRequest : FilteredQueryRequest<PerformerFilter>;
 
 public record GlobalSearchItemDto(int Id, string Title, string? Subtitle);
 public record GlobalSearchGroupDto(string Type, IReadOnlyList<GlobalSearchItemDto> Items);
