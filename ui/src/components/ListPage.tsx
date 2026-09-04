@@ -39,6 +39,7 @@ export interface ListPageProps {
   onFilterChange: (f: FindFilter) => void;
   totalCount: number;
   isLoading?: boolean;
+  summaryLoading?: boolean;
   error?: Error | null;
   onRetry?: () => void;
   loadState?: QueryLoadState<unknown>;
@@ -684,6 +685,7 @@ export function ListPage({
   onFilterChange,
   totalCount,
   isLoading = false,
+  summaryLoading = false,
   error,
   onRetry,
   loadState,
@@ -1061,20 +1063,20 @@ export function ListPage({
         <div className="list-page-title-group mr-auto flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pr-2">
           <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">{title}</h1>
           <span className="text-xs text-muted hidden sm:inline">
-            {resolvedLoadState.status === "pending"
+            {resolvedLoadState.status === "pending" || summaryLoading
               ? "Loading…"
               : resolvedLoadState.status === "error"
                 ? "Unavailable"
                 : totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">
-            {resolvedLoadState.status === "pending"
+            {resolvedLoadState.status === "pending" || summaryLoading
               ? "…"
               : resolvedLoadState.status === "error"
                 ? "—"
                 : totalCount > 0 ? totalCount.toLocaleString() : "0"}
           </span>
-          {metadataByline}
+          {!summaryLoading && metadataByline}
         </div>
 
         {/* Search */}
