@@ -231,7 +231,7 @@ interface Props {
 export function HomePage({ onNavigate, dashboardId }: Props) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const [isEditing, setIsEditing] = useState(false);
+  const [editingDashboard, setEditingDashboard] = useState<{ id: number; selectName: boolean } | null>(null);
   const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
   const legacyWidgets = useMemo(() => loadContent().map(contentToWidget), [principalKey]);
   const dashboardQuery = useQuery({
@@ -266,7 +266,14 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
     if (dashboardQuery.data?.missingRequested) onNavigate({ page: "home" });
   }, [dashboardQuery.data?.missingRequested, onNavigate]);
 
-  useEffect(() => setIsEditing(false), [principalKey]);
+  useEffect(() => setEditingDashboard(null), [principalKey]);
+
+  const loadedDashboardId = dashboardQuery.data?.dashboard.id;
+  useEffect(() => {
+    if (loadedDashboardId != null) {
+      setEditingDashboard((current) => current == null || current.id === loadedDashboardId ? current : null);
+    }
+  }, [loadedDashboardId]);
 
   const refresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["dashboard-page"] });
@@ -280,22 +287,23 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   }
 
   const { dashboard, list, readOnly } = dashboardQuery.data;
-  if (isEditing) {
+  if (editingDashboard?.id === dashboard.id) {
     return (
       <DashboardEditor
         key={`${principalKey}:${dashboard.id}`}
         dashboard={dashboard}
         dashboards={list}
+        selectNameOnMount={editingDashboard.selectName}
         onNavigate={onNavigate}
-        onCancel={() => setIsEditing(false)}
+        onCancel={() => setEditingDashboard(null)}
         onDeleted={async () => {
           await refresh();
-          setIsEditing(false);
+          setEditingDashboard(null);
           onNavigate({ page: "home" });
         }}
         onSaved={async (saved) => {
           await refresh();
-          setIsEditing(false);
+          setEditingDashboard(null);
           if (saved.isDefault) onNavigate({ page: "home" });
         }}
       />
@@ -309,8 +317,8 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
         dashboard={dashboard}
         dashboards={list}
         onNavigate={onNavigate}
-        onEdit={() => setIsEditing(true)}
-        onCreated={async (created) => { await refresh(); onNavigate({ page: "dashboard", id: created.id }); }}
+        onEdit={() => setEditingDashboard({ id: dashboard.id, selectName: false })}
+        onCreated={async (created) => { await refresh(); setEditingDashboard({ id: created.id, selectName: true }); onNavigate({ page: "dashboard", id: created.id }); }}
         readOnly={readOnly}
       />
       <div className={presentation === "canvas" ? "min-w-0" : "space-y-5"}>
@@ -322,7 +330,7 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
             No dashboard widgets are available.
           </div>
         ) : dashboard.widgets.length === 0 ? (
-          <button onClick={() => setIsEditing(true)} className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 text-muted hover:border-accent/50 hover:text-accent">
+          <button onClick={() => setEditingDashboard({ id: dashboard.id, selectName: false })} className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 text-muted hover:border-accent/50 hover:text-accent">
             <Plus className="h-6 w-6" />
             Add your first widget
           </button>
@@ -354,8 +362,11 @@ function DashboardHeader({ dashboard, dashboards: items, onNavigate, onEdit, onC
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const createDashboard = async () => {
-    const name = window.prompt("Dashboard name", "New Dashboard")?.trim();
-    if (!name) return;
+    const existingNames = new Set(items.map((item) => item.name.trim().toUpperCase()));
+    let name = "New Dashboard";
+    for (let suffix = 2; existingNames.has(name.toUpperCase()); suffix += 1) {
+      name = `New Dashboard ${suffix}`;
+    }
     setCreating(true);
     setCreateError(null);
     try {
@@ -454,9 +465,10 @@ function WidgetLoadError({ label, error, onRetry }: { label: string; error: unkn
   );
 }
 
-function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onCancel, onDeleted, onSaved }: {
+function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMount = false, onNavigate, onCancel, onDeleted, onSaved }: {
   dashboard: Dashboard;
   dashboards: DashboardSummary[];
+  selectNameOnMount?: boolean;
   onNavigate: (route: any) => void;
   onCancel: () => void;
   onDeleted: () => Promise<void>;
@@ -474,6 +486,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
   const pendingScrollWidgetId = useRef<string | null>(null);
   const widgetElements = useRef(new Map<string, HTMLElement>());
   const editorToolbar = useRef<HTMLElement | null>(null);
+  const dashboardNameInput = useRef<HTMLInputElement | null>(null);
   const editorUrl = useRef(`${window.location.pathname}${window.location.search}`);
   const editorHistoryState = useRef(window.history.state);
   const dirty = JSON.stringify({ name: draft.name, widgets: draft.widgets }) !== JSON.stringify({ name: dashboard.name, widgets: dashboard.widgets });
@@ -484,6 +497,12 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
     queryFn: () => savedFilters.list(),
   });
   const definitions = (manifest?.dashboardWidgets ?? []).filter((definition) => canAccessExtensionContribution(definition, hasPermission));
+
+  useEffect(() => {
+    if (!selectNameOnMount) return;
+    dashboardNameInput.current?.focus();
+    dashboardNameInput.current?.select();
+  }, [selectNameOnMount]);
 
   useEffect(() => {
     const confirmNavigation = () => allowNavigation.current || !dirty || window.confirm("Discard your unsaved dashboard changes?");
@@ -673,11 +692,17 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
         <div className="flex min-w-0 items-center gap-3">
           <span className="rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent">Editing Dashboard</span>
           <input
+            ref={dashboardNameInput}
             aria-label="Dashboard name"
             disabled={busy}
             value={draft.name}
             maxLength={100}
             onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.nativeEvent.isComposing || busy || !draft.name.trim()) return;
+              event.preventDefault();
+              void save();
+            }}
             className="min-w-0 rounded border border-border bg-input px-3 py-2 font-medium text-foreground"
           />
         </div>

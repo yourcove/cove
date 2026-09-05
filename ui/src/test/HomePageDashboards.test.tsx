@@ -1,8 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { Suspense, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppRoutes } from "../App";
 import { getCarouselPageDestinations, getWidgetRevealScrollDelta, HomePage } from "../pages/HomePage";
 import { navigateToUrl } from "../router/location";
+import type { Route } from "../router/location";
+import { RouteRegistryProvider } from "../router/RouteRegistry";
 
 const { state, mocks } = vi.hoisted(() => ({
   state: {
@@ -67,9 +71,10 @@ vi.mock("../utils/userUiPreferences", () => ({
 
 vi.mock("../extensions/ExtensionLoader", () => ({
   useExtensions: () => ({
-    manifest: { dashboardWidgets: state.dashboardDefinitions },
+    manifest: { dashboardWidgets: state.dashboardDefinitions, pages: [] },
     resolveComponent: (_extensionId: string, componentName: string) => state.extensionComponents[componentName],
     getExtensionRevision: () => 0,
+    getPageOverride: () => undefined,
   }),
 }));
 
@@ -726,14 +731,71 @@ describe("HomePage dashboards", () => {
     }));
   });
 
-  it("creates another personal dashboard and opens it", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("Discovery");
-    const { onNavigate } = renderHome();
+  it("creates another personal dashboard and opens it for editing", async () => {
+    const prompt = vi.spyOn(window, "prompt");
+    const created = dashboard(2, "New Dashboard");
+    mocks.create.mockImplementation(async () => {
+      state.dashboards = [summary(1, "Home", true), summary(2, "New Dashboard")];
+      return created;
+    });
+    mocks.update.mockImplementation(async (_id: number, request: { name: string }) => ({ ...created, name: request.name }));
+    mocks.get.mockImplementation(async (id: number) => id === created.id ? created : dashboard(1, "Home", true));
+    const onNavigate = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function RoutedDashboardApp() {
+      const [route, setRoute] = useState<Route>({ page: "home" });
+      return <>
+        <button onClick={() => setRoute({ page: "home" })}>Test go home</button>
+        <AppRoutes route={route} navigate={(nextRoute) => {
+          onNavigate(nextRoute);
+          setRoute(nextRoute);
+        }} />
+      </>;
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <RouteRegistryProvider>
+          <Suspense fallback={<div>Loading route</div>}>
+            <RoutedDashboardApp />
+          </Suspense>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
 
     fireEvent.click(await screen.findByRole("button", { name: /New Dashboard/ }));
 
-    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith("Discovery"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith("New Dashboard"));
+    expect(prompt).not.toHaveBeenCalled();
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({ page: "dashboard", id: 2 }));
+    expect(await screen.findByText("Editing Dashboard")).toBeInTheDocument();
+    const nameInput = screen.getByRole<HTMLInputElement>("textbox", { name: "Dashboard name" });
+    expect(nameInput).toHaveValue("New Dashboard");
+    expect(nameInput).toHaveFocus();
+    expect(nameInput.selectionStart).toBe(0);
+    expect(nameInput.selectionEnd).toBe("New Dashboard".length);
+
+    fireEvent.change(nameInput, { target: { value: "Discovery" } });
+    fireEvent.keyDown(nameInput, { key: "Enter" });
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ name: "Discovery" })));
+    expect(screen.queryByText("Editing Dashboard")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Test go home" }));
+    const dashboardPicker = await screen.findByRole("combobox", { name: "Dashboard" });
+    expect(dashboardPicker).toHaveValue("1");
+    expect(screen.queryByText("Editing Dashboard")).not.toBeInTheDocument();
+
+    fireEvent.change(dashboardPicker, { target: { value: "2" } });
+    expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("2");
+    expect(screen.queryByText("Editing Dashboard")).not.toBeInTheDocument();
+  });
+
+  it("gives a new dashboard an available default name", async () => {
+    state.dashboards = [summary(1, "Home", true), summary(2, "New Dashboard"), summary(3, "new dashboard 2")];
+    renderHome();
+
+    fireEvent.click(await screen.findByRole("button", { name: /New Dashboard/ }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith("New Dashboard 3"));
   });
 
   it("refreshes to the fallback after deleting the default dashboard at the home URL", async () => {
