@@ -270,6 +270,10 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      - name: Format check
+        working-directory: ui
+        run: npm run format:check
+
       - name: Type check & build
         working-directory: ui
         run: npm run build
