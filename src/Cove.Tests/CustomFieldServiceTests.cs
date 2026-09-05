@@ -13,6 +13,36 @@ namespace Cove.Tests;
 public class CustomFieldServiceTests
 {
     [Fact]
+    public async Task ReplaceDefinitionsAsync_PreservesNamespacedKeyAndValues()
+    {
+        await using var context = CreateContext();
+        var service = new CustomFieldService(context);
+        const string key = "stash__culture__av1_encode";
+        var definition = await service.CreateDefinitionAsync(new CustomFieldDefinitionCreateDto
+        {
+            Key = key,
+            Label = "culture.av1_encode",
+            Type = CustomFieldTypes.LongText,
+            EntityTypes = [CustomFieldEntityTypes.Video],
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(key, definition.Key);
+        await service.SaveValuesAsync(CustomFieldEntityTypes.Video, 41,
+            new Dictionary<string, object> { [key] = "imported value" }, TestContext.Current.CancellationToken);
+        await service.ReplaceDefinitionsAsync([
+            new CustomFieldDefinitionSyncDto
+            {
+                Id = definition.Id,
+                Key = key,
+                Label = definition.Label,
+                Type = definition.Type,
+                EntityTypes = definition.EntityTypes,
+            }
+        ], TestContext.Current.CancellationToken);
+        Assert.Equal(key, Assert.Single(context.CustomFieldDefinitions).Key);
+        Assert.Equal("imported value", Assert.Single(context.CustomFieldValues).LongTextValue);
+    }
+
+    [Fact]
     public async Task CreateDefinitionAsync_NormalizesLongTextAndDisablesQueryBehaviors()
     {
         await using var context = CreateContext();
