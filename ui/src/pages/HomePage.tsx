@@ -670,19 +670,23 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
             }}
             className={`rounded-lg border bg-card/30 transition-colors ${isDragging || isOver ? "border-accent" : "border-border"}`}
           >
-            <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-              <span {...(busy ? {} : dragHandleProps)} aria-disabled={busy} className={busy ? "cursor-not-allowed text-muted opacity-50" : "cursor-grab text-muted active:cursor-grabbing"}><GripVertical className="h-4 w-4" /></span>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{widget.label}</span>
-              <WidgetPresentationControl
-                widget={widget}
-                definition={definitions.find((item) => item.extensionId === widget.owner && item.id === widget.widgetKey)}
-                dashboardWidgetCount={draft.widgets.length}
-                disabled={busy}
-                onChange={(presentation) => setWidgetPresentation(widget.instanceId, presentation)}
-              />
-              <button disabled={busy} onClick={() => setConfiguringId(widget.instanceId)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Settings2 className="mr-1 inline h-3.5 w-3.5" />Configure</button>
-              {canDuplicateWidget(widget, definitions) ? <button disabled={busy} onClick={() => duplicateWidget(widget)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Copy className="mr-1 inline h-3.5 w-3.5" />Duplicate</button> : null}
-              <button disabled={busy} onClick={() => removeWidget(widget.instanceId)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Remove</button>
+            <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 items-center gap-2 sm:flex-1">
+                <span {...(busy ? {} : dragHandleProps)} aria-disabled={busy} className={busy ? "cursor-not-allowed text-muted opacity-50" : "cursor-grab text-muted active:cursor-grabbing"}><GripVertical className="h-4 w-4" /></span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{widget.label}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1 sm:ml-auto sm:justify-end">
+                <WidgetPresentationControl
+                  widget={widget}
+                  definition={definitions.find((item) => item.extensionId === widget.owner && item.id === widget.widgetKey)}
+                  dashboardWidgetCount={draft.widgets.length}
+                  disabled={busy}
+                  onChange={(presentation) => setWidgetPresentation(widget.instanceId, presentation)}
+                />
+                <button disabled={busy} onClick={() => setConfiguringId(widget.instanceId)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Settings2 className="mr-1 inline h-3.5 w-3.5" />Configure</button>
+                {canDuplicateWidget(widget, definitions) ? <button disabled={busy} onClick={() => duplicateWidget(widget)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Copy className="mr-1 inline h-3.5 w-3.5" />Duplicate</button> : null}
+                <button disabled={busy} onClick={() => removeWidget(widget.instanceId)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Remove</button>
+              </div>
             </div>
             <div className="p-3"><DashboardWidgetHost dashboardId={dashboard.id} principalKey={principalKey} widget={widget} onNavigate={onNavigate} /></div>
           </section>

@@ -357,6 +357,27 @@ describe("HomePage dashboards", () => {
     expect(addWidget.parentElement?.children[1]).toBe(addWidget);
   });
 
+  it("gives mobile widget titles a separate row above wrapping actions", async () => {
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "one",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "A long dashboard widget label",
+      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "A long dashboard widget label" },
+    }]);
+    renderHome();
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+
+    const label = screen.getByText("A long dashboard widget label", { selector: "span" });
+    const titleRow = label.parentElement!;
+    const widgetHeader = titleRow.parentElement!;
+    const actionRow = screen.getByRole("button", { name: /Configure/ }).parentElement!;
+    expect(widgetHeader).toHaveClass("flex-col", "sm:flex-row");
+    expect(titleRow).toHaveClass("min-w-0", "sm:flex-1");
+    expect(actionRow).not.toBe(titleRow);
+    expect(actionRow).toHaveClass("flex-wrap", "sm:justify-end");
+  });
+
   it("traps catalog focus, closes on Escape, and restores the Add Widget trigger", async () => {
     renderHome();
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
