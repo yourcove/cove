@@ -13,6 +13,138 @@ public sealed class ContainerRelationshipAuthorizationApiTests(
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
     [Fact]
+    public async Task GivenRestrictedRelatedEntities_WhenRelatedFiltersAreUsed_ThenHiddenRelationshipsDoNotMatch()
+    {
+        var owner = AsUser();
+        var suffix = Guid.NewGuid().ToString("N");
+        var hiddenTag = await owner.CreateTagAsync($"Related-filter hidden tag {suffix}", TestContext.Current.CancellationToken);
+        var visibleTag = await owner.CreateTagAsync($"Related-filter visible tag {suffix}", TestContext.Current.CancellationToken);
+        var hiddenPerformer = await owner.CreatePerformerAsync(new PerformerBuilder()
+            .WithName($"Related-filter hidden performer {suffix}")
+            .AsFavorite()
+            .Build(), TestContext.Current.CancellationToken);
+        var visiblePerformer = await owner.CreatePerformerAsync(new PerformerBuilder()
+            .WithName($"Related-filter visible performer {suffix}")
+            .WithTag(hiddenTag)
+            .Build(), TestContext.Current.CancellationToken);
+        var visibleVideo = await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Related-filter visible video {suffix}")
+            .WithPerformers([visiblePerformer, hiddenPerformer])
+            .WithTags([visibleTag])
+            .Build(), TestContext.Current.CancellationToken);
+        await owner.CreateVideoAsync(new VideoBuilder()
+            .WithTitle($"Related-filter hidden tagged video {suffix}")
+            .WithPerformers([visiblePerformer])
+            .WithTags([hiddenTag])
+            .Build(), TestContext.Current.CancellationToken);
+
+        var roleName = $"Restricted related filters {suffix}";
+        var role = await owner.CreateRoleAsync(new CreateRoleRequest(
+            roleName,
+            "Prevents related filters from matching hidden entities.",
+            [Permissions.VideosRead, Permissions.PerformersRead, Permissions.TagsRead]), TestContext.Current.CancellationToken);
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id,
+            EntityKinds.Performer,
+            "deny",
+            "attribute",
+            "{\"path\":\"favorite\",\"equals\":true}",
+            "read"), TestContext.Current.CancellationToken);
+        await owner.CreateContentRuleAsync(new CreateContentRuleRequest(
+            role.Id,
+            EntityKinds.Video,
+            "deny",
+            "tag",
+            $"{{\"tagId\":{hiddenTag.Id}}}",
+            "read"), TestContext.Current.CancellationToken);
+        await owner.CreateEntityOverrideAsync(new CreateEntityOverrideRequest(
+            role.Id, EntityKinds.Tag, hiddenTag.Id.ToString(), "deny", "read"), TestContext.Current.CancellationToken);
+
+        var username = $"restricted-related-filters-{suffix}";
+        const string password = "Restricted related filters password 123!";
+        await owner.CreateUserAsync(new CreateUserRequest(username, password, Roles: [roleName]), TestContext.Current.CancellationToken);
+        using var session = await owner.CreateAuthSessionAsync(username, password, TestContext.Current.CancellationToken);
+        var restricted = session.Client;
+
+        var tagOnlyRestrictedPerformers = await restricted.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+        {
+            ObjectFilter = new PerformerFilter
+            {
+                NameCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = visiblePerformer.Name },
+                VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                {
+                    ObjectFilter = new VideoFilter
+                    {
+                        TagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.IncludesAll, Value = [hiddenTag.Id] },
+                    },
+                },
+            },
+            FindFilter = new FindFilter { Page = 1, PerPage = 25 },
+        }, TestContext.Current.CancellationToken);
+        tagOnlyRestrictedPerformers.Items.Should().BeEmpty();
+
+        var unrestrictedRoleName = $"Unrestricted related filters {suffix}";
+        await owner.CreateRoleAsync(new CreateRoleRequest(
+            unrestrictedRoleName,
+            "Reads the entities used by related filters without content restrictions.",
+            [Permissions.VideosRead, Permissions.PerformersRead, Permissions.TagsRead]), TestContext.Current.CancellationToken);
+        var unrestrictedUsername = $"unrestricted-related-filters-{suffix}";
+        await owner.CreateUserAsync(new CreateUserRequest(unrestrictedUsername, password, Roles: [unrestrictedRoleName]), TestContext.Current.CancellationToken);
+        using var unrestrictedSession = await owner.CreateAuthSessionAsync(unrestrictedUsername, password, TestContext.Current.CancellationToken);
+        var tagOnlyUnrestrictedPerformers = await unrestrictedSession.Client.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+        {
+            ObjectFilter = new PerformerFilter
+            {
+                NameCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = visiblePerformer.Name },
+                VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                {
+                    ObjectFilter = new VideoFilter
+                    {
+                        TagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.IncludesAll, Value = [visibleTag.Id] },
+                    },
+                },
+            },
+            FindFilter = new FindFilter { Page = 1, PerPage = 25 },
+        }, TestContext.Current.CancellationToken);
+        tagOnlyUnrestrictedPerformers.Items.Should().ContainSingle(item => item.Id == visiblePerformer.Id);
+
+        var videos = await restricted.FindVideosAsync(new FilteredQueryRequest<VideoFilter>
+        {
+            ObjectFilter = new VideoFilter
+            {
+                Ids = [visibleVideo.Id],
+                PerformerFilterCriterion = new RelatedFilterCriterion<PerformerFilter>
+                {
+                    ObjectFilter = new PerformerFilter
+                    {
+                        TagsCriterion = new MultiIdCriterion { Modifier = CriterionModifier.Includes, Value = [hiddenTag.Id] },
+                    },
+                },
+            },
+            FindFilter = new FindFilter { Page = 1, PerPage = 25 },
+        }, TestContext.Current.CancellationToken);
+        videos.Items.Should().BeEmpty();
+
+        var performers = await restricted.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>
+        {
+            ObjectFilter = new PerformerFilter
+            {
+                NameCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = visiblePerformer.Name },
+                VideoFilterCriterion = new RelatedFilterCriterion<VideoFilter>
+                {
+                    ObjectFilter = new VideoFilter
+                    {
+                        TitleCriterion = new StringCriterion { Modifier = CriterionModifier.Equals, Value = visibleVideo.Title! },
+                        PerformerFavoriteCriterion = new BoolCriterion { Value = true },
+                    },
+                },
+            },
+            FindFilter = new FindFilter { Page = 1, PerPage = 25 },
+        }, TestContext.Current.CancellationToken);
+        performers.Items.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task GivenRestrictedRelatedMedia_WhenRelationshipViewsAreRead_ThenIdsAndCountsExcludeHiddenMedia()
     {
         var owner = AsUser();
@@ -114,6 +246,19 @@ public sealed class ContainerRelationshipAuthorizationApiTests(
             FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 25, Sort = "audio_count", Direction = Cove.Core.Enums.SortDirection.Desc },
         }, TestContext.Current.CancellationToken);
         filteredPerformers.Items.Should().ContainSingle(item => item.Id == performer.Id);
+        var expressionFilteredPerformers = await user.FindPerformersAsync(new PerformerFilteredQueryRequest
+        {
+            FilterExpression = new FilterExpression<PerformerFilter>
+            {
+                Children =
+                [
+                    new() { Filter = new PerformerFilter { AudioCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 1 } } },
+                    new() { Filter = new PerformerFilter { TextCountCriterion = new IntCriterion { Modifier = CriterionModifier.Equals, Value = 1 } } },
+                ],
+            },
+            FindFilter = new FindFilter { Q = suffix, Page = 1, PerPage = 25 },
+        }, TestContext.Current.CancellationToken);
+        expressionFilteredPerformers.Items.Should().ContainSingle(item => item.Id == performer.Id);
         foreach (var sort in new[] { "audio_count", "text_count" })
         {
             var sortedPerformers = await user.FindPerformersAsync(new FilteredQueryRequest<PerformerFilter>

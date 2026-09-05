@@ -1,0 +1,136 @@
+---
+title: Advanced search recipes
+description: Build less common Cove searches with repeated filters, related entities, and grouped conditions.
+draft: true
+---
+
+This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the **Combine Filters** experience and the examples are still under review.
+
+Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **All**, **Any**, or **None** group.
+
+## Combine filters into groups
+
+**Combine Filters** presents the search as readable rules. Each group has one matching mode:
+
+- **All** requires every direct condition or group.
+- **Any** requires at least one direct condition or group.
+- **None** requires every direct condition or group not to match.
+
+Open a group's menu and choose **Create subgroup**, then select sibling rules. Two or more selections can become an **All** or **Any** group. One or more selections can become **None**. Choose **Cancel grouping** to leave the search unchanged.
+
+To relocate a condition, drag its move handle onto another group or open the condition menu and choose **Move to…**. The menu is also the direct keyboard-accessible way to choose any legal destination group.
+
+Older or externally created searches may show an **Exclude** enclosure around a compound group. This is retained when changing it to None would alter the search's meaning.
+
+Each rule is already written as a plain-language sentence. Select a sentence to edit it. Secondary actions are available from its more-actions menu; a group menu can change excluded logic, dissolve the group without deleting its rules, or remove the entire group.
+
+The complete workflow is keyboard accessible. Tab reaches every control, Enter or Space activates it, and grouping mode exposes pressed-state buttons for selecting sibling rules. Escape returns to the preceding filter view.
+
+## Match a performer’s age when a video was made
+
+To find videos containing a performer who was between 18 and 20 on the video date:
+
+1. Open **Videos**, then **Filters**.
+2. Select **Related Performers**.
+3. Leave **Relationship match mode** set to **At least one matching performer**.
+4. Select **Age (then)**, choose **Between**, and enter `18` and `20`.
+5. Apply the filters.
+
+**Age (then)** compares each performer’s birthdate with the video date. It is different from **Age (now)**, which uses the performer’s current age. A performer needs both a birthdate and a dated video for **Age (then)** to match.
+
+## Match an occurrence tag to one performer
+
+To find videos where one exact performer has an occurrence tag such as **Hair Down**:
+
+1. Open **Videos**, then **Filters**.
+2. Select **Related Performers**.
+3. Select **Specific Performer** and choose the performer.
+4. Select **Occurrence Tags** and choose **Hair Down**.
+5. Apply the filters.
+
+Both conditions are evaluated against the same performer appearance. A video does not match when the selected performer appears but **Hair Down** is attached only to somebody else in that video.
+
+You can use performer properties instead of an exact identity. For example, add **Gender** set to Female, **Eye Color** set to Blue, **Age (then)** set to Between `18` and `20`, and **Occurrence Tags** set to **Hair Down** inside one **Related Performers** condition. Cove then requires one performer appearance to satisfy all four conditions.
+
+## Require performers from two different groups
+
+To find a video containing both a male performer aged 20–30 and a female performer aged 30–40, add two **Related Performers** conditions:
+
+| Related-performer condition | Gender | Age (then) |
+| --- | --- | --- |
+| First | Male | Between 20 and 30 |
+| Second | Female | Between 30 and 40 |
+
+Keep the two related-performer conditions in an **All** group. Each condition must match one performer, while the filters inside each condition must match the same performer. The male and female requirements may therefore be satisfied by different people in the video.
+
+Do not combine gender and both age ranges inside one related-performer condition. Conditions inside that workspace describe one performer.
+
+## Repeat one filter with different operators
+
+Some searches need the same criterion more than once. For example, videos outside a date interval can be expressed as:
+
+- **Date** is before `2000-01-01`
+- **Any**
+- **Date** is after `2020-01-01`
+
+Add the first **Date** condition, choose **Add another Date**, and use **Combine filters…** to change **All** to **Any**.
+
+The same pattern applies when one string criterion must include one value and exclude another, such as a URL that includes one domain fragment but excludes a path fragment.
+
+## Control how related entities match
+
+The relationship selector changes how a related-entity condition is applied:
+
+| Mode | Meaning |
+| --- | --- |
+| **At least one matching performer** | One visible related performer must satisfy the conditions. |
+| **Every performer matches** | The video must have a visible performer, and every visible performer must satisfy the conditions. |
+| **No performer matches** | The video must have a visible performer, and none of its visible performers may satisfy the conditions. |
+
+For example, choose **Every performer matches** with **Rating** greater than or equal to four stars to find videos where every visible performer meets that rating threshold.
+
+These modes quantify only relationships the current user can read. **Every** and **No** both require at least one visible related entity; an empty relationship does not pass automatically.
+
+## Require every performer to meet either of two rules
+
+To require every performer to be either 18–20 on the video date or a favorite:
+
+1. Select **Every performer matches**.
+2. Set **Age (then)** to **Between** `18` and `20`.
+3. Set **Favorite** to **True**.
+4. Once both conditions are present, change **Match all conditions** to **Match any condition**.
+
+The relationship mode applies to performers, while the condition operator applies inside each performer:
+
+`EVERY performer (age is 18–20 OR performer is a favorite)`
+
+## Match an occurrence tag or a performer property
+
+To find videos where an appearance has selected performer occurrence tags or the video contains a favorite performer:
+
+1. Add **Performer Occurrence Tags** with the required tags.
+2. Add **Related Performers**, then set **Favorite** to **True**.
+3. Return to the main filter dialog and choose **Combine filters…**.
+4. Open the group menu, choose **Create subgroup**, select the occurrence-tag condition and related-performer condition, then choose **Any**.
+
+These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** when the alternatives apply to a single related performer appearance.
+
+## Choose the correct performer tags
+
+Video search exposes three related tag choices:
+
+- Top-level **Performer Occurrence Tags** finds a video when any performer appearance has the selected tags.
+- **Related Performers → Occurrence Tags** binds the selected occurrence tags to the same performer as the other conditions in that related-performer filter.
+- **Related Performers → Tags** are permanent tags attached to the performer record.
+
+Use occurrence tags for facts about a specific appearance. Put them inside **Related Performers** when identity, age, or another performer property must describe that same appearance. Use related-performer tags for stable performer metadata.
+
+## Review before publication
+
+Before removing this page’s draft status:
+
+- verify every recipe through the current keyboard workflow
+- add screenshots only after the related-performer grouping interface is settled
+- verify the **Combine Filters** nesting, plain-language rules, and grouping descriptions against the final interface
+- confirm the labels and result semantics against the released backend
+- remove implementation-oriented caveats that no longer apply

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Headphones, Mic2, MonitorPlay, PlayCircle } from "lucide-react";
 import { audios, system } from "../api/client";
 import { createFromUrlWithOptionalDownload, mergeUrlLists, NoDownloaderFoundError, type UrlDownloadMode } from "../utils/createFromUrlDownload";
-import type { Audio, AudioCreate, AudioFilterCriteria, DownloaderMatch, EntityEngagement } from "../api/types";
+import type { Audio, AudioCreate, AudioFilterCriteria, DownloaderMatch, EntityEngagement, FilterExpression } from "../api/types";
 import { BookmarkButton } from "../components/BookmarkButton";
 import { CreateModalActions, EditModal, Field, TextArea, TextInput } from "../components/EditModal";
 import { ListPage, type DisplayMode } from "../components/ListPage";
@@ -25,12 +25,13 @@ import { StudioSelector } from "../components/StudioSelector";
 import { StringListEditor } from "../components/StringListEditor";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { SourceDownloadDialog } from "../components/SourceDownloadDialog";
-import { AUDIO_CRITERIA } from "../components/FilterDialog";
+import { AUDIO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
 import { AUDIO_MULTI_SORT_KEYS, AUDIO_SORT_OPTIONS } from "../components/audioSortOptions";
 import { MediaAggregateMetadata } from "../components/MediaAggregateMetadata";
+import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
 
 const SORT_OPTIONS = AUDIO_SORT_OPTIONS;
 
@@ -59,13 +60,17 @@ export function AudiosPage({ onNavigate }: Props) {
   });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
 
-  const hasObjectFilter = Object.keys(objectFilter).length > 0;
+  const filterExpression = objectFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<AudioFilterCriteria> | undefined;
+  const backendObjectFilter = useMemo(() => Object.fromEntries(
+    Object.entries(objectFilter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY),
+  ), [objectFilter]);
+  const hasObjectFilter = Object.keys(backendObjectFilter).length > 0 || Boolean(filterExpression?.children.length);
   const listData = useInfiniteListData<Audio>({
-    queryKey: ["audios", filter, objectFilter],
+    queryKey: ["audios", filter, backendObjectFilter, filterExpression],
     filter,
     chunkSize: defaultState.filter.perPage ?? 40,
     queryPage: (nextFilter) => hasObjectFilter
-      ? audios.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as AudioFilterCriteria })
+      ? audios.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as AudioFilterCriteria, filterExpression })
       : audios.find(nextFilter),
   });
 
@@ -79,7 +84,7 @@ export function AudiosPage({ onNavigate }: Props) {
   const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
   const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
     queryKey: ["audios", "aggregate", aggregateFilter, objectFilter],
-    queryFn: () => audios.aggregate({ findFilter: aggregateFilter, objectFilter: hasObjectFilter ? objectFilter as AudioFilterCriteria : undefined }),
+    queryFn: () => audios.aggregate({ findFilter: aggregateFilter, objectFilter: Object.keys(backendObjectFilter).length > 0 ? backendObjectFilter as AudioFilterCriteria : undefined, filterExpression }),
   });
   const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
   const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
@@ -126,6 +131,7 @@ export function AudiosPage({ onNavigate }: Props) {
       infiniteScroll={listData.infiniteScroll}
       onNew={canWriteAudio ? () => setShowCreate(true) : undefined}
       criteriaDefinitions={AUDIO_CRITERIA}
+      supportsFilterExpressions
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
       selectedIds={selectedIds}

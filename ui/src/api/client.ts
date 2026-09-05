@@ -72,6 +72,9 @@ import type {
   SavedFilterUpdate,
   PerformerScrapeRequest,
   FilteredQueryRequest,
+  VideoFilteredQueryRequest,
+  PerformerFilteredQueryRequest,
+  AudioFilteredQueryRequest,
   VideoFilterCriteria,
   VideoAggregate,
   ImageAggregate,
@@ -441,9 +444,9 @@ export const videos = {
     request<PaginatedResponse<Video>>(`/videos${buildQuery(filter, extra)}`),
   findWithCompilations: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<VideoListEntry>>(`/videos/with-compilations${buildQuery(filter, extra)}`),
-  findFiltered: (req: FilteredQueryRequest<VideoFilterCriteria>) =>
+  findFiltered: (req: VideoFilteredQueryRequest) =>
     request<PaginatedResponse<Video>>("/videos/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
-  aggregate: (req: FilteredQueryRequest<VideoFilterCriteria>) =>
+  aggregate: (req: VideoFilteredQueryRequest) =>
     request<VideoAggregate>("/videos/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Video>(`/videos/${id}`),
   create: (data: VideoCreate) => request<Video>("/videos", { method: "POST", body: JSON.stringify(data) }),
@@ -760,7 +763,7 @@ export const entityEngagement = {
 export const performers = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Performer>>(`/performers${buildQuery(filter, extra)}`),
-  findFiltered: (req: FilteredQueryRequest<PerformerFilterCriteria>) =>
+  findFiltered: (req: PerformerFilteredQueryRequest) =>
     request<PaginatedResponse<Performer>>("/performers/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Performer>(`/performers/${id}`),
   countries: () => request<PerformerCountryOption[]>("/performers/countries"),
@@ -854,7 +857,7 @@ export function createVisualSimilarityClient(apiBasePath: string) {
   const normalizedBasePath = normalizeExtensionApiBasePath(apiBasePath);
 
   return {
-    searchVideos: (req: FilteredQueryRequest<VideoFilterCriteria>) =>
+    searchVideos: (req: VideoFilteredQueryRequest) =>
       request<PaginatedResponse<Video>>(`${normalizedBasePath}/videos/search`, { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
     searchImages: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
       request<PaginatedResponse<Image>>(`${normalizedBasePath}/images/search`, { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
@@ -1004,9 +1007,9 @@ export const images = {
 export const audios = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Audio>>(`/audios${buildQuery(filter, extra)}`),
-  findFiltered: (req: FilteredQueryRequest<AudioFilterCriteria>) =>
+  findFiltered: (req: AudioFilteredQueryRequest) =>
     request<PaginatedResponse<Audio>>("/audios/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
-  aggregate: (req: FilteredQueryRequest<AudioFilterCriteria>) =>
+  aggregate: (req: AudioFilteredQueryRequest) =>
     request<AudioAggregate>("/audios/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number) => request<Audio>(`/audios/${id}`),
   create: (data: AudioCreate) => request<Audio>("/audios", { method: "POST", body: JSON.stringify(data) }),

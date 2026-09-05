@@ -2273,6 +2273,37 @@ export interface FindFilter {
   seed?: number;
 }
 
+export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>> {
+  findFilter?: Pick<FindFilter, "q">;
+  objectFilter?: TObjectFilter;
+  mode?: "atLeastOne" | "every" | "none";
+  conditionOperator?: "and" | "or";
+  /** Legacy negative mode retained when loading older saved filters. */
+  exclude?: boolean;
+  ageAtHostDateCriterion?: IntCriterion;
+  performerIdsCriterion?: MultiIdCriterion;
+  performerOccurrenceTagsCriterion?: MultiIdCriterion;
+  /** Client-only label retained with a saved-filter snapshot for a readable chip summary. */
+  _savedFilterName?: string;
+  /** Client-only marker for an explicit existence check with no nested conditions. */
+  _matchAll?: boolean;
+}
+
+export type FilterExpressionNode<TFilter = Record<string, unknown>> =
+  | { filter: TFilter; group?: never }
+  | { group: FilterExpression<TFilter>; filter?: never };
+
+export interface FilterExpression<TFilter = Record<string, unknown>> {
+  operator: "AND" | "OR" | "JUST_ONE" | "NOT";
+  relatedScope?: {
+    filterKey: string;
+    matchMode: "reuse" | "distinct";
+  };
+  /** Legacy marker accepted when opening older URLs and saved filters. */
+  distinctRelatedMatches?: boolean;
+  children: FilterExpressionNode<TFilter>[];
+}
+
 export interface SavedFilter {
   id: number;
   mode: string;
@@ -2788,6 +2819,7 @@ export interface VideoFilterCriteria {
   galleriesCriterion?: MultiIdCriterion;
   performerTagsCriterion?: MultiIdCriterion;
   performerAgeCriterion?: IntCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   captionsCriterion?: StringCriterion;
   orientationCriterion?: StringCriterion;
   customFieldCriterion?: CustomFieldCriterion;
@@ -2850,6 +2882,8 @@ export interface PerformerFilterCriteria {
   likeCounterCriterion?: IntCriterion;
   groupsCriterion?: MultiIdCriterion;
   tagCountCriterion?: IntCriterion;
+  videoFilterCriterion?: RelatedFilterCriterion<VideoFilterCriteria>;
+  audioFilterCriterion?: RelatedFilterCriterion<AudioFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -2966,6 +3000,7 @@ export interface GalleryFilterCriteria {
   typicalResolutionCriterion?: IntCriterion;
   videosCriterion?: MultiIdCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -3005,6 +3040,7 @@ export interface ImageFilterCriteria {
   performerAgeCriterion?: IntCriterion;
   orientationCriterion?: StringCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   customFieldCriterion?: CustomFieldCriterion;
   customFieldCriteria?: CustomFieldCriterion[];
 }
@@ -3039,6 +3075,7 @@ export interface AudioFilterCriteria {
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   tagsCriterion?: MultiIdCriterion;
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
@@ -3074,6 +3111,7 @@ export interface TextFilterCriteria {
   tagCountCriterion?: IntCriterion;
   performerCountCriterion?: IntCriterion;
   performerTagsCriterion?: MultiIdCriterion;
+  performerFilterCriterion?: RelatedFilterCriterion<PerformerFilterCriteria>;
   tagsCriterion?: MultiIdCriterion;
   performersCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;
@@ -3132,8 +3170,19 @@ export interface GroupFilterCriteria {
 export interface FilteredQueryRequest<T = Record<string, unknown>> {
   findFilter?: FindFilter;
   objectFilter?: T;
+  filterExpression?: FilterExpression<T>;
   ids?: number[];
 }
+
+export interface VideoFilteredQueryRequest extends FilteredQueryRequest<VideoFilterCriteria> {
+  filterExpression?: FilterExpression<VideoFilterCriteria>;
+}
+
+export interface PerformerFilteredQueryRequest extends FilteredQueryRequest<PerformerFilterCriteria> {
+  filterExpression?: FilterExpression<PerformerFilterCriteria>;
+}
+
+export type AudioFilteredQueryRequest = FilteredQueryRequest<AudioFilterCriteria>;
 
 export interface ImageAggregate { count: number; fileSize: number }
 export interface AudioAggregate { count: number; duration: number; fileSize: number }

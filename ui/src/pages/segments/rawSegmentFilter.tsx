@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { segmentLibrary } from "../../api/client";
 import { EntityMultiSelector } from "../../components/EntityMultiSelector";
-import type { FilterDialogCustomSection } from "../../components/FilterDialog";
+import type { FilterDialogCustomSection } from "../../components/filterCriteriaTypes";
 import {
   readBoolCriterion,
   readMultiIdCriterionIds,

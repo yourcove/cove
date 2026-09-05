@@ -24,7 +24,7 @@ import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { createFromUrlWithOptionalDownload, mergeUrlLists, NoDownloaderFoundError, type UrlDownloadMode } from "../utils/createFromUrlDownload";
 import { useFileBackedCreatePreferences } from "../hooks/useFileBackedCreatePreferences";
 import { SourceDownloadDialog } from "../components/SourceDownloadDialog";
-import { TEXT_CRITERIA } from "../components/FilterDialog";
+import { TEXT_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { ScraperEntityTagger } from "../components/ScraperEntityTagger";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";

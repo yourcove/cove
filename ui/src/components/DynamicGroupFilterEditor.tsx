@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, SlidersHorizontal } from "lucide-react";
 import type { FindFilter } from "../api/types";
-import { AUDIO_CRITERIA, FilterDialog, IMAGE_CRITERIA, VIDEO_CRITERIA, TEXT_CRITERIA, type CriterionDefinition } from "./FilterDialog";
+import { FilterDialog } from "./FilterDialog";
+import { AUDIO_CRITERIA, IMAGE_CRITERIA, TEXT_CRITERIA, VIDEO_CRITERIA } from "./filterCriteriaCatalogs";
+import type { CriterionDefinition } from "./filterCriteriaTypes";
 import { Field } from "./EditModal";
 
 export const FILTER_DYNAMIC_SOURCE_KEY = "filter";
@@ -291,6 +293,8 @@ export function DynamicGroupFilterEditor({ queryJson, onChange }: DynamicGroupFi
           onClose={() => setFilterOpenFor(null)}
           criteria={openCriteriaDefinitions}
           activeFilter={objectFilters[filterOpenFor] ?? {}}
+          supportsFilterExpressions={filterOpenFor === "video"}
+          subjectLabel={`${filterOpenFor}s`}
           onApply={(next) => updateObjectFilter(filterOpenFor, next)}
         />
       ) : null}

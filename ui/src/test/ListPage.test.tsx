@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ListPage } from "../components/ListPage";
 import { formatFilterChipValue, formatRemoteIdFilterChipValue } from "../components/ActiveObjectFilterChips";
-import { PERFORMER_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA, type CriterionDefinition } from "../components/FilterDialog";
+import { PERFORMER_CRITERIA, TAG_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
+import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 import { getEntityCardMinWidthPx } from "../hooks/useEntityCardSize";
 import { customFieldDefinitionsQueryKey } from "../hooks/useCustomFieldDefinitions";
 import { RouteRegistryProvider } from "../router/RouteRegistry";
@@ -342,6 +343,368 @@ describe("ListPage active filter chips", () => {
     expect(onObjectFilterChange).toHaveBeenCalledWith({});
   });
 
+  it("opens and removes one parameter inside a related-performer filter group", async () => {
+    const user = userEvent.setup();
+    const onObjectFilterChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["saved-filters", "performers"], []);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              performerFilterCriterion: {
+                findFilter: { q: "example" },
+                objectFilter: {
+                  favoriteCriterion: { value: true },
+                  ratingCriterion: { value: 100, modifier: "EQUALS" },
+                },
+              },
+            }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const group = screen.getByRole("group", { name: "Related Performers filters" });
+    expect(group.querySelectorAll(".lucide-users")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "Edit performer filter: Favorite" }));
+    expect(screen.getByRole("dialog", { name: "Filters / Related Performers" })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Filters, 1 active" }));
+    const rootDialog = screen.getByRole("dialog", { name: "Filters" });
+    expect(rootDialog).toBeInTheDocument();
+    expect(within(rootDialog).getByRole("group", { name: "Related Performers filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Filters / Related Performers" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        findFilter: { q: "example" },
+        objectFilter: { ratingCriterion: { value: 100, modifier: "EQUALS" } },
+      },
+    });
+  });
+
+  it("shows flat AND conditions as individual chips and opens a condition directly", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              _filterExpression: {
+                operator: "AND",
+                children: [
+                  { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Male)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 20, value2: 30 } } } },
+                  { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Female)$", modifier: "MATCHES_REGEX", _selectedValues: ["Female"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 } } } },
+                  { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(document.querySelector('[data-filter-operator="AND"]')).not.toBeInTheDocument();
+    expect(screen.getByText("Male")).toBeInTheDocument();
+    expect(screen.getByText("Between 20 and 30")).toBeInTheDocument();
+    expect(screen.getByText("Female")).toBeInTheDocument();
+    expect(screen.getByText("Between 30 and 40")).toBeInTheDocument();
+    const performerChips = screen.getAllByRole("button", { name: "Edit filter: Related Performers" });
+    expect(performerChips).toHaveLength(2);
+    const ageChip = screen.getByRole("button", { name: "Edit performer filter: Age (then) Between 20 and 30" });
+    expect(ageChip).toHaveClass("border");
+    const performerCountChip = screen.getByRole("button", { name: "Edit filter: Performer Count. Performer Count = 2" });
+    expect(performerCountChip).toHaveTextContent("Performer Count:= 2");
+    expect(performerCountChip.textContent?.match(/Performer Count/g)).toHaveLength(1);
+    fireEvent.click(ageChip);
+    expect(screen.getByRole("dialog", { name: "Edit Related Performers condition" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Age (then)" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Between", pressed: true })).toHaveFocus());
+  });
+
+  it("shows a localized country in a related performer expression", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["performer-country-options"], [
+      { value: "CZ", code: "CZ", name: "Czechia", performerCount: 1, isCustom: false },
+    ]);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              _filterExpression: {
+                operator: "OR",
+                children: [
+                  { filter: { performerFilterCriterion: { objectFilter: { countryCriterion: { value: "CZ", modifier: "EQUALS" } } } } },
+                  { filter: { titleCriterion: { value: "example", modifier: "INCLUDES" } } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const countryChip = screen.getByRole("button", { name: "Edit performer filter: Country = CZ" });
+    expect(countryChip).toHaveTextContent("Country =🇨🇿Czechia");
+    expect(countryChip).not.toHaveTextContent("CZ");
+    expect(await within(countryChip).findByTitle("Czechia (CZ)")).toBeInTheDocument();
+  });
+
+  it("opens a compact flat-expression chip in its normal stacked criterion panel", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              _filterExpression: {
+                operator: "AND",
+                children: [
+                  { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+                  { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+            supportsFilterExpressions
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const dateChips = screen.getAllByRole("button", { name: /Edit filter: Date\./ });
+    fireEvent.click(dateChips[1]);
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Filter condition" })).not.toBeInTheDocument();
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { pressed: true })).toHaveFocus());
+  });
+
+  it("resolves entity names and exposes nested expression operators", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["tags", "all"], [{ id: 42, name: "Example Tag" }]);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              organizedCriterion: { value: true },
+              _filterExpression: {
+                operator: "OR",
+                children: [
+                  { filter: { tagsCriterion: { modifier: "INCLUDES", value: [42], excludes: [43], _names: { "42": "Example Tag", "43": "Excluded Tag" } } } },
+                  { filter: { performersCriterion: { modifier: "INCLUDES", value: [1], excludes: [2], _names: { "1": "Included Performer", "2": "Excluded Performer" } } } },
+                  { filter: { performerFilterCriterion: { objectFilter: { tagsCriterion: { modifier: "INCLUDES", value: [3], excludes: [4], _names: { "3": "Included Performer Tag", "4": "Excluded Performer Tag" } } } } } },
+                  { group: { operator: "AND", children: [
+                    { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
+                    { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
+                  ] } },
+                  { group: { operator: "NOT", children: [
+                    { filter: { directorCriterion: { modifier: "INCLUDES", value: "blocked" } } },
+                  ] } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Example Tag")).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="OR"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="AND"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-filter-operator="NONE"]')).toBeInTheDocument();
+    const anyGroup = screen.getByRole("button", { name: "Edit Any group in Combine Filters" });
+    const organized = screen.getByRole("button", { name: "Edit filter: Organized" });
+    expect(anyGroup.compareDocumentPosition(organized) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(anyGroup).toHaveClass("text-violet-300");
+    expect(anyGroup).toHaveTextContent("Any of 5");
+    expect(anyGroup.closest("[data-filter-outline-group]")).toHaveAttribute("data-filter-outline-group", "OR");
+    const anyCondition = screen.getByRole("button", { name: /Edit filter: Tags Example Tag/ });
+    expect(anyCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(anyCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
+    const performersCondition = screen.getByRole("button", { name: /Edit filter: Performers Included Performer/ });
+    expect(performersCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(performersCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
+    const relatedTagsCondition = screen.getByRole("button", { name: /Edit performer filter: Tags Included Performer Tag/ });
+    expect(relatedTagsCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
+    expect(relatedTagsCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
+    const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
+    expect(allGroup).toHaveClass("text-accent");
+    expect(allGroup).toHaveTextContent("All of 2");
+    const appliedFilters = screen.getByRole("region", { name: "Applied filters" });
+    const clearAll = within(appliedFilters).getByRole("button", { name: "Clear all" });
+    expect(appliedFilters).toHaveClass("relative");
+    expect(clearAll).toHaveClass("absolute", "right-1", "top-1");
+    expect(screen.getByRole("button", { name: "Edit filter: URL Includes foo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit filter: URL Excludes bar" })).toBeInTheDocument();
+    const noneGroup = screen.getByRole("button", { name: "Edit None group in Combine Filters" });
+    expect(noneGroup).toHaveClass("text-rose-300");
+    expect(screen.getByRole("button", { name: "Edit filter: Director Includes blocked" })).toBeInTheDocument();
+    expect(allGroup.compareDocumentPosition(anyCondition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(anyCondition.compareDocumentPosition(noneGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("removes a leaf through a flattened canonical None presentation", () => {
+    const onObjectFilterChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "one" } } },
+              { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+            ] } }] } }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter: Title Includes one" }));
+
+    expect(onObjectFilterChange).toHaveBeenCalledWith({ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
+      { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+    ] } }] } });
+  });
+
+  it("opens nested expression leaves in their standard filter editors", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["tags", "all"], [{ id: 42, name: "Example Tag" }]);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ _filterExpression: { operator: "AND", children: [
+              { group: { operator: "OR", children: [
+                { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+                { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+              ] } },
+              { filter: { performerTagsCriterion: { modifier: "INCLUDES_ALL", value: [42] } } },
+            ] } }}
+            onObjectFilterChange={vi.fn()}
+            supportsFilterExpressions
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Date condition 1" })).toBeInTheDocument();
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter: Performer Occurrence Tags Example Tag" }));
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Performer Occurrence Tags" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Any group in Combine Filters" }));
+    expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+  });
+
+  it("normalizes the legacy performer-favorite chip before editing or removing it", async () => {
+    const user = userEvent.setup();
+    const onObjectFilterChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["saved-filters", "performers"], []);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{ performerFavoriteCriterion: { value: true } }}
+            onObjectFilterChange={onObjectFilterChange}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText("performerFavoriteCriterion")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit performer filter: Favorite" }));
+    expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({});
+  });
+
   it.each([
     [
       "hash algorithms",
@@ -365,7 +728,7 @@ describe("ListPage active filter chips", () => {
       "multi-enum labels",
       { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [{ value: "TransgenderMale", label: "Transgender Male" }, { value: "NonBinary", label: "Non-Binary" }] },
       { value: "^(?:TransgenderMale|NonBinary)$", modifier: "MATCHES_REGEX" },
-      "Any of Transgender Male or Non-Binary",
+      "Transgender Male or Non-Binary",
     ],
     [
       "career length units",
@@ -402,7 +765,7 @@ describe("ListPage active filter chips", () => {
         options: [{ value: "Male", label: "Male" }],
       },
       { value: "^(?:Male|RetiredValue)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male", "RetiredValue"] },
-    )).toBe("Any of Male or RetiredValue");
+    )).toBe("Male or RetiredValue");
   });
 
   it("opens and removes a legacy endpoint-only Remote ID filter", async () => {
@@ -480,7 +843,7 @@ describe("ListPage active filter chips", () => {
     );
 
     expect(screen.getByText("Could not load Videos")).toBeInTheDocument();
-    expect(screen.getByText("Cove couldn’t complete the request. Please try again.")).toBeInTheDocument();
+    expect(screen.getByText("Cove can’t reach the server right now.")).toBeInTheDocument();
     expect(screen.queryByText("Request failed: 502 Bad Gateway")).not.toBeInTheDocument();
     expect(screen.queryByText("empty collection content")).not.toBeInTheDocument();
     expect(screen.getByText("Unavailable")).toBeInTheDocument();

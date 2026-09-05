@@ -315,7 +315,13 @@ public class PerformerRepository : IPerformerRepository
     public async Task<int> CountAsync(CancellationToken ct = default)
         => await _db.Performers.CountAsync(ct);
 
-    public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    internal async Task<IQueryable<Performer>> BuildFilteredQueryAsync(
+        PerformerFilter? filter,
+        FindFilter? findFilter,
+        bool includeRelatedFilters = true,
+        bool allowReadScopeOptimization = true,
+        CancellationToken ct = default,
+        FilterExpression<PerformerFilter>? expression = null)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -334,14 +340,20 @@ public class PerformerRepository : IPerformerRepository
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
         // The root-plan optimization may ignore query filters on the whole query tree, including the
         // relationship counts below, so keep the normal authorization filters for count queries.
-        var usesRelatedMediaCount = filter?.AudioCountCriterion != null
+        var usesRelatedMediaCount = filter?.VideoFilterCriterion != null
+            || filter?.AudioFilterCriterion != null
+            || FilterExpressionQuery.Contains(expression, leaf => leaf.VideoFilterCriterion != null
+                || leaf.AudioFilterCriterion != null
+                || leaf.AudioCountCriterion != null
+                || leaf.TextCountCriterion != null)
+            || filter?.AudioCountCriterion != null
             || filter?.TextCountCriterion != null
             || string.Equals(findFilter?.Sort, "audio_count", StringComparison.OrdinalIgnoreCase)
             || string.Equals(findFilter?.Sort, "text_count", StringComparison.OrdinalIgnoreCase)
             || findFilter?.Sorts?.Any(clause => clause is not null
                 && (clause.Key.Equals("audio_count", StringComparison.OrdinalIgnoreCase)
                     || clause.Key.Equals("text_count", StringComparison.OrdinalIgnoreCase))) == true;
-        var readScopePlan = usesRelatedMediaCount
+        var readScopePlan = !allowReadScopeOptimization || usesRelatedMediaCount
             ? null
             : await ReadScopeListOptimization.TryBuildPlanAsync<Performer>(
                 _db,
@@ -644,6 +656,44 @@ public class PerformerRepository : IPerformerRepository
         }
 
         query = ApplyPerformerSearch(query, findFilter?.Q);
+
+        if (includeRelatedFilters)
+        {
+            query = await RelatedFilterQuery.ApplyToPerformersAsync(_db, query, filter?.VideoFilterCriterion, ct);
+            query = await RelatedFilterQuery.ApplyAudioFilterToPerformersAsync(_db, query, filter?.AudioFilterCriterion, ct);
+        }
+
+        query = await FilterExpressionQuery.ApplyAsync(
+            query,
+            expression,
+            async (input, leaf) =>
+            {
+                var leafQuery = await BuildFilteredQueryAsync(
+                    leaf,
+                    findFilter: null,
+                    includeRelatedFilters: includeRelatedFilters,
+                    allowReadScopeOptimization: false,
+                    ct: ct,
+                    expression: null);
+                return input.Intersect(leafQuery);
+            },
+            async (input, scope, leaves) =>
+            {
+                if (!string.Equals(scope.FilterKey, nameof(PerformerFilter.AudioFilterCriterion), StringComparison.OrdinalIgnoreCase))
+                    throw new NotSupportedException($"Distinct assignment is not supported for related scope '{scope.FilterKey}' by this repository.");
+                return await RelatedFilterQuery.ApplyDistinctAudiosToPerformersAsync(
+                    _db,
+                    input,
+                    leaves.Select(leaf => leaf.AudioFilterCriterion!).ToArray(),
+                    ct);
+            });
+
+        return query;
+    }
+
+    public async Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<PerformerFilter>? expression = null)
+    {
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct: ct, expression: expression);
 
         var totalCount = await query.AsNoTracking().CountAsync(ct);
 
@@ -1831,6 +1881,8 @@ public class GalleryRepository : IGalleryRepository
                     (g.Folder != null && g.Folder.Path.ToLower().Contains(pathTerm))));
         }
 
+        query = await RelatedFilterQuery.ApplyToGalleriesAsync(_db, query, filter?.PerformerFilterCriterion, ct);
+
         return query;
     }
 
@@ -2424,7 +2476,7 @@ public class ImageRepository : IImageRepository
             [image => image.Title, image => image.Details, image => image.Code, image => image.Photographer]);
     }
 
-    public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    private async Task<IQueryable<Image>> BuildFilteredQueryAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct)
     {
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
@@ -2440,17 +2492,26 @@ public class ImageRepository : IImageRepository
         }
 
         var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
-            _db,
-            EntityKinds.Image,
-            currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true,
-            ct);
+        var readScopePlan = filter?.PerformerFilterCriterion != null
+            ? null
+            : await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
+                _db,
+                EntityKinds.Image,
+                currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
+                currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true,
+                ct);
 
         // Build filter query once (lightweight, no includes)
         var filterQuery = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
         filterQuery = ApplyImageFilters(filterQuery, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
         filterQuery = ApplyImageSearch(filterQuery, findFilter?.Q);
+
+        return await RelatedFilterQuery.ApplyToImagesAsync(_db, filterQuery, filter?.PerformerFilterCriterion, ct);
+    }
+
+    public async Task<(IReadOnlyList<Image> Items, int TotalCount)> FindAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
+    {
+        var filterQuery = await BuildFilteredQueryAsync(filter, findFilter, ct);
 
         var perPage = findFilter?.PerPage ?? 25;
 
@@ -2508,27 +2569,7 @@ public class ImageRepository : IImageRepository
 
     public async Task<ImageAggregate> AggregateAsync(ImageFilter? filter, FindFilter? findFilter, CancellationToken ct = default)
     {
-        ExpandedHierarchyCriterion? expandedTags = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.TagsCriterion))
-        {
-            expandedTags = await HierarchicalCriterionExpander.ExpandTagsAsync(_db, filter!.TagsCriterion!, ct);
-            filter.TagsCriterion = expandedTags.Criterion;
-        }
-        ExpandedHierarchyCriterion? expandedStudios = null;
-        if (HierarchicalCriterionExpander.RequiresExpansion(filter?.StudiosCriterion))
-        {
-            expandedStudios = await HierarchicalCriterionExpander.ExpandStudiosAsync(_db, filter!.StudiosCriterion!, ct);
-            filter.StudiosCriterion = expandedStudios.Criterion;
-        }
-
-        var currentPrincipal = _db.CurrentPrincipalForReadOptimization;
-        var readScopePlan = await ReadScopeListOptimization.TryBuildPlanAsync<Image>(
-            _db, EntityKinds.Image,
-            currentPrincipal?.Has(PermissionKeys.ImagesRead) == true,
-            currentPrincipal?.ReadGrantedEntityKinds.Contains(EntityKinds.Image) == true, ct);
-        var query = (readScopePlan ?? new ReadScopeRootPlan<Image>(false, null)).Apply(_db.Images.AsQueryable());
-        query = ApplyImageFilters(query, filter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
-        query = ApplyImageSearch(query, findFilter?.Q);
+        var query = await BuildFilteredQueryAsync(filter, findFilter, ct);
 
         return await query.AsNoTracking()
             .GroupBy(_ => 1)

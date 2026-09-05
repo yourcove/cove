@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cove.Core.Common;
 using Cove.Core.Entities;
+using Cove.Core.Interfaces;
 using Cove.Plugins;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -71,6 +72,61 @@ public sealed class JsonEnumWireContractTests
 
         Assert.Contains("\"status\":\"running\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"status\":2", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(RelatedFilterMode.AtLeastOne, "atLeastOne")]
+    [InlineData(RelatedFilterMode.Every, "every")]
+    [InlineData(RelatedFilterMode.None, "none")]
+    public void Related_filter_modes_round_trip_as_camel_case_strings(RelatedFilterMode mode, string wireValue)
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var json = JsonSerializer.Serialize(new RelatedModePayload(mode), options);
+        var roundTrip = JsonSerializer.Deserialize<RelatedModePayload>(json, options);
+
+        Assert.Contains($"\"mode\":\"{wireValue}\"", json, StringComparison.Ordinal);
+        Assert.Equal(mode, roundTrip?.Mode);
+    }
+
+    [Theory]
+    [InlineData(RelatedFilterConditionOperator.And, "and")]
+    [InlineData(RelatedFilterConditionOperator.Or, "or")]
+    public void Related_condition_operators_round_trip_as_camel_case_strings(RelatedFilterConditionOperator conditionOperator, string wireValue)
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var json = JsonSerializer.Serialize(new RelatedConditionOperatorPayload(conditionOperator), options);
+        var roundTrip = JsonSerializer.Deserialize<RelatedConditionOperatorPayload>(json, options);
+
+        Assert.Contains($"\"conditionOperator\":\"{wireValue}\"", json, StringComparison.Ordinal);
+        Assert.Equal(conditionOperator, roundTrip?.ConditionOperator);
+    }
+
+    [Fact]
+    public void Just_one_filter_expressions_round_trip_with_the_client_wire_name()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var json = JsonSerializer.Serialize(new FilterExpressionOperatorPayload(FilterExpressionOperator.JustOne), options);
+        var roundTrip = JsonSerializer.Deserialize<FilterExpressionOperatorPayload>(json, options);
+
+        Assert.Contains("\"operator\":\"JUST_ONE\"", json, StringComparison.Ordinal);
+        Assert.Equal(FilterExpressionOperator.JustOne, roundTrip?.Operator);
+    }
+
+    [Fact]
+    public void Legacy_numeric_not_filter_expression_operator_still_deserializes_as_not()
+    {
+        using var factory = new CoveWebApplicationFactory();
+        var options = HostHttpJsonOptions(factory);
+
+        var payload = JsonSerializer.Deserialize<FilterExpressionOperatorPayload>("""{"operator":2}""", options);
+
+        Assert.Equal(FilterExpressionOperator.Not, payload?.Operator);
     }
 
     [Theory]
@@ -335,6 +391,9 @@ public sealed class JsonEnumWireContractTests
     }
 
     private sealed record StatusPayload(AiRunStatus Status);
+    private sealed record RelatedModePayload(RelatedFilterMode Mode);
+    private sealed record RelatedConditionOperatorPayload(RelatedFilterConditionOperator ConditionOperator);
+    private sealed record FilterExpressionOperatorPayload(FilterExpressionOperator Operator);
 
     private sealed record NullableStatusPayload(AiRunStatus? Status);
 

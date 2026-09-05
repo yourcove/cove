@@ -9,8 +9,8 @@ import {
   STUDIO_CRITERIA,
   TAG_CRITERIA,
   TEXT_CRITERIA,
-  type CriterionDefinition,
-} from "../components/FilterDialog";
+} from "../components/filterCriteriaCatalogs";
+import type { CriterionDefinition } from "../components/filterCriteriaTypes";
 
 const criteriaSets = [
   ["video", VIDEO_CRITERIA],
@@ -22,6 +22,8 @@ const criteriaSets = [
   ["audio", AUDIO_CRITERIA],
   ["text", TEXT_CRITERIA],
   ["group", GROUP_CRITERIA],
+  ["audio", AUDIO_CRITERIA],
+  ["text", TEXT_CRITERIA],
 ] as const;
 
 function getDuplicates(values: string[]) {
@@ -46,6 +48,15 @@ function expectUnique(criteria: CriterionDefinition[], key: keyof CriterionDefin
 }
 
 describe("filter criteria definitions", () => {
+  it("labels media performer tags as occurrence tags without changing their stable keys", () => {
+    for (const criteria of [VIDEO_CRITERIA, GALLERY_CRITERIA, IMAGE_CRITERIA, AUDIO_CRITERIA, TEXT_CRITERIA]) {
+      const criterion = criteria.find((item) => item.id === "performerTags");
+
+      expect(criterion?.label).toBe("Performer Occurrence Tags");
+      expect(criterion?.filterKey).toBe("performerTagsCriterion");
+    }
+  });
+
   it.each(criteriaSets)("%s criteria keep ids, labels, and filter keys unique", (entityName, criteria) => {
     expectUnique(criteria, "id", entityName);
     expectUnique(criteria, "label", entityName);
@@ -86,6 +97,37 @@ describe("filter criteria definitions", () => {
     expect(videoCriteriaById.get("frameRate")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"]);
     expect(videoCriteriaById.get("orientation")?.modifiers).toEqual(["EQUALS", "NOT_EQUALS"]);
     expect(videoCriteriaById.get("studios")?.hierarchyToggleLabel).toBe("Include sub-studios");
+  });
+
+  it("offers related-entity filters instead of specialized performer-favorite filters", () => {
+    for (const criteria of [VIDEO_CRITERIA, IMAGE_CRITERIA, GALLERY_CRITERIA, AUDIO_CRITERIA, TEXT_CRITERIA]) {
+      expect(criteria).toContainEqual(expect.objectContaining({
+        id: "relatedPerformers",
+        label: "Related Performers",
+        type: "related",
+        entityType: "performers",
+        filterKey: "performerFilterCriterion",
+        category: "related",
+      }));
+      expect(criteria.some((criterion) => criterion.id === "performerFavorite")).toBe(false);
+    }
+
+    expect(PERFORMER_CRITERIA).toContainEqual(expect.objectContaining({
+      id: "relatedVideos",
+      label: "Related Videos",
+      type: "related",
+      entityType: "videos",
+      filterKey: "videoFilterCriterion",
+      category: "related",
+    }));
+    expect(PERFORMER_CRITERIA).toContainEqual(expect.objectContaining({
+      id: "relatedAudios",
+      label: "Related Audios",
+      type: "related",
+      entityType: "audios",
+      filterKey: "audioFilterCriterion",
+      category: "related",
+    }));
   });
 
   it("does not expose unsupported performer path filtering", () => {

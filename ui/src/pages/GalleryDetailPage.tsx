@@ -13,7 +13,7 @@ import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { InteractiveRating } from "../components/Rating";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
 import { ListLoadError } from "../components/ListLoadError";
-import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/FilterDialog";
+import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { PerformerTile } from "../components/EntityCards";
 import { EntityHeroLayout, HERO_PRIMARY_ACTION_BUTTON_CLASS, HERO_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";

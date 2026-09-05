@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailListPagination, DetailListToolbar } from "../components/DetailListToolbar";
+import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 
 vi.mock("../hooks/useRegisterKeyboardActionHandler", () => ({
@@ -316,6 +317,65 @@ describe("DetailListToolbar", () => {
 
     expect(onObjectFilterChange).toHaveBeenCalledWith({});
     expect(onFilterChange).toHaveBeenCalledWith({ page: 1, perPage: 24 });
+  });
+
+  it("routes nested expression operators and leaves to their matching filter views", async () => {
+    const user = userEvent.setup();
+    const objectFilter = { _filterExpression: { operator: "AND", children: [
+      { group: { operator: "OR", children: [
+        { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+        { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+      ] } },
+    ] } };
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={VIDEO_CRITERIA}
+        objectFilter={objectFilter}
+        onObjectFilterChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit filter: Date < 2000-01-01" }));
+    expect(screen.getByRole("complementary", { name: "Filter criteria" })).toBeInTheDocument();
+    const second = screen.getByRole("group", { name: "Date condition 2" });
+    await waitFor(() => expect(within(second).getByRole("button", { name: "<" })).toHaveFocus());
+
+    await user.click(screen.getByRole("button", { name: "Close filters" }));
+    await user.click(screen.getByRole("button", { name: "Edit Any group in Combine Filters" }));
+    expect(screen.getByRole("heading", { name: "Combine Filters" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close filters" }));
+    await user.click(screen.getByRole("button", { name: "Filters, 2 active" }));
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Combine Filters" })).not.toBeInTheDocument();
+  });
+
+  it("normalizes a legacy performer-favorite chip before editing or removing it", async () => {
+    const user = userEvent.setup();
+    const onObjectFilterChange = vi.fn();
+
+    renderWithQueryClient(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={10}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        criteriaDefinitions={VIDEO_CRITERIA}
+        objectFilter={{ performerFavoriteCriterion: { value: true } }}
+        onObjectFilterChange={onObjectFilterChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit performer filter: Favorite" }));
+    expect(screen.getByRole("tabpanel", { name: "Favorite" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Remove performer filter: Favorite" }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith({});
   });
 
   it("clears all applied object-filter parameters", async () => {

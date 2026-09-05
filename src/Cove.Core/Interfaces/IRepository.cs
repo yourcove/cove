@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Cove.Core.Entities;
 
 namespace Cove.Core.Interfaces;
@@ -15,8 +16,8 @@ public interface IRepository<T> where T : class
 
 public interface IVideoRepository : IRepository<Video>
 {
-    Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
-    Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null);
+    Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null);
     Task<Video?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns VideoPerformer join rows (with Performer.RemoteIds included) for the given video IDs.</summary>
     Task<IReadOnlyList<VideoPerformer>> GetVideoPerformersAsync(IReadOnlyList<int> videoIds, CancellationToken ct = default);
@@ -26,7 +27,7 @@ public sealed record VideoAggregate(int Count, double Duration, long FileSize);
 
 public interface IPerformerRepository : IRepository<Performer>
 {
-    Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default);
+    Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<PerformerFilter>? expression = null);
     Task<Performer?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
 
     /// <summary>
@@ -187,6 +188,76 @@ public class TagDurationCriterion : TagDurationClause
     public List<TagDurationClause> Clauses { get; set; } = [];
 }
 
+/// <summary>Filters an entity by whether it has a related entity matching another list filter.</summary>
+public enum RelatedFilterMode
+{
+    AtLeastOne,
+    Every,
+    None,
+}
+
+public enum RelatedFilterConditionOperator
+{
+    And,
+    Or,
+}
+
+public class RelatedFilterCriterion<TFilter> where TFilter : class
+{
+    public FindFilter? FindFilter { get; set; }
+    public TFilter? ObjectFilter { get; set; }
+    public RelatedFilterMode Mode { get; set; } = RelatedFilterMode.AtLeastOne;
+    public RelatedFilterConditionOperator ConditionOperator { get; set; } = RelatedFilterConditionOperator.And;
+    /// <summary>Legacy negative mode retained for saved-filter compatibility. New filters use <see cref="Mode"/>.</summary>
+    public bool Exclude { get; set; }
+    /// <summary>Optional age of the related performer on the host entity's date. Currently supported by video performer relationships.</summary>
+    public IntCriterion? AgeAtHostDateCriterion { get; set; }
+    /// <summary>Optional exact performer identities. Currently supported by video performer relationships.</summary>
+    public MultiIdCriterion? PerformerIdsCriterion { get; set; }
+    /// <summary>Optional tags attached to the performer occurrence on the host. Currently supported by video performer relationships.</summary>
+    public MultiIdCriterion? PerformerOccurrenceTagsCriterion { get; set; }
+}
+
+public enum FilterExpressionOperator
+{
+    And,
+    Or,
+    Not,
+    [JsonStringEnumMemberName("JUST_ONE")]
+    JustOne,
+}
+
+public enum RelatedScopeMatchMode
+{
+    Reuse,
+    Distinct,
+}
+
+/// <summary>Scopes an expression group to repeated conditions over one related-entity collection.</summary>
+public class RelatedFilterScope
+{
+    public string FilterKey { get; set; } = "";
+    public RelatedScopeMatchMode MatchMode { get; set; }
+}
+
+/// <summary>A recursively composable boolean expression over partial entity filters.</summary>
+public class FilterExpression<TFilter> where TFilter : class
+{
+    public FilterExpressionOperator Operator { get; set; } = FilterExpressionOperator.And;
+    /// <summary>Scopes this group to conditions over one related-entity collection.</summary>
+    public RelatedFilterScope? RelatedScope { get; set; }
+    /// <summary>Legacy distinct-match marker retained for existing saved filters and URLs.</summary>
+    public bool DistinctRelatedMatches { get; set; }
+    public List<FilterExpressionNode<TFilter>> Children { get; set; } = [];
+}
+
+/// <summary>Exactly one of Filter or Group must be supplied.</summary>
+public class FilterExpressionNode<TFilter> where TFilter : class
+{
+    public TFilter? Filter { get; set; }
+    public FilterExpression<TFilter>? Group { get; set; }
+}
+
 public class VideoFilter
 {
     public List<int>? Ids { get; set; }
@@ -251,6 +322,7 @@ public class VideoFilter
     public MultiIdCriterion? GalleriesCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
     public IntCriterion? PerformerAgeCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public StringCriterion? CaptionsCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
@@ -309,6 +381,8 @@ public class PerformerFilter
     public IntCriterion? LikeCounterCriterion { get; set; }
     public MultiIdCriterion? GroupsCriterion { get; set; }
     public IntCriterion? TagCountCriterion { get; set; }
+    public RelatedFilterCriterion<VideoFilter>? VideoFilterCriterion { get; set; }
+    public RelatedFilterCriterion<AudioFilter>? AudioFilterCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }
@@ -435,6 +509,7 @@ public class GalleryFilter
     public IntCriterion? TypicalResolutionCriterion { get; set; }
     public MultiIdCriterion? VideosCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }
@@ -478,6 +553,7 @@ public class ImageFilter
     public IntCriterion? PerformerAgeCriterion { get; set; }
     public StringCriterion? OrientationCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public CustomFieldCriterion? CustomFieldCriterion { get; set; }
     public List<CustomFieldCriterion> CustomFieldCriteria { get; set; } = [];
 }
@@ -513,6 +589,7 @@ public class AudioFilter
     public IntCriterion? TagCountCriterion { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public MultiIdCriterion? TagsCriterion { get; set; }
     public MultiIdCriterion? PerformersCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }
@@ -549,6 +626,7 @@ public class TextDocumentFilter
     public IntCriterion? TagCountCriterion { get; set; }
     public IntCriterion? PerformerCountCriterion { get; set; }
     public MultiIdCriterion? PerformerTagsCriterion { get; set; }
+    public RelatedFilterCriterion<PerformerFilter>? PerformerFilterCriterion { get; set; }
     public MultiIdCriterion? TagsCriterion { get; set; }
     public MultiIdCriterion? PerformersCriterion { get; set; }
     public MultiIdCriterion? StudiosCriterion { get; set; }

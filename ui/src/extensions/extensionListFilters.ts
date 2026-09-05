@@ -1,5 +1,5 @@
 import type { ExtensionFilterCriterion, ExtensionListFilterContribution } from "../api/types";
-import type { CriterionDefinition, CriterionType } from "../components/FilterDialog";
+import type { CriterionDefinition, CriterionType } from "../components/filterCriteriaTypes";
 
 const KEY_PREFIX = "extension-filter:";
 

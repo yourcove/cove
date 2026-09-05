@@ -24,7 +24,7 @@ import { StudioMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { ContextualImageListView, ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
-import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, VIDEO_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA } from "../components/FilterDialog";
+import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, VIDEO_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useKeySequence } from "../hooks/useKeySequence";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";

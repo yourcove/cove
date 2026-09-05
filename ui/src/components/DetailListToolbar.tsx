@@ -5,10 +5,13 @@ import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthP
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
-import { FilterButton, FilterDialog, type CriterionDefinition } from "./FilterDialog";
+import { FilterDialog, type FilterDialogPreselection } from "./FilterDialog";
+import { FilterButton } from "./FilterButton";
+import type { CriterionDefinition } from "./filterCriteriaTypes";
+import { migrateLegacyPerformerFavoriteCriterion } from "./filterCriterionState";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
-import { ActiveObjectFilterChips, countActiveObjectFilters } from "./ActiveObjectFilterChips";
+import { ActiveObjectFilterChips, countActiveObjectFilters, getFilterChipTargetKey, removeObjectFilterChipTarget } from "./ActiveObjectFilterChips";
 import { ListSearchControl } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
 import { WallSizeControl } from "./WallSizeControl";
@@ -132,8 +135,11 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const start = totalCount > 0 ? (infinitePageSize ? 1 : (clampedPage - 1) * effectivePerPage + 1) : 0;
   const end = infinitePageSize ? totalCount : Math.min(clampedPage * effectivePerPage, totalCount);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
-  const [filterDialogPreselect, setFilterDialogPreselect] = useState<string | undefined>();
-  useRegisterKeyboardActionHandler("list.filters", () => setFilterDialogOpen(true), {
+  const [filterDialogPreselect, setFilterDialogPreselect] = useState<FilterDialogPreselection | undefined>();
+  const [filterDialogInitialView, setFilterDialogInitialView] = useState<"simple" | "advanced">("simple");
+  const [filterDialogExpressionPath, setFilterDialogExpressionPath] = useState<number[] | undefined>();
+  const [filterDialogOpenAtRoot, setFilterDialogOpenAtRoot] = useState(false);
+  useRegisterKeyboardActionHandler("list.filters", () => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); }, {
     enabled: Boolean(criteriaDefinitions && onObjectFilterChange),
     surface: "list",
   });
@@ -173,7 +179,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
     }
   };
 
-  const activeObjectFilter = objectFilter ?? {};
+  const activeObjectFilter = useMemo(
+    () => migrateLegacyPerformerFavoriteCriterion(objectFilter ?? {}, criteriaDefinitions ?? []),
+    [criteriaDefinitions, objectFilter],
+  );
 
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
   // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
@@ -238,7 +247,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         )}
 
         {criteriaDefinitions && onObjectFilterChange ? (
-          <FilterButton activeCount={countActiveObjectFilters(criteriaDefinitions, activeObjectFilter)} onClick={() => setFilterDialogOpen(true)} />
+          <FilterButton activeCount={countActiveObjectFilters(criteriaDefinitions, activeObjectFilter)} onClick={() => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); }} />
         ) : null}
 
         {filterMode ? (
@@ -314,23 +323,19 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
           criteriaDefinitions={criteriaDefinitions}
           objectFilter={activeObjectFilter}
           className="mb-2"
-          onEdit={(key) => {
+          onEdit={(target) => {
+            const key = getFilterChipTargetKey(target);
+            setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
             const criterion = criteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
-            setFilterDialogPreselect(criterion?.id ?? key);
+            setFilterDialogPreselect(target.kind === "expression" ? undefined : target.kind === "related"
+              ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
+              : criterion?.id ?? key);
+            setFilterDialogInitialView(key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple");
+            setFilterDialogOpenAtRoot(false);
             setFilterDialogOpen(true);
           }}
-          onRemove={(key) => {
-            const next = { ...activeObjectFilter };
-            const criterion = criteriaDefinitions.find((item) => item.id === key
-              || item.filterKey === key
-              || item.secondaryFilterKey === key
-              || item.auxiliaryToggleKey === key);
-            if (criterion && criterion.auxiliaryToggleKey !== key) {
-              delete next[criterion.filterKey];
-              if (criterion.secondaryFilterKey) delete next[criterion.secondaryFilterKey];
-            } else {
-              delete next[key];
-            }
+          onRemove={(target) => {
+            const next = removeObjectFilterChipTarget(activeObjectFilter, criteriaDefinitions, target);
             onObjectFilterChange(next);
             onFilterChange({ ...filter, page: 1 });
           }}
@@ -368,7 +373,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
       {criteriaDefinitions && onObjectFilterChange ? (
         <FilterDialog
           open={filterDialogOpen}
-          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); }}
+          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); setFilterDialogInitialView("simple"); setFilterDialogExpressionPath(undefined); setFilterDialogOpenAtRoot(false); }}
           criteria={criteriaDefinitions}
           activeFilter={activeObjectFilter}
           onApply={(nextFilter) => {
@@ -376,6 +381,10 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             onFilterChange({ ...filter, page: 1 });
           }}
           preselectCriterion={filterDialogPreselect}
+          initialView={filterDialogInitialView}
+          initialExpressionPath={filterDialogExpressionPath}
+          openAtRoot={filterDialogOpenAtRoot}
+          supportsFilterExpressions={Boolean(activeObjectFilter._filterExpression)}
         />
       ) : null}
     </>
