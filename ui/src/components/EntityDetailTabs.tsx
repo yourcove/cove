@@ -22,7 +22,7 @@ export function EntityDetailTabs({ tabs, activeTab, onTabChange, className = "" 
   }
 
   return (
-    <div className={["w-full border-b border-border", className].filter(Boolean).join(" ")}>
+    <div data-entity-detail-tabs className={["w-full border-b border-border", className].filter(Boolean).join(" ")}>
       <div className="overflow-x-auto px-1 [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)] sm:px-0 sm:[mask-image:none]">
         <div className="flex w-max min-w-full gap-1 sm:min-w-max" role="tablist" aria-label="Detail tabs">
           {tabs.map((tab) => {
@@ -39,7 +39,7 @@ export function EntityDetailTabs({ tabs, activeTab, onTabChange, className = "" 
                 disabled={tab.disabled}
                 onClick={() => onTabChange(tab.key)}
                 className={[
-                  "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:min-h-10 sm:px-4 sm:py-3",
+                  "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-medium transition-colors sm:min-h-10 sm:px-4",
                   isActive
                     ? "border-accent text-foreground"
                     : "border-transparent text-secondary hover:border-muted hover:text-foreground",

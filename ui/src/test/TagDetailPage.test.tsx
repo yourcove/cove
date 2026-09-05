@@ -155,6 +155,25 @@ describe("TagDetailPage", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("retains hero content spacing when hierarchy links precede the tabs", async () => {
+    mocks.tagGet.mockResolvedValue({
+      ...buildTag(),
+      parents: [{ id: 88, name: "Parent tag" }],
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagDetailPage id={1206} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Parents")).toBeInTheDocument();
+    const tablist = screen.getByRole("tablist", { name: "Detail tabs" });
+    const tabs = tablist.parentElement?.parentElement;
+    expect(tabs?.parentElement).toHaveClass("py-6");
+    expect(tabs?.parentElement?.firstElementChild).not.toBe(tabs);
+  });
+
   it("persists include sub-tag content in the URL", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -17,6 +17,7 @@ describe("EntityDetailTabs", () => {
     );
 
     expect(screen.getByRole("tablist", { name: /detail tabs/i })).not.toHaveClass("mx-auto");
+    expect(screen.getByRole("tab", { name: "Images" })).toHaveClass("py-3");
   });
 
   it("uses the main navigation icons for matching entity tabs", () => {

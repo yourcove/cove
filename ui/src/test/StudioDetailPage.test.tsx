@@ -134,6 +134,20 @@ describe("StudioDetailPage", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("places the tabs first so the hero layout prevents doubled leading spacing", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudioDetailPage id={25} onNavigate={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const tablist = await screen.findByRole("tablist", { name: "Detail tabs" });
+    const tabs = tablist.parentElement?.parentElement;
+    expect(tabs?.parentElement?.firstElementChild).toBe(tabs);
+    expect(tabs).toHaveAttribute("data-entity-detail-tabs");
+  });
+
   it("persists include sub-studio content in the URL", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

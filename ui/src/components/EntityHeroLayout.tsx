@@ -114,7 +114,7 @@ export function EntityHeroLayout({
   const resolvedImageClassName = imageClassName ?? "h-full w-full object-cover";
   const resolvedFallbackClassName = imageFallbackClassName ?? "h-full w-full items-center justify-center bg-card text-muted";
   const resolvedHeroRowClassName = heroRowClassName ?? "flex flex-col gap-6 md:flex-row md:items-start";
-  const resolvedContentClassName = contentClassName ?? "w-full px-4 py-6";
+  const resolvedContentClassName = contentClassName ?? "w-full px-4 py-6 [&>[data-entity-detail-tabs]:first-child]:-mt-6";
   const carouselUrls = useMemo(
     () => Array.from(new Set((imageCarouselUrls ?? []).filter((url): url is string => typeof url === "string" && url.trim().length > 0))),
     [imageCarouselUrls],
@@ -277,7 +277,7 @@ export function EntityHeroLayout({
 
   return (
     <div className="min-h-screen">
-      <div className="relative overflow-hidden border-b border-border detail-hero-gradient">
+      <div className="relative overflow-hidden detail-hero-gradient">
         {backgroundImageUrl ? (
           <>
             <img
@@ -352,6 +352,7 @@ export function EntityHeroLayout({
             </div>
           </div>
         </div>
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-4 bottom-0 border-b border-border" />
       </div>
 
       <div className={resolvedContentClassName}>
