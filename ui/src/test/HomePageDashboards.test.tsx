@@ -277,9 +277,11 @@ describe("HomePage dashboards", () => {
     expect(mocks.groupItemsPage).toHaveBeenCalledTimes(2);
   });
 
-  it("shows a saved-filter definition failure and still hides a successful empty retry", async () => {
+  it("identifies a successfully empty saved filter only while editing", async () => {
+    let resolveItems!: (value: { items: never[]; totalCount: number }) => void;
     mocks.savedFilterGet.mockRejectedValueOnce(new Error("Saved filter request failed"));
-    mocks.savedFilterGet.mockResolvedValueOnce({ id: 5, name: "Warnings", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" });
+    mocks.savedFilterGet.mockResolvedValue({ id: 5, name: "Warnings", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" });
+    mocks.videosFind.mockImplementationOnce(() => new Promise((resolve) => { resolveItems = resolve; }));
     state.active = dashboard(1, "Home", true, [{
       instanceId: "saved",
       owner: "cove.core",
@@ -296,12 +298,27 @@ describe("HomePage dashboards", () => {
     await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.videosFind).toHaveBeenCalledOnce());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Warnings" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Customize/ }));
+    expect(screen.getByRole("heading", { name: "Warnings" })).toBeInTheDocument();
+    expect(screen.queryByText("No matching entities.")).not.toBeInTheDocument();
+
+    await act(async () => resolveItems({ items: [], totalCount: 0 }));
+    expect(await screen.findByText("No matching entities.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Warnings" })).toBeInTheDocument();
     expect(screen.getByText("Saved filter", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Configure/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Remove/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("heading", { name: "Warnings" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No matching entities.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Customize/ }));
+    expect(await screen.findByText("No matching entities.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Remove/ }));
+    expect(screen.queryByRole("heading", { name: "Warnings" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No matching entities.")).not.toBeInTheDocument();
   });
 
   it("shows and retries a saved-filter item-query failure", async () => {
