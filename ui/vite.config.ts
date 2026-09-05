@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import fs from "fs";
+import { createRequire } from "node:module";
 import { extensionRuntimeModules, extensionRuntimeVersion } from "./scripts/extension-runtime-contract.ts";
 
 // Exposes the repo-root CHANGELOG.md to the app as `virtual:changelog-raw`.
@@ -86,11 +87,34 @@ function extensionRuntimeImportMapPlugin(useDevRuntimeModules: boolean) {
   };
 }
 
+// The extension facade exports the whole catalog. Use Lucide's bundled CommonJS
+// entry there so loading an extension does not fetch every individual icon chunk.
+// App imports still use ESM, allowing DynamicIcon to load only the selected icon.
+function extensionLucideBundlePlugin() {
+  return {
+    name: "extension-lucide-bundle",
+    enforce: "pre" as const,
+    apply: "build" as const,
+    resolveId(id: string, importer?: string) {
+      if (id === "lucide-react" && importer === extensionRuntimeEntries["extension-runtime-lucide-react"]) {
+        return createRequire(import.meta.url).resolve("lucide-react");
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig(({ command }) => {
   const useDevRuntimeModules = command === "serve";
 
   return {
-    plugins: [react(), tailwindcss(), changelogPlugin(), extensionRuntimeImportMapPlugin(useDevRuntimeModules)],
+    plugins: [
+      react(),
+      tailwindcss(),
+      changelogPlugin(),
+      extensionRuntimeImportMapPlugin(useDevRuntimeModules),
+      extensionLucideBundlePlugin(),
+    ],
     resolve: {
       alias: {
         "@": path.resolve(import.meta.dirname, "./src"),
@@ -123,7 +147,7 @@ export default defineConfig(({ command }) => {
         output: {
           entryFileNames: (chunkInfo) => extensionRuntimeFileNames.get(chunkInfo.name) ?? "assets/[name]-[hash].js",
           manualChunks(id) {
-            if (id.includes("/node_modules/lucide-react/")) return "icons";
+            // Let Lucide dynamic imports split icons into individually loaded chunks.
             if (id.includes("/node_modules/@microsoft/signalr/")) return "signalr";
             if (
               id.includes("/node_modules/react/") ||
