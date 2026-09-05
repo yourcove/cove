@@ -1282,19 +1282,18 @@ function RecommendationRowShell({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  const [pageDestinations, setPageDestinations] = useState([0]);
 
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     setCanScrollLeft(el.scrollLeft > 5);
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 5);
-    // Calculate pages
-    if (el.clientWidth > 0) {
-      const pages = Math.ceil(el.scrollWidth / el.clientWidth);
-      setTotalPages(pages);
-      setCurrentPage(Math.round(el.scrollLeft / el.clientWidth));
-    }
+    const destinations = getCarouselPageDestinations(el.scrollWidth, el.clientWidth);
+    setPageDestinations(destinations);
+    setCurrentPage(destinations.reduce((nearestIndex, destination, index) => (
+      Math.abs(destination - el.scrollLeft) < Math.abs(destinations[nearestIndex] - el.scrollLeft) ? index : nearestIndex
+    ), 0));
   }, []);
 
   useEffect(() => {
@@ -1311,8 +1310,8 @@ function RecommendationRowShell({
   const scroll = (dir: "left" | "right") => {
     const el = scrollRef.current;
     if (!el) return;
-    const scrollAmount = el.clientWidth * 0.85;
-    el.scrollBy({ left: dir === "left" ? -scrollAmount : scrollAmount, behavior: "smooth" });
+    const nextPage = Math.max(0, Math.min(pageDestinations.length - 1, currentPage + (dir === "left" ? -1 : 1)));
+    el.scrollTo({ left: pageDestinations[nextPage], behavior: "smooth" });
   };
 
   return (
@@ -1342,7 +1341,8 @@ function RecommendationRowShell({
         {canScrollLeft && (
           <button
             onClick={() => scroll("left")}
-            className="absolute left-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-r from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity"
+            aria-label={`Previous ${header} page`}
+            className="absolute left-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-r from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity"
           >
             <ChevronLeft className="w-6 h-6 text-white" />
           </button>
@@ -1364,7 +1364,8 @@ function RecommendationRowShell({
         {canScrollRight && (
           <button
             onClick={() => scroll("right")}
-            className="absolute right-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-l from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity"
+            aria-label={`Next ${header} page`}
+            className="absolute right-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-l from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity"
           >
             <ChevronRight className="w-6 h-6 text-white" />
           </button>
@@ -1372,14 +1373,14 @@ function RecommendationRowShell({
       </div>
 
       {/* Page dots */}
-      {totalPages > 1 && (
+      {pageDestinations.length > 1 && (
         <div className="mx-auto flex max-w-full justify-start gap-1.5 overflow-x-auto px-1 mt-2 scrollbar-hide sm:justify-center sm:overflow-visible">
-          {Array.from({ length: totalPages }).map((_, i) => (
+          {pageDestinations.map((destination, i) => (
             <button
-              key={i}
+              key={destination}
               onClick={() => {
                 const el = scrollRef.current;
-                if (el) el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
+                if (el) el.scrollTo({ left: destination, behavior: "smooth" });
               }}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-1 sm:w-6"
               aria-label={`Go to carousel page ${i + 1}`}
@@ -1391,6 +1392,14 @@ function RecommendationRowShell({
       )}
     </div>
   );
+}
+
+export function getCarouselPageDestinations(scrollWidth: number, clientWidth: number) {
+  if (clientWidth <= 0 || scrollWidth <= clientWidth) return [0];
+  const maxScroll = scrollWidth - clientWidth;
+  const destinations = Array.from({ length: Math.floor(maxScroll / clientWidth) + 1 }, (_, index) => index * clientWidth);
+  if (maxScroll - destinations[destinations.length - 1] > 5) destinations.push(maxScroll);
+  return destinations;
 }
 
 // ─── Entity Card (renders appropriate card based on mode) ───────────────────

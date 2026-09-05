@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { HomePage } from "../pages/HomePage";
+import { getCarouselPageDestinations, HomePage } from "../pages/HomePage";
 import { navigateToUrl } from "../router/location";
 
 const { state, mocks } = vi.hoisted(() => ({
@@ -536,6 +536,48 @@ describe("HomePage dashboards", () => {
 
     fireEvent.change(search, { target: { value: "nothing here" } });
     expect(within(dialog).getByText("No widgets match “nothing here”.")).toBeInTheDocument();
+  });
+
+  it("keeps the final partial carousel page selected after scrolling", async () => {
+    mocks.videosFind.mockResolvedValueOnce({
+      items: Array.from({ length: 25 }, (_, index) => ({ id: index + 1, title: `Video ${index + 1}`, files: [], tags: [], performers: [] })),
+      totalCount: 25,
+    });
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "collection",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Recent videos",
+      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent videos" },
+    }]);
+    const { container } = renderHome();
+    await screen.findByText("Video 25");
+    const scroller = container.querySelector<HTMLElement>(".recommendation-row .group\\/row > .flex")!;
+    Object.defineProperties(scroller, {
+      clientWidth: { configurable: true, value: 390 },
+      scrollWidth: { configurable: true, value: 5700 },
+      scrollLeft: { configurable: true, value: 0, writable: true },
+    });
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      scroller.scrollLeft = options.left === 5070 ? 5016 : Number(options.left);
+      fireEvent.scroll(scroller);
+    });
+    Object.defineProperty(scroller, "scrollTo", { configurable: true, value: scrollTo });
+    fireEvent.scroll(scroller);
+
+    const next = await screen.findByRole("button", { name: "Next Recent videos page" });
+    expect(next).toHaveClass("focus:opacity-100");
+    fireEvent.click(screen.getByRole("button", { name: "Go to carousel page 14" }));
+    expect(screen.getByRole("button", { name: "Go to carousel page 14" }).firstElementChild).toHaveClass("bg-foreground");
+    fireEvent.click(screen.getByRole("button", { name: "Go to carousel page 15" }));
+
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: 5310, behavior: "smooth" });
+    expect(screen.getByRole("button", { name: "Go to carousel page 15" }).firstElementChild).toHaveClass("bg-foreground");
+    expect(screen.getByRole("button", { name: "Previous Recent videos page" })).toHaveClass("focus:opacity-100");
+    expect(screen.queryByRole("button", { name: "Next Recent videos page" })).not.toBeInTheDocument();
+    expect(getCarouselPageDestinations(5700, 390)).toHaveLength(15);
+    expect(getCarouselPageDestinations(5700, 390).at(-1)).toBe(5310);
+    expect(getCarouselPageDestinations(781, 390)).toEqual([0, 390]);
   });
 
   it("blocks canvas catalog items until the dashboard is empty", async () => {
