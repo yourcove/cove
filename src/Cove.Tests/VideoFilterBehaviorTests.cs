@@ -2060,6 +2060,60 @@ public class VideoFilterBehaviorTests
             items.Select(video => video.Title ?? string.Empty).ToArray());
     }
 
+
+    [Theory]
+    [InlineData("title", false)]
+    [InlineData("title", true)]
+    [InlineData("date", false)]
+    [InlineData("date", true)]
+    [InlineData("rating", false)]
+    [InlineData("rating", true)]
+    [InlineData("created_at", false)]
+    [InlineData("created_at", true)]
+    [InlineData("duration", false)]
+    [InlineData("duration", true)]
+    [InlineData("bitrate", false)]
+    [InlineData("bitrate", true)]
+    [InlineData("updated_at", false)]
+    [InlineData("updated_at", true)]
+    [InlineData("custom:number:missing", false)]
+    [InlineData("custom:number:missing", true)]
+    public async Task VideosWithCompilations_PageTiedRowsByUniqueKindAndId(string sort, bool descending)
+    {
+        await using var context = CreateContext();
+        var timestamp = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        foreach (var id in new[] { 3, 1 })
+        {
+            context.Videos.Add(new Video { Id = id, Title = "Tied", CreatedAt = timestamp, UpdatedAt = timestamp });
+            context.Groups.Add(new Group
+            {
+                Id = id, Name = "Tied", CreatedAt = timestamp, UpdatedAt = timestamp,
+                ShowInVideoLists = true,
+                GroupItems = [new GroupItem { Kind = GroupItemKind.Video, VideoId = id, HostId = id }],
+            });
+        }
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var controller = CreateVideosController(context);
+
+        for (var pass = 0; pass < 2; pass++)
+        {
+            var keys = new List<(string Kind, int Id)>();
+            for (var page = 1; page <= 4; page++)
+            {
+                var result = await controller.FindWithCompilations(
+                    q: null, page: page, perPage: 1, sort: sort,
+                    direction: descending ? "desc" : "asc", ct: TestContext.Current.CancellationToken);
+                var response = Assert.IsType<PaginatedResponse<VideoListEntryDto>>(Assert.IsType<OkObjectResult>(result.Result).Value);
+                Assert.Equal(4, response.TotalCount);
+                var item = Assert.Single(response.Items);
+                keys.Add((item.Kind, item.Id));
+            }
+            Assert.Equal(4, keys.Distinct().Count());
+            (string, int)[] ascending = [("compilation", 1), ("compilation", 3), ("video", 1), ("video", 3)];
+            Assert.Equal(descending ? ascending.Reverse() : ascending, keys);
+        }
+    }
+
     [Fact]
     public async Task VideosController_FindWithCompilations_ReturnsVideoRangeGroupsAsPagedRows()
     {

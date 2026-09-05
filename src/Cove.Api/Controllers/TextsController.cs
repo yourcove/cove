@@ -143,7 +143,11 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
         var findFilter = req.FindFilter ?? new FindFilter();
         var page = Math.Max(1, findFilter.Page);
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
-        var descending = findFilter.Direction == Cove.Core.Enums.SortDirection.Desc;
+        var sortClauses = CreateMultiSortRegistry().Normalize(findFilter.Sorts);
+        var primarySort = sortClauses.FirstOrDefault();
+        var sort = primarySort?.Key ?? findFilter.Sort;
+        var descending = primarySort?.Direction == Cove.Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter.Direction == Cove.Core.Enums.SortDirection.Desc);
         ExpandedHierarchyCriterion? expandedTags = null;
         if (HierarchicalCriterionExpander.RequiresExpansion(req.ObjectFilter?.TagsCriterion))
         {
@@ -173,8 +177,8 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
 
         query = ApplyFilter(query, req.ObjectFilter, expandedTags?.ValueGroups, expandedTags?.RequiredIdGroups, expandedStudios?.ValueGroups, expandedStudios?.RequiredIdGroups);
         query = await RelatedFilterQuery.ApplyToTextsAsync(db, query, req.ObjectFilter?.PerformerFilterCriterion, ct);
-        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
-        if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
+        query = ApplySort(query, sort, descending, findFilter.Seed, sortClauses);
+        if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, findFilter.Q, text => text.Title);
 
         var totalCount = await query.CountAsync(ct);
@@ -732,7 +736,7 @@ public class TextsController(CoveContext db, CustomFieldService customFields, Te
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(text => text.Id);
+        return compound.Finish(text => text.Id, clauses[0].Direction == Cove.Core.Enums.SortDirection.Desc);
     }
 
     private IQueryable<TextDocument> ApplyFilter(IQueryable<TextDocument> query, TextDocumentFilter? filter, IReadOnlyList<int[]>? hierarchicalTagGroups = null, IReadOnlyList<int[]>? requiredTagGroups = null, IReadOnlyList<int[]>? hierarchicalStudioGroups = null, IReadOnlyList<int[]>? requiredStudioGroups = null)

@@ -90,10 +90,14 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
         var findFilter = req.FindFilter ?? new FindFilter();
         var page = Math.Max(1, findFilter.Page);
         var perPage = Math.Clamp(findFilter.PerPage, 1, 250);
-        var descending = findFilter.Direction == Cove.Core.Enums.SortDirection.Desc;
+        var sortClauses = CreateMultiSortRegistry().Normalize(findFilter.Sorts);
+        var primarySort = sortClauses.FirstOrDefault();
+        var sort = primarySort?.Key ?? findFilter.Sort;
+        var descending = primarySort?.Direction == Cove.Core.Enums.SortDirection.Desc
+            || (primarySort is null && findFilter.Direction == Cove.Core.Enums.SortDirection.Desc);
         var query = await AudioFilterQuery.BuildAsync(db, req.ObjectFilter, findFilter, ct: ct, expression: req.FilterExpression);
-        query = ApplySort(query, findFilter.Sort, descending, findFilter.Seed, findFilter.Sorts);
-        if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, findFilter.Sort))
+        query = ApplySort(query, sort, descending, findFilter.Seed, sortClauses);
+        if (FullTextSearchHelpers.ShouldOrderByRelevance(db, findFilter.Q, sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(db, query, findFilter.Q, audio => audio.Title);
 
         var totalCount = await query.CountAsync(ct);
@@ -698,7 +702,7 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(audio => audio.Id);
+        return compound.Finish(audio => audio.Id, clauses[0].Direction == Cove.Core.Enums.SortDirection.Desc);
     }
 
     private async Task<AudioDto> MapToDetailDtoAsync(Audio audio, CancellationToken ct)

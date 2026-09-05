@@ -734,33 +734,37 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     private static IOrderedQueryable<VideoListEntryKey> ApplyVideoListEntrySorting(IQueryable<VideoListEntryKey> query, string? sort, bool desc, int? seed)
     {
         var randomSeed = seed ?? 0;
-        return sort switch
+        var ordered = sort switch
         {
             "title" or "name" => desc
-                ? query.OrderByDescending(item => item.Title).ThenByDescending(item => item.Kind).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Title).ThenBy(item => item.Kind).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.Title)
+                : query.OrderBy(item => item.Title),
             "date" => desc
-                ? query.OrderByDescending(item => item.Date ?? DateOnly.MinValue).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Date ?? DateOnly.MinValue).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.Date ?? DateOnly.MinValue)
+                : query.OrderBy(item => item.Date ?? DateOnly.MinValue),
             "rating" => desc
-                ? query.OrderBy(item => item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating).ThenBy(item => item.Id),
+                ? query.OrderBy(item => item.Rating <= 0 ? 1 : 0).ThenByDescending(item => item.Rating)
+                : query.OrderBy(item => item.Rating <= 0 ? 0 : 1).ThenBy(item => item.Rating),
             "created_at" => desc
-                ? query.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.CreatedAt)
+                : query.OrderBy(item => item.CreatedAt),
             "duration" => desc
-                ? query.OrderByDescending(item => item.Duration).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.Duration).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.Duration)
+                : query.OrderBy(item => item.Duration),
             "bitrate" => desc
-                ? query.OrderByDescending(item => item.BitRate).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.BitRate).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.BitRate)
+                : query.OrderBy(item => item.BitRate),
             "random" => desc
-                ? query.OrderByDescending(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L)
+                : query.OrderBy(item => ((long)item.Id * 1103515245L + randomSeed + (item.Kind == "compilation" ? 7919 : 0)) % 2147483647L),
             _ => desc
-                ? query.OrderByDescending(item => item.UpdatedAt).ThenByDescending(item => item.Id)
-                : query.OrderBy(item => item.UpdatedAt).ThenBy(item => item.Id),
+                ? query.OrderByDescending(item => item.UpdatedAt)
+                : query.OrderBy(item => item.UpdatedAt),
         };
+        // Numeric IDs can overlap between videos and compilation groups.
+        return desc
+            ? ordered.ThenByDescending(item => item.Kind).ThenByDescending(item => item.Id)
+            : ordered.ThenBy(item => item.Kind).ThenBy(item => item.Id);
     }
 
     private GroupDto MapCompilationGroupToDto(Group group) => new(

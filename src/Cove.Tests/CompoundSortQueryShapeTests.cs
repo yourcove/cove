@@ -24,7 +24,7 @@ public class CompoundSortQueryShapeTests
         compound.AppendRating(descending: true);
         compound.AppendAffinityInt(nameof(UserEntityAffinity.ViewCount), descending: true);
 
-        var sql = compound.Finish(video => video.Id).Take(25).Select(video => video.Id).ToQueryString();
+        var sql = compound.Finish(video => video.Id, descending: true).Take(25).Select(video => video.Id).ToQueryString();
 
         Assert.Equal(1, CountOccurrences(sql, "user_entity_affinities"));
         Assert.Equal(1, CountOccurrences(sql, "ratings"));
@@ -46,7 +46,7 @@ public class CompoundSortQueryShapeTests
         compound.Append(video => video.UpdatedAt, descending: true);
         compound.Append(video => video.Title, descending: false);
 
-        var sql = compound.Finish(video => video.Id).Take(25).Select(video => video.Id).ToQueryString();
+        var sql = compound.Finish(video => video.Id, descending: true).Take(25).Select(video => video.Id).ToQueryString();
 
         Assert.DoesNotContain("user_entity_affinities", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("ratings", sql, StringComparison.Ordinal);
@@ -74,14 +74,16 @@ public class CompoundSortQueryShapeTests
             new SortClause("date", Cove.Core.Enums.SortDirection.Desc),
         ]);
 
-        var sql = compound.Finish(gallery => gallery.Id).Take(25).Select(gallery => gallery.Id).ToQueryString();
+        var sql = compound.Finish(gallery => gallery.Id, descending: true).Take(25).Select(gallery => gallery.Id).ToQueryString();
 
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(key == "like_counter" ? "user_entity_affinities" : "interactions", sql, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void JsonCustomFieldPathFilterAndSortTranslateForPostgres()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void JsonCustomFieldPathFilterAndSortTranslateForPostgres(bool descending)
     {
         using var context = CreatePostgresContext();
         var criterion = new CustomFieldCriterion
@@ -100,7 +102,7 @@ public class CompoundSortQueryShapeTests
             .ToQueryString();
         var sortSql = context.Videos
             .IgnoreQueryFilters()
-            .ApplyCustomFieldSort(context, CustomFieldEntityTypes.Video, "custom-json:number:structured_metadata:%2Fprofile%2Fscore", desc: false)
+            .ApplyCustomFieldSort(context, CustomFieldEntityTypes.Video, "custom-json:number:structured_metadata:%2Fprofile%2Fscore", desc: descending)
             .Select(video => video.Id)
             .ToQueryString();
 
@@ -110,6 +112,7 @@ public class CompoundSortQueryShapeTests
         Assert.Contains("'/profile/score'", filterSql, StringComparison.Ordinal);
         Assert.Contains("\"JsonValue\" IS NOT NULL", filterSql, StringComparison.Ordinal);
         Assert.Contains("ORDER BY", sortSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches(", [a-z][a-z0-9]*\\.\"Id\"" + (descending ? " DESC" : "") + "\\s*$", sortSql);
         Assert.Contains("LEFT JOIN", sortSql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"Sortable\"", sortSql, StringComparison.Ordinal);
         Assert.Contains("public.cove_json_pointer_number", sortSql, StringComparison.OrdinalIgnoreCase);
