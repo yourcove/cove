@@ -45,7 +45,8 @@ export function useExtensionTabs(pageType: string, builtInTabs: Tab[], entityId?
           const res = await serverAwareFetch(url);
           if (res.ok) {
             const data = await res.json();
-            return { key: t.key, count: data.count ?? 0 } as { key: string; count: number };
+            // A null count means the extension has no measurement for this record.
+            return typeof data.count === "number" ? { key: t.key, count: data.count } : null;
           }
           console.warn(`[Extensions] Count endpoint failed for tab ${t.key}: ${res.status} ${res.statusText}`);
         } catch (error) {
