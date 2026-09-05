@@ -49,7 +49,13 @@ function clampDisplayRating(value: number, options?: RatingSystemOptions) {
 
 function normalizeDisplayRatingInput(rawValue: string, value: number, options?: RatingSystemOptions) {
   const normalized = normalizeRatingOptions(options);
-  if (normalized.type === "decimal" && !rawValue.includes(".") && !rawValue.includes(",") && value > 10 && value < 100) {
+  if (
+    normalized.type === "decimal" &&
+    !rawValue.includes(".") &&
+    !rawValue.includes(",") &&
+    value > 10 &&
+    value < 100
+  ) {
     return value / 10;
   }
 
@@ -57,7 +63,10 @@ function normalizeDisplayRatingInput(rawValue: string, value: number, options?: 
 }
 
 function trimTrailingZeros(value: number) {
-  return value.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+  return value
+    .toFixed(2)
+    .replace(/\.00$/, "")
+    .replace(/(\.\d)0$/, "$1");
 }
 
 export function getRatingPrecision(precision: RatingStarPrecision) {
@@ -203,7 +212,12 @@ function RatingNumberInput({
           return;
         }
 
-        onChange(convertFromRatingFormat(clampDisplayRating(normalizeDisplayRatingInput(nextValue, parsed, options), options), options));
+        onChange(
+          convertFromRatingFormat(
+            clampDisplayRating(normalizeDisplayRatingInput(nextValue, parsed, options), options),
+            options,
+          ),
+        );
       }}
       onBlur={(event) => {
         if (!event.target.value) {
@@ -216,9 +230,17 @@ function RatingNumberInput({
           return;
         }
 
-        onChange(convertFromRatingFormat(clampDisplayRating(normalizeDisplayRatingInput(event.target.value, parsed, options), options), options));
+        onChange(
+          convertFromRatingFormat(
+            clampDisplayRating(normalizeDisplayRatingInput(event.target.value, parsed, options), options),
+            options,
+          ),
+        );
       }}
-      className={inputClassName ?? "themed-number-input w-20 max-w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"}
+      className={
+        inputClassName ??
+        "themed-number-input w-20 max-w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+      }
     />
   );
 }
@@ -234,7 +256,11 @@ export function RatingBadge({ rating }: { rating?: number }) {
 
   return (
     <span className="flex items-center gap-1 text-xs font-medium text-accent">
-      {options.type === "stars" ? <RatingStars value={displayValue} sizeClass="h-3 w-3" /> : <Star className="h-3 w-3 fill-current" />}
+      {options.type === "stars" ? (
+        <RatingStars value={displayValue} sizeClass="h-3 w-3" />
+      ) : (
+        <Star className="h-3 w-3 fill-current" />
+      )}
       <span>{label}</span>
     </span>
   );
@@ -286,9 +312,18 @@ export function getRatingBannerColor(rating: number | undefined, options?: Ratin
   }
   // Color gradient matching standard: gray → gold → orange → red
   const colors: [number, string][] = [
-    [0, "#939393"], [10, "#9b8c7d"], [20, "#9e8974"], [30, "#a7805b"],
-    [40, "#af7944"], [50, "#b47435"], [60, "#c39f2b"], [70, "#d2ca20"],
-    [80, "#e7a811"], [85, "#ff8000"], [90, "#ff6a07"], [95, "#ff4812"],
+    [0, "#939393"],
+    [10, "#9b8c7d"],
+    [20, "#9e8974"],
+    [30, "#a7805b"],
+    [40, "#af7944"],
+    [50, "#b47435"],
+    [60, "#c39f2b"],
+    [70, "#d2ca20"],
+    [80, "#e7a811"],
+    [85, "#ff8000"],
+    [90, "#ff6a07"],
+    [95, "#ff4812"],
     [100, "#ff0000"],
   ];
   for (let i = colors.length - 1; i >= 0; i--) {
@@ -297,7 +332,17 @@ export function getRatingBannerColor(rating: number | undefined, options?: Ratin
   return "#939393";
 }
 
-export function RatingField({ value, onChange, fieldProvenance, fieldKey = "rating" }: { value?: number; onChange: (value: number | undefined) => void; fieldProvenance?: FieldProvenance[]; fieldKey?: string | string[] }) {
+export function RatingField({
+  value,
+  onChange,
+  fieldProvenance,
+  fieldKey = "rating",
+}: {
+  value?: number;
+  onChange: (value: number | undefined) => void;
+  fieldProvenance?: FieldProvenance[];
+  fieldKey?: string | string[];
+}) {
   const options = useRatingOptions();
   const displayValue = convertToRatingFormat(value, options);
 
@@ -338,7 +383,15 @@ export function InteractiveRatingField({
   );
 }
 
-export function InteractiveRating({ value, onChange, readOnly = false }: { value?: number; onChange?: (value: number | undefined) => void; readOnly?: boolean }) {
+export function InteractiveRating({
+  value,
+  onChange,
+  readOnly = false,
+}: {
+  value?: number;
+  onChange?: (value: number | undefined) => void;
+  readOnly?: boolean;
+}) {
   const options = useRatingOptions();
   const displayValue = convertToRatingFormat(value, options) ?? 0;
   const label = formatDisplayRating(value, options);
@@ -351,7 +404,11 @@ export function InteractiveRating({ value, onChange, readOnly = false }: { value
       return (
         <div className="flex items-center gap-2">
           <RatingStars value={displayValue} sizeClass="h-5 w-5" />
-          {label ? <span className="text-sm text-secondary">{label}</span> : <span className="text-sm text-secondary">Unrated</span>}
+          {label ? (
+            <span className="text-sm text-secondary">{label}</span>
+          ) : (
+            <span className="text-sm text-secondary">Unrated</span>
+          )}
         </div>
       );
     }
@@ -361,7 +418,8 @@ export function InteractiveRating({ value, onChange, readOnly = false }: { value
       // Measure against the visible star box (the inner element), not the larger mobile tap target —
       // otherwise a tap maps to a different value than what's shown, so "tap the same rating to clear
       // it" never matches the stored value on touch devices (where the button is wider than the star).
-      const starBox = (event.currentTarget.querySelector("[data-rating-star]") as HTMLElement | null) ?? event.currentTarget;
+      const starBox =
+        (event.currentTarget.querySelector("[data-rating-star]") as HTMLElement | null) ?? event.currentTarget;
       const rect = starBox.getBoundingClientRect();
       const ratio = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 1;
       const clampedRatio = Math.min(1, Math.max(0, ratio));
@@ -382,7 +440,9 @@ export function InteractiveRating({ value, onChange, readOnly = false }: { value
               onBlur={() => setHoverValue(null)}
               onClick={(event) => {
                 const nextDisplayValue = getValueFromPointer(event, star);
-                onChange?.(nextDisplayValue === displayValue ? undefined : convertFromRatingFormat(nextDisplayValue, options));
+                onChange?.(
+                  nextDisplayValue === displayValue ? undefined : convertFromRatingFormat(nextDisplayValue, options),
+                );
                 // Touch devices never fire mouseleave, so a lingering hoverValue would keep the stars
                 // showing the old (filled) rating after an unset until a refresh. Clear it so the display
                 // falls back to the freshly-updated value. (On desktop, mousemove re-sets it immediately.)

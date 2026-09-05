@@ -15,7 +15,15 @@ interface ListSearchControlProps {
 
 const LIST_SEARCH_DEBOUNCE_MS = 350;
 
-export function ListSearchControl({ query, onQueryChange, placeholder = "Search names, titles, tags...", className = "", searchMode, searchModes, onSearchModeChange }: ListSearchControlProps) {
+export function ListSearchControl({
+  query,
+  onQueryChange,
+  placeholder = "Search names, titles, tags...",
+  className = "",
+  searchMode,
+  searchModes,
+  onSearchModeChange,
+}: ListSearchControlProps) {
   const [searchText, setSearchText] = useState(query ?? "");
   const pendingLocalCommitsRef = useRef<string[]>([]);
 
@@ -28,22 +36,23 @@ export function ListSearchControl({ query, onQueryChange, placeholder = "Search 
     } else {
       pendingLocalCommitsRef.current = [];
     }
-    setSearchText((currentSearchText) => (
-      currentSearchText.trim() === normalizedQuery || acknowledgesLocalCommit
-        ? currentSearchText
-        : query ?? ""
-    ));
+    setSearchText((currentSearchText) =>
+      currentSearchText.trim() === normalizedQuery || acknowledgesLocalCommit ? currentSearchText : (query ?? ""),
+    );
   }, [query]);
 
-  const commitSearch = useCallback((rawSearchText: string, source: ListSearchCommitSource) => {
-    const normalizedSearch = rawSearchText.trim();
-    if (normalizedSearch === (query ?? "").trim()) return;
-    pendingLocalCommitsRef.current = [
-      ...pendingLocalCommitsRef.current.filter((pendingQuery) => pendingQuery !== normalizedSearch),
-      normalizedSearch,
-    ];
-    onQueryChange(normalizedSearch || undefined, source);
-  }, [onQueryChange, query]);
+  const commitSearch = useCallback(
+    (rawSearchText: string, source: ListSearchCommitSource) => {
+      const normalizedSearch = rawSearchText.trim();
+      if (normalizedSearch === (query ?? "").trim()) return;
+      pendingLocalCommitsRef.current = [
+        ...pendingLocalCommitsRef.current.filter((pendingQuery) => pendingQuery !== normalizedSearch),
+        normalizedSearch,
+      ];
+      onQueryChange(normalizedSearch || undefined, source);
+    },
+    [onQueryChange, query],
+  );
 
   useEffect(() => {
     if (searchText.trim() === (query ?? "").trim()) return;
@@ -73,7 +82,9 @@ export function ListSearchControl({ query, onQueryChange, placeholder = "Search 
           title="Search mode"
         >
           {searchModes.map((mode) => (
-            <option key={mode.value} value={mode.value} title={mode.title}>{mode.label}</option>
+            <option key={mode.value} value={mode.value} title={mode.title}>
+              {mode.label}
+            </option>
           ))}
         </select>
       ) : null}

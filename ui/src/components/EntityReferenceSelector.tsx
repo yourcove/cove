@@ -2,14 +2,26 @@ import { useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { faces, galleries, groups, images, performers, videos, studios, tags } from "../api/client";
-import type { CustomFieldType, Face, Gallery, Group, Image, Performer, Video, Studio, Tag, TagProvenance } from "../api/types";
+import type {
+  CustomFieldType,
+  Face,
+  Gallery,
+  Group,
+  Image,
+  Performer,
+  Video,
+  Studio,
+  Tag,
+  TagProvenance,
+} from "../api/types";
 import { TagProvenanceHover } from "./TagProvenanceHover";
 import { TagActionMenu } from "./shared";
 import { rankSearchOptions } from "../utils/searchRanking";
 import { AutocompleteDropdown } from "./AutocompleteDropdown";
 import { useAutocomplete, type AutocompleteItem } from "../hooks/useAutocomplete";
 
-export type EntityReferenceType = Extract<CustomFieldType, "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group"> | "face";
+export type EntityReferenceType =
+  Extract<CustomFieldType, "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group"> | "face";
 
 export interface EntityReferenceOption {
   id: number;
@@ -17,9 +29,7 @@ export interface EntityReferenceOption {
   secondaryLabel?: string;
 }
 
-type ReferenceAutocompleteValue =
-  | { kind: "entity"; option: EntityReferenceOption }
-  | { kind: "create"; query: string };
+type ReferenceAutocompleteValue = { kind: "entity"; option: EntityReferenceOption } | { kind: "create"; query: string };
 
 function buildReferenceAutocompleteItems(
   options: EntityReferenceOption[],
@@ -144,10 +154,17 @@ export function EntityReferenceSelector({
     if (!trimmedSearch || cachedOptions == null) return undefined;
 
     const needle = trimmedSearch.toLowerCase();
-    return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
+    return rankSearchOptions(
+      cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)),
+      trimmedSearch,
+    ).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading, isPlaceholderData } = useQuery({
+  const {
+    data: searchResults,
+    isLoading,
+    isPlaceholderData,
+  } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
@@ -168,8 +185,10 @@ export function EntityReferenceSelector({
   });
 
   const selected = selectedSearchOption ?? selectedOption;
-  const selectedInputLabel = selected?.label ?? selectedLabel?.trim() ?? (selectedLoading ? `Loading ${labels.singular}...` : "");
-  const showSelectedInInput = selectedDisplay === "input" && typeof value === "number" && searchText === "" && selectedInputLabel !== "";
+  const selectedInputLabel =
+    selected?.label ?? selectedLabel?.trim() ?? (selectedLoading ? `Loading ${labels.singular}...` : "");
+  const showSelectedInInput =
+    selectedDisplay === "input" && typeof value === "number" && searchText === "" && selectedInputLabel !== "";
   const excluded = useMemo(() => new Set(excludeIds ?? []), [excludeIds]);
   const visibleResults = useMemo(
     () => searchOptions.filter((option) => option.id !== value && !excluded.has(option.id)),
@@ -185,12 +204,18 @@ export function EntityReferenceSelector({
   const createMutation = useMutation({
     mutationFn: async (entityName: string) => {
       switch (entityType) {
-        case "tag": return tags.create({ name: entityName });
-        case "performer": return performers.create({ name: entityName });
-        case "group": return groups.create({ name: entityName });
-        case "studio": return studios.create({ name: entityName });
-        case "gallery": return galleries.create({ title: entityName });
-        default: throw new Error(`Cannot create entity of type ${entityType}`);
+        case "tag":
+          return tags.create({ name: entityName });
+        case "performer":
+          return performers.create({ name: entityName });
+        case "group":
+          return groups.create({ name: entityName });
+        case "studio":
+          return studios.create({ name: entityName });
+        case "gallery":
+          return galleries.create({ title: entityName });
+        default:
+          throw new Error(`Cannot create entity of type ${entityType}`);
       }
     },
     onSuccess: (result, entityName) => {
@@ -202,7 +227,13 @@ export function EntityReferenceSelector({
 
   const showCreateOption = trimmedSearch && !isLoading && creatable && canCreate && !exactMatchExists;
   const autocompleteItems = useMemo(
-    () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
+    () =>
+      buildReferenceAutocompleteItems(
+        visibleResults,
+        showCreateOption ? trimmedSearch : false,
+        createMutation.isPending,
+        isPlaceholderData,
+      ),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
   );
   const autocomplete = useAutocomplete({
@@ -227,7 +258,10 @@ export function EntityReferenceSelector({
       {typeof value === "number" && selectedDisplay === "chip" ? (
         <div className="flex flex-wrap gap-1">
           <span className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground">
-            <span className="min-w-0 truncate">{selected?.label ?? (selectedLoading ? `Loading ${labels.singular}...` : `Unavailable ${labels.singular}`)}</span>
+            <span className="min-w-0 truncate">
+              {selected?.label ??
+                (selectedLoading ? `Loading ${labels.singular}...` : `Unavailable ${labels.singular}`)}
+            </span>
             {selected?.secondaryLabel ? <span className="text-muted">{selected.secondaryLabel}</span> : null}
             <button
               type="button"
@@ -257,7 +291,10 @@ export function EntityReferenceSelector({
           }}
           placeholder={placeholder ?? `Search ${labels.plural}...`}
           disabled={disabled}
-          className={inputClassName ?? "w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted disabled:opacity-50 focus:border-accent focus:outline-none"}
+          className={
+            inputClassName ??
+            "w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted disabled:opacity-50 focus:border-accent focus:outline-none"
+          }
         />
         {selectedDisplay === "input" && typeof value === "number" ? (
           <button
@@ -299,7 +336,9 @@ export function EntityReferenceSelector({
               <span className="inline-flex min-w-0 items-center gap-2">
                 <span className="truncate">{option.label}</span>
               </span>
-              {option.secondaryLabel ? <span className="shrink-0 text-xs text-muted">{option.secondaryLabel}</span> : null}
+              {option.secondaryLabel ? (
+                <span className="shrink-0 text-xs text-muted">{option.secondaryLabel}</span>
+              ) : null}
             </button>
           ))}
           {showCreateOption ? (
@@ -383,10 +422,17 @@ export function EntityReferenceMultiSelector({
     if (!trimmedSearch || cachedOptions == null) return undefined;
 
     const needle = trimmedSearch.toLowerCase();
-    return rankSearchOptions(cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)), trimmedSearch).slice(0, 25);
+    return rankSearchOptions(
+      cachedOptions.filter((option) => option.label.toLowerCase().includes(needle)),
+      trimmedSearch,
+    ).slice(0, 25);
   }, [cachedOptions, trimmedSearch]);
 
-  const { data: searchResults, isLoading, isPlaceholderData } = useQuery({
+  const {
+    data: searchResults,
+    isLoading,
+    isPlaceholderData,
+  } = useQuery({
     queryKey: ["entity-reference-selector", entityType, trimmedSearch],
     queryFn: () => searchEntityReferences(entityType, trimmedSearch),
     enabled: !disabled && trimmedSearch.length >= 1 && cachedSearchOptions == null,
@@ -424,12 +470,18 @@ export function EntityReferenceMultiSelector({
   const createMutation = useMutation({
     mutationFn: async (name: string) => {
       switch (entityType) {
-        case "tag": return tags.create({ name });
-        case "performer": return performers.create({ name });
-        case "group": return groups.create({ name });
-        case "studio": return studios.create({ name });
-        case "gallery": return galleries.create({ title: name });
-        default: throw new Error(`Cannot create entity of type ${entityType}`);
+        case "tag":
+          return tags.create({ name });
+        case "performer":
+          return performers.create({ name });
+        case "group":
+          return groups.create({ name });
+        case "studio":
+          return studios.create({ name });
+        case "gallery":
+          return galleries.create({ title: name });
+        default:
+          throw new Error(`Cannot create entity of type ${entityType}`);
       }
     },
     onSuccess: (result) => {
@@ -441,7 +493,13 @@ export function EntityReferenceMultiSelector({
 
   const showCreateOption = trimmedSearch && !isLoading && creatable && canCreate && !exactMatchExists;
   const autocompleteItems = useMemo(
-    () => buildReferenceAutocompleteItems(visibleResults, showCreateOption ? trimmedSearch : false, createMutation.isPending, isPlaceholderData),
+    () =>
+      buildReferenceAutocompleteItems(
+        visibleResults,
+        showCreateOption ? trimmedSearch : false,
+        createMutation.isPending,
+        isPlaceholderData,
+      ),
     [createMutation.isPending, isPlaceholderData, showCreateOption, trimmedSearch, visibleResults],
   );
   const autocomplete = useAutocomplete({
@@ -469,7 +527,11 @@ export function EntityReferenceMultiSelector({
             const option = selectedOptions.get(id);
             const lockedValue = locked.has(id);
             const chip = (
-              <span key={id} className="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground" title={lockedValue ? "Derived tag" : undefined}>
+              <span
+                key={id}
+                className="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] text-foreground"
+                title={lockedValue ? "Derived tag" : undefined}
+              >
                 <span>{option?.label ?? `Loading ${labels.singular}...`}</span>
                 {option?.secondaryLabel ? <span className="text-muted">{option.secondaryLabel}</span> : null}
                 {!lockedValue ? (
@@ -494,7 +556,13 @@ export function EntityReferenceMultiSelector({
               </span>
             );
             const provenance = selectedProvenanceById?.[id];
-            return provenance?.length ? <TagProvenanceHover key={id} provenance={provenance}>{chip}</TagProvenanceHover> : chip;
+            return provenance?.length ? (
+              <TagProvenanceHover key={id} provenance={provenance}>
+                {chip}
+              </TagProvenanceHover>
+            ) : (
+              chip
+            );
           })}
         </div>
       ) : null}
@@ -506,7 +574,10 @@ export function EntityReferenceMultiSelector({
         value={searchText}
         placeholder={placeholder ?? `Search ${labels.plural}...`}
         disabled={disabled}
-        className={inputClassName ?? "w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted disabled:opacity-50 focus:border-accent focus:outline-none"}
+        className={
+          inputClassName ??
+          "w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted disabled:opacity-50 focus:border-accent focus:outline-none"
+        }
       />
 
       {trimmedSearch && autocomplete.isOpen ? (
@@ -575,7 +646,11 @@ export function EntityReferenceValue({ entityType, value }: { entityType: Entity
   return <>{text || `Unavailable ${labels.singular}`}</>;
 }
 
-function useEntityReferenceOptions(entityType: EntityReferenceType, ids: number[], seedOptions: EntityReferenceOption[] = []) {
+function useEntityReferenceOptions(
+  entityType: EntityReferenceType,
+  ids: number[],
+  seedOptions: EntityReferenceOption[] = [],
+) {
   const missingIds = useMemo(
     () => ids.filter((id) => !seedOptions.some((option) => option.id === id)),
     [ids, seedOptions],
@@ -604,7 +679,10 @@ function useEntityReferenceOptions(entityType: EntityReferenceType, ids: number[
   }, [seedOptions, selectedQueries]);
 }
 
-function getCachedEntityReferenceOptions(queryClient: ReturnType<typeof useQueryClient>, entityType: EntityReferenceType): EntityReferenceOption[] | undefined {
+function getCachedEntityReferenceOptions(
+  queryClient: ReturnType<typeof useQueryClient>,
+  entityType: EntityReferenceType,
+): EntityReferenceOption[] | undefined {
   const queryKey = [getEntityReferenceLabel(entityType).plural, "all"];
   const cached = queryClient.getQueryData<unknown>(queryKey);
   if (!Array.isArray(cached)) {
@@ -631,7 +709,10 @@ function getCachedEntityReferenceOptions(queryClient: ReturnType<typeof useQuery
   }
 }
 
-async function searchEntityReferences(entityType: EntityReferenceType, searchText: string): Promise<EntityReferenceOption[]> {
+async function searchEntityReferences(
+  entityType: EntityReferenceType,
+  searchText: string,
+): Promise<EntityReferenceOption[]> {
   const query = searchText || undefined;
   const labels = getEntityReferenceLabel(entityType);
   const filter = { q: query, perPage: 100, sort: labels.sort, direction: "asc" as const };
@@ -639,27 +720,43 @@ async function searchEntityReferences(entityType: EntityReferenceType, searchTex
   switch (entityType) {
     // includeCounts=false skips the per-tag usage-count aggregates server-side; the dropdown only
     // shows names, and the counts are what made tag autocomplete take seconds on large libraries.
-    case "tag": return (await tags.find(filter, { includeCounts: false })).items.map(toTagOption);
-    case "performer": return (await performers.find(filter)).items.map(toPerformerOption);
-    case "face": return (await faces.list(filter)).items.map(toFaceOption);
-    case "studio": return (await studios.find(filter)).items.map(toStudioOption);
-    case "video": return (await videos.find(filter)).items.map(toVideoOption);
-    case "gallery": return (await galleries.find(filter)).items.map(toGalleryOption);
-    case "image": return (await images.find(filter)).items.map(toImageOption);
-    case "group": return (await groups.find(filter)).items.map(toGroupOption);
+    case "tag":
+      return (await tags.find(filter, { includeCounts: false })).items.map(toTagOption);
+    case "performer":
+      return (await performers.find(filter)).items.map(toPerformerOption);
+    case "face":
+      return (await faces.list(filter)).items.map(toFaceOption);
+    case "studio":
+      return (await studios.find(filter)).items.map(toStudioOption);
+    case "video":
+      return (await videos.find(filter)).items.map(toVideoOption);
+    case "gallery":
+      return (await galleries.find(filter)).items.map(toGalleryOption);
+    case "image":
+      return (await images.find(filter)).items.map(toImageOption);
+    case "group":
+      return (await groups.find(filter)).items.map(toGroupOption);
   }
 }
 
 async function getEntityReference(entityType: EntityReferenceType, id: number): Promise<EntityReferenceOption> {
   switch (entityType) {
-    case "tag": return toTagOption(await tags.get(id));
-    case "performer": return toPerformerOption(await performers.get(id));
-    case "face": return toFaceOption(await faces.get(id));
-    case "studio": return toStudioOption(await studios.get(id));
-    case "video": return toVideoOption(await videos.get(id));
-    case "gallery": return toGalleryOption(await galleries.get(id));
-    case "image": return toImageOption(await images.get(id));
-    case "group": return toGroupOption(await groups.get(id));
+    case "tag":
+      return toTagOption(await tags.get(id));
+    case "performer":
+      return toPerformerOption(await performers.get(id));
+    case "face":
+      return toFaceOption(await faces.get(id));
+    case "studio":
+      return toStudioOption(await studios.get(id));
+    case "video":
+      return toVideoOption(await videos.get(id));
+    case "gallery":
+      return toGalleryOption(await galleries.get(id));
+    case "image":
+      return toImageOption(await images.get(id));
+    case "group":
+      return toGroupOption(await groups.get(id));
   }
 }
 
@@ -680,9 +777,8 @@ function toFaceOption(face: Face): EntityReferenceOption {
   return {
     id: face.id,
     label,
-    secondaryLabel: face.performerName && face.performerName !== label
-      ? face.performerName
-      : face.primarySourceKey || undefined,
+    secondaryLabel:
+      face.performerName && face.performerName !== label ? face.performerName : face.primarySourceKey || undefined,
   };
 }
 

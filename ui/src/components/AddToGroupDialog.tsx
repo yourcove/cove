@@ -35,7 +35,8 @@ export function AddToGroupDialog({ open, onClose, items, onAdded }: Props) {
   const normalizedItems = useMemo(() => items.filter((item) => (item.videoId ?? item.hostId ?? 0) > 0), [items]);
   const existingGroupQuery = useQuery({
     queryKey: ["groups", "picker", groupSearch],
-    queryFn: () => groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: groupSearch.trim() || undefined }),
+    queryFn: () =>
+      groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: groupSearch.trim() || undefined }),
     enabled: open,
   });
 
@@ -57,19 +58,21 @@ export function AddToGroupDialog({ open, onClose, items, onAdded }: Props) {
         groupId = created.id;
       }
 
-      const spanItems = normalizedItems.filter((item) => item.videoId && (item.spanKey || item.startSec != null || item.endSec != null || item.derivedQuery));
+      const spanItems = normalizedItems.filter(
+        (item) => item.videoId && (item.spanKey || item.startSec != null || item.endSec != null || item.derivedQuery),
+      );
       const directItems = normalizedItems.filter((item) => !spanItems.includes(item));
 
       if (spanItems.length > 0) {
         await groups.items.fromSpans(groupId, {
           spans: spanItems.map((item) => ({
-          spanKey: item.spanKey,
-          videoId: item.videoId,
-          startSec: item.startSec,
-          endSec: item.endSec,
-          title: item.title,
-          profileId: item.profileId,
-          derivedQuery: item.derivedQuery,
+            spanKey: item.spanKey,
+            videoId: item.videoId,
+            startSec: item.startSec,
+            endSec: item.endSec,
+            title: item.title,
+            profileId: item.profileId,
+            derivedQuery: item.derivedQuery,
           })),
         });
       }
@@ -102,7 +105,8 @@ export function AddToGroupDialog({ open, onClose, items, onAdded }: Props) {
     },
   });
 
-  const canSubmit = normalizedItems.length > 0 && (selectedGroupId != null || newGroupName.trim().length > 0) && !addMutation.isPending;
+  const canSubmit =
+    normalizedItems.length > 0 && (selectedGroupId != null || newGroupName.trim().length > 0) && !addMutation.isPending;
 
   return (
     <EditModal title="Add To Group" open={open} onClose={onClose}>
@@ -119,13 +123,17 @@ export function AddToGroupDialog({ open, onClose, items, onAdded }: Props) {
               </span>
             ))}
             {normalizedItems.length > 6 ? (
-              <span className="rounded-full border border-border bg-surface px-2 py-1">+{normalizedItems.length - 6} more</span>
+              <span className="rounded-full border border-border bg-surface px-2 py-1">
+                +{normalizedItems.length - 6} more
+              </span>
             ) : null}
           </div>
         </div>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-muted">Choose existing group</label>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
+            Choose existing group
+          </label>
           <input
             type="text"
             value={groupSearch}
@@ -155,7 +163,9 @@ export function AddToGroupDialog({ open, onClose, items, onAdded }: Props) {
         </div>
 
         <div className="rounded-xl border border-dashed border-border bg-surface/40 p-4">
-          <label className="block text-xs font-semibold uppercase tracking-wide text-muted">Or create a new group</label>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
+            Or create a new group
+          </label>
           <div className="mt-2 flex gap-2">
             <input
               type="text"

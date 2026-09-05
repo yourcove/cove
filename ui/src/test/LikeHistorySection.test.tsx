@@ -58,5 +58,4 @@ describe("LikeHistorySection", () => {
 
     expect(screen.queryByRole("button", { name: "Add historical like" })).not.toBeInTheDocument();
   });
-
 });

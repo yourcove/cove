@@ -13,11 +13,51 @@ const { state, mocks } = vi.hoisted(() => ({
   state: {
     legacyContent: "[]",
     userId: "7",
-    dashboardDefinitions: [] as Array<{ id: string; label: string; extensionId: string; componentName: string; editorComponentName?: string; description?: string; allowMultiple: boolean; order: number; supportedPresentations?: Array<"flow" | "canvas">; defaultPresentation?: "flow" | "canvas" }>,
+    dashboardDefinitions: [] as Array<{
+      id: string;
+      label: string;
+      extensionId: string;
+      componentName: string;
+      editorComponentName?: string;
+      description?: string;
+      allowMultiple: boolean;
+      order: number;
+      supportedPresentations?: Array<"flow" | "canvas">;
+      defaultPresentation?: "flow" | "canvas";
+    }>,
     extensionComponents: {} as Record<string, (props: any) => React.ReactNode>,
-    savedFilters: [] as Array<{ id: number; name: string; mode: string; findFilter: string; objectFilter: string; uiOptions: string }>,
-    dashboards: [] as Array<{ id: number; name: string; isDefault: boolean; version: number; createdAt: string; updatedAt: string }>,
-    active: null as null | { id: number; name: string; isDefault: boolean; version: number; createdAt: string; updatedAt: string; widgets: Array<{ instanceId: string; owner: string; widgetKey: string; label: string; configuration: unknown; presentation?: "flow" | "canvas" }> },
+    savedFilters: [] as Array<{
+      id: number;
+      name: string;
+      mode: string;
+      findFilter: string;
+      objectFilter: string;
+      uiOptions: string;
+    }>,
+    dashboards: [] as Array<{
+      id: number;
+      name: string;
+      isDefault: boolean;
+      version: number;
+      createdAt: string;
+      updatedAt: string;
+    }>,
+    active: null as null | {
+      id: number;
+      name: string;
+      isDefault: boolean;
+      version: number;
+      createdAt: string;
+      updatedAt: string;
+      widgets: Array<{
+        instanceId: string;
+        owner: string;
+        widgetKey: string;
+        label: string;
+        configuration: unknown;
+        presentation?: "flow" | "canvas";
+      }>;
+    },
   },
   mocks: {
     bootstrap: vi.fn(),
@@ -35,7 +75,11 @@ const { state, mocks } = vi.hoisted(() => ({
 }));
 
 vi.mock("../api/client", () => ({
-  videos: { find: mocks.videosFind, findFiltered: vi.fn(), screenshotUrl: (id: number) => `/api/stream/video/${id}/screenshot` },
+  videos: {
+    find: mocks.videosFind,
+    findFiltered: vi.fn(),
+    screenshotUrl: (id: number) => `/api/stream/video/${id}/screenshot`,
+  },
   performers: { find: vi.fn(async () => ({ items: [], totalCount: 0 })), findFiltered: vi.fn() },
   studios: { find: vi.fn(async () => ({ items: [], totalCount: 0 })), findFiltered: vi.fn() },
   tags: { find: vi.fn(async () => ({ items: [], totalCount: 0 })), findFiltered: vi.fn() },
@@ -87,11 +131,20 @@ function summary(id: number, name: string, isDefault = false) {
   return { id, name, isDefault, version: 1, createdAt: "", updatedAt: "" };
 }
 
-function dashboard(id: number, name: string, isDefault = false, widgets: NonNullable<typeof state.active>["widgets"] = []) {
+function dashboard(
+  id: number,
+  name: string,
+  isDefault = false,
+  widgets: NonNullable<typeof state.active>["widgets"] = [],
+) {
   return { ...summary(id, name, isDefault), widgets };
 }
 
-function renderHome(onNavigate = vi.fn(), dashboardId?: number, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderHome(
+  onNavigate = vi.fn(),
+  dashboardId?: number,
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return {
     onNavigate,
     ...render(
@@ -120,11 +173,23 @@ describe("HomePage dashboards", () => {
       throw new Error("Dashboard not found");
     });
     mocks.create.mockImplementation(async (name: string) => dashboard(2, name));
-    mocks.update.mockImplementation(async (_id: number, request: { name: string }) => ({ ...state.active!, name: request.name }));
-    mocks.savedFilterGet.mockImplementation(async () => ({ id: 5, name: `Filter ${state.userId}`, mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" }));
+    mocks.update.mockImplementation(async (_id: number, request: { name: string }) => ({
+      ...state.active!,
+      name: request.name,
+    }));
+    mocks.savedFilterGet.mockImplementation(async () => ({
+      id: 5,
+      name: `Filter ${state.userId}`,
+      mode: "videos",
+      findFilter: "{}",
+      objectFilter: "{}",
+      uiOptions: "{}",
+    }));
     mocks.savedFiltersList.mockImplementation(async () => state.savedFilters);
     mocks.delete.mockImplementation(async (id: number) => {
-      state.dashboards = state.dashboards.filter((item) => item.id !== id).map((item) => ({ ...item, isDefault: true }));
+      state.dashboards = state.dashboards
+        .filter((item) => item.id !== id)
+        .map((item) => ({ ...item, isDefault: true }));
       const fallback = state.dashboards[0];
       state.active = fallback ? dashboard(fallback.id, fallback.name, true) : null;
     });
@@ -148,12 +213,23 @@ describe("HomePage dashboards", () => {
 
     await waitFor(() => expect(mocks.bootstrap).toHaveBeenCalledOnce());
     expect(mocks.bootstrap).toHaveBeenCalledWith([
-      expect.objectContaining({ owner: "cove.core", widgetKey: "continue-watching", label: "Continue Watching", configuration: {} }),
+      expect.objectContaining({
+        owner: "cove.core",
+        widgetKey: "continue-watching",
+        label: "Continue Watching",
+        configuration: {},
+      }),
       expect.objectContaining({
         owner: "cove.core",
         widgetKey: "collection",
         label: "Recently Added Videos",
-        configuration: { source: "premade", mode: "videos", sortBy: "created_at", direction: "desc", header: "Recently Added Videos" },
+        configuration: {
+          source: "premade",
+          mode: "videos",
+          sortBy: "created_at",
+          direction: "desc",
+          header: "Recently Added Videos",
+        },
       }),
     ]);
   });
@@ -188,7 +264,9 @@ describe("HomePage dashboards", () => {
   });
 
   it("does not reuse one user's personal dashboard cache for another user", async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } },
+    });
     const first = renderHome(vi.fn(), undefined, client);
     expect(await screen.findByRole("combobox", { name: "Dashboard" })).toHaveValue("1");
     first.unmount();
@@ -204,11 +282,25 @@ describe("HomePage dashboards", () => {
 
   it("does not reuse personal widget queries when accounts share entity ids", async () => {
     const widgets = [
-      { instanceId: "continue", owner: "cove.core", widgetKey: "continue-watching", label: "Continue Watching", configuration: {} },
-      { instanceId: "saved", owner: "cove.core", widgetKey: "collection", label: "Saved", configuration: { source: "saved", savedFilterId: 5 } },
+      {
+        instanceId: "continue",
+        owner: "cove.core",
+        widgetKey: "continue-watching",
+        label: "Continue Watching",
+        configuration: {},
+      },
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
     ];
     state.active = dashboard(1, "Home", true, widgets);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } },
+    });
     const first = renderHome(vi.fn(), undefined, client);
     await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.groupsFind).toHaveBeenCalledTimes(1));
@@ -224,14 +316,25 @@ describe("HomePage dashboards", () => {
 
   it("shows and retries a failed built-in collection widget", async () => {
     mocks.videosFind.mockRejectedValueOnce(new Error("Collection request failed"));
-    mocks.videosFind.mockResolvedValueOnce({ items: [{ id: 101, title: "Recovered video", files: [], tags: [], performers: [] }], totalCount: 1 });
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "collection",
-      owner: "cove.core",
-      widgetKey: "collection",
-      label: "Recent videos",
-      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent videos" },
-    }]);
+    mocks.videosFind.mockResolvedValueOnce({
+      items: [{ id: 101, title: "Recovered video", files: [], tags: [], performers: [] }],
+      totalCount: 1,
+    });
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "collection",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Recent videos",
+        configuration: {
+          source: "premade",
+          mode: "videos",
+          sortBy: "date",
+          direction: "desc",
+          header: "Recent videos",
+        },
+      },
+    ]);
 
     renderHome();
 
@@ -245,13 +348,15 @@ describe("HomePage dashboards", () => {
   it("shows and retries a failed Continue Watching widget", async () => {
     mocks.groupsFind.mockRejectedValueOnce(new Error("Continue Watching request failed"));
     mocks.groupsFind.mockResolvedValueOnce({ items: [], totalCount: 0 });
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "continue",
-      owner: "cove.core",
-      widgetKey: "continue-watching",
-      label: "Continue Watching",
-      configuration: {},
-    }]);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "continue",
+        owner: "cove.core",
+        widgetKey: "continue-watching",
+        label: "Continue Watching",
+        configuration: {},
+      },
+    ]);
 
     renderHome();
 
@@ -266,13 +371,15 @@ describe("HomePage dashboards", () => {
     mocks.groupsFind.mockResolvedValueOnce({ items: [{ id: 3, querySourceKey: "continue-watching" }], totalCount: 1 });
     mocks.groupItemsPage.mockRejectedValueOnce(new Error("Continue Watching items failed"));
     mocks.groupItemsPage.mockResolvedValueOnce({ items: [], totalCount: 0, page: 1, perPage: 12 });
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "continue",
-      owner: "cove.core",
-      widgetKey: "continue-watching",
-      label: "Continue Watching",
-      configuration: {},
-    }]);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "continue",
+        owner: "cove.core",
+        widgetKey: "continue-watching",
+        label: "Continue Watching",
+        configuration: {},
+      },
+    ]);
 
     renderHome();
 
@@ -286,15 +393,29 @@ describe("HomePage dashboards", () => {
   it("identifies a successfully empty saved filter only while editing", async () => {
     let resolveItems!: (value: { items: never[]; totalCount: number }) => void;
     mocks.savedFilterGet.mockRejectedValueOnce(new Error("Saved filter request failed"));
-    mocks.savedFilterGet.mockResolvedValue({ id: 5, name: "Warnings", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" });
-    mocks.videosFind.mockImplementationOnce(() => new Promise((resolve) => { resolveItems = resolve; }));
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "saved",
-      owner: "cove.core",
-      widgetKey: "collection",
-      label: "Saved filter",
-      configuration: { source: "saved", savedFilterId: 5 },
-    }]);
+    mocks.savedFilterGet.mockResolvedValue({
+      id: 5,
+      name: "Warnings",
+      mode: "videos",
+      findFilter: "{}",
+      objectFilter: "{}",
+      uiOptions: "{}",
+    });
+    mocks.videosFind.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveItems = resolve;
+        }),
+    );
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved filter",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
 
     renderHome();
 
@@ -329,14 +450,19 @@ describe("HomePage dashboards", () => {
 
   it("shows and retries a saved-filter item-query failure", async () => {
     mocks.videosFind.mockRejectedValueOnce(new Error("Saved collection request failed"));
-    mocks.videosFind.mockResolvedValueOnce({ items: [{ id: 102, title: "Recovered saved video", files: [], tags: [], performers: [] }], totalCount: 1 });
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "saved",
-      owner: "cove.core",
-      widgetKey: "collection",
-      label: "Saved filter",
-      configuration: { source: "saved", savedFilterId: 5 },
-    }]);
+    mocks.videosFind.mockResolvedValueOnce({
+      items: [{ id: 102, title: "Recovered saved video", files: [], tags: [], performers: [] }],
+      totalCount: 1,
+    });
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved filter",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
 
     renderHome();
 
@@ -349,8 +475,21 @@ describe("HomePage dashboards", () => {
 
   it("disables dashboard draft controls while a save is pending", async () => {
     let resolveUpdate!: (value: NonNullable<typeof state.active>) => void;
-    mocks.update.mockImplementationOnce(() => new Promise((resolve) => { resolveUpdate = resolve; }));
-    state.active = dashboard(1, "Home", true, [{ instanceId: "one", owner: "cove.core", widgetKey: "collection", label: "Recent", configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent" } }]);
+    mocks.update.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "one",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Recent",
+        configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent" },
+      },
+    ]);
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -382,13 +521,21 @@ describe("HomePage dashboards", () => {
   });
 
   it("gives mobile widget titles a separate row above wrapping actions", async () => {
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "one",
-      owner: "cove.core",
-      widgetKey: "collection",
-      label: "A long dashboard widget label",
-      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "A long dashboard widget label" },
-    }]);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "one",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "A long dashboard widget label",
+        configuration: {
+          source: "premade",
+          mode: "videos",
+          sortBy: "date",
+          direction: "desc",
+          header: "A long dashboard widget label",
+        },
+      },
+    ]);
     renderHome();
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
 
@@ -412,7 +559,9 @@ describe("HomePage dashboards", () => {
     const dialog = screen.getByRole("dialog", { name: "Add Widget" });
     const close = within(dialog).getByRole("button", { name: "Close" });
     await waitFor(() => expect(within(dialog).getByRole("searchbox", { name: "Search widgets" })).toHaveFocus());
-    const enabledButtons = within(dialog).getAllByRole("button").filter((button) => !button.hasAttribute("disabled"));
+    const enabledButtons = within(dialog)
+      .getAllByRole("button")
+      .filter((button) => !button.hasAttribute("disabled"));
     const lastButton = enabledButtons.at(-1)!;
     lastButton.focus();
     fireEvent.keyDown(lastButton, { key: "Tab" });
@@ -452,13 +601,15 @@ describe("HomePage dashboards", () => {
   });
 
   it("manages focus and Escape for the widget configuration dialog", async () => {
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "one",
-      owner: "cove.core",
-      widgetKey: "collection",
-      label: "Recent",
-      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent" },
-    }]);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "one",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Recent",
+        configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent" },
+      },
+    ]);
     renderHome();
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
     const trigger = screen.getByRole("button", { name: /Configure/ });
@@ -481,7 +632,9 @@ describe("HomePage dashboards", () => {
   it("scrolls an appended widget only enough to reveal it", async () => {
     const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
     const innerHeight = vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
-    const getBoundingClientRect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const getBoundingClientRect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
       if (this.tagName === "HEADER") return { bottom: 124 } as DOMRect;
       if (this.tagName === "SECTION" && this.textContent?.includes("Recently Added Videos")) {
         return { top: 800, bottom: 1100, height: 300 } as DOMRect;
@@ -511,13 +664,15 @@ describe("HomePage dashboards", () => {
   });
 
   it("preserves configuration when an extension widget is unavailable", async () => {
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "pulse-1",
-      owner: "example.extension",
-      widgetKey: "pulse",
-      label: "Library Pulse",
-      configuration: { metrics: ["videos", "groups"] },
-    }]);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "pulse-1",
+        owner: "example.extension",
+        widgetKey: "pulse",
+        label: "Library Pulse",
+        configuration: { metrics: ["videos", "groups"] },
+      },
+    ]);
 
     renderHome();
 
@@ -526,9 +681,20 @@ describe("HomePage dashboards", () => {
   });
 
   it("does not duplicate a single-instance extension widget", async () => {
-    state.dashboardDefinitions = [{ id: "singleton", label: "Singleton", extensionId: "example.extension", componentName: "Widget", allowMultiple: false, order: 1 }];
+    state.dashboardDefinitions = [
+      {
+        id: "singleton",
+        label: "Singleton",
+        extensionId: "example.extension",
+        componentName: "Widget",
+        allowMultiple: false,
+        order: 1,
+      },
+    ];
     state.extensionComponents.Widget = () => <div>Singleton body</div>;
-    state.active = dashboard(1, "Home", true, [{ instanceId: "one", owner: "example.extension", widgetKey: "singleton", label: "Singleton", configuration: {} }]);
+    state.active = dashboard(1, "Home", true, [
+      { instanceId: "one", owner: "example.extension", widgetKey: "singleton", label: "Singleton", configuration: {} },
+    ]);
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -537,16 +703,38 @@ describe("HomePage dashboards", () => {
   });
 
   it("rejects non-JSON configuration emitted by an extension editor", async () => {
-    state.dashboardDefinitions = [{ id: "configurable", label: "Configurable", extensionId: "example.extension", componentName: "Widget", editorComponentName: "Editor", allowMultiple: true, order: 1 }];
+    state.dashboardDefinitions = [
+      {
+        id: "configurable",
+        label: "Configurable",
+        extensionId: "example.extension",
+        componentName: "Widget",
+        editorComponentName: "Editor",
+        allowMultiple: true,
+        order: 1,
+      },
+    ];
     state.extensionComponents.Widget = () => <div>Configurable body</div>;
     state.extensionComponents.Editor = ({ onChange }: { onChange: (configuration: unknown) => void }) => (
-      <button onClick={() => {
-        const cyclic: Record<string, unknown> = {};
-        cyclic.self = cyclic;
-        onChange(cyclic);
-      }}>Emit invalid configuration</button>
+      <button
+        onClick={() => {
+          const cyclic: Record<string, unknown> = {};
+          cyclic.self = cyclic;
+          onChange(cyclic);
+        }}
+      >
+        Emit invalid configuration
+      </button>
     );
-    state.active = dashboard(1, "Home", true, [{ instanceId: "one", owner: "example.extension", widgetKey: "configurable", label: "Configurable", configuration: {} }]);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "one",
+        owner: "example.extension",
+        widgetKey: "configurable",
+        label: "Configurable",
+        configuration: {},
+      },
+    ]);
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -584,15 +772,17 @@ describe("HomePage dashboards", () => {
       objectFilter: "{}",
       uiOptions: "{}",
     }));
-    state.dashboardDefinitions = [{
-      id: "curation-queue",
-      label: "Curation Queue",
-      description: "Review metadata warnings.",
-      extensionId: "example.extension",
-      componentName: "Widget",
-      allowMultiple: true,
-      order: 1,
-    }];
+    state.dashboardDefinitions = [
+      {
+        id: "curation-queue",
+        label: "Curation Queue",
+        description: "Review metadata warnings.",
+        extensionId: "example.extension",
+        componentName: "Widget",
+        allowMultiple: true,
+        order: 1,
+      },
+    ];
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -615,16 +805,30 @@ describe("HomePage dashboards", () => {
 
   it("keeps the final partial carousel page selected after scrolling", async () => {
     mocks.videosFind.mockResolvedValueOnce({
-      items: Array.from({ length: 25 }, (_, index) => ({ id: index + 1, title: `Video ${index + 1}`, files: [], tags: [], performers: [] })),
+      items: Array.from({ length: 25 }, (_, index) => ({
+        id: index + 1,
+        title: `Video ${index + 1}`,
+        files: [],
+        tags: [],
+        performers: [],
+      })),
       totalCount: 25,
     });
-    state.active = dashboard(1, "Home", true, [{
-      instanceId: "collection",
-      owner: "cove.core",
-      widgetKey: "collection",
-      label: "Recent videos",
-      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent videos" },
-    }]);
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "collection",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Recent videos",
+        configuration: {
+          source: "premade",
+          mode: "videos",
+          sortBy: "date",
+          direction: "desc",
+          header: "Recent videos",
+        },
+      },
+    ]);
     const { container } = renderHome();
     await screen.findByText("Video 25");
     const scroller = container.querySelector<HTMLElement>(".recommendation-row .group\\/row > .flex")!;
@@ -643,11 +847,15 @@ describe("HomePage dashboards", () => {
     const next = await screen.findByRole("button", { name: "Next Recent videos page" });
     expect(next).toHaveClass("focus:opacity-100");
     fireEvent.click(screen.getByRole("button", { name: "Go to carousel page 14" }));
-    expect(screen.getByRole("button", { name: "Go to carousel page 14" }).firstElementChild).toHaveClass("bg-foreground");
+    expect(screen.getByRole("button", { name: "Go to carousel page 14" }).firstElementChild).toHaveClass(
+      "bg-foreground",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Go to carousel page 15" }));
 
     expect(scrollTo).toHaveBeenLastCalledWith({ left: 5310, behavior: "smooth" });
-    expect(screen.getByRole("button", { name: "Go to carousel page 15" }).firstElementChild).toHaveClass("bg-foreground");
+    expect(screen.getByRole("button", { name: "Go to carousel page 15" }).firstElementChild).toHaveClass(
+      "bg-foreground",
+    );
     expect(screen.getByRole("button", { name: "Previous Recent videos page" })).toHaveClass("focus:opacity-100");
     expect(screen.queryByRole("button", { name: "Next Recent videos page" })).not.toBeInTheDocument();
     expect(getCarouselPageDestinations(5700, 390)).toHaveLength(15);
@@ -656,18 +864,29 @@ describe("HomePage dashboards", () => {
   });
 
   it("blocks canvas catalog items until the dashboard is empty", async () => {
-    state.dashboardDefinitions = [{
-      id: "group-feed",
-      label: "Group Feed",
-      description: "Browse one group as a mixed feed.",
-      extensionId: "example.extension",
-      componentName: "GroupFeedWidget",
-      allowMultiple: false,
-      order: 1,
-      supportedPresentations: ["canvas"],
-      defaultPresentation: "canvas",
-    }];
-    state.active = dashboard(1, "Home", true, [{ instanceId: "flow", owner: "cove.core", widgetKey: "collection", label: "Recent", configuration: {}, presentation: "flow" }]);
+    state.dashboardDefinitions = [
+      {
+        id: "group-feed",
+        label: "Group Feed",
+        description: "Browse one group as a mixed feed.",
+        extensionId: "example.extension",
+        componentName: "GroupFeedWidget",
+        allowMultiple: false,
+        order: 1,
+        supportedPresentations: ["canvas"],
+        defaultPresentation: "canvas",
+      },
+    ];
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "flow",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Recent",
+        configuration: {},
+        presentation: "flow",
+      },
+    ]);
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -678,18 +897,31 @@ describe("HomePage dashboards", () => {
   });
 
   it("adds a dual-presentation Canvas-default widget as Flow on a populated dashboard", async () => {
-    state.dashboardDefinitions = [{
-      id: "adaptive",
-      label: "Adaptive Widget",
-      extensionId: "example.extension",
-      componentName: "AdaptiveWidget",
-      allowMultiple: true,
-      order: 1,
-      supportedPresentations: ["flow", "canvas"],
-      defaultPresentation: "canvas",
-    }];
-    state.extensionComponents.AdaptiveWidget = ({ presentation }: { presentation: string }) => <div>Adaptive {presentation}</div>;
-    state.active = dashboard(1, "Home", true, [{ instanceId: "flow", owner: "cove.core", widgetKey: "collection", label: "Recent", configuration: {}, presentation: "flow" }]);
+    state.dashboardDefinitions = [
+      {
+        id: "adaptive",
+        label: "Adaptive Widget",
+        extensionId: "example.extension",
+        componentName: "AdaptiveWidget",
+        allowMultiple: true,
+        order: 1,
+        supportedPresentations: ["flow", "canvas"],
+        defaultPresentation: "canvas",
+      },
+    ];
+    state.extensionComponents.AdaptiveWidget = ({ presentation }: { presentation: string }) => (
+      <div>Adaptive {presentation}</div>
+    );
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "flow",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Recent",
+        configuration: {},
+        presentation: "flow",
+      },
+    ]);
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -699,23 +931,29 @@ describe("HomePage dashboards", () => {
     expect(await screen.findByText("Adaptive flow")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalled());
-    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
-      widgets: expect.arrayContaining([expect.objectContaining({ widgetKey: "adaptive", presentation: "flow" })]),
-    }));
+    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(
+      expect.objectContaining({
+        widgets: expect.arrayContaining([expect.objectContaining({ widgetKey: "adaptive", presentation: "flow" })]),
+      }),
+    );
   });
 
   it("adds a canvas-only contribution with its presentation and passes it to the widget", async () => {
-    state.dashboardDefinitions = [{
-      id: "group-feed",
-      label: "Group Feed",
-      extensionId: "example.extension",
-      componentName: "GroupFeedWidget",
-      allowMultiple: false,
-      order: 1,
-      supportedPresentations: ["canvas"],
-      defaultPresentation: "canvas",
-    }];
-    state.extensionComponents.GroupFeedWidget = ({ presentation }: { presentation: string }) => <div>Rendered as {presentation}</div>;
+    state.dashboardDefinitions = [
+      {
+        id: "group-feed",
+        label: "Group Feed",
+        extensionId: "example.extension",
+        componentName: "GroupFeedWidget",
+        allowMultiple: false,
+        order: 1,
+        supportedPresentations: ["canvas"],
+        defaultPresentation: "canvas",
+      },
+    ];
+    state.extensionComponents.GroupFeedWidget = ({ presentation }: { presentation: string }) => (
+      <div>Rendered as {presentation}</div>
+    );
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -725,24 +963,39 @@ describe("HomePage dashboards", () => {
     expect(await screen.findByText("Rendered as canvas")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalled());
-    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
-      widgets: [expect.objectContaining({ widgetKey: "group-feed", presentation: "canvas" })],
-    }));
+    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(
+      expect.objectContaining({
+        widgets: [expect.objectContaining({ widgetKey: "group-feed", presentation: "canvas" })],
+      }),
+    );
   });
 
   it("lets users repair a saved presentation the contribution no longer supports", async () => {
-    state.dashboardDefinitions = [{
-      id: "adaptive",
-      label: "Adaptive Widget",
-      extensionId: "example.extension",
-      componentName: "AdaptiveWidget",
-      allowMultiple: true,
-      order: 1,
-      supportedPresentations: ["flow"],
-      defaultPresentation: "flow",
-    }];
-    state.extensionComponents.AdaptiveWidget = ({ presentation }: { presentation: string }) => <div>Adaptive {presentation}</div>;
-    state.active = dashboard(1, "Home", true, [{ instanceId: "adaptive", owner: "example.extension", widgetKey: "adaptive", label: "Adaptive Widget", configuration: {}, presentation: "canvas" }]);
+    state.dashboardDefinitions = [
+      {
+        id: "adaptive",
+        label: "Adaptive Widget",
+        extensionId: "example.extension",
+        componentName: "AdaptiveWidget",
+        allowMultiple: true,
+        order: 1,
+        supportedPresentations: ["flow"],
+        defaultPresentation: "flow",
+      },
+    ];
+    state.extensionComponents.AdaptiveWidget = ({ presentation }: { presentation: string }) => (
+      <div>Adaptive {presentation}</div>
+    );
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "adaptive",
+        owner: "example.extension",
+        widgetKey: "adaptive",
+        label: "Adaptive Widget",
+        configuration: {},
+        presentation: "canvas",
+      },
+    ]);
     renderHome();
 
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
@@ -753,9 +1006,11 @@ describe("HomePage dashboards", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalled());
-    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
-      widgets: [expect.objectContaining({ widgetKey: "adaptive", presentation: "flow" })],
-    }));
+    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(
+      expect.objectContaining({
+        widgets: [expect.objectContaining({ widgetKey: "adaptive", presentation: "flow" })],
+      }),
+    );
   });
 
   it("creates another personal dashboard and opens it for editing", async () => {
@@ -765,19 +1020,27 @@ describe("HomePage dashboards", () => {
       state.dashboards = [summary(1, "Home", true), summary(2, "New Dashboard")];
       return created;
     });
-    mocks.update.mockImplementation(async (_id: number, request: { name: string }) => ({ ...created, name: request.name }));
-    mocks.get.mockImplementation(async (id: number) => id === created.id ? created : dashboard(1, "Home", true));
+    mocks.update.mockImplementation(async (_id: number, request: { name: string }) => ({
+      ...created,
+      name: request.name,
+    }));
+    mocks.get.mockImplementation(async (id: number) => (id === created.id ? created : dashboard(1, "Home", true)));
     const onNavigate = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     function RoutedDashboardApp() {
       const [route, setRoute] = useState<Route>({ page: "home" });
-      return <>
-        <button onClick={() => setRoute({ page: "home" })}>Test go home</button>
-        <AppRoutes route={route} navigate={(nextRoute) => {
-          onNavigate(nextRoute);
-          setRoute(nextRoute);
-        }} />
-      </>;
+      return (
+        <>
+          <button onClick={() => setRoute({ page: "home" })}>Test go home</button>
+          <AppRoutes
+            route={route}
+            navigate={(nextRoute) => {
+              onNavigate(nextRoute);
+              setRoute(nextRoute);
+            }}
+          />
+        </>
+      );
     }
     render(
       <QueryClientProvider client={client}>

@@ -21,7 +21,7 @@ type KeyBinding = {
 /**
  * Multi-key sequence keyboard shortcut hook (like vim motions).
  * Supports single keys ("e"), two-key sequences ("g s"), and modifier combos ("Ctrl+Home").
- * 
+ *
  * Buffer resets after 800ms of no input.
  */
 export function useKeySequence(bindings: KeyBinding[], enabled = true) {
@@ -29,18 +29,23 @@ export function useKeySequence(bindings: KeyBinding[], enabled = true) {
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const normalizedBindings = useMemo(
-    () => bindings
-      .map((binding) => ({ ...binding, normalizedKeys: normalizeShortcutSequence(binding.keys) }))
-      .filter((binding) => binding.normalizedKeys.length > 0),
-    [bindings]
+    () =>
+      bindings
+        .map((binding) => ({ ...binding, normalizedKeys: normalizeShortcutSequence(binding.keys) }))
+        .filter((binding) => binding.normalizedKeys.length > 0),
+    [bindings],
   );
-  const centralRegistrations = useMemo(() => bindings.map((binding, index): KeyboardActionRegistration => ({
-    id: binding.id ?? `legacy:${index}:${binding.keys}`,
-    bindings: binding.id ? undefined : [binding.keys],
-    action: binding.action,
-    enabled,
-    surface: binding.surface ?? "page",
-  })), [bindings, enabled]);
+  const centralRegistrations = useMemo(
+    () =>
+      bindings.map((binding, index): KeyboardActionRegistration => ({
+        id: binding.id ?? `legacy:${index}:${binding.keys}`,
+        bindings: binding.id ? undefined : [binding.keys],
+        action: binding.action,
+        enabled,
+        surface: binding.surface ?? "page",
+      })),
+    [bindings, enabled],
+  );
   useRegisterKeyboardActions(centralRegistrations);
 
   const clearBuffer = useCallback(() => {

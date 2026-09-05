@@ -1,8 +1,26 @@
 import type { CriterionModifier } from "../api/types";
 import type { ReactNode } from "react";
 
-export type CriterionType = "string" | "country" | "path" | "remoteId" | "number" | "bool" | "date" | "timestamp" | "duration" | "tagDuration" | "careerLength" | "rating" | "resolution" | "multiId" | "enum" | "hash" | "related";
-export type EntityType = "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "audios" | "faces";
+export type CriterionType =
+  | "string"
+  | "country"
+  | "path"
+  | "remoteId"
+  | "number"
+  | "bool"
+  | "date"
+  | "timestamp"
+  | "duration"
+  | "tagDuration"
+  | "careerLength"
+  | "rating"
+  | "resolution"
+  | "multiId"
+  | "enum"
+  | "hash"
+  | "related";
+export type EntityType =
+  "tags" | "tagGroups" | "performers" | "studios" | "groups" | "galleries" | "videos" | "audios" | "faces";
 export const MAX_DISTINCT_RELATED_CONDITIONS = 8;
 
 export interface CriterionDefinition<TFilterKey extends string = string> {

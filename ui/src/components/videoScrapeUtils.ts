@@ -7,7 +7,19 @@ export type CollectionMode = "skip" | "merge" | "replace";
 
 export type VideoScrapeVideo = Pick<
   Video,
-  "id" | "title" | "code" | "details" | "director" | "date" | "organized" | "studioName" | "urls" | "tags" | "performers" | "files" | "updatedAt"
+  | "id"
+  | "title"
+  | "code"
+  | "details"
+  | "director"
+  | "date"
+  | "organized"
+  | "studioName"
+  | "urls"
+  | "tags"
+  | "performers"
+  | "files"
+  | "updatedAt"
 >;
 
 export interface ScraperPreference {
@@ -66,7 +78,8 @@ export function resolveScrapeApplyDefaults(defaults?: Partial<ScrapeApplyPrefere
   return {
     createMissingStudio: defaults?.createMissingStudio ?? DEFAULT_SCRAPE_APPLY_PREFERENCES.createMissingStudio,
     createMissingTags: defaults?.createMissingTags ?? DEFAULT_SCRAPE_APPLY_PREFERENCES.createMissingTags,
-    createMissingPerformers: defaults?.createMissingPerformers ?? DEFAULT_SCRAPE_APPLY_PREFERENCES.createMissingPerformers,
+    createMissingPerformers:
+      defaults?.createMissingPerformers ?? DEFAULT_SCRAPE_APPLY_PREFERENCES.createMissingPerformers,
     markOrganized: defaults?.markOrganized ?? DEFAULT_SCRAPE_APPLY_PREFERENCES.markOrganized,
     hydratePerformers: defaults?.hydratePerformers ?? DEFAULT_SCRAPE_APPLY_PREFERENCES.hydratePerformers,
   };
@@ -116,9 +129,7 @@ export function parseJsonObject(json?: string | null): Record<string, unknown> |
 
   try {
     const parsed = JSON.parse(json);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
   }
@@ -132,7 +143,9 @@ export function parseJsonObjectArray(json?: string | null): Record<string, unkno
   try {
     const parsed = JSON.parse(json);
     return Array.isArray(parsed)
-      ? parsed.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+      ? parsed.filter((item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === "object" && !Array.isArray(item)),
+        )
       : [];
   } catch {
     return [];
@@ -170,17 +183,29 @@ export function getStringList(object: Record<string, unknown> | null, ...names: 
   const value = getValue(object, ...names);
   if (Array.isArray(value)) {
     return value
-      .map((item) => (typeof item === "string" ? item : typeof item === "number" || typeof item === "boolean" ? String(item) : undefined))
+      .map((item) =>
+        typeof item === "string"
+          ? item
+          : typeof item === "number" || typeof item === "boolean"
+            ? String(item)
+            : undefined,
+      )
       .filter((item): item is string => Boolean(item?.trim()))
       .map((item) => item.trim())
-      .filter((item, index, items) => items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+      .filter(
+        (item, index, items) =>
+          items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index,
+      );
   }
   if (typeof value === "string") {
     return value
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
-      .filter((item, index, items) => items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+      .filter(
+        (item, index, items) =>
+          items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index,
+      );
   }
   return [];
 }
@@ -192,7 +217,10 @@ export function getNamedList(object: Record<string, unknown> | null, ...names: s
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
-      .filter((item, index, items) => items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+      .filter(
+        (item, index, items) =>
+          items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index,
+      );
   }
   if (!Array.isArray(value)) {
     return [];
@@ -209,7 +237,9 @@ export function getNamedList(object: Record<string, unknown> | null, ...names: s
       return undefined;
     })
     .filter((item): item is string => Boolean(item));
-  return items.filter((item, index) => items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+  return items.filter(
+    (item, index) => items.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index,
+  );
 }
 
 export function normalizeVideoDate(value?: string | null) {
@@ -239,7 +269,10 @@ export function normalizeVideoDate(value?: string | null) {
   return `${year}-${month}-${day}`;
 }
 
-export function normalizeAttemptData(attempt?: ScrapeAttempt | null, rawOverride?: Record<string, unknown> | null): VideoReviewData | null {
+export function normalizeAttemptData(
+  attempt?: ScrapeAttempt | null,
+  rawOverride?: Record<string, unknown> | null,
+): VideoReviewData | null {
   const raw = rawOverride ?? parseJsonObject(attempt?.resultJson);
   if (!raw) {
     return null;
@@ -282,7 +315,8 @@ export function normalizeVideoSnapshot(video: VideoScrapeVideo, attempt?: Scrape
     image: getString(snapshot, "image", "imageUrl", "imageURL") ?? videos.screenshotUrl(video.id, video.updatedAt),
     studio: getString(snapshot, "studio") ?? video.studioName,
     urls: getStringList(snapshot, "urls").length > 0 ? getStringList(snapshot, "urls") : video.urls,
-    tags: getNamedList(snapshot, "tags").length > 0 ? getNamedList(snapshot, "tags") : video.tags.map((tag) => tag.name),
+    tags:
+      getNamedList(snapshot, "tags").length > 0 ? getNamedList(snapshot, "tags") : video.tags.map((tag) => tag.name),
     performers:
       getNamedList(snapshot, "performers").length > 0
         ? getNamedList(snapshot, "performers")
@@ -385,7 +419,10 @@ export function normalizeSourceUrls(urls: string[]) {
   return urls
     .map((value) => value.trim())
     .filter(Boolean)
-    .filter((value, index, items) => items.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index);
+    .filter(
+      (value, index, items) =>
+        items.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index,
+    );
 }
 
 export function getScraperUrlMatchScore(scraper: ScraperSummary | undefined, url: string) {
@@ -442,7 +479,12 @@ function getSourceUrlPreferenceScore(url: string) {
       score -= 30;
     }
 
-    if (CDN_HOST_HINTS.some((hint) => host.startsWith(hint)) || host.includes(".cdn.") || host.includes(".static.") || host.includes(".media.")) {
+    if (
+      CDN_HOST_HINTS.some((hint) => host.startsWith(hint)) ||
+      host.includes(".cdn.") ||
+      host.includes(".static.") ||
+      host.includes(".media.")
+    ) {
       score -= 20;
     }
 
@@ -480,13 +522,17 @@ export function getScraperSiteKey(value: string | undefined) {
   }
 
   try {
-    const parsed = new URL(trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`);
+    const parsed = new URL(
+      trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`,
+    );
     return parsed.hostname.replace(/^www\./, "");
   } catch {
-    return trimmed
-      .replace(/^https?:\/\//, "")
-      .replace(/^www\./, "")
-      .split(/[/?#*]/)[0] ?? "";
+    return (
+      trimmed
+        .replace(/^https?:\/\//, "")
+        .replace(/^www\./, "")
+        .split(/[/?#*]/)[0] ?? ""
+    );
   }
 }
 
@@ -532,7 +578,10 @@ export function buildDefaultVideoApplyPlan(
       studio: scrapedData.studio && scrapedData.studio !== currentData.studio ? "replace" : "skip",
       urls: scrapedData.urls.length > 0 && !listsEqual(scrapedData.urls, currentData.urls) ? "merge" : "skip",
       tags: scrapedData.tags.length > 0 && !listsEqual(scrapedData.tags, currentData.tags) ? "merge" : "skip",
-      performers: scrapedData.performers.length > 0 && !listsEqual(scrapedData.performers, currentData.performers) ? "merge" : "skip",
+      performers:
+        scrapedData.performers.length > 0 && !listsEqual(scrapedData.performers, currentData.performers)
+          ? "merge"
+          : "skip",
     },
   };
 }
@@ -559,22 +608,32 @@ function getScraperSpecificity(scraper: ScraperSummary, videoUrl?: string) {
   }, 0);
 }
 
-function getConfiguredScraperId(scrapers: ScraperSummary[], videoUrl: string | undefined, scraperPreferences: ScraperPreference[]) {
+function getConfiguredScraperId(
+  scrapers: ScraperSummary[],
+  videoUrl: string | undefined,
+  scraperPreferences: ScraperPreference[],
+) {
   const site = getScraperSiteKey(videoUrl);
   if (!site) {
     return "";
   }
 
   const entityType = scrapers[0]?.entityType?.toLowerCase() ?? "";
-  const configuredScraperId = scraperPreferences.find((preference) =>
-    preference.site === site
-    && (preference.entityType?.toLowerCase() ?? "") === entityType
-  )?.scraperId
-    ?? scraperPreferences.find((preference) => preference.site === site && !preference.entityType)?.scraperId;
-  return configuredScraperId && scrapers.some((scraper) => scraper.id === configuredScraperId) ? configuredScraperId : "";
+  const configuredScraperId =
+    scraperPreferences.find(
+      (preference) => preference.site === site && (preference.entityType?.toLowerCase() ?? "") === entityType,
+    )?.scraperId ??
+    scraperPreferences.find((preference) => preference.site === site && !preference.entityType)?.scraperId;
+  return configuredScraperId && scrapers.some((scraper) => scraper.id === configuredScraperId)
+    ? configuredScraperId
+    : "";
 }
 
-export function sortScrapersForVideo(scrapers: ScraperSummary[], videoUrl: string | undefined, scraperPreferences: ScraperPreference[] = []) {
+export function sortScrapersForVideo(
+  scrapers: ScraperSummary[],
+  videoUrl: string | undefined,
+  scraperPreferences: ScraperPreference[] = [],
+) {
   const configuredScraperId = getConfiguredScraperId(scrapers, videoUrl, scraperPreferences);
 
   return [...scrapers].sort((left, right) => {
@@ -593,7 +652,11 @@ export function sortScrapersForVideo(scrapers: ScraperSummary[], videoUrl: strin
   });
 }
 
-export function findPreferredScraperId(scrapers: ScraperSummary[], videoUrl: string | undefined, scraperPreferences: ScraperPreference[] = []) {
+export function findPreferredScraperId(
+  scrapers: ScraperSummary[],
+  videoUrl: string | undefined,
+  scraperPreferences: ScraperPreference[] = [],
+) {
   if (scrapers.length === 0) {
     return "";
   }

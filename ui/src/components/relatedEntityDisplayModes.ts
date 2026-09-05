@@ -1,6 +1,17 @@
 import type { DetailListDisplayMode } from "./DetailListToolbar";
 
-export type RelatedEntityType = "videos" | "images" | "performers" | "galleries" | "studios" | "tags" | "groups" | "audios" | "texts" | "segments" | "faces";
+export type RelatedEntityType =
+  | "videos"
+  | "images"
+  | "performers"
+  | "galleries"
+  | "studios"
+  | "tags"
+  | "groups"
+  | "audios"
+  | "texts"
+  | "segments"
+  | "faces";
 
 const RELATED_ENTITY_DISPLAY_MODES: Record<RelatedEntityType, DetailListDisplayMode[]> = {
   videos: ["grid", "list", "wall", "tagger", "feed", "vertical"],

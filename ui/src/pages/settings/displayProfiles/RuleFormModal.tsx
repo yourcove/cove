@@ -38,22 +38,36 @@ export function RuleFormModal({
       <div className="space-y-4 py-4">
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Source Key">
-            <SelectInput value={form.sourceKey} onChange={(value) => setForm((current) => ({ ...current, sourceKey: value }))} options={sourceKeyOptions} />
+            <SelectInput
+              value={form.sourceKey}
+              onChange={(value) => setForm((current) => ({ ...current, sourceKey: value }))}
+              options={sourceKeyOptions}
+            />
           </Field>
           <Field label="Kind">
-            <SelectInput value={form.kind} onChange={(value) => setForm((current) => ({ ...current, kind: value }))} options={kindOptions} />
+            <SelectInput
+              value={form.kind}
+              onChange={(value) => setForm((current) => ({ ...current, kind: value }))}
+              options={kindOptions}
+            />
           </Field>
           <Field label="Tag">
             <EntityMultiSelector
               entityType="tags"
               values={form.tagId != null ? [form.tagId] : []}
-              onChange={(values) => setForm((current) => ({ ...current, tagId: values.length > 0 ? values[values.length - 1] : undefined }))}
+              onChange={(values) =>
+                setForm((current) => ({ ...current, tagId: values.length > 0 ? values[values.length - 1] : undefined }))
+              }
               placeholder="Search tags..."
               emptyMessage="No tags found"
             />
           </Field>
           <Field label="Host Type">
-            <SelectInput value={form.hostType} onChange={(value) => setForm((current) => ({ ...current, hostType: value as RuleFormState["hostType"] }))} options={HOST_TYPE_OPTIONS} />
+            <SelectInput
+              value={form.hostType}
+              onChange={(value) => setForm((current) => ({ ...current, hostType: value as RuleFormState["hostType"] }))}
+              options={HOST_TYPE_OPTIONS}
+            />
           </Field>
           <Field label="Visible">
             <SelectInput
@@ -66,13 +80,26 @@ export function RuleFormModal({
             />
           </Field>
           <Field label="Min Confidence">
-            <NumberInput value={form.minConfidence} onChange={(value) => setForm((current) => ({ ...current, minConfidence: value }))} min={0} max={1} />
+            <NumberInput
+              value={form.minConfidence}
+              onChange={(value) => setForm((current) => ({ ...current, minConfidence: value }))}
+              min={0}
+              max={1}
+            />
           </Field>
           <Field label="Min Duration (sec)">
-            <NumberInput value={form.minDurationSec} onChange={(value) => setForm((current) => ({ ...current, minDurationSec: value }))} min={0} />
+            <NumberInput
+              value={form.minDurationSec}
+              onChange={(value) => setForm((current) => ({ ...current, minDurationSec: value }))}
+              min={0}
+            />
           </Field>
           <Field label="Merge Gap (sec)">
-            <NumberInput value={form.mergeGapSec} onChange={(value) => setForm((current) => ({ ...current, mergeGapSec: value }))} min={0} />
+            <NumberInput
+              value={form.mergeGapSec}
+              onChange={(value) => setForm((current) => ({ ...current, mergeGapSec: value }))}
+              min={0}
+            />
           </Field>
           <Field label="Lane">
             <div className="space-y-2">
@@ -93,7 +120,9 @@ export function RuleFormModal({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-foreground">Color override</div>
-              <div className="mt-1 text-xs text-secondary">Use a manual swatch when this rule should stand out from the tag or source defaults.</div>
+              <div className="mt-1 text-xs text-secondary">
+                Use a manual swatch when this rule should stand out from the tag or source defaults.
+              </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-foreground">
               <input
@@ -113,7 +142,11 @@ export function RuleFormModal({
                 onChange={(event) => setForm((current) => ({ ...current, colorOverride: event.target.value }))}
                 className="h-10 w-14 rounded border border-border bg-card"
               />
-              <TextInput value={form.colorOverride} onChange={(value) => setForm((current) => ({ ...current, colorOverride: value || "#3b82f6" }))} placeholder="#3b82f6" />
+              <TextInput
+                value={form.colorOverride}
+                onChange={(value) => setForm((current) => ({ ...current, colorOverride: value || "#3b82f6" }))}
+                placeholder="#3b82f6"
+              />
             </div>
           ) : null}
         </div>
@@ -134,7 +167,8 @@ export function RuleFormModal({
           <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
             <div className="font-medium">Tag-level override active</div>
             <p className="mt-1 text-xs text-amber-100/80">
-              {selectedRuleTag.name} is forced {selectedRuleTag.showAsSegment ? "visible" : "hidden"} on the player bar, so this rule will not control that tag&apos;s visibility.
+              {selectedRuleTag.name} is forced {selectedRuleTag.showAsSegment ? "visible" : "hidden"} on the player bar,
+              so this rule will not control that tag&apos;s visibility.
             </p>
             <button
               type="button"

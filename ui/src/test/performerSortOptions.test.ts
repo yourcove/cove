@@ -18,14 +18,16 @@ describe("PERFORMER_SORT_OPTIONS", () => {
   });
 
   it("allows personalized scores in compound sorts", () => {
-    expect(PERFORMER_MULTI_SORT_KEYS).toEqual(expect.arrayContaining([
-      "rating",
-      "like_counter",
-      "play_count",
-      "last_like_at",
-      "last_played_at",
-      "audio_count",
-      "text_count",
-    ]));
+    expect(PERFORMER_MULTI_SORT_KEYS).toEqual(
+      expect.arrayContaining([
+        "rating",
+        "like_counter",
+        "play_count",
+        "last_like_at",
+        "last_played_at",
+        "audio_count",
+        "text_count",
+      ]),
+    );
   });
 });

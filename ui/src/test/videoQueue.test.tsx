@@ -8,9 +8,11 @@ describe("video queues", () => {
     const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
     const { result } = renderHook(() => useVideoQueue(), { wrapper });
 
-    act(() => result.current.setQueue([10, 20], 10, undefined, {
-      autoplay: true,
-    }));
+    act(() =>
+      result.current.setQueue([10, 20], 10, undefined, {
+        autoplay: true,
+      }),
+    );
 
     expect(result.current.autoplay).toBe(true);
   });
@@ -22,7 +24,9 @@ describe("video queues", () => {
 
     act(() => result.current.setQueue([10, 20], 20, undefined, { startIndex: 0, totalCount: 4, loadNext }));
     let targetId: number | null = null;
-    await act(async () => { targetId = await result.current.goNext(); });
+    await act(async () => {
+      targetId = await result.current.goNext();
+    });
 
     expect(targetId).toBe(30);
     expect(result.current.currentId).toBe(30);
@@ -38,7 +42,9 @@ describe("video queues", () => {
     act(() => result.current.setQueue([30, 40], 30, undefined, { startIndex: 2, totalCount: 4, loadPrevious }));
     expect(result.current.currentPosition).toBe(3);
     expect(result.current.queueLength).toBe(4);
-    await act(async () => { await result.current.goPrevious(); });
+    await act(async () => {
+      await result.current.goPrevious();
+    });
 
     expect(result.current.currentId).toBe(20);
     expect(result.current.currentPosition).toBe(2);
@@ -48,14 +54,21 @@ describe("video queues", () => {
     const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
     const { result } = renderHook(() => useVideoQueue(), { wrapper });
     let resolveLoad!: (value: { items: { id: number }[]; hasMore: boolean }) => void;
-    const loadNext = () => new Promise<{ items: { id: number }[]; hasMore: boolean }>((resolve) => { resolveLoad = resolve; });
+    const loadNext = () =>
+      new Promise<{ items: { id: number }[]; hasMore: boolean }>((resolve) => {
+        resolveLoad = resolve;
+      });
 
     act(() => result.current.setQueue([10, 20], 20, undefined, { startIndex: 0, totalCount: 4, loadNext }));
     let pending!: Promise<number | null>;
-    act(() => { pending = result.current.goNext(); });
+    act(() => {
+      pending = result.current.goNext();
+    });
     act(() => result.current.setQueue([90, 100], 90));
     resolveLoad({ items: [{ id: 30 }, { id: 40 }], hasMore: false });
-    await act(async () => { await pending; });
+    await act(async () => {
+      await pending;
+    });
 
     expect(await pending).toBeNull();
     expect(result.current.queue?.videoIds).toEqual([90, 100]);
@@ -66,14 +79,23 @@ describe("video queues", () => {
     const wrapper = ({ children }: { children: ReactNode }) => <VideoQueueProvider>{children}</VideoQueueProvider>;
     const { result } = renderHook(() => useVideoQueue(), { wrapper });
     let resolveLoad!: (value: { items: { id: number }[]; hasMore: boolean }) => void;
-    const loadNext = () => new Promise<{ items: { id: number }[]; hasMore: boolean }>((resolve) => { resolveLoad = resolve; });
+    const loadNext = () =>
+      new Promise<{ items: { id: number }[]; hasMore: boolean }>((resolve) => {
+        resolveLoad = resolve;
+      });
 
     act(() => result.current.setQueue([10, 20], 20, undefined, { startIndex: 0, totalCount: 4, loadNext }));
     let pending!: Promise<number | null>;
-    act(() => { pending = result.current.goNext(); });
-    act(() => { result.current.goToIndex(0); });
+    act(() => {
+      pending = result.current.goNext();
+    });
+    act(() => {
+      result.current.goToIndex(0);
+    });
     resolveLoad({ items: [{ id: 30 }, { id: 40 }], hasMore: false });
-    await act(async () => { await pending; });
+    await act(async () => {
+      await pending;
+    });
 
     expect(await pending).toBeNull();
     expect(result.current.queue?.videoIds).toEqual([10, 20]);

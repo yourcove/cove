@@ -12,11 +12,19 @@ describe("WallMediaCard", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
 
     const { container } = render(
-      <WallMediaCard title="Missing preview" imageSrc="/image.jpg" videoSrc="/missing.mp4" videoStatusSrc="/missing.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Missing preview"
+        imageSrc="/image.jpg"
+        videoSrc="/missing.mp4"
+        videoStatusSrc="/missing.mp4/status"
+        useVideo
+      />,
     );
 
     expect(screen.getByAltText("Missing preview")).toBeInTheDocument();
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/missing.mp4/status", expect.objectContaining({ method: "GET" })));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/missing.mp4/status", expect.objectContaining({ method: "GET" })),
+    );
     expect(container.querySelector("video")).not.toBeInTheDocument();
   });
 
@@ -24,18 +32,24 @@ describe("WallMediaCard", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ available: false }) }));
 
     const { container } = render(
-      <WallMediaCard title="Unavailable preview" imageSrc="/image.jpg" videoSrc="/preview.mp4" videoStatusSrc="/preview.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Unavailable preview"
+        imageSrc="/image.jpg"
+        videoSrc="/preview.mp4"
+        videoStatusSrc="/preview.mp4/status"
+        useVideo
+      />,
     );
 
     expect(screen.getByAltText("Unavailable preview")).toBeInTheDocument();
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })),
+    );
     expect(container.querySelector("video")).not.toBeInTheDocument();
   });
 
   it("uses the configured image source directly", () => {
-    const { rerender } = render(
-      <WallMediaCard title="Card image" imageSrc="/cover.jpg" />,
-    );
+    const { rerender } = render(<WallMediaCard title="Card image" imageSrc="/cover.jpg" />);
 
     const image = screen.getByAltText("Card image");
     expect(image).toHaveAttribute("src", "/cover.jpg");
@@ -56,7 +70,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -83,7 +100,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -91,10 +111,18 @@ describe("WallMediaCard", () => {
     );
 
     const { container } = render(
-      <WallMediaCard title="Status preview" imageSrc="/image.jpg" videoSrc="/preview.mp4" videoStatusSrc="/preview.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Status preview"
+        imageSrc="/image.jpg"
+        videoSrc="/preview.mp4"
+        videoStatusSrc="/preview.mp4/status"
+        useVideo
+      />,
     );
 
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/preview.mp4/status", expect.objectContaining({ method: "GET" })),
+    );
     await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
   });
 
@@ -112,7 +140,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -120,7 +151,13 @@ describe("WallMediaCard", () => {
     );
 
     const { container } = render(
-      <WallMediaCard title="Async preview" imageSrc="/image.jpg" videoSrc="/preview.mp4" videoStatusSrc="/preview.mp4/status" useVideo />,
+      <WallMediaCard
+        title="Async preview"
+        imageSrc="/image.jpg"
+        videoSrc="/preview.mp4"
+        videoStatusSrc="/preview.mp4/status"
+        useVideo
+      />,
     );
 
     await waitFor(() => expect(container.querySelector("video")).toBeInTheDocument());
@@ -138,7 +175,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -169,7 +209,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -209,7 +252,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}
@@ -250,7 +296,10 @@ describe("WallMediaCard", () => {
         }
 
         observe(target: Element) {
-          this.callback([{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          this.callback(
+            [{ isIntersecting: true, intersectionRatio: 1, target } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
         }
 
         disconnect() {}

@@ -39,22 +39,22 @@ vi.mock("../api/client", () => ({
 
 function buildTag() {
   return {
-      id: 1206,
-      name: "Jerk Off Instruction",
-      aliases: [],
-      parents: [],
-      children: [],
-      videoCount: 1,
-      performerCount: 0,
-      imageCount: 0,
-      galleryCount: 0,
-      audioCount: 0,
-      textCount: 0,
-      segmentCount: 0,
-      studioCount: 0,
-      groupCount: 0,
-      customFields: {},
-    };
+    id: 1206,
+    name: "Jerk Off Instruction",
+    aliases: [],
+    parents: [],
+    children: [],
+    videoCount: 1,
+    performerCount: 0,
+    imageCount: 0,
+    galleryCount: 0,
+    audioCount: 0,
+    textCount: 0,
+    segmentCount: 0,
+    studioCount: 0,
+    groupCount: 0,
+    customFields: {},
+  };
 }
 
 vi.mock("../hooks/useDetailListQuery", () => ({
@@ -235,14 +235,17 @@ describe("TagDetailPage", () => {
   });
 
   it("restores object criteria while retaining the current tag constraint", async () => {
-    localStorage.setItem("cove-default-filter-performers", JSON.stringify({
-      findFilter: { page: 3, perPage: 40, sort: "name", direction: "asc" },
-      objectFilter: {
-        favorite: true,
-        tagsCriterion: { value: [999, 1000], modifier: "INCLUDES" },
-      },
-      uiOptions: { displayMode: "list" },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-performers",
+      JSON.stringify({
+        findFilter: { page: 3, perPage: 40, sort: "name", direction: "asc" },
+        objectFilter: {
+          favorite: true,
+          tagsCriterion: { value: [999, 1000], modifier: "INCLUDES" },
+        },
+        uiOptions: { displayMode: "list" },
+      }),
+    );
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -253,12 +256,16 @@ describe("TagDetailPage", () => {
     );
     await user.click(await screen.findByRole("tab", { name: /^Performers/ }));
 
-    await waitFor(() => expect(mocks.detailListOptions.some((options) =>
-      options.queryKey?.[0] === "tag-performers" && options.queryKey?.[2]?.favorite === true,
-    )).toBe(true));
-    const options = [...mocks.detailListOptions].reverse().find((item) =>
-      item.queryKey?.[0] === "tag-performers" && item.queryKey?.[2]?.favorite === true,
+    await waitFor(() =>
+      expect(
+        mocks.detailListOptions.some(
+          (options) => options.queryKey?.[0] === "tag-performers" && options.queryKey?.[2]?.favorite === true,
+        ),
+      ).toBe(true),
     );
+    const options = [...mocks.detailListOptions]
+      .reverse()
+      .find((item) => item.queryKey?.[0] === "tag-performers" && item.queryKey?.[2]?.favorite === true);
     await options?.queryFn(options.filter);
 
     expect(performers.findFiltered).toHaveBeenCalledWith({
@@ -272,14 +279,17 @@ describe("TagDetailPage", () => {
   });
 
   it("applies raw-segment object criteria while retaining the current tag constraint", async () => {
-    localStorage.setItem("cove-default-filter-rawsegments", JSON.stringify({
-      findFilter: { page: 1, perPage: 40, sort: "confidence", direction: "desc" },
-      objectFilter: {
-        rawKindCriterion: { value: "face", modifier: "EQUALS" },
-        rawConfidenceCriterion: { value: 0.8, modifier: "GREATER_THAN" },
-        rawPerformersCriterion: { value: [44], modifier: "INCLUDES" },
-      },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-rawsegments",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40, sort: "confidence", direction: "desc" },
+        objectFilter: {
+          rawKindCriterion: { value: "face", modifier: "EQUALS" },
+          rawConfidenceCriterion: { value: 0.8, modifier: "GREATER_THAN" },
+          rawPerformersCriterion: { value: [44], modifier: "INCLUDES" },
+        },
+      }),
+    );
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -290,20 +300,27 @@ describe("TagDetailPage", () => {
     );
     await user.click(await screen.findByRole("tab", { name: /^Segments/ }));
 
-    await waitFor(() => expect(mocks.detailListOptions.some((options) =>
-      options.queryKey?.[0] === "tag-segments" && options.queryKey?.[2]?.rawKindCriterion?.value === "face",
-    )).toBe(true));
-    const options = [...mocks.detailListOptions].reverse().find((item) =>
-      item.queryKey?.[0] === "tag-segments" && item.queryKey?.[2]?.rawKindCriterion?.value === "face",
+    await waitFor(() =>
+      expect(
+        mocks.detailListOptions.some(
+          (options) =>
+            options.queryKey?.[0] === "tag-segments" && options.queryKey?.[2]?.rawKindCriterion?.value === "face",
+        ),
+      ).toBe(true),
     );
+    const options = [...mocks.detailListOptions]
+      .reverse()
+      .find((item) => item.queryKey?.[0] === "tag-segments" && item.queryKey?.[2]?.rawKindCriterion?.value === "face");
     await options?.queryFn(options.filter);
 
-    expect(segmentLibrary.list).toHaveBeenCalledWith(expect.objectContaining({
-      tagId: 1206,
-      kind: "face",
-      performerIds: "44",
-      confidence: 0.8,
-      confidenceModifier: "GREATER_THAN",
-    }));
+    expect(segmentLibrary.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tagId: 1206,
+        kind: "face",
+        performerIds: "44",
+        confidence: 0.8,
+        confidenceModifier: "GREATER_THAN",
+      }),
+    );
   });
 });

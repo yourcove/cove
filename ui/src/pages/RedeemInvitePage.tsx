@@ -13,7 +13,7 @@ export function RedeemInvitePage() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const initialToken = params.get("token") ?? "";
   const { data: bootstrapStatus } = useQuery({ queryKey: ["auth", "bootstrap-status"], queryFn: auth.bootstrapStatus });
-  const [mode, setMode] = useState<TokenMode>(() => params.get("mode") === "setup" ? "setup" : "invite");
+  const [mode, setMode] = useState<TokenMode>(() => (params.get("mode") === "setup" ? "setup" : "invite"));
   const [token, setToken] = useState(initialToken);
   const [username, setUsername] = useState("owner");
   const [password, setPassword] = useState("");
@@ -55,9 +55,10 @@ export function RedeemInvitePage() {
     }
     setSubmitting(true);
     try {
-      const response = mode === "setup"
-        ? await auth.redeemSetupToken(token.trim(), password, username.trim() || undefined)
-        : await auth.redeemInvite(token.trim(), password, username.trim() || undefined);
+      const response =
+        mode === "setup"
+          ? await auth.redeemSetupToken(token.trim(), password, username.trim() || undefined)
+          : await auth.redeemInvite(token.trim(), password, username.trim() || undefined);
       authStore.clearShareCredentials();
       authStore.setTokens(response.token, response.refreshToken);
       await refreshMe();
@@ -78,7 +79,9 @@ export function RedeemInvitePage() {
         </div>
         <form onSubmit={onSubmit} className="space-y-3">
           <div className="space-y-1">
-            <label htmlFor="redeem-token" className="text-sm text-muted-foreground">Token</label>
+            <label htmlFor="redeem-token" className="text-sm text-muted-foreground">
+              Token
+            </label>
             <input
               id="redeem-token"
               type="text"
@@ -92,7 +95,9 @@ export function RedeemInvitePage() {
           </div>
           {showUsername ? (
             <div className="space-y-1">
-              <label htmlFor="redeem-username" className="text-sm text-muted-foreground">Username</label>
+              <label htmlFor="redeem-username" className="text-sm text-muted-foreground">
+                Username
+              </label>
               <input
                 id="redeem-username"
                 type="text"
@@ -107,7 +112,9 @@ export function RedeemInvitePage() {
             </div>
           ) : null}
           <div className="space-y-1">
-            <label htmlFor="redeem-password" className="text-sm text-muted-foreground">New password</label>
+            <label htmlFor="redeem-password" className="text-sm text-muted-foreground">
+              New password
+            </label>
             <input
               id="redeem-password"
               type="password"
@@ -120,7 +127,9 @@ export function RedeemInvitePage() {
             />
           </div>
           <div className="space-y-1">
-            <label htmlFor="redeem-confirm" className="text-sm text-muted-foreground">Confirm password</label>
+            <label htmlFor="redeem-confirm" className="text-sm text-muted-foreground">
+              Confirm password
+            </label>
             <input
               id="redeem-confirm"
               type="password"
@@ -132,11 +141,21 @@ export function RedeemInvitePage() {
               className="w-full rounded border border-border bg-background px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
-          {mode === "invite" && inviteInfoQ.isError ? <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">Invite token is invalid or expired.</div> : null}
-          {error ? <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">{error}</div> : null}
+          {mode === "invite" && inviteInfoQ.isError ? (
+            <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">
+              Invite token is invalid or expired.
+            </div>
+          ) : null}
+          {error ? (
+            <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">
+              {error}
+            </div>
+          ) : null}
           <button
             type="submit"
-            disabled={submitting || !token.trim() || !password || !confirmPassword || inviteInfoQ.isFetching || !username.trim()}
+            disabled={
+              submitting || !token.trim() || !password || !confirmPassword || inviteInfoQ.isFetching || !username.trim()
+            }
             className="w-full rounded bg-accent text-accent-foreground px-3 py-2 font-medium disabled:opacity-50 hover:opacity-90"
           >
             {submitting ? "Redeeming..." : "Redeem"}

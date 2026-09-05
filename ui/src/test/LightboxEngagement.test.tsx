@@ -16,7 +16,9 @@ vi.mock("../hooks/useEntityEngagement", () => ({
 
 vi.mock("../components/Rating", () => ({
   InteractiveRating: ({ onChange, readOnly }: { onChange: (value: number) => void; readOnly?: boolean }) => (
-    <button type="button" disabled={readOnly} onClick={() => onChange(60)}>Rate image 60</button>
+    <button type="button" disabled={readOnly} onClick={() => onChange(60)}>
+      Rate image 60
+    </button>
   ),
 }));
 

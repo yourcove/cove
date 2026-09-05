@@ -9,8 +9,5 @@ export function useAudioSimilarityApi() {
   const feature = getFeature(AUDIO_SIMILARITY_FEATURE_KEY);
   const apiBasePath = feature?.options?.apiBasePath;
 
-  return useMemo(
-    () => apiBasePath ? createAudioSimilarityClient(apiBasePath) : null,
-    [apiBasePath],
-  );
+  return useMemo(() => (apiBasePath ? createAudioSimilarityClient(apiBasePath) : null), [apiBasePath]);
 }

@@ -20,16 +20,13 @@ describe("resolveVisibleSettingsTab", () => {
         { key: "my-appearance-theme" },
         { key: "my-theme" },
         { key: "system-info-about" },
-      ])
+      ]),
     ).toBe("my-appearance-theme");
   });
 
   it("keeps the requested tab when it is visible", () => {
     expect(
-      resolveVisibleSettingsTab("system-info-about", [
-        { key: "my-appearance-theme" },
-        { key: "system-info-about" },
-      ])
+      resolveVisibleSettingsTab("system-info-about", [{ key: "my-appearance-theme" }, { key: "system-info-about" }]),
     ).toBe("system-info-about");
   });
 });
@@ -127,38 +124,45 @@ describe("isValidQueryableJsonPointer", () => {
 
 describe("custom field draft snapshots", () => {
   it("normalizes long text as a single non-queryable value", () => {
-    const normalized = normalizeCustomFieldDefinitionForSync({
-      key: "notes",
-      label: "Notes",
-      type: "longText",
-      entityTypes: ["performer"],
-      options: [],
-      filterable: true,
-      sortable: true,
-      isMultiValue: true,
-      jsonPaths: [{ path: "/ignored", label: "Ignored", type: "text", filterable: true, sortable: true }],
-    }, 0);
+    const normalized = normalizeCustomFieldDefinitionForSync(
+      {
+        key: "notes",
+        label: "Notes",
+        type: "longText",
+        entityTypes: ["performer"],
+        options: [],
+        filterable: true,
+        sortable: true,
+        isMultiValue: true,
+        jsonPaths: [{ path: "/ignored", label: "Ignored", type: "text", filterable: true, sortable: true }],
+      },
+      0,
+    );
 
-    expect(normalized).toEqual(expect.objectContaining({
-      filterable: false,
-      sortable: false,
-      isMultiValue: false,
-      jsonPaths: [],
-    }));
+    expect(normalized).toEqual(
+      expect.objectContaining({
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [],
+      }),
+    );
   });
 
   it("composes rapid JSON path toggles and removal from the latest synchronous snapshot", () => {
-    const initial: CustomFieldDefinition[] = [{
-      id: 1,
-      key: "structured_metadata",
-      label: "Structured metadata",
-      type: "json",
-      entityTypes: ["video"],
-      options: [],
-      filterable: false,
-      sortable: false,
-      jsonPaths: [{ path: "/score", label: "Score", type: "number", filterable: false, sortable: false }],
-    }];
+    const initial: CustomFieldDefinition[] = [
+      {
+        id: 1,
+        key: "structured_metadata",
+        label: "Structured metadata",
+        type: "json",
+        entityTypes: ["video"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        jsonPaths: [{ path: "/score", label: "Score", type: "number", filterable: false, sortable: false }],
+      },
+    ];
 
     const filterable = updateCustomFieldDefinitionSnapshot(initial, 0, (definition) => ({
       ...definition,

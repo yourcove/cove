@@ -12,13 +12,7 @@ interface MultiSortControlProps {
   multiSortKeys?: readonly string[];
 }
 
-const SUGGESTED_SECONDARY_SORTS = [
-  "date",
-  "studio",
-  "title",
-  "created_at",
-  "updated_at",
-];
+const SUGGESTED_SECONDARY_SORTS = ["date", "studio", "title", "created_at", "updated_at"];
 
 function optionLabel(options: MultiSortControlProps["options"], key: string) {
   return options.find((option) => option.value === key)?.label ?? key;
@@ -38,14 +32,14 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
     direction: filter.direction ?? "asc",
   };
   const allowedKeys = useMemo(() => new Set(multiSortKeys ?? []), [multiSortKeys]);
-  const multiOptions = useMemo(
-    () => options.filter((option) => allowedKeys.has(option.value)),
-    [allowedKeys, options],
-  );
+  const multiOptions = useMemo(() => options.filter((option) => allowedKeys.has(option.value)), [allowedKeys, options]);
   const canCombinePrimary = allowedKeys.has(primary.key) && multiOptions.length > 1;
   const hasAdditionalSorts = clauses.length > 1;
   const fullSortSummary = clauses
-    .map((clause, index) => `${index + 1}. ${optionLabel(options, clause.key)} ${clause.direction === "asc" ? "ascending" : "descending"}`)
+    .map(
+      (clause, index) =>
+        `${index + 1}. ${optionLabel(options, clause.key)} ${clause.direction === "asc" ? "ascending" : "descending"}`,
+    )
     .join("; ");
 
   useEffect(() => {
@@ -70,16 +64,10 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
       nextClauses = [{ key, direction: defaultSortDirection(key) }];
       setOpen(false);
     } else if (existingIndex > 0) {
-      nextClauses = [
-        clauses[existingIndex],
-        ...clauses.filter((_, index) => index !== existingIndex),
-      ];
+      nextClauses = [clauses[existingIndex], ...clauses.filter((_, index) => index !== existingIndex)];
     } else {
       const direction = existingIndex === 0 ? clauses[0].direction : defaultSortDirection(key);
-      nextClauses = [
-        { key, direction },
-        ...clauses.slice(1).filter((clause) => clause.key !== key),
-      ];
+      nextClauses = [{ key, direction }, ...clauses.slice(1).filter((clause) => clause.key !== key)];
     }
 
     applyClauses(nextClauses);
@@ -120,13 +108,11 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
   const addClause = () => {
     const selected = new Set(clauses.map((clause) => clause.key));
     const suggestedKey = SUGGESTED_SECONDARY_SORTS.find((key) => allowedKeys.has(key) && !selected.has(key));
-    const nextOption = multiOptions.find((option) => option.value === suggestedKey)
-      ?? multiOptions.find((option) => !selected.has(option.value));
+    const nextOption =
+      multiOptions.find((option) => option.value === suggestedKey) ??
+      multiOptions.find((option) => !selected.has(option.value));
     if (!nextOption || clauses.length >= MAX_SORT_CLAUSES) return;
-    applyClauses([
-      ...clauses,
-      { key: nextOption.value, direction: defaultSortDirection(nextOption.value) },
-    ]);
+    applyClauses([...clauses, { key: nextOption.value, direction: defaultSortDirection(nextOption.value) }]);
   };
 
   const removeClause = (index: number) => {
@@ -148,16 +134,22 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
         >
           {clauses.slice(0, 2).map((clause, index) => (
             <span key={clause.key} className="inline-flex min-w-0 items-center gap-1">
-              {index > 0 && <span className="shrink-0 text-muted" aria-hidden="true">·</span>}
-              <span className="truncate">{index + 1}. {optionLabel(options, clause.key)}</span>
-              {clause.direction === "asc"
-                ? <ArrowUp className="h-3 w-3 shrink-0" aria-hidden="true" />
-                : <ArrowDown className="h-3 w-3 shrink-0" aria-hidden="true" />}
+              {index > 0 && (
+                <span className="shrink-0 text-muted" aria-hidden="true">
+                  ·
+                </span>
+              )}
+              <span className="truncate">
+                {index + 1}. {optionLabel(options, clause.key)}
+              </span>
+              {clause.direction === "asc" ? (
+                <ArrowUp className="h-3 w-3 shrink-0" aria-hidden="true" />
+              ) : (
+                <ArrowDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+              )}
             </span>
           ))}
-          {clauses.length > 2 && (
-            <span className="shrink-0 font-semibold text-accent">+{clauses.length - 2}</span>
-          )}
+          {clauses.length > 2 && <span className="shrink-0 font-semibold text-accent">+{clauses.length - 2}</span>}
         </button>
       ) : (
         <>
@@ -168,22 +160,30 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
             aria-label="Primary sort"
           >
             {options.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
             ))}
           </select>
 
           {primary.key !== "relevance" && (
             <button
               type="button"
-              onClick={() => applyClauses([
-                { ...primary, direction: primary.direction === "desc" ? "asc" : "desc" },
-                ...clauses.slice(1),
-              ])}
+              onClick={() =>
+                applyClauses([
+                  { ...primary, direction: primary.direction === "desc" ? "asc" : "desc" },
+                  ...clauses.slice(1),
+                ])
+              }
               className={toolbarIconButtonClass}
               title={primary.direction === "desc" ? "Sort descending" : "Sort ascending"}
               aria-label={primary.direction === "desc" ? "Sort descending" : "Sort ascending"}
             >
-              {primary.direction === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+              {primary.direction === "desc" ? (
+                <ArrowDown className="h-3.5 w-3.5" />
+              ) : (
+                <ArrowUp className="h-3.5 w-3.5" />
+              )}
             </button>
           )}
 
@@ -228,14 +228,22 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
           >
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-foreground">Sort order</h2>
-              <button type="button" onClick={() => setOpen(false)} className={toolbarIconButtonClass} aria-label="Close">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className={toolbarIconButtonClass}
+                aria-label="Close"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="space-y-2">
               {clauses.map((clause, index) => (
-                <div key={`${clause.key}-${index}`} className="flex min-w-0 items-center gap-1.5 rounded-lg border border-border bg-card/60 p-1.5">
+                <div
+                  key={`${clause.key}-${index}`}
+                  className="flex min-w-0 items-center gap-1.5 rounded-lg border border-border bg-card/60 p-1.5"
+                >
                   <div className="hidden flex-col gap-0.5 sm:flex">
                     <button
                       type="button"
@@ -264,10 +272,14 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
                     aria-label={`Priority for ${optionLabel(options, clause.key)}`}
                   >
                     {clauses.map((_, priority) => (
-                      <option key={priority} value={priority}>{priority + 1}</option>
+                      <option key={priority} value={priority}>
+                        {priority + 1}
+                      </option>
                     ))}
                   </select>
-                  <span className="hidden w-5 shrink-0 text-center text-xs font-semibold text-muted sm:block">{index + 1}.</span>
+                  <span className="hidden w-5 shrink-0 text-center text-xs font-semibold text-muted sm:block">
+                    {index + 1}.
+                  </span>
                   <select
                     value={clause.key}
                     onChange={(event) => updateClause(index, { key: event.target.value })}
@@ -287,7 +299,11 @@ export function MultiSortControl({ filter, onFilterChange, options, multiSortKey
                     aria-label={`${optionLabel(options, clause.key)} ${clause.direction === "asc" ? "ascending" : "descending"}`}
                     title={clause.direction === "asc" ? "Ascending" : "Descending"}
                   >
-                    {clause.direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+                    {clause.direction === "asc" ? (
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    )}
                   </button>
                   <button
                     type="button"

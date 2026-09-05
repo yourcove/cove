@@ -15,7 +15,7 @@ function isPlainPrimaryClick(event: {
 function createRouteLinkClickHandler<T extends HTMLElement>(
   route: Route,
   onDefault?: () => void,
-  options?: { stopPropagation?: boolean }
+  options?: { stopPropagation?: boolean },
 ): MouseEventHandler<T> {
   const href = buildRouteUrl(route);
 
@@ -39,7 +39,10 @@ function createRouteLinkClickHandler<T extends HTMLElement>(
   };
 }
 
-export function createRouteLinkProps<T extends HTMLAnchorElement>(route: Route, onDefault?: () => void): {
+export function createRouteLinkProps<T extends HTMLAnchorElement>(
+  route: Route,
+  onDefault?: () => void,
+): {
   href: string;
   onClick: MouseEventHandler<T>;
 } {
@@ -49,7 +52,10 @@ export function createRouteLinkProps<T extends HTMLAnchorElement>(route: Route, 
   };
 }
 
-export function createNestedRouteLinkProps<T extends HTMLAnchorElement>(route: Route, onDefault?: () => void): {
+export function createNestedRouteLinkProps<T extends HTMLAnchorElement>(
+  route: Route,
+  onDefault?: () => void,
+): {
   href: string;
   onClick: MouseEventHandler<T>;
 } {

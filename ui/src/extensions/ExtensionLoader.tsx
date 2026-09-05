@@ -11,7 +11,17 @@
  * - Component-based contributions reference built-in POC components (for built-in extensions)
  *   or would load from JS bundles (for external extensions)
  */
-import { useEffect, useLayoutEffect, useRef, useState, createContext, useContext, useCallback, useMemo, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  createContext,
+  useContext,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useRouteRegistry } from "../router/RouteRegistry";
 import { useAppConfig } from "../state/AppConfigContext";
 import { extensions } from "../api/client";
@@ -57,8 +67,7 @@ const ExtensionComponentRegistryContext = createContext<ExtensionComponentRegist
 let runtimeOwnerSequence = 0;
 
 function createRuntimeOwnerId() {
-  return globalThis.crypto?.randomUUID?.()
-    ?? `cove-extension-runtime-${++runtimeOwnerSequence}`;
+  return globalThis.crypto?.randomUUID?.() ?? `cove-extension-runtime-${++runtimeOwnerSequence}`;
 }
 
 // ============================================================================
@@ -246,7 +255,7 @@ function readStoredThemeColors(): Record<string, string> {
 function readStoredStyleOptions(): Record<string, Record<string, string>> {
   try {
     const parsed = JSON.parse(localStorage.getItem(STYLE_OPTIONS_STORAGE_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? parsed as Record<string, Record<string, string>> : {};
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, Record<string, string>>) : {};
   } catch {
     return {};
   }
@@ -256,18 +265,17 @@ function runtimeBundleDescriptors(manifest: ExtensionManifest) {
   const ownedBundles = (manifest.extensionBundles ?? []).flatMap((bundle) =>
     bundle.jsBundleUrl
       ? [{ extensionId: bundle.extensionId, version: bundle.version, jsBundleUrl: bundle.jsBundleUrl }]
-      : []
+      : [],
   );
 
   if (ownedBundles.length > 0) return ownedBundles;
-  return manifest.jsBundleUrl
-    ? [{ extensionId: LEGACY_BUNDLE_OWNER, jsBundleUrl: manifest.jsBundleUrl }]
-    : [];
+  return manifest.jsBundleUrl ? [{ extensionId: LEGACY_BUNDLE_OWNER, jsBundleUrl: manifest.jsBundleUrl }] : [];
 }
 
 function usesLegacyRuntimeBundle(manifest: ExtensionManifest) {
-  return !(manifest.extensionBundles ?? []).some((bundle) => Boolean(bundle.jsBundleUrl))
-    && Boolean(manifest.jsBundleUrl);
+  return (
+    !(manifest.extensionBundles ?? []).some((bundle) => Boolean(bundle.jsBundleUrl)) && Boolean(manifest.jsBundleUrl)
+  );
 }
 
 function removeExtensionBundleStyles(runtimeOwnerId: string) {
@@ -281,15 +289,14 @@ function reconcileExtensionBundleStyles(manifest: ExtensionManifest, runtimeOwne
   document.getElementById("cove-extension-css-bundle")?.remove();
 
   const ownedStyles = (manifest.extensionBundles ?? []).flatMap((bundle) =>
-    bundle.cssBundleUrl
-      ? [{ extensionId: bundle.extensionId, cssBundleUrl: bundle.cssBundleUrl }]
-      : []
+    bundle.cssBundleUrl ? [{ extensionId: bundle.extensionId, cssBundleUrl: bundle.cssBundleUrl }] : [],
   );
-  const styles = ownedStyles.length > 0
-    ? ownedStyles
-    : manifest.cssBundleUrl
-      ? [{ extensionId: LEGACY_BUNDLE_STYLE_OWNER, cssBundleUrl: manifest.cssBundleUrl }]
-      : [];
+  const styles =
+    ownedStyles.length > 0
+      ? ownedStyles
+      : manifest.cssBundleUrl
+        ? [{ extensionId: LEGACY_BUNDLE_STYLE_OWNER, cssBundleUrl: manifest.cssBundleUrl }]
+        : [];
 
   for (const style of styles) {
     const link = document.createElement("link");
@@ -307,13 +314,18 @@ interface ExtensionLoaderProviderProps {
   importBundle?: BundleImporter;
 }
 
-export function ExtensionLoaderProvider({ children, importBundle = defaultImportBundle }: ExtensionLoaderProviderProps) {
+export function ExtensionLoaderProvider({
+  children,
+  importBundle = defaultImportBundle,
+}: ExtensionLoaderProviderProps) {
   const { register, registerSlot } = useRouteRegistry();
   const { config } = useAppConfig();
   const { user, hasPermission } = useAuth();
   const troubleshootingMode = config?.ui.troubleshootingModeEnabled === true;
   const hasServerBackedUiPreferences = supportsServerBackedUiPreferences(user);
-  const userThemePreferencesJson = JSON.stringify(hasServerBackedUiPreferences ? user.uiPreferences?.theme ?? null : null);
+  const userThemePreferencesJson = JSON.stringify(
+    hasServerBackedUiPreferences ? (user.uiPreferences?.theme ?? null) : null,
+  );
   // Auth-store updates for unrelated preferences (saved filters, playback, etc.) replace the user
   // object. Keep the semantic theme value referentially stable so those updates cannot tear down and
   // reapply component/layout styles for a frame.
@@ -329,59 +341,63 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
   const legacyBundleActive = useRef(false);
   const runtimeOwnerId = useMemo(createRuntimeOwnerId, []);
   const componentRegistry = useMemo(() => new ExtensionComponentRegistry(), []);
-  const actionHandlerRegistry = useMemo(() => new Map<ExtensionRuntimeOwner, Map<string, ExtensionActionHandler>>(), []);
-  const runtimeReconciler = useMemo(() => createExtensionRuntimeReconciler<ExtensionComponent, ExtensionActionHandler>({
-    importBundle,
-    registrations: {
-      register(extensionId, registration) {
-        componentRegistry.register(extensionId, registration.components);
-        actionHandlerRegistry.set(extensionId, new Map(Object.entries(registration.actionHandlers)));
+  const actionHandlerRegistry = useMemo(
+    () => new Map<ExtensionRuntimeOwner, Map<string, ExtensionActionHandler>>(),
+    [],
+  );
+  const runtimeReconciler = useMemo(
+    () =>
+      createExtensionRuntimeReconciler<ExtensionComponent, ExtensionActionHandler>({
+        importBundle,
+        registrations: {
+          register(extensionId, registration) {
+            componentRegistry.register(extensionId, registration.components);
+            actionHandlerRegistry.set(extensionId, new Map(Object.entries(registration.actionHandlers)));
 
-        let unregistered = false;
-        return () => {
-          if (unregistered) return;
-          unregistered = true;
-          componentRegistry.unregister(extensionId);
-          actionHandlerRegistry.delete(extensionId);
-        };
-      },
-    },
-  }), [actionHandlerRegistry, componentRegistry, importBundle]);
+            let unregistered = false;
+            return () => {
+              if (unregistered) return;
+              unregistered = true;
+              componentRegistry.unregister(extensionId);
+              actionHandlerRegistry.delete(extensionId);
+            };
+          },
+        },
+      }),
+    [actionHandlerRegistry, componentRegistry, importBundle],
+  );
   const resolveComponent = useCallback(
     (extensionId: string, name: string) =>
-      componentRegistry.resolve(extensionId, name)
-      ?? (legacyBundleActive.current
-        ? componentRegistry.resolve(LEGACY_BUNDLE_OWNER, name)
-        : undefined),
+      componentRegistry.resolve(extensionId, name) ??
+      (legacyBundleActive.current ? componentRegistry.resolve(LEGACY_BUNDLE_OWNER, name) : undefined),
     [componentRegistry],
   );
   const resolveActionHandler = useCallback(
     (extensionId: string, name: string) =>
-      actionHandlerRegistry.get(extensionId)?.get(name)
-      ?? (legacyBundleActive.current
-        ? actionHandlerRegistry.get(LEGACY_BUNDLE_OWNER)?.get(name)
-        : undefined),
+      actionHandlerRegistry.get(extensionId)?.get(name) ??
+      (legacyBundleActive.current ? actionHandlerRegistry.get(LEGACY_BUNDLE_OWNER)?.get(name) : undefined),
     [actionHandlerRegistry],
   );
   const getExtensionRevision = useCallback(
-    (extensionId: string) => componentRegistry.getRevision(extensionId)
-      || (legacyBundleActive.current
-        ? componentRegistry.getRevision(LEGACY_BUNDLE_OWNER)
-        : 0),
+    (extensionId: string) =>
+      componentRegistry.getRevision(extensionId) ||
+      (legacyBundleActive.current ? componentRegistry.getRevision(LEGACY_BUNDLE_OWNER) : 0),
     [componentRegistry],
   );
   const [activeThemeId, setActiveThemeIdState] = useState<string | null>(
-    () => userThemePreferences?.activeThemeId ?? localStorage.getItem(THEME_STORAGE_KEY) ?? "default"
+    () => userThemePreferences?.activeThemeId ?? localStorage.getItem(THEME_STORAGE_KEY) ?? "default",
   );
-  const [activeComponentStyles, setActiveComponentStylesState] = useState<Set<string>>(
-    () => parseStyleSet(userThemePreferences?.activeComponentStyles?.join(" ") ?? localStorage.getItem(COMPONENT_STYLE_STORAGE_KEY))
+  const [activeComponentStyles, setActiveComponentStylesState] = useState<Set<string>>(() =>
+    parseStyleSet(
+      userThemePreferences?.activeComponentStyles?.join(" ") ?? localStorage.getItem(COMPONENT_STYLE_STORAGE_KEY),
+    ),
   );
-  const [activeLayoutStyles, setActiveLayoutStylesState] = useState<Set<string>>(
-    () => parseLayoutSet(userThemePreferences?.activeLayoutStyle ?? localStorage.getItem(LAYOUT_STYLE_STORAGE_KEY))
+  const [activeLayoutStyles, setActiveLayoutStylesState] = useState<Set<string>>(() =>
+    parseLayoutSet(userThemePreferences?.activeLayoutStyle ?? localStorage.getItem(LAYOUT_STYLE_STORAGE_KEY)),
   );
   const activeLayoutStyle = useMemo(() => [...activeLayoutStyles].join(" "), [activeLayoutStyles]);
   const [customThemeColors, setCustomThemeColorsState] = useState<Record<string, string>>(
-    () => userThemePreferences?.customThemeColors ?? readStoredThemeColors()
+    () => userThemePreferences?.customThemeColors ?? readStoredThemeColors(),
   );
   const availableThemes = useMemo(() => {
     const manifestThemes = manifest?.themes ?? [];
@@ -390,21 +406,25 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       : [FALLBACK_DEFAULT_THEME, ...manifestThemes];
   }, [manifest]);
   const selectedTheme = useMemo(
-    () => activeThemeId && activeThemeId !== "custom"
-      ? availableThemes.find((theme) => theme.id === activeThemeId) ?? (activeThemeId === FALLBACK_DEFAULT_THEME.id ? FALLBACK_DEFAULT_THEME : null)
-      : null,
+    () =>
+      activeThemeId && activeThemeId !== "custom"
+        ? (availableThemes.find((theme) => theme.id === activeThemeId) ??
+          (activeThemeId === FALLBACK_DEFAULT_THEME.id ? FALLBACK_DEFAULT_THEME : null))
+        : null,
     [activeThemeId, availableThemes],
   );
   const hasUserComponentStyleOverride = useMemo(
-    () => hasServerBackedUiPreferences
-      ? (userThemePreferences?.activeComponentStyles?.length ?? 0) > 0
-      : Boolean(localStorage.getItem(COMPONENT_STYLE_STORAGE_KEY)),
+    () =>
+      hasServerBackedUiPreferences
+        ? (userThemePreferences?.activeComponentStyles?.length ?? 0) > 0
+        : Boolean(localStorage.getItem(COMPONENT_STYLE_STORAGE_KEY)),
     [hasServerBackedUiPreferences, userThemePreferences],
   );
   const hasUserLayoutStyleOverride = useMemo(
-    () => hasServerBackedUiPreferences
-      ? Boolean(userThemePreferences?.activeLayoutStyle?.trim())
-      : Boolean(localStorage.getItem(LAYOUT_STYLE_STORAGE_KEY)),
+    () =>
+      hasServerBackedUiPreferences
+        ? Boolean(userThemePreferences?.activeLayoutStyle?.trim())
+        : Boolean(localStorage.getItem(LAYOUT_STYLE_STORAGE_KEY)),
     [hasServerBackedUiPreferences, userThemePreferences],
   );
 
@@ -471,28 +491,34 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
     }));
   }, []);
 
-  const setActiveLayoutStyle = useCallback((id: string) => {
-    const next = parseLayoutSet(id);
-    setActiveLayoutStylesState(next);
-    persistLayoutStyles(next);
-  }, [persistLayoutStyles]);
-
-  const toggleLayoutStyle = useCallback((id: string) => {
-    setActiveLayoutStylesState((prev) => {
-      const next = new Set(prev);
-      if (id === "default") {
-        const onlyDefault = new Set(["default"]);
-        persistLayoutStyles(onlyDefault);
-        return onlyDefault;
-      }
-      next.delete("default");
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      if (next.size === 0) next.add("default");
+  const setActiveLayoutStyle = useCallback(
+    (id: string) => {
+      const next = parseLayoutSet(id);
+      setActiveLayoutStylesState(next);
       persistLayoutStyles(next);
-      return next;
-    });
-  }, [persistLayoutStyles]);
+    },
+    [persistLayoutStyles],
+  );
+
+  const toggleLayoutStyle = useCallback(
+    (id: string) => {
+      setActiveLayoutStylesState((prev) => {
+        const next = new Set(prev);
+        if (id === "default") {
+          const onlyDefault = new Set(["default"]);
+          persistLayoutStyles(onlyDefault);
+          return onlyDefault;
+        }
+        next.delete("default");
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        if (next.size === 0) next.add("default");
+        persistLayoutStyles(next);
+        return next;
+      });
+    },
+    [persistLayoutStyles],
+  );
 
   const setCustomThemeColors = useCallback((colors: Record<string, string>) => {
     setCustomThemeColorsState(colors);
@@ -532,19 +558,21 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
     }
   }, [activeThemeId, availableThemes, loaded, setActiveTheme]);
 
-  const applyManifest = useCallback(async (nextManifest: ExtensionManifest, requestGeneration: number) => {
-    if (requestGeneration !== manifestRequestGeneration.current) return null;
-    const reconciled = await runtimeReconciler.reconcile(
-      runtimeBundleDescriptors(nextManifest),
-      { isCurrent: () => requestGeneration === manifestRequestGeneration.current },
-    );
-    if (!reconciled || requestGeneration !== manifestRequestGeneration.current) return null;
-    legacyBundleActive.current = usesLegacyRuntimeBundle(nextManifest);
-    reconcileExtensionBundleStyles(nextManifest, runtimeOwnerId);
-    setManifest(nextManifest);
-    setError(undefined);
-    return nextManifest;
-  }, [runtimeOwnerId, runtimeReconciler]);
+  const applyManifest = useCallback(
+    async (nextManifest: ExtensionManifest, requestGeneration: number) => {
+      if (requestGeneration !== manifestRequestGeneration.current) return null;
+      const reconciled = await runtimeReconciler.reconcile(runtimeBundleDescriptors(nextManifest), {
+        isCurrent: () => requestGeneration === manifestRequestGeneration.current,
+      });
+      if (!reconciled || requestGeneration !== manifestRequestGeneration.current) return null;
+      legacyBundleActive.current = usesLegacyRuntimeBundle(nextManifest);
+      reconcileExtensionBundleStyles(nextManifest, runtimeOwnerId);
+      setManifest(nextManifest);
+      setError(undefined);
+      return nextManifest;
+    },
+    [runtimeOwnerId, runtimeReconciler],
+  );
 
   // Fetch and register the initial manifest. Troubleshooting mode reconciles to an
   // empty runtime immediately, withdrawing all declarative and module contributions.
@@ -554,20 +582,25 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
     if (troubleshootingMode) {
       manifestRequestGeneration.current += 1;
       setLoaded(false);
-      void runtimeReconciler.reconcile([]).then(() => {
-        if (cancelled) return;
-        legacyBundleActive.current = false;
-        removeExtensionBundleStyles(runtimeOwnerId);
-        setManifest(null);
-        setError(undefined);
-        setLoaded(true);
-      }).catch((err) => {
-        if (cancelled) return;
-        console.warn("[ExtensionLoader] Failed to unload extension bundles:", err);
-        setError(err instanceof Error ? err.message : "Failed to unload extensions");
-        setLoaded(true);
-      });
-      return () => { cancelled = true; };
+      void runtimeReconciler
+        .reconcile([])
+        .then(() => {
+          if (cancelled) return;
+          legacyBundleActive.current = false;
+          removeExtensionBundleStyles(runtimeOwnerId);
+          setManifest(null);
+          setError(undefined);
+          setLoaded(true);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.warn("[ExtensionLoader] Failed to unload extension bundles:", err);
+          setError(err instanceof Error ? err.message : "Failed to unload extensions");
+          setLoaded(true);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
 
     setLoaded(false);
@@ -586,7 +619,9 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [applyManifest, runtimeOwnerId, runtimeReconciler, troubleshootingMode]);
 
   // Layout cleanup runs before the declarative route/slot cleanup below. On
@@ -620,39 +655,45 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
 
     for (const page of manifest.pages ?? []) {
       if (page.showInNav && canAccessExtensionContribution(page, hasPermission)) {
-        unregisterRoutes.push(register({
-          page: page.route,
-          navItem: {
+        unregisterRoutes.push(
+          register({
             page: page.route,
-            label: page.label,
-            icon: resolveIcon(page.icon),
-            order: page.navOrder,
-          },
-        }));
+            navItem: {
+              page: page.route,
+              label: page.label,
+              icon: resolveIcon(page.icon),
+              order: page.navOrder,
+            },
+          }),
+        );
       }
     }
 
     for (const slot of manifest.slots ?? []) {
       if (slot.contentType === "html" && slot.html) {
-        unregisterSlots.push(registerSlot({
-          id: slot.id,
-          extensionId: slot.extensionId,
-          slot: slot.slot,
-          // eslint-disable-next-line react/no-danger
-          render: () => <div dangerouslySetInnerHTML={{ __html: slot.html! }} />,
-          order: slot.order,
-        }));
-      } else if (slot.contentType === "component" && slot.componentName) {
-        const Component = resolveComponent(slot.extensionId, slot.componentName);
-        if (Component) {
-          unregisterSlots.push(registerSlot({
+        unregisterSlots.push(
+          registerSlot({
             id: slot.id,
             extensionId: slot.extensionId,
             slot: slot.slot,
-            render: (props) => <Component {...props} />,
+            // eslint-disable-next-line react/no-danger
+            render: () => <div dangerouslySetInnerHTML={{ __html: slot.html! }} />,
             order: slot.order,
-            resetKey: getExtensionRevision(slot.extensionId),
-          }));
+          }),
+        );
+      } else if (slot.contentType === "component" && slot.componentName) {
+        const Component = resolveComponent(slot.extensionId, slot.componentName);
+        if (Component) {
+          unregisterSlots.push(
+            registerSlot({
+              id: slot.id,
+              extensionId: slot.extensionId,
+              slot: slot.slot,
+              render: (props) => <Component {...props} />,
+              order: slot.order,
+              resetKey: getExtensionRevision(slot.extensionId),
+            }),
+          );
         }
       }
     }
@@ -764,7 +805,15 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       document.documentElement.removeAttribute("data-theme-bg-animation");
       document.documentElement.removeAttribute("data-color-scheme");
     };
-  }, [activeThemeId, customThemeColors, hasUserComponentStyleOverride, hasUserLayoutStyleOverride, manifest, selectedTheme, troubleshootingMode]);
+  }, [
+    activeThemeId,
+    customThemeColors,
+    hasUserComponentStyleOverride,
+    hasUserLayoutStyleOverride,
+    manifest,
+    selectedTheme,
+    troubleshootingMode,
+  ]);
 
   // Apply component style data attribute (space-separated for composability)
   useEffect(() => {
@@ -774,7 +823,9 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
     }
     const styleStr = [...activeComponentStyles].join(" ");
     document.documentElement.setAttribute("data-component-style", styleStr);
-    return () => { document.documentElement.removeAttribute("data-component-style"); };
+    return () => {
+      document.documentElement.removeAttribute("data-component-style");
+    };
   }, [activeComponentStyles, troubleshootingMode]);
 
   // Apply style options (data attributes + CSS custom properties) for the current session
@@ -790,7 +841,13 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       // CSS custom property mapping for range-type style configs
       const cssVarMap: Record<string, Record<string, string>> = {
         gradient: { animated: "--sv-anim-speed", background: "--sv-bg-intensity", cards: "--sv-card-gradient" },
-        glass: { cardblur: "--sv-card-blur", surfaceblur: "--sv-surface-blur", opacity: "--sv-surface-opacity", cardopacity: "--sv-card-opacity", buttonopacity: "--sv-button-opacity" },
+        glass: {
+          cardblur: "--sv-card-blur",
+          surfaceblur: "--sv-surface-blur",
+          opacity: "--sv-surface-opacity",
+          cardopacity: "--sv-card-opacity",
+          buttonopacity: "--sv-button-opacity",
+        },
         animated: { hover: "--sv-hover-glow" },
       };
       delete document.documentElement.dataset.styleGradientSpeed;
@@ -803,14 +860,18 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       }
       for (const [styleId, opts] of Object.entries(raw)) {
         for (const [key, val] of Object.entries(opts as Record<string, string>)) {
-          document.documentElement.dataset[`style${styleId.charAt(0).toUpperCase()}${styleId.slice(1)}${key.charAt(0).toUpperCase()}${key.slice(1)}`] = val;
+          document.documentElement.dataset[
+            `style${styleId.charAt(0).toUpperCase()}${styleId.slice(1)}${key.charAt(0).toUpperCase()}${key.slice(1)}`
+          ] = val;
           const cssVar = cssVarMap[styleId]?.[key];
           if (cssVar) {
             document.documentElement.style.setProperty(cssVar, val);
           }
         }
       }
-    } catch { /* ignore parse errors */ }
+    } catch {
+      /* ignore parse errors */
+    }
   }, [userThemePreferences, troubleshootingMode]);
 
   // Apply layout style data attribute
@@ -820,14 +881,16 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       return;
     }
     document.documentElement.setAttribute("data-layout", activeLayoutStyle);
-    return () => { document.documentElement.removeAttribute("data-layout"); };
+    return () => {
+      document.documentElement.removeAttribute("data-layout");
+    };
   }, [activeLayoutStyle, troubleshootingMode]);
 
   // Derived lookups
   const getTabsForPage = useCallback(
     (pageType: string) =>
       manifest?.tabs.filter((t) => t.pageType === pageType && canAccessExtensionContribution(t, hasPermission)) ?? [],
-    [manifest, user]
+    [manifest, user],
   );
 
   const getPageOverride = useCallback(
@@ -835,16 +898,19 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       const overrides = manifest?.pageOverrides.filter((o) => o.targetPage === targetPage) ?? [];
       return overrides.sort((a, b) => b.priority - a.priority)[0];
     },
-    [manifest]
+    [manifest],
   );
 
   const getComponentOverrides = useCallback(
     (targetComponent: string) =>
       [...(manifest?.componentOverrides ?? [])]
         .filter((componentOverride) => componentOverride.targetComponent === targetComponent)
-        .sort((a, b) => b.priority - a.priority
-          || compareOrdinal(a.extensionId, b.extensionId)
-          || compareOrdinal(a.componentName, b.componentName)),
+        .sort(
+          (a, b) =>
+            b.priority - a.priority ||
+            compareOrdinal(a.extensionId, b.extensionId) ||
+            compareOrdinal(a.componentName, b.componentName),
+        ),
     [manifest],
   );
 
@@ -862,7 +928,7 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
       const normalizedKey = key.toLowerCase();
       return features.find((feature) => feature.key.toLowerCase() === normalizedKey);
     },
-    [features]
+    [features],
   );
 
   const getSettingsPanelsForTab = useCallback(
@@ -877,20 +943,22 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
         })
         .sort((a, b) => a.order - b.order);
     },
-    [settingsPanels]
+    [settingsPanels],
   );
 
   const getActionsForContext = useCallback(
     (entityType?: string, page?: string, actionType?: string) => {
-      return actions.filter((a) => {
-        if (actionType && a.actionType !== actionType) return false;
-        if (entityType && a.entityTypes.length > 0 && !a.entityTypes.includes(entityType)) return false;
-        if (page && a.pages && a.pages.length > 0 && !a.pages.includes(page)) return false;
-        if (a.requiredPermission && !hasPermission(a.requiredPermission)) return false;
-        return true;
-      }).sort((a, b) => a.order - b.order);
+      return actions
+        .filter((a) => {
+          if (actionType && a.actionType !== actionType) return false;
+          if (entityType && a.entityTypes.length > 0 && !a.entityTypes.includes(entityType)) return false;
+          if (page && a.pages && a.pages.length > 0 && !a.pages.includes(page)) return false;
+          if (a.requiredPermission && !hasPermission(a.requiredPermission)) return false;
+          return true;
+        })
+        .sort((a, b) => a.order - b.order);
     },
-    [actions, hasPermission]
+    [actions, hasPermission],
   );
 
   const getListFiltersForEntity = useCallback(
@@ -900,7 +968,7 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
         .filter((filter) => normalizeListEntityType(filter.entityType) === normalized)
         .sort((a, b) => a.order - b.order);
     },
-    [listFilters]
+    [listFilters],
   );
 
   const getListSortsForEntity = useCallback(
@@ -910,7 +978,7 @@ export function ExtensionLoaderProvider({ children, importBundle = defaultImport
         .filter((sort) => normalizeListEntityType(sort.entityType) === normalized)
         .sort((a, b) => a.order - b.order);
     },
-    [listSorts]
+    [listSorts],
   );
 
   const refreshManifest = useCallback(async () => {

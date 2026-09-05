@@ -32,7 +32,15 @@ interface BulkEditDialogProps {
   isPending?: boolean;
 }
 
-export function BulkEditDialog({ open, onClose, title, selectedCount, fields, onApply, isPending }: BulkEditDialogProps) {
+export function BulkEditDialog({
+  open,
+  onClose,
+  title,
+  selectedCount,
+  fields,
+  onApply,
+  isPending,
+}: BulkEditDialogProps) {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set());
 
@@ -85,7 +93,10 @@ export function BulkEditDialog({ open, onClose, title, selectedCount, fields, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h2 className="text-sm font-semibold text-foreground">
             {title} <span className="text-muted font-normal">({selectedCount} selected)</span>
@@ -111,7 +122,10 @@ export function BulkEditDialog({ open, onClose, title, selectedCount, fields, on
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
-          <button onClick={onClose} className="px-3 py-1 rounded text-xs text-secondary hover:text-foreground border border-border">
+          <button
+            onClick={onClose}
+            className="px-3 py-1 rounded text-xs text-secondary hover:text-foreground border border-border"
+          >
             Cancel
           </button>
           <button
@@ -153,15 +167,16 @@ function BulkFieldEditor({
           onChange={onToggle}
           className="w-3.5 h-3.5 rounded border-border accent-accent"
         />
-        <span className={`text-xs font-medium ${enabled ? "text-foreground" : "text-muted"}`}>
-          {field.label}
-        </span>
+        <span className={`text-xs font-medium ${enabled ? "text-foreground" : "text-muted"}`}>{field.label}</span>
       </label>
       {enabled && (
         <div className="ml-6 mt-1">
           {field.type === "rating" && (
             <div className="rounded border border-border bg-input px-3 py-2">
-              <InteractiveRating value={value as number | undefined} onChange={(nextValue) => onValueChange(nextValue || undefined)} />
+              <InteractiveRating
+                value={value as number | undefined}
+                onChange={(nextValue) => onValueChange(nextValue || undefined)}
+              />
             </div>
           )}
           {field.type === "number" && (
@@ -203,9 +218,7 @@ function BulkFieldEditor({
               className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
             />
           )}
-          {field.type === "country" && (
-            <CountrySelect value={(value as string) ?? ""} onChange={onValueChange} />
-          )}
+          {field.type === "country" && <CountrySelect value={(value as string) ?? ""} onChange={onValueChange} />}
           {field.type === "select" && field.entityType === "studios" && (
             <div className="space-y-2">
               <StudioSelector value={value as number | undefined} onChange={(nextValue) => onValueChange(nextValue)} />
@@ -222,7 +235,11 @@ function BulkFieldEditor({
             </div>
           )}
           {field.type === "select" && field.entityType === "tagGroups" && (
-            <TagGroupBulkSelect value={value as number | undefined} nullable={field.nullable} onValueChange={onValueChange} />
+            <TagGroupBulkSelect
+              value={value as number | undefined}
+              nullable={field.nullable}
+              onValueChange={onValueChange}
+            />
           )}
           {field.type === "select" && field.entityType !== "studios" && field.entityType !== "tagGroups" && (
             <select
@@ -240,7 +257,9 @@ function BulkFieldEditor({
             >
               <option value="">Select...</option>
               {field.options?.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
               ))}
             </select>
           )}
@@ -259,7 +278,15 @@ function BulkFieldEditor({
   );
 }
 
-function TagGroupBulkSelect({ value, nullable, onValueChange }: { value?: number; nullable?: boolean; onValueChange: (v: unknown) => void }) {
+function TagGroupBulkSelect({
+  value,
+  nullable,
+  onValueChange,
+}: {
+  value?: number;
+  nullable?: boolean;
+  onValueChange: (v: unknown) => void;
+}) {
   const { data: groups = [], isLoading } = useQuery({ queryKey: ["tag-groups"], queryFn: tagGroups.list });
 
   return (
@@ -271,7 +298,9 @@ function TagGroupBulkSelect({ value, nullable, onValueChange }: { value?: number
       >
         <option value="">{isLoading ? "Loading tag groups..." : "Select tag group..."}</option>
         {groups.map((group) => (
-          <option key={group.id} value={group.id}>{group.name}</option>
+          <option key={group.id} value={group.id}>
+            {group.name}
+          </option>
         ))}
       </select>
       {nullable && (
@@ -330,18 +359,33 @@ function MultiIdBulkEditor({
   );
 }
 
-function toReferenceEntityType(entityType: "tags" | "performers" | "studios" | "groups" | "galleries"): EntityReferenceType {
+function toReferenceEntityType(
+  entityType: "tags" | "performers" | "studios" | "groups" | "galleries",
+): EntityReferenceType {
   switch (entityType) {
-    case "tags": return "tag";
-    case "performers": return "performer";
-    case "studios": return "studio";
-    case "groups": return "group";
-    case "galleries": return "gallery";
+    case "tags":
+      return "tag";
+    case "performers":
+      return "performer";
+    case "studios":
+      return "studio";
+    case "groups":
+      return "group";
+    case "galleries":
+      return "gallery";
   }
 }
 
-function isMultiIdEntityType(entityType: BulkEditField["entityType"]): entityType is "tags" | "performers" | "studios" | "groups" | "galleries" {
-  return entityType === "tags" || entityType === "performers" || entityType === "studios" || entityType === "groups" || entityType === "galleries";
+function isMultiIdEntityType(
+  entityType: BulkEditField["entityType"],
+): entityType is "tags" | "performers" | "studios" | "groups" | "galleries" {
+  return (
+    entityType === "tags" ||
+    entityType === "performers" ||
+    entityType === "studios" ||
+    entityType === "groups" ||
+    entityType === "galleries"
+  );
 }
 
 const BULK_MODE_LABELS: Record<BulkUpdateMode, string> = {
@@ -399,7 +443,10 @@ export const PERFORMER_BULK_FIELDS: BulkEditField[] = [
     key: "gender",
     label: "Gender",
     type: "select",
-    options: ["Female", "Male", "TransgenderFemale", "TransgenderMale", "Intersex", "NonBinary"].map((value) => ({ value, label: value.replace(/([a-z])([A-Z])/g, "$1 $2") })),
+    options: ["Female", "Male", "TransgenderFemale", "TransgenderMale", "Intersex", "NonBinary"].map((value) => ({
+      value,
+      label: value.replace(/([a-z])([A-Z])/g, "$1 $2"),
+    })),
   },
   { key: "country", label: "Country", type: "country", nullable: true },
   { key: "details", label: "Details", type: "string" },

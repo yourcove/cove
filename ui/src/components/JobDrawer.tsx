@@ -67,11 +67,14 @@ export function JobDrawer({ open, onClose }: Props) {
     refetchInterval: jobHistoryPollingInterval(open),
   });
 
-  const observeTerminalJob = useCallback((job: JobInfo) => {
-    for (const unseen of collectUnseenTerminalJobs([job], observedTerminalJobsRef.current)) {
-      invalidateContentForTerminalJob(queryClient, unseen);
-    }
-  }, [queryClient]);
+  const observeTerminalJob = useCallback(
+    (job: JobInfo) => {
+      for (const unseen of collectUnseenTerminalJobs([job], observedTerminalJobsRef.current)) {
+        invalidateContentForTerminalJob(queryClient, unseen);
+      }
+    },
+    [queryClient],
+  );
 
   // SignalR real-time updates
   useEffect(() => {
@@ -109,20 +112,20 @@ export function JobDrawer({ open, onClose }: Props) {
     }
   }, [jobHistory, queryClient]);
 
-  const handleCancel = useCallback(async (id: string) => {
-    await jobs.cancel(id);
-    queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
-    queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
-  }, [queryClient]);
+  const handleCancel = useCallback(
+    async (id: string) => {
+      await jobs.cancel(id);
+      queryClient.invalidateQueries({ queryKey: ["jobs-active"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs-history"] });
+    },
+    [queryClient],
+  );
 
   // Merge API jobs with real-time updates
   const mergedActive = activeJobs?.map((j) => realtimeJobs.get(j.id) ?? j) ?? [];
   // Also add any real-time jobs not in the API response
   for (const [id, job] of realtimeJobs) {
-    if (
-      (job.status === "running" || job.status === "pending") &&
-      !mergedActive.find((j) => j.id === id)
-    ) {
+    if ((job.status === "running" || job.status === "pending") && !mergedActive.find((j) => j.id === id)) {
       mergedActive.push(job);
     }
   }
@@ -159,46 +162,44 @@ export function JobDrawer({ open, onClose }: Props) {
 
           {/* Drawer */}
           <div className="job-drawer fixed inset-y-0 right-0 z-50 flex w-96 flex-col border-l border-border bg-surface text-foreground shadow-2xl">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <h2 className="font-semibold text-foreground">
-            Jobs {runningCount > 0 && <span className="text-accent text-sm ml-1">({runningCount} active)</span>}
-          </h2>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {/* Active jobs */}
-          {mergedActive.length > 0 && (
-            <div className="p-4">
-              <h3 className="text-xs font-semibold text-muted uppercase mb-2">Active</h3>
-              <div className="space-y-2">
-                {mergedActive.map((job) => (
-                  <JobCard key={job.id} job={job} onCancel={handleCancel} />
-                ))}
-              </div>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <h2 className="font-semibold text-foreground">
+                Jobs {runningCount > 0 && <span className="text-accent text-sm ml-1">({runningCount} active)</span>}
+              </h2>
+              <button onClick={onClose} className="text-muted hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-          )}
 
-          {/* History */}
-          {jobHistory && jobHistory.length > 0 && (
-            <div className="p-4 border-t border-border">
-              <h3 className="text-xs font-semibold text-muted uppercase mb-2">History</h3>
-              <div className="space-y-2">
-                {jobHistory.map((job) => (
-                  <JobCard key={job.id} job={job} />
-                ))}
-              </div>
-            </div>
-          )}
+            <div className="flex-1 overflow-y-auto">
+              {/* Active jobs */}
+              {mergedActive.length > 0 && (
+                <div className="p-4">
+                  <h3 className="text-xs font-semibold text-muted uppercase mb-2">Active</h3>
+                  <div className="space-y-2">
+                    {mergedActive.map((job) => (
+                      <JobCard key={job.id} job={job} onCancel={handleCancel} />
+                    ))}
+                  </div>
+                </div>
+              )}
 
-          {mergedActive.length === 0 && (!jobHistory || jobHistory.length === 0) && (
-            <div className="p-8 text-center text-muted text-sm">
-              No jobs running or in history
+              {/* History */}
+              {jobHistory && jobHistory.length > 0 && (
+                <div className="p-4 border-t border-border">
+                  <h3 className="text-xs font-semibold text-muted uppercase mb-2">History</h3>
+                  <div className="space-y-2">
+                    {jobHistory.map((job) => (
+                      <JobCard key={job.id} job={job} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {mergedActive.length === 0 && (!jobHistory || jobHistory.length === 0) && (
+                <div className="p-8 text-center text-muted text-sm">No jobs running or in history</div>
+              )}
             </div>
-          )}
-        </div>
           </div>
         </>
       ) : null}
@@ -230,14 +231,19 @@ export function useJobCount() {
     });
 
     // Also poll once on mount
-    jobs.list().then((list) => {
-      activeIds = new Set(list.filter((j) => j.status === "running" || j.status === "pending").map((j) => j.id));
-      setCount(activeIds.size);
-    }).catch(() => {});
+    jobs
+      .list()
+      .then((list) => {
+        activeIds = new Set(list.filter((j) => j.status === "running" || j.status === "pending").map((j) => j.id));
+        setCount(activeIds.size);
+      })
+      .catch(() => {});
 
     connection.start().catch(() => {});
 
-    return () => { connection.stop(); };
+    return () => {
+      connection.stop();
+    };
   }, []);
 
   return count;

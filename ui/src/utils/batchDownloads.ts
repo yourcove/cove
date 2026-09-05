@@ -67,7 +67,10 @@ export function getBatchDownloadOptionsStorageKey(scope: string) {
   return `cove-batch-download-options:${scope}`;
 }
 
-export function loadStoredBatchDownloadOptions(storageKey: string, fallback: BatchDownloadOptions = DEFAULT_BATCH_DOWNLOAD_OPTIONS): BatchDownloadOptions {
+export function loadStoredBatchDownloadOptions(
+  storageKey: string,
+  fallback: BatchDownloadOptions = DEFAULT_BATCH_DOWNLOAD_OPTIONS,
+): BatchDownloadOptions {
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) {
@@ -87,7 +90,9 @@ export function saveStoredBatchDownloadOptions(storageKey: string, options: Batc
   localStorage.setItem(storageKey, JSON.stringify(normalizeBatchDownloadOptions(options)));
 }
 
-export function normalizeBatchDownloadOptions(options: BatchDownloadOptions = DEFAULT_BATCH_DOWNLOAD_OPTIONS): BatchDownloadOptions {
+export function normalizeBatchDownloadOptions(
+  options: BatchDownloadOptions = DEFAULT_BATCH_DOWNLOAD_OPTIONS,
+): BatchDownloadOptions {
   const preferences = loadScrapeApplyPreferences();
   const scrapeMetadata = !!(options.scrapeMetadata ?? options.scrapeVideos);
 
@@ -129,7 +134,7 @@ export async function queueBatchDownloads(
     }
 
     const sourceUrl = candidateUrls[0];
-    const primaryDownloadUrl = candidateUrls.find(url => !areUrlsEqual(url, sourceUrl)) ?? sourceUrl;
+    const primaryDownloadUrl = candidateUrls.find((url) => !areUrlsEqual(url, sourceUrl)) ?? sourceUrl;
     batchItems.push({
       url: primaryDownloadUrl,
       sourceUrl: areUrlsEqual(primaryDownloadUrl, sourceUrl) ? undefined : sourceUrl,
@@ -149,7 +154,11 @@ export async function queueBatchDownloads(
     followUp: buildBatchFollowUp(entity, normalizedOptions),
   });
 
-  return { queuedCount: response.queuedCount, issues: [...issues, ...normalizeResponseIssues(response.issues)], jobId: response.jobId ?? undefined };
+  return {
+    queuedCount: response.queuedCount,
+    issues: [...issues, ...normalizeResponseIssues(response.issues)],
+    jobId: response.jobId ?? undefined,
+  };
 }
 
 export async function queueImportedUrlDownloads(
@@ -193,15 +202,20 @@ export async function queueImportedUrlDownloads(
     preflightBeforeQueue: false,
   });
 
-  return { queuedCount: response.queuedCount, issues: [...issues, ...normalizeResponseIssues(response.issues)], jobId: response.jobId ?? undefined };
+  return {
+    queuedCount: response.queuedCount,
+    issues: [...issues, ...normalizeResponseIssues(response.issues)],
+    jobId: response.jobId ?? undefined,
+  };
 }
 
 export function formatBatchDownloadSummary(entityLabel: string, result: BatchDownloadResult) {
   const skippedCount = result.issues.filter((issue) => issue.kind === "skipped").length;
   const failedCount = result.issues.filter((issue) => issue.kind === "failed").length;
-  const parts = result.queuedCount > 0
-    ? [`Queued ${result.queuedCount} ${entityLabel}${result.queuedCount === 1 ? "" : "s"}.`]
-    : [`No ${entityLabel} downloads queued.`];
+  const parts =
+    result.queuedCount > 0
+      ? [`Queued ${result.queuedCount} ${entityLabel}${result.queuedCount === 1 ? "" : "s"}.`]
+      : [`No ${entityLabel} downloads queued.`];
 
   if (result.jobId) {
     parts.push(`Batch job ${result.jobId} is running.`);
@@ -247,9 +261,7 @@ function getItemLabel(item: DownloadSelectionItem, entity: DownloadSelectionEnti
 }
 
 function normalizeUrlLines(urls: string[]) {
-  return urls
-    .map((value) => value.trim())
-    .filter(Boolean);
+  return urls.map((value) => value.trim()).filter(Boolean);
 }
 
 function getItemDownloadUrls(urls: string[]) {
@@ -265,7 +277,9 @@ function deriveImportedItemTitle(url: string) {
     const parsed = new URL(url);
     const fileName = parsed.pathname.split("/").filter(Boolean).at(-1);
     if (fileName) {
-      return decodeURIComponent(fileName).replace(/[._-]+/g, " ").trim();
+      return decodeURIComponent(fileName)
+        .replace(/[._-]+/g, " ")
+        .trim();
     }
 
     return parsed.hostname;

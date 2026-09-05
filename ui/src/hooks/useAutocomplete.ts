@@ -58,18 +58,9 @@ export function useAutocomplete<T>({
   const [isOpen, setIsOpen] = useState(false);
   const previousInputValue = useRef(inputValue);
 
-  const selectableItems = useMemo(
-    () => items.filter((item) => !item.disabled),
-    [items],
-  );
-  const selectableKeys = useMemo(
-    () => selectableItems.map((item) => item.key),
-    [selectableItems],
-  );
-  const itemKeys = useMemo(
-    () => items.map((item) => item.key),
-    [items],
-  );
+  const selectableItems = useMemo(() => items.filter((item) => !item.disabled), [items]);
+  const selectableKeys = useMemo(() => selectableItems.map((item) => item.key), [selectableItems]);
+  const itemKeys = useMemo(() => items.map((item) => item.key), [items]);
 
   const getOptionId = useCallback(
     (key: string) => `${listboxId}-option-${encodeURIComponent(key).replaceAll("%", "_")}`,
@@ -81,13 +72,16 @@ export function useAutocomplete<T>({
     setActiveKey(null);
   }, []);
 
-  const selectItem = useCallback((item: AutocompleteItem<T>) => {
-    if (item.disabled) return;
-    const shouldClose = onSelect(item.value);
-    if (shouldClose !== false) {
-      close();
-    }
-  }, [close, onSelect]);
+  const selectItem = useCallback(
+    (item: AutocompleteItem<T>) => {
+      if (item.disabled) return;
+      const shouldClose = onSelect(item.value);
+      if (shouldClose !== false) {
+        close();
+      }
+    },
+    [close, onSelect],
+  );
 
   useEffect(() => {
     if (disabled) {
@@ -126,21 +120,24 @@ export function useAutocomplete<T>({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [close, isOpen]);
 
-  const moveActive = useCallback((direction: 1 | -1) => {
-    if (selectableKeys.length === 0) return;
-    setIsOpen(true);
-    setActiveKey((current) => {
-      if (current == null) {
-        return direction === 1 ? selectableKeys[0] : selectableKeys[selectableKeys.length - 1];
-      }
-      const currentIndex = selectableKeys.indexOf(current);
-      if (currentIndex < 0) {
-        return direction === 1 ? selectableKeys[0] : selectableKeys[selectableKeys.length - 1];
-      }
-      const nextIndex = Math.max(0, Math.min(selectableKeys.length - 1, currentIndex + direction));
-      return selectableKeys[nextIndex];
-    });
-  }, [selectableKeys]);
+  const moveActive = useCallback(
+    (direction: 1 | -1) => {
+      if (selectableKeys.length === 0) return;
+      setIsOpen(true);
+      setActiveKey((current) => {
+        if (current == null) {
+          return direction === 1 ? selectableKeys[0] : selectableKeys[selectableKeys.length - 1];
+        }
+        const currentIndex = selectableKeys.indexOf(current);
+        if (currentIndex < 0) {
+          return direction === 1 ? selectableKeys[0] : selectableKeys[selectableKeys.length - 1];
+        }
+        const nextIndex = Math.max(0, Math.min(selectableKeys.length - 1, currentIndex + direction));
+        return selectableKeys[nextIndex];
+      });
+    },
+    [selectableKeys],
+  );
 
   const inputProps: AutocompleteInputProps = {
     role: "combobox",
@@ -200,7 +197,9 @@ export function useAutocomplete<T>({
     "aria-busy": busy || undefined,
   };
 
-  const getOptionProps = <TElement extends HTMLElement>(item: AutocompleteItem<T>): HTMLAttributes<TElement> & { ref: RefCallback<TElement> } => ({
+  const getOptionProps = <TElement extends HTMLElement>(
+    item: AutocompleteItem<T>,
+  ): HTMLAttributes<TElement> & { ref: RefCallback<TElement> } => ({
     id: getOptionId(item.key),
     role: "option",
     "aria-selected": activeKey === item.key,

@@ -61,7 +61,15 @@ function acquireContainingBlock(target: HTMLElement) {
   };
 }
 
-export function AutocompleteDropdown({ anchorRef, containerRef, children, className, maxHeight = 160, portalContainer, ...containerProps }: Props) {
+export function AutocompleteDropdown({
+  anchorRef,
+  containerRef,
+  children,
+  className,
+  maxHeight = 160,
+  portalContainer,
+  ...containerProps
+}: Props) {
   const [layout, setLayout] = useState<Layout | null>(null);
 
   useLayoutEffect(() => {
@@ -90,9 +98,8 @@ export function AutocompleteDropdown({ anchorRef, containerRef, children, classN
 
       const rect = anchor.getBoundingClientRect();
       const fullscreenElement = document.fullscreenElement;
-      const automaticFullscreenContainer = fullscreenElement instanceof HTMLElement && fullscreenElement.contains(anchor)
-        ? fullscreenElement
-        : null;
+      const automaticFullscreenContainer =
+        fullscreenElement instanceof HTMLElement && fullscreenElement.contains(anchor) ? fullscreenElement : null;
       const target = portalContainer ?? automaticFullscreenContainer ?? document.body;
       establishContainingBlock(target);
       const gap = 4;
@@ -103,9 +110,7 @@ export function AutocompleteDropdown({ anchorRef, containerRef, children, classN
       const targetClientHeight = targetRect
         ? target.clientHeight || Math.max(0, targetRect.height - target.clientTop)
         : 0;
-      const boundaryBottom = targetRect
-        ? boundaryTop + targetClientHeight
-        : viewport?.height ?? window.innerHeight;
+      const boundaryBottom = targetRect ? boundaryTop + targetClientHeight : (viewport?.height ?? window.innerHeight);
       const coordinateOffsetLeft = useDocumentCoordinates
         ? window.scrollX
         : target.scrollLeft - (targetRect?.left ?? 0) - target.clientLeft;

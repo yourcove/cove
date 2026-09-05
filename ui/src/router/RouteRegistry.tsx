@@ -133,15 +133,12 @@ function ExtensionSlotEntry<TContext extends object>({
   createEntryContext?: (entry: SlotEntry<TContext>) => ExtensionSlotEntryContext<TContext>;
   wrapperClassName?: string;
 }) {
-  const entryContext = useMemo(
-    () => createEntryContext?.(entry),
-    [createEntryContext, entry],
-  );
+  const entryContext = useMemo(() => createEntryContext?.(entry), [createEntryContext, entry]);
 
   useLayoutEffect(() => entryContext?.mount?.(), [entryContext]);
 
   const resolvedContext = useMemo(
-    () => entryContext ? { ...context, ...entryContext.context } : context,
+    () => (entryContext ? { ...context, ...entryContext.context } : context),
     [context, entryContext],
   );
 
@@ -173,11 +170,7 @@ function ExtensionSlotContribution<TContext extends object>({
   );
 
   return (
-    <ExtensionErrorBoundary
-      extensionId={entry.extensionId ?? entry.id}
-      resetKey={boundaryResetKey}
-      fallback={fallback}
-    >
+    <ExtensionErrorBoundary extensionId={entry.extensionId ?? entry.id} resetKey={boundaryResetKey} fallback={fallback}>
       <ExtensionSlotEntry
         entry={entry}
         context={context}
@@ -209,9 +202,7 @@ export function ExtensionSlot<TContext extends object>({
   entryClassName?: string;
 }) {
   const { slots } = useRouteRegistry();
-  const matching = slots
-    .filter((s) => s.slot === slot)
-    .sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+  const matching = slots.filter((s) => s.slot === slot).sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
 
   if (matching.length === 0) return null;
 

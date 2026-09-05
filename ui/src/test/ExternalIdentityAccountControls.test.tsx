@@ -66,23 +66,27 @@ describe("external identity account controls", () => {
     vi.clearAllMocks();
     window.history.replaceState({}, "", "/settings/my/account");
     Object.assign(mocks.user, { hasPassword: true, isSystem: false });
-    mocks.externalProviders.mockResolvedValue([{
-      id: "provider-a",
-      label: "Example SSO",
-      startUrl: "/api/plugins/example/login",
-      linkStartUrl: "/api/plugins/example/link",
-      extensionId: "example",
-      order: 10,
-    }]);
-    mocks.externalLinks.mockResolvedValue([{
-      id: 4,
-      userId: 1,
-      extensionId: "example",
-      providerId: "provider-a",
-      providerLabel: "Example SSO",
-      accountLabel: "alice@example.test",
-      createdAt: new Date().toISOString(),
-    }]);
+    mocks.externalProviders.mockResolvedValue([
+      {
+        id: "provider-a",
+        label: "Example SSO",
+        startUrl: "/api/plugins/example/login",
+        linkStartUrl: "/api/plugins/example/link",
+        extensionId: "example",
+        order: 10,
+      },
+    ]);
+    mocks.externalLinks.mockResolvedValue([
+      {
+        id: 4,
+        userId: 1,
+        extensionId: "example",
+        providerId: "provider-a",
+        providerLabel: "Example SSO",
+        accountLabel: "alice@example.test",
+        createdAt: new Date().toISOString(),
+      },
+    ]);
     mocks.startExternalLink.mockResolvedValue({ confirmationCode: "pending-code" });
     mocks.previewExternalLink.mockResolvedValue({
       providerLabel: "Example SSO",

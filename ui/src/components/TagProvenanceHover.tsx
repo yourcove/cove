@@ -13,7 +13,19 @@ const CLOSE_GRACE_MS = 150;
 // At most one provenance popup is visible at a time; opening one hides the previous immediately.
 let activePopupHide: { current: () => void } | null = null;
 
-export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, className, mediaTag }: { provenance?: TagProvenance[]; sourceLabel?: string; children: ReactNode; className?: string; mediaTag?: TagMediaReference }) {
+export function TagProvenanceHover({
+  provenance,
+  sourceLabel = "Tag",
+  children,
+  className,
+  mediaTag,
+}: {
+  provenance?: TagProvenance[];
+  sourceLabel?: string;
+  children: ReactNode;
+  className?: string;
+  mediaTag?: TagMediaReference;
+}) {
   const wrapperRef = useRef<HTMLSpanElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const [showProvenance, setShowProvenance] = useState(false);
@@ -98,11 +110,14 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showProvenance]);
 
-  useEffect(() => () => {
-    if (openTimer.current != null) window.clearTimeout(openTimer.current);
-    if (closeTimer.current != null) window.clearTimeout(closeTimer.current);
-    if (activePopupHide === hideRef) activePopupHide = null;
-  }, []);
+  useEffect(
+    () => () => {
+      if (openTimer.current != null) window.clearTimeout(openTimer.current);
+      if (closeTimer.current != null) window.clearTimeout(closeTimer.current);
+      if (activePopupHide === hideRef) activePopupHide = null;
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     if (!showProvenance || !provenance?.length) {
@@ -132,9 +147,8 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
     };
 
     updatePosition();
-    const resizeObserver = typeof ResizeObserver !== "undefined" && popupRef.current
-      ? new ResizeObserver(updatePosition)
-      : null;
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && popupRef.current ? new ResizeObserver(updatePosition) : null;
     if (popupRef.current) resizeObserver?.observe(popupRef.current);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
@@ -181,21 +195,30 @@ export function TagProvenanceHover({ provenance, sourceLabel = "Tag", children, 
       }}
     >
       {children}
-      <span className="sr-only"><TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} /></span>
-      {showProvenance && typeof document !== "undefined" ? createPortal(
-        <div
-          ref={popupRef}
-          className="fixed z-[200] max-h-[min(70vh,24rem)] w-72 overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 text-left shadow-2xl backdrop-blur"
-          style={{ left: popupPosition.left, top: popupPosition.top }}
-          // Portal events bubble through the React tree to the chip wrapper, so without this a press
-          // anywhere on the popup (its scrollbar included) would hit the wrapper's dismiss handler.
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          {mediaTag ? <TagMediaPreview tag={mediaTag} frameClassName="mb-3 block aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/70 bg-card/70" /> : null}
-          <TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} />
-        </div>,
-        document.body,
-      ) : null}
+      <span className="sr-only">
+        <TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} />
+      </span>
+      {showProvenance && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={popupRef}
+              className="fixed z-[200] max-h-[min(70vh,24rem)] w-72 overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 text-left shadow-2xl backdrop-blur"
+              style={{ left: popupPosition.left, top: popupPosition.top }}
+              // Portal events bubble through the React tree to the chip wrapper, so without this a press
+              // anywhere on the popup (its scrollbar included) would hit the wrapper's dismiss handler.
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              {mediaTag ? (
+                <TagMediaPreview
+                  tag={mediaTag}
+                  frameClassName="mb-3 block aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/70 bg-card/70"
+                />
+              ) : null}
+              <TagProvenancePopupContent provenance={provenance} title={`${sourceLabel} Sources`} />
+            </div>,
+            document.body,
+          )
+        : null}
     </span>
   );
 }
@@ -209,16 +232,33 @@ function TagProvenancePopupContent({ provenance, title }: { provenance: TagProve
           .slice()
           .sort((left, right) => Date.parse(right.appliedAt) - Date.parse(left.appliedAt))
           .map((entry, index) => (
-            <span key={`${entry.sourceKey}-${entry.sourceRunId ?? ""}-${entry.modelKey ?? ""}-${index}`} className="block rounded-lg border border-border/70 bg-card/70 px-2.5 py-2">
+            <span
+              key={`${entry.sourceKey}-${entry.sourceRunId ?? ""}-${entry.modelKey ?? ""}-${index}`}
+              className="block rounded-lg border border-border/70 bg-card/70 px-2.5 py-2"
+            >
               <span className="flex items-center justify-between gap-2 text-xs text-foreground">
                 <span className="font-medium">{formatTagProvenanceSource(entry.sourceKey)}</span>
-                {entry.confidence != null ? <span className="text-emerald-300">{formatTagConfidence(entry.confidence)}</span> : null}
+                {entry.confidence != null ? (
+                  <span className="text-emerald-300">{formatTagConfidence(entry.confidence)}</span>
+                ) : null}
               </span>
-              {entry.modelKey ? <span className="mt-1 block break-all text-[11px] text-secondary">Model {entry.modelKey}</span> : null}
-              {entry.sourceRunId ? <span className="mt-1 block break-all text-[11px] text-muted">Run {entry.sourceRunId}</span> : null}
-              {entry.contextType && entry.contextId ? <span className="mt-1 block text-[11px] text-muted">Context {formatTagProvenanceSource(entry.contextType)} #{entry.contextId}</span> : null}
-              {entry.totalDurationSec != null ? <span className="mt-1 block text-[11px] text-muted">Duration {formatTagDurationProvenance(entry)}</span> : null}
-              <span className="mt-1 block text-[11px] text-muted">Applied {formatTagProvenanceDate(entry.appliedAt)}</span>
+              {entry.modelKey ? (
+                <span className="mt-1 block break-all text-[11px] text-secondary">Model {entry.modelKey}</span>
+              ) : null}
+              {entry.sourceRunId ? (
+                <span className="mt-1 block break-all text-[11px] text-muted">Run {entry.sourceRunId}</span>
+              ) : null}
+              {entry.contextType && entry.contextId ? (
+                <span className="mt-1 block text-[11px] text-muted">
+                  Context {formatTagProvenanceSource(entry.contextType)} #{entry.contextId}
+                </span>
+              ) : null}
+              {entry.totalDurationSec != null ? (
+                <span className="mt-1 block text-[11px] text-muted">Duration {formatTagDurationProvenance(entry)}</span>
+              ) : null}
+              <span className="mt-1 block text-[11px] text-muted">
+                Applied {formatTagProvenanceDate(entry.appliedAt)}
+              </span>
             </span>
           ))}
       </span>
@@ -248,7 +288,10 @@ function formatTagProvenanceSource(sourceKey: string) {
     return `Metadata: ${formatProviderIdentifier(normalized.slice("metadata:".length))}`;
   }
 
-  return normalized.split(/[:._-]+/).map(capitalizeWord).join(" ");
+  return normalized
+    .split(/[:._-]+/)
+    .map(capitalizeWord)
+    .join(" ");
 }
 
 function formatProviderIdentifier(value: string) {

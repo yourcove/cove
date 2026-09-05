@@ -17,11 +17,16 @@ export function formatJobDuration(ms: number): string {
 
 export function jobStatusIcon(status: JobInfo["status"]) {
   switch (status) {
-    case "running": return <Loader2 className="w-4 h-4 text-accent animate-spin" />;
-    case "completed": return <CheckCircle className="w-4 h-4 text-green-400" />;
-    case "failed": return <XCircle className="w-4 h-4 text-red-400" />;
-    case "cancelled": return <Ban className="w-4 h-4 text-secondary" />;
-    default: return <Clock className="w-4 h-4 text-yellow-400" />;
+    case "running":
+      return <Loader2 className="w-4 h-4 text-accent animate-spin" />;
+    case "completed":
+      return <CheckCircle className="w-4 h-4 text-green-400" />;
+    case "failed":
+      return <XCircle className="w-4 h-4 text-red-400" />;
+    case "cancelled":
+      return <Ban className="w-4 h-4 text-secondary" />;
+    default:
+      return <Clock className="w-4 h-4 text-yellow-400" />;
   }
 }
 
@@ -121,7 +126,10 @@ export function JobCard({ job, variant = "drawer", onCancel, onMoveUp, onMoveDow
           {job.status === "running" && job.progress != null && job.progress >= 0 && (
             <div className="mt-2">
               <div className="h-1.5 w-full rounded-full bg-input overflow-hidden">
-                <div className="h-full rounded-full bg-accent transition-all duration-300" style={{ width: `${Math.min(progressPct, 100)}%` }} />
+                <div
+                  className="h-full rounded-full bg-accent transition-all duration-300"
+                  style={{ width: `${Math.min(progressPct, 100)}%` }}
+                />
               </div>
               <div className="flex items-center justify-between mt-1 gap-2">
                 <span className="text-xs text-muted">
@@ -149,10 +157,7 @@ export function JobCard({ job, variant = "drawer", onCancel, onMoveUp, onMoveDow
               </p>
               {counts && <p className="text-xs text-muted">{counts}</p>}
               {job.status === "completed" && job.resultUrl && (
-                <a
-                  href={job.resultUrl}
-                  className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
-                >
+                <a href={job.resultUrl} className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
                   Open results
                   <ExternalLink className="h-3 w-3" />
                 </a>
@@ -185,17 +190,22 @@ export function JobCard({ job, variant = "drawer", onCancel, onMoveUp, onMoveDow
             </button>
           </>
         )}
-        {onCancel && (job.status === "running" || job.status === "pending") && (
-          isPanel ? (
+        {onCancel &&
+          (job.status === "running" || job.status === "pending") &&
+          (isPanel ? (
             <button type="button" onClick={() => onCancel(job.id)} className="text-xs text-muted hover:text-red-300">
               Cancel
             </button>
           ) : (
-            <button type="button" onClick={() => onCancel(job.id)} title="Cancel job" className="text-muted hover:text-red-400 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => onCancel(job.id)}
+              title="Cancel job"
+              className="text-muted hover:text-red-400 flex-shrink-0"
+            >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
-          )
-        )}
+          ))}
       </div>
     </div>
   );

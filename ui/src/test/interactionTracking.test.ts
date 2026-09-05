@@ -18,7 +18,13 @@ describe("interactionTracking playback batching", () => {
 
     await tracker.setTarget({ hostType: "video", hostId: 42, scopeKey: "video:42" });
     tracker.recordInterval({ startSec: 0, endSec: 10, mediaDurationSec: 120, currentPositionSec: 10, state: "active" });
-    tracker.recordInterval({ startSec: 10, endSec: 18, mediaDurationSec: 120, currentPositionSec: 18, state: "paused" });
+    tracker.recordInterval({
+      startSec: 10,
+      endSec: 18,
+      mediaDurationSec: 120,
+      currentPositionSec: 18,
+      state: "paused",
+    });
 
     expect(sendBatch).not.toHaveBeenCalled();
 

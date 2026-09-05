@@ -71,18 +71,19 @@ export type KeyboardDispatchResolution<T> =
   | { kind: "action"; candidate: KeyboardDispatchCandidate<T> }
   | { kind: "conflict"; actionIds: string[] };
 
-export function getKeyboardSequenceContinuations<T>(
-  candidates: KeyboardDispatchCandidate<T>[],
-  sequence: string,
-) {
+export function getKeyboardSequenceContinuations<T>(candidates: KeyboardDispatchCandidate<T>[], sequence: string) {
   const strokeCount = sequence.split(" ").filter(Boolean).length;
   const matching = candidates.filter((candidate) => candidate.sequence.startsWith(`${sequence} `));
   if (matching.length === 0) return [];
   const highestPriority = Math.max(...matching.map((candidate) => candidate.priority));
-  return [...new Set(matching
-    .filter((candidate) => candidate.priority === highestPriority)
-    .map((candidate) => candidate.sequence.split(" ")[strokeCount])
-    .filter((stroke): stroke is string => !!stroke))];
+  return [
+    ...new Set(
+      matching
+        .filter((candidate) => candidate.priority === highestPriority)
+        .map((candidate) => candidate.sequence.split(" ")[strokeCount])
+        .filter((stroke): stroke is string => !!stroke),
+    ),
+  ];
 }
 
 /** Resolve one buffered sequence. More-specific surfaces win; peer and prefix collisions block. */
@@ -90,8 +91,9 @@ export function resolveKeyboardDispatch<T>(
   candidates: KeyboardDispatchCandidate<T>[],
   sequence: string,
 ): KeyboardDispatchResolution<T> {
-  const relevant = candidates.filter((candidate) =>
-    candidate.sequence === sequence || candidate.sequence.startsWith(`${sequence} `));
+  const relevant = candidates.filter(
+    (candidate) => candidate.sequence === sequence || candidate.sequence.startsWith(`${sequence} `),
+  );
   if (relevant.length === 0) return { kind: "none" };
   const highestPriority = Math.max(...relevant.map((candidate) => candidate.priority));
   const highest = relevant.filter((candidate) => candidate.priority === highestPriority);
@@ -114,15 +116,14 @@ function normalizePresetBinding(value: string) {
 }
 
 export function normalizePresetBindings(bindings: string[] | null | undefined) {
-  const normalized = (bindings ?? [])
-    .map(normalizePresetBinding)
-    .filter(Boolean);
+  const normalized = (bindings ?? []).map(normalizePresetBinding).filter(Boolean);
   return [...new Set(normalized)].slice(0, MAX_SHORTCUT_ALTERNATIVES);
 }
 
 export function validateKeyboardPreset(value: KeyboardShortcutPreset): KeyboardPresetValidationResult {
   const errors: string[] = [];
-  if (value.schemaVersion !== KEYBOARD_PRESET_SCHEMA_VERSION) errors.push("Unsupported keyboard preset schema version.");
+  if (value.schemaVersion !== KEYBOARD_PRESET_SCHEMA_VERSION)
+    errors.push("Unsupported keyboard preset schema version.");
   if (!value.id?.trim()) errors.push("Preset id is required.");
   if (!value.name?.trim()) errors.push("Preset name is required.");
   if (value.unmappedActions !== "action-defaults" && value.unmappedActions !== "unbound") {
@@ -171,7 +172,8 @@ export function resolveKeyboardPreset(
     const inherited = current.basePresetId
       ? (() => {
           const parent = presetById.get(current.basePresetId!);
-          if (!parent) throw new Error(`Keyboard preset '${current.id}' requires missing base '${current.basePresetId}'.`);
+          if (!parent)
+            throw new Error(`Keyboard preset '${current.id}' requires missing base '${current.basePresetId}'.`);
           return visit(parent);
         })()
       : null;

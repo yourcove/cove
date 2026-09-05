@@ -56,11 +56,14 @@ function parsePath(pathname: string, search?: string): Route {
   }
 
   if (parts[0] === "manual") {
-    return applyRouteSearch({
-      page: "manual",
-      manualTopicId: parts.length > 1 ? decodeURIComponent(parts[1]) : undefined,
-      manualSlideId: parts.length > 2 ? decodeURIComponent(parts[2]) : undefined,
-    }, search);
+    return applyRouteSearch(
+      {
+        page: "manual",
+        manualTopicId: parts.length > 1 ? decodeURIComponent(parts[1]) : undefined,
+        manualSlideId: parts.length > 2 ? decodeURIComponent(parts[2]) : undefined,
+      },
+      search,
+    );
   }
 
   const page = parts[0];
@@ -220,7 +223,10 @@ export function registerNavigationBlocker(blocker: NavigationBlocker): () => voi
   return () => navigationBlockers.delete(blocker);
 }
 
-export function navigateToUrl(url: string, options?: { replace?: boolean; state?: unknown; bypassBlockers?: boolean }): boolean {
+export function navigateToUrl(
+  url: string,
+  options?: { replace?: boolean; state?: unknown; bypassBlockers?: boolean },
+): boolean {
   const currentUrl = `${window.location.pathname}${window.location.search}`;
   if (currentUrl === url) {
     return true;
@@ -251,7 +257,9 @@ function readRouteHistory(): RouteHistoryEntry[] {
     }
 
     return parsed.filter((entry): entry is RouteHistoryEntry => {
-      return entry != null && typeof entry.url === "string" && entry.route != null && typeof entry.route.page === "string";
+      return (
+        entry != null && typeof entry.url === "string" && entry.route != null && typeof entry.route.page === "string"
+      );
     });
   } catch {
     return [];
@@ -266,7 +274,9 @@ function writeRouteHistory(entries: RouteHistoryEntry[]) {
   }
 }
 
-export function readStoredRoute(url: string = buildCurrentUrl(window.location.pathname, window.location.search)): Route | undefined {
+export function readStoredRoute(
+  url: string = buildCurrentUrl(window.location.pathname, window.location.search),
+): Route | undefined {
   const history = readRouteHistory();
   for (let index = history.length - 1; index >= 0; index -= 1) {
     if (history[index].url === url && isRouteState(history[index].route)) {
@@ -288,19 +298,15 @@ export function syncRouteHistory(mode: RouteHistoryMode = "push") {
   };
 
   const history = readRouteHistory();
-  if (mode === "replace" && history.length > 0)
-  {
+  if (mode === "replace" && history.length > 0) {
     history[history.length - 1] = currentEntry;
     writeRouteHistory(history);
     return;
   }
 
-  if (mode === "history")
-  {
-    for (let index = history.length - 1; index >= 0; index -= 1)
-    {
-      if (history[index].url === currentEntry.url)
-      {
+  if (mode === "history") {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index].url === currentEntry.url) {
         writeRouteHistory(history.slice(0, index + 1));
         return;
       }
@@ -318,30 +324,54 @@ export function syncRouteHistory(mode: RouteHistoryMode = "push") {
 
 function getRouteLabel(route: Route): string {
   switch (route.page) {
-    case "home": return "Home";
-    case "video": return "Video";
-    case "audio": return "Audio";
-    case "audios": return "Audios";
-    case "text": return "Text";
-    case "texts": return "Texts";
-    case "video-span": return "Span";
-    case "videos": return "Videos";
-    case "segment": return "Segment";
-    case "segments": return "Segments";
-    case "faces": return "Faces";
-    case "image": return "Image";
-    case "images": return "Images";
-    case "gallery": return "Gallery";
-    case "galleries": return "Galleries";
-    case "group": return "Group";
-    case "groups": return "Groups";
-    case "compilation": return "Compilation";
-    case "performer": return "Performer";
-    case "performers": return "Performers";
-    case "studio": return "Studio";
-    case "studios": return "Studios";
-    case "tag": return "Tag";
-    case "tags": return "Tags";
+    case "home":
+      return "Home";
+    case "video":
+      return "Video";
+    case "audio":
+      return "Audio";
+    case "audios":
+      return "Audios";
+    case "text":
+      return "Text";
+    case "texts":
+      return "Texts";
+    case "video-span":
+      return "Span";
+    case "videos":
+      return "Videos";
+    case "segment":
+      return "Segment";
+    case "segments":
+      return "Segments";
+    case "faces":
+      return "Faces";
+    case "image":
+      return "Image";
+    case "images":
+      return "Images";
+    case "gallery":
+      return "Gallery";
+    case "galleries":
+      return "Galleries";
+    case "group":
+      return "Group";
+    case "groups":
+      return "Groups";
+    case "compilation":
+      return "Compilation";
+    case "performer":
+      return "Performer";
+    case "performers":
+      return "Performers";
+    case "studio":
+      return "Studio";
+    case "studios":
+      return "Studios";
+    case "tag":
+      return "Tag";
+    case "tags":
+      return "Tags";
     default:
       return route.page ? route.page.charAt(0).toUpperCase() + route.page.slice(1) : "Previous Page";
   }

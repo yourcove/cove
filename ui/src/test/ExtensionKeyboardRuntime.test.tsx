@@ -66,7 +66,11 @@ function ExtensionHarness({
   const registrations = useMemo(() => [{ id, action: handler, enabled, surface }], [enabled, handler, id, surface]);
   useRegisterExtensionKeyboardActions("sample", registrations);
   const bindings = useExtensionKeyboardBindings("sample");
-  return <button type="button" data-bindings={JSON.stringify(bindings)}>Target</button>;
+  return (
+    <button type="button" data-bindings={JSON.stringify(bindings)}>
+      Target
+    </button>
+  );
 }
 
 describe("extension keyboard runtime", () => {
@@ -81,14 +85,21 @@ describe("extension keyboard runtime", () => {
       canHandle: () => true,
       mode: "global",
     };
-    expect(scopeExtensionKeyboardRegistrations(" sample ", [registration])).toEqual([{
-      id: "extension:sample:run",
-      action: handler,
-      enabled: undefined,
-      surface: undefined,
-    }]);
+    expect(scopeExtensionKeyboardRegistrations(" sample ", [registration])).toEqual([
+      {
+        id: "extension:sample:run",
+        action: handler,
+        enabled: undefined,
+        surface: undefined,
+      },
+    ]);
     expect(() => scopeExtensionKeyboardRegistrations("", [])).toThrow(/extension id/i);
-    expect(() => scopeExtensionKeyboardRegistrations("sample", [{ id: "run", action: handler }, { id: "run", action: handler }])).toThrow(/duplicate/i);
+    expect(() =>
+      scopeExtensionKeyboardRegistrations("sample", [
+        { id: "run", action: handler },
+        { id: "run", action: handler },
+      ]),
+    ).toThrow(/duplicate/i);
   });
 
   it("returns copied extension-local resolved bindings including unbound actions", () => {
@@ -103,7 +114,11 @@ describe("extension keyboard runtime", () => {
   });
 
   it("dispatches resolved bindings with narrow final-stroke context", () => {
-    render(<KeyboardShortcutProvider><ExtensionHarness /></KeyboardShortcutProvider>);
+    render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness />
+      </KeyboardShortcutProvider>,
+    );
     const target = screen.getByRole("button", { name: "Target" });
 
     const event = new KeyboardEvent("keydown", { key: "r", repeat: true, bubbles: true, cancelable: true });
@@ -115,11 +130,19 @@ describe("extension keyboard runtime", () => {
   });
 
   it("reacts to enablement and unregisters on unmount", () => {
-    const view = render(<KeyboardShortcutProvider><ExtensionHarness enabled={false} /></KeyboardShortcutProvider>);
+    const view = render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness enabled={false} />
+      </KeyboardShortcutProvider>,
+    );
     fireEvent.keyDown(screen.getByRole("button"), { key: "r" });
     expect(action).not.toHaveBeenCalled();
 
-    view.rerender(<KeyboardShortcutProvider><ExtensionHarness enabled /></KeyboardShortcutProvider>);
+    view.rerender(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness enabled />
+      </KeyboardShortcutProvider>,
+    );
     fireEvent.keyDown(screen.getByRole("button"), { key: "r" });
     expect(action).toHaveBeenCalledTimes(1);
 
@@ -129,13 +152,21 @@ describe("extension keyboard runtime", () => {
   });
 
   it("rejects a registration surface not declared by the manifest action", () => {
-    render(<KeyboardShortcutProvider><ExtensionHarness surface="overlay" /></KeyboardShortcutProvider>);
+    render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness surface="overlay" />
+      </KeyboardShortcutProvider>,
+    );
     fireEvent.keyDown(screen.getByRole("button"), { key: "r" });
     expect(action).not.toHaveBeenCalled();
   });
 
   it("rejects a requested surface when an extension action declares no scopes", () => {
-    render(<KeyboardShortcutProvider><ExtensionHarness id="unscoped" surface="overlay" /></KeyboardShortcutProvider>);
+    render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness id="unscoped" surface="overlay" />
+      </KeyboardShortcutProvider>,
+    );
     fireEvent.keyDown(screen.getByRole("button"), { key: "u" });
     expect(action).not.toHaveBeenCalled();
   });
@@ -144,7 +175,9 @@ describe("extension keyboard runtime", () => {
     render(
       <KeyboardShortcutProvider>
         <ExtensionHarness />
-        <section role="dialog" aria-modal="true"><button type="button">Dialog action</button></section>
+        <section role="dialog" aria-modal="true">
+          <button type="button">Dialog action</button>
+        </section>
       </KeyboardShortcutProvider>,
     );
     fireEvent.keyDown(screen.getByRole("button", { name: "Dialog action" }), { key: "r" });
@@ -155,7 +188,11 @@ describe("extension keyboard runtime", () => {
     render(
       <KeyboardShortcutProvider>
         <ExtensionHarness />
-        <div role="listbox"><button type="button" role="option">Inline option</button></div>
+        <div role="listbox">
+          <button type="button" role="option">
+            Inline option
+          </button>
+        </div>
       </KeyboardShortcutProvider>,
     );
     fireEvent.keyDown(screen.getByRole("button", { name: "Target" }), { key: "r" });
@@ -168,8 +205,16 @@ describe("extension keyboard runtime", () => {
   it("dispatches the latest callback without re-registering the action", () => {
     const first = vi.fn();
     const second = vi.fn();
-    const view = render(<KeyboardShortcutProvider><ExtensionHarness handler={first} /></KeyboardShortcutProvider>);
-    view.rerender(<KeyboardShortcutProvider><ExtensionHarness handler={second} /></KeyboardShortcutProvider>);
+    const view = render(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness handler={first} />
+      </KeyboardShortcutProvider>,
+    );
+    view.rerender(
+      <KeyboardShortcutProvider>
+        <ExtensionHarness handler={second} />
+      </KeyboardShortcutProvider>,
+    );
 
     fireEvent.keyDown(screen.getByRole("button"), { key: "r" });
     expect(first).not.toHaveBeenCalled();

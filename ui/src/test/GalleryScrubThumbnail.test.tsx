@@ -25,7 +25,9 @@ function renderThumbnail(onClick = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <button type="button" onClick={onClick}><GalleryScrubThumbnail gallery={gallery} /></button>
+      <button type="button" onClick={onClick}>
+        <GalleryScrubThumbnail gallery={gallery} />
+      </button>
     </QueryClientProvider>,
   );
   const scrubber = screen.getByTestId("gallery-scrub-thumbnail");
@@ -38,7 +40,10 @@ describe("GalleryScrubThumbnail", () => {
     mocks.find.mockReset();
     mocks.thumbnailUrl.mockClear();
     mocks.coverUrl.mockClear();
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: true })),
+    );
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -47,11 +52,16 @@ describe("GalleryScrubThumbnail", () => {
     expect(getGalleryScrubImageIndex(0, 100, 101)).toBe(0);
     expect(getGalleryScrubImageIndex(50, 100, 101)).toBe(50);
     expect(getGalleryScrubImageIndex(100, 100, 101)).toBe(100);
-    expect(new Set(Array.from({ length: 101 }, (_, position) => getGalleryScrubImageIndex(position, 100, 101))).size).toBe(101);
+    expect(
+      new Set(Array.from({ length: 101 }, (_, position) => getGalleryScrubImageIndex(position, 100, 101))).size,
+    ).toBe(101);
   });
 
   it("keeps the static cover on devices without precise hover", () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: false })),
+    );
     const { scrubber } = renderThumbnail();
 
     fireEvent.mouseMove(scrubber, { clientX: 60 });
@@ -65,10 +75,12 @@ describe("GalleryScrubThumbnail", () => {
 
     fireEvent.mouseMove(scrubber, { clientX: 60 });
 
-    await waitFor(() => expect(mocks.find).toHaveBeenCalledWith(
-      { page: 51, perPage: 1, sort: "path", direction: "asc" },
-      { galleryId: 7 },
-    ));
+    await waitFor(() =>
+      expect(mocks.find).toHaveBeenCalledWith(
+        { page: 51, perPage: 1, sort: "path", direction: "asc" },
+        { galleryId: 7 },
+      ),
+    );
     await waitFor(() => expect(container.querySelector('img[src="/thumbnail/55"]')).toBeInTheDocument());
     const preview = container.querySelector('img[src="/thumbnail/55"]') as HTMLImageElement;
     fireEvent.load(preview);
@@ -123,7 +135,12 @@ describe("GalleryScrubThumbnail", () => {
   it("ignores stale and failed previews without interfering with row navigation", async () => {
     let resolveFirst!: (value: any) => void;
     mocks.find
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
       .mockRejectedValueOnce(new Error("missing preview"));
     const { scrubber, container, onClick } = renderThumbnail();
 

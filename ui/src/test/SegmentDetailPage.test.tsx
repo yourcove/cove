@@ -3,13 +3,16 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SegmentDetailPage } from "../pages/SegmentDetailPage";
 
-vi.stubGlobal("IntersectionObserver", vi.fn(function IntersectionObserver() {
-  return {
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  };
-}));
+vi.stubGlobal(
+  "IntersectionObserver",
+  vi.fn(function IntersectionObserver() {
+    return {
+      observe: vi.fn(),
+      unobserve: vi.fn(),
+      disconnect: vi.fn(),
+    };
+  }),
+);
 
 const { mockEntityImages, mockVideos, mockSegmentLibrary, mockTags, mockGoBack, videoPlayerMock } = vi.hoisted(() => ({
   mockEntityImages: {
@@ -205,9 +208,11 @@ describe("SegmentDetailPage", () => {
     expect(screen.getByTestId("media-detail-layout-media")).toBeInTheDocument();
     expect(screen.getByTestId("segment-video-player")).toBeInTheDocument();
     expect(screen.queryByTestId("media-detail-layout-media-frame")).not.toBeInTheDocument();
-    expect(videoPlayerMock).toHaveBeenCalledWith(expect.not.objectContaining({
-      extensionSurface: expect.anything(),
-    }));
+    expect(videoPlayerMock).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        extensionSurface: expect.anything(),
+      }),
+    );
 
     const tabs = screen.getByRole("tablist", { name: /detail tabs/i });
 
@@ -292,24 +297,27 @@ describe("SegmentDetailPage", () => {
     fireEvent.click(makeVideoButton);
 
     await waitFor(() => {
-      expect(mockVideos.createSubVideo).toHaveBeenCalledWith(99, expect.objectContaining({
-        title: "Episode Intro",
-        code: "SC-99",
-        details: "Parent video details",
-        director: "Director Example",
-        date: "2026-05-01",
-        organized: true,
-        studioId: 12,
-        urls: ["https://example.test/video-99"],
-        tagIds: [5, 6],
-        performerIds: [11],
-        galleryIds: [15],
-        groups: [{ groupId: 17, videoIndex: 3 }],
-        customFields: { mood: "intense" },
-        parentVideoId: 99,
-        clipStartSec: 12,
-        clipEndSec: 21,
-      }));
+      expect(mockVideos.createSubVideo).toHaveBeenCalledWith(
+        99,
+        expect.objectContaining({
+          title: "Episode Intro",
+          code: "SC-99",
+          details: "Parent video details",
+          director: "Director Example",
+          date: "2026-05-01",
+          organized: true,
+          studioId: 12,
+          urls: ["https://example.test/video-99"],
+          tagIds: [5, 6],
+          performerIds: [11],
+          galleryIds: [15],
+          groups: [{ groupId: 17, videoIndex: 3 }],
+          customFields: { mood: "intense" },
+          parentVideoId: 99,
+          clipStartSec: 12,
+          clipEndSec: 21,
+        }),
+      );
     });
     await waitFor(() => {
       expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 1234 });

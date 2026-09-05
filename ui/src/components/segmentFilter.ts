@@ -79,11 +79,7 @@ function hasIntersection<T>(selected: T[], present: Set<T>): boolean {
 
 // A span passes the filter when it satisfies every active category (AND across
 // categories), and within a category any one of the selected values matches (OR).
-export function matchesSegmentFilter(
-  span: SpanLike,
-  filter: SegmentFilterState,
-  ctx: SegmentFilterContext,
-): boolean {
+export function matchesSegmentFilter(span: SpanLike, filter: SegmentFilterState, ctx: SegmentFilterContext): boolean {
   if (!isSegmentFilterActive(filter)) return true;
 
   const facets = collectSpanFacets(span, ctx);
@@ -127,10 +123,7 @@ export interface SegmentFacets {
 
 // Derives the distinct kind / source / tag / ref values actually present across the
 // supplied spans so the filter bar only offers values that exist on this video.
-export function buildSegmentFacets(
-  spans: SpanLike[],
-  ctx: SegmentFilterContext,
-): SegmentFacets {
+export function buildSegmentFacets(spans: SpanLike[], ctx: SegmentFilterContext): SegmentFacets {
   const kinds = new Set<string>();
   const sourceKeys = new Set<string>();
   const tagIds = new Set<number>();

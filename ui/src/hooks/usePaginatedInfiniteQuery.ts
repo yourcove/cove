@@ -41,7 +41,7 @@ export function usePaginatedInfiniteQuery<TItem extends { id: string | number }>
 
       return lastPage.page + 1;
     },
-    getPreviousPageParam: (firstPage) => firstPage.page > 1 ? firstPage.page - 1 : undefined,
+    getPreviousPageParam: (firstPage) => (firstPage.page > 1 ? firstPage.page - 1 : undefined),
   });
 
   const pages = query.data?.pages ?? [];

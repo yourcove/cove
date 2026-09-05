@@ -84,7 +84,7 @@ describe("PerformerEditModal", () => {
   afterEach(() => resetMutationFailureForTests());
 
   it("shows a rename conflict inline without exposing the API wrapper or global notice", async () => {
-    const detail = "A performer with name \"Existing performer\" and no disambiguation already exists.";
+    const detail = 'A performer with name "Existing performer" and no disambiguation already exists.';
     mocks.performersUpdate.mockRejectedValueOnce(new Error(`API Error 409: ${JSON.stringify({ message: detail })}`));
     const performer: Performer = {
       id: 1,
@@ -177,29 +177,34 @@ describe("PerformerEditModal", () => {
     await user.clear(heightInput!);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({
-      clearFields: [
-        "disambiguation",
-        "gender",
-        "birthdate",
-        "deathDate",
-        "ethnicity",
-        "country",
-        "eyeColor",
-        "hairColor",
-        "heightCm",
-        "weight",
-        "measurements",
-        "fakeTits",
-        "penisLength",
-        "circumcised",
-        "careerStart",
-        "careerEnd",
-        "tattoos",
-        "piercings",
-        "details",
-      ],
-    })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          clearFields: [
+            "disambiguation",
+            "gender",
+            "birthdate",
+            "deathDate",
+            "ethnicity",
+            "country",
+            "eyeColor",
+            "hairColor",
+            "heightCm",
+            "weight",
+            "measurements",
+            "fakeTits",
+            "penisLength",
+            "circumcised",
+            "careerStart",
+            "careerEnd",
+            "tattoos",
+            "piercings",
+            "details",
+          ],
+        }),
+      ),
+    );
   });
 
   it("searches tags remotely and adds selected tags to the payload", async () => {
@@ -223,12 +228,13 @@ describe("PerformerEditModal", () => {
     };
 
     mocks.tagsFind.mockImplementation(async ({ q }: { q?: string }) => ({
-      items: q === "sha"
-        ? [
-          { id: 7, name: "Shaved Pussy" },
-          { id: 8, name: "Shared Video" },
-        ]
-        : [],
+      items:
+        q === "sha"
+          ? [
+              { id: 7, name: "Shaved Pussy" },
+              { id: 8, name: "Shared Video" },
+            ]
+          : [],
     }));
 
     renderModal(performer);
@@ -252,7 +258,9 @@ describe("PerformerEditModal", () => {
     await user.keyboard("{Enter}");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [7] })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [7] })),
+    );
     expect(screen.getByText("Shaved Pussy")).toBeInTheDocument();
   });
 
@@ -297,7 +305,9 @@ describe("PerformerEditModal", () => {
     await waitFor(() => expect(mocks.tagsCreate).toHaveBeenCalledWith({ name: "Novel tag" }));
     expect(await screen.findByText("Qualities")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [9] })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ tagIds: [9] })),
+    );
   });
 
   it("keeps the highlighted create option mounted while tag results refresh", async () => {
@@ -321,11 +331,11 @@ describe("PerformerEditModal", () => {
     };
     let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
     mocks.tagsFind.mockReset();
-    mocks.tagsFind
-      .mockResolvedValueOnce({ items: [] })
-      .mockReturnValueOnce(new Promise((resolve) => {
+    mocks.tagsFind.mockResolvedValueOnce({ items: [] }).mockReturnValueOnce(
+      new Promise((resolve) => {
         resolveNextSearch = resolve;
-      }));
+      }),
+    );
 
     renderModal(performer);
 
@@ -380,6 +390,11 @@ describe("PerformerEditModal", () => {
     await user.type(screen.getAllByPlaceholderText("Alias")[2], "Third Alias");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.performersUpdate).toHaveBeenCalledWith(1, expect.objectContaining({ aliases: ["New Alias", "Second Alias", "Third Alias"] })));
+    await waitFor(() =>
+      expect(mocks.performersUpdate).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ aliases: ["New Alias", "Second Alias", "Third Alias"] }),
+      ),
+    );
   });
 });

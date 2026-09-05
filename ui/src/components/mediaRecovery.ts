@@ -1,10 +1,4 @@
-export type MediaRecoveryPhase =
-  | "healthy"
-  | "stalled"
-  | "waiting-for-server"
-  | "retrying"
-  | "recovering"
-  | "exhausted";
+export type MediaRecoveryPhase = "healthy" | "stalled" | "waiting-for-server" | "retrying" | "recovering" | "exhausted";
 
 export type MediaPlayIntent = "play" | "pause";
 
@@ -60,10 +54,7 @@ function retryOrWait(state: MediaRecoveryState, serverAvailable: boolean): Media
     return transition({ ...state, phase: "exhausted" }, [{ type: "cancel-timers" }]);
   }
   const attempts = state.attempts + 1;
-  return transition(
-    { ...state, phase: "retrying", attempts },
-    [{ type: "schedule-retry", delayMs: attempts * 500 }],
-  );
+  return transition({ ...state, phase: "retrying", attempts }, [{ type: "schedule-retry", delayMs: attempts * 500 }]);
 }
 
 export function createMediaRecoveryState(): MediaRecoveryState {
@@ -83,7 +74,12 @@ export function reduceMediaRecovery(state: MediaRecoveryState, event: MediaRecov
     case "waiting":
       if (state.phase !== "healthy") return transition(state);
       return transition(
-        { ...state, phase: "stalled", resumeAt: meaningfulPosition(event.position, state.resumeAt), playIntent: event.playIntent },
+        {
+          ...state,
+          phase: "stalled",
+          resumeAt: meaningfulPosition(event.position, state.resumeAt),
+          playIntent: event.playIntent,
+        },
         [{ type: "schedule-stall-watchdog" }],
       );
     case "stall-timeout":
@@ -111,20 +107,21 @@ export function reduceMediaRecovery(state: MediaRecoveryState, event: MediaRecov
         : transition({ ...state, phase: "waiting-for-server" }, [{ type: "cancel-timers" }]);
     case "server-available":
       return state.phase === "waiting-for-server"
-        ? transition(
-          { ...state, phase: "recovering", attempts: 0 },
-          [{ type: "load" }, { type: "schedule-recovery-watchdog" }],
-        )
+        ? transition({ ...state, phase: "recovering", attempts: 0 }, [
+            { type: "load" },
+            { type: "schedule-recovery-watchdog" },
+          ])
         : transition(state);
     case "metadata-loaded": {
       if (["healthy", "stalled", "waiting-for-server", "exhausted"].includes(state.phase)) return transition(state);
       const commands: MediaRecoveryCommand[] = [];
       if (state.resumeAt != null) commands.push({ type: "seek", position: state.resumeAt });
       if (state.playIntent === "play" && event.serverAvailable) commands.push({ type: "play" });
-      return transition(
-        { ...state, phase: "recovering" },
-        [{ type: "cancel-timers" }, { type: "schedule-recovery-watchdog" }, ...commands],
-      );
+      return transition({ ...state, phase: "recovering" }, [
+        { type: "cancel-timers" },
+        { type: "schedule-recovery-watchdog" },
+        ...commands,
+      ]);
     }
     case "play-failed":
       return state.phase === "recovering"
@@ -140,11 +137,11 @@ export function reduceMediaRecovery(state: MediaRecoveryState, event: MediaRecov
     case "media-progress": {
       const position = meaningfulPosition(event.position, state.resumeAt);
       if (
-        state.phase === "healthy"
-        || state.playIntent !== "play"
-        || position == null
-        || state.resumeAt == null
-        || position <= state.resumeAt + MEDIA_PROGRESS_EPSILON_SECONDS
+        state.phase === "healthy" ||
+        state.playIntent !== "play" ||
+        position == null ||
+        state.resumeAt == null ||
+        position <= state.resumeAt + MEDIA_PROGRESS_EPSILON_SECONDS
       ) {
         return transition(state);
       }
@@ -160,10 +157,10 @@ export function reduceMediaRecovery(state: MediaRecoveryState, event: MediaRecov
         : transition({ ...state, resumeAt: meaningfulPosition(event.position, state.resumeAt) });
     case "manual-retry":
       return state.phase === "exhausted"
-        ? transition(
-          { ...state, phase: "recovering", attempts: 0, playIntent: "play" },
-          [{ type: "load" }, { type: "schedule-recovery-watchdog" }],
-        )
+        ? transition({ ...state, phase: "recovering", attempts: 0, playIntent: "play" }, [
+            { type: "load" },
+            { type: "schedule-recovery-watchdog" },
+          ])
         : transition(state);
     case "reset":
       return transition(createMediaRecoveryState(), [{ type: "cancel-timers" }]);

@@ -45,11 +45,7 @@ describe("SavedFilterMenu", () => {
       <QueryClientProvider client={queryClient}>
         <div>
           <button type="button">Outside</button>
-          <SavedFilterMenu
-            mode="videos"
-            currentFilter={{ page: 1, perPage: 40 }}
-            onApplyFilter={vi.fn()}
-          />
+          <SavedFilterMenu mode="videos" currentFilter={{ page: 1, perPage: 40 }} onApplyFilter={vi.fn()} />
         </div>
       </QueryClientProvider>,
     );
@@ -85,9 +81,7 @@ describe("SavedFilterMenu", () => {
 
   it("reveals a truncated saved-filter name on hover and keyboard focus", async () => {
     const longName = "A saved filter name that cannot fit in the available width";
-    vi.mocked(savedFilters.list).mockResolvedValue([
-      { id: 1, mode: "videos", name: longName, findFilter: "{}" },
-    ]);
+    vi.mocked(savedFilters.list).mockResolvedValue([{ id: 1, mode: "videos", name: longName, findFilter: "{}" }]);
     const user = userEvent.setup();
     renderMenu();
 
@@ -114,9 +108,7 @@ describe("SavedFilterMenu", () => {
   });
 
   it("does not add a tooltip when the saved-filter name fits", async () => {
-    vi.mocked(savedFilters.list).mockResolvedValue([
-      { id: 1, mode: "videos", name: "Short name", findFilter: "{}" },
-    ]);
+    vi.mocked(savedFilters.list).mockResolvedValue([{ id: 1, mode: "videos", name: "Short name", findFilter: "{}" }]);
     const user = userEvent.setup();
     renderMenu();
 
@@ -151,7 +143,14 @@ describe("SavedFilterMenu", () => {
     expect(input).toHaveFocus();
 
     vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
-      x: 0, y: -100, top: -100, bottom: -76, left: 0, right: 48, width: 48, height: 24,
+      x: 0,
+      y: -100,
+      top: -100,
+      bottom: -76,
+      left: 0,
+      right: 48,
+      width: 48,
+      height: 24,
       toJSON: () => ({}),
     });
     fireEvent(visualViewport as unknown as Window, new Event("resize"));
@@ -180,11 +179,13 @@ describe("SavedFilterMenu", () => {
     await screen.findByRole("button", { name: "alpha" });
     await user.click(screen.getByRole("button", { name: 'Update saved filter "alpha"' }));
 
-    await waitFor(() => expect(savedFilters.update).toHaveBeenCalledWith(2, {
-      findFilter: JSON.stringify({ page: 2, sort: "title", direction: "asc" }),
-      objectFilter: JSON.stringify({ favoriteCriterion: { value: true } }),
-      uiOptions: JSON.stringify({ displayMode: "list", zoomLevel: 5.25 }),
-    }));
+    await waitFor(() =>
+      expect(savedFilters.update).toHaveBeenCalledWith(2, {
+        findFilter: JSON.stringify({ page: 2, sort: "title", direction: "asc" }),
+        objectFilter: JSON.stringify({ favoriteCriterion: { value: true } }),
+        uiOptions: JSON.stringify({ displayMode: "list", zoomLevel: 5.25 }),
+      }),
+    );
     await waitFor(() => expect(screen.queryByText("Saved Filters")).not.toBeInTheDocument());
   });
 
@@ -220,9 +221,7 @@ describe("SavedFilterMenu", () => {
   });
 
   it("keeps the menu open and reports an update failure", async () => {
-    vi.mocked(savedFilters.list).mockResolvedValue([
-      { id: 2, mode: "videos", name: "Favorites", findFilter: "{}" },
-    ]);
+    vi.mocked(savedFilters.list).mockResolvedValue([{ id: 2, mode: "videos", name: "Favorites", findFilter: "{}" }]);
     vi.mocked(savedFilters.update).mockRejectedValue(new Error("Conflict"));
     const user = userEvent.setup();
     renderMenu();
@@ -235,9 +234,7 @@ describe("SavedFilterMenu", () => {
   });
 
   it("does not create a duplicate name ignoring case and whitespace", async () => {
-    vi.mocked(savedFilters.list).mockResolvedValue([
-      { id: 1, mode: "videos", name: "Favorites", findFilter: "{}" },
-    ]);
+    vi.mocked(savedFilters.list).mockResolvedValue([{ id: 1, mode: "videos", name: "Favorites", findFilter: "{}" }]);
     const user = userEvent.setup();
     renderMenu();
 

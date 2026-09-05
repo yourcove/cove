@@ -5,7 +5,18 @@ import { authStore, hasPermission } from "../auth/authStore";
 import type { CoveConfig, SystemStatus } from "../api/types";
 import { normalizeShortcutSequence } from "../keyboard/keybindings";
 
-const defaultMenuItems = ["videos", "audios", "texts", "images", "faces", "performers", "galleries", "studios", "tags", "groups"];
+const defaultMenuItems = [
+  "videos",
+  "audios",
+  "texts",
+  "images",
+  "faces",
+  "performers",
+  "galleries",
+  "studios",
+  "tags",
+  "groups",
+];
 const defaultIdentifyDefaults = {
   createTags: true,
   createPerformers: true,
@@ -124,7 +135,12 @@ function normalizeConfig(config: CoveConfig, userKeybindingOverrides?: Record<st
             return false;
           }
 
-          return items.findIndex((candidate) => (candidate.entityType ?? "") === (preference.entityType ?? "") && candidate.site === preference.site) === index;
+          return (
+            items.findIndex(
+              (candidate) =>
+                (candidate.entityType ?? "") === (preference.entityType ?? "") && candidate.site === preference.site,
+            ) === index
+          );
         }),
       identifyDefaults: {
         createTags: identifyDefaults.createTags ?? true,
@@ -167,11 +183,13 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
     queryFn: system.status,
   });
 
-  const canReadSystemConfig = !!statusQuery.data
-    && (!statusQuery.data.authEnabled || hasPermission(authUser?.permissions, "system.read", authUser?.readGrantedEntityKinds));
+  const canReadSystemConfig =
+    !!statusQuery.data &&
+    (!statusQuery.data.authEnabled ||
+      hasPermission(authUser?.permissions, "system.read", authUser?.readGrantedEntityKinds));
 
   const configQuery = useQuery({
-    queryKey: ["system-config", statusQuery.data?.authEnabled ? authUser?.id ?? "anonymous" : "auth-disabled"],
+    queryKey: ["system-config", statusQuery.data?.authEnabled ? (authUser?.id ?? "anonymous") : "auth-disabled"],
     queryFn: system.getConfig,
     enabled: canReadSystemConfig,
     retry: false,
@@ -219,7 +237,9 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
     style.textContent = customCss;
     document.head.appendChild(style);
 
-    return () => { style.remove(); };
+    return () => {
+      style.remove();
+    };
   }, [config?.ui.customCss, config?.ui.troubleshootingModeEnabled]);
 
   useEffect(() => {
@@ -236,7 +256,9 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
     script.textContent = customJs;
     document.body.appendChild(script);
 
-    return () => { script.remove(); };
+    return () => {
+      script.remove();
+    };
   }, [config?.ui.customJs, config?.ui.troubleshootingModeEnabled]);
 
   return (
@@ -248,12 +270,15 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
         statusLoading: statusQuery.isLoading && !statusQuery.isFetched,
         statusError: !statusQuery.data && statusQuery.isFetched,
         statusRetrying: statusQuery.isFetching && statusQuery.isFetched,
-        retryStatus: () => { void statusQuery.refetch(); },
+        retryStatus: () => {
+          void statusQuery.refetch();
+        },
       }}
     >
       {config?.ui.troubleshootingModeEnabled ? (
         <div className="sticky top-0 z-[60] border-b border-yellow-500/40 bg-yellow-500/15 px-4 py-2 text-center text-xs font-medium text-yellow-100">
-          Troubleshooting mode is enabled. Extensions and custom UI assets should be treated as disabled while diagnosing issues.
+          Troubleshooting mode is enabled. Extensions and custom UI assets should be treated as disabled while
+          diagnosing issues.
         </div>
       ) : null}
       {children}

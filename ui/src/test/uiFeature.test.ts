@@ -76,8 +76,7 @@ describe("Transcode URL Builder", () => {
   const transcodeUrl = (id: number, resolution?: string) =>
     `${API_BASE}/stream/video/${id}/transcode${resolution ? `?resolution=${resolution}` : ""}`;
 
-  const hlsMasterUrl = (id: number) =>
-    `${API_BASE}/stream/video/${id}/hls/master.m3u8`;
+  const hlsMasterUrl = (id: number) => `${API_BASE}/stream/video/${id}/hls/master.m3u8`;
 
   it("builds direct transcode URL without resolution", () => {
     expect(transcodeUrl(42)).toBe("/api/stream/video/42/transcode");
@@ -170,4 +169,3 @@ describe("Quality Selection", () => {
     expect(available).toContain(selected);
   });
 });
-

@@ -36,7 +36,11 @@ export function StudiosPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "latest_video_date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "tagger"] as const, "grid") as DisplayMode,
+      displayMode: resolveSavedDisplayMode(
+        savedFilter?.uiOptions,
+        ["grid", "list", "tagger"] as const,
+        "grid",
+      ) as DisplayMode,
     };
   }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({
@@ -67,9 +71,18 @@ export function StudiosPage({ onNavigate }: Props) {
   const items = listData.items;
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
-  const { engagementById } = useEntityEngagementBatch("studio", items.map((item) => item.id));
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { engagementById } = useEntityEngagementBatch(
+    "studio",
+    items.map((item) => item.id),
+  );
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }),
+    [listData.infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, {
+    preserveOnItemsChange: listData.infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -82,7 +95,11 @@ export function StudiosPage({ onNavigate }: Props) {
 
   return (
     <>
-      <StudioCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "studio", id })} />
+      <StudioCreateModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(id) => onNavigate({ page: "studio", id })}
+      />
       <ListPage
         title="Studios"
         pageKey="studios"
@@ -92,7 +109,9 @@ export function StudiosPage({ onNavigate }: Props) {
         totalCount={totalCount}
         isLoading={isLoading}
         error={listData.loadError}
-        onRetry={() => { void listData.refetch(); }}
+        onRetry={() => {
+          void listData.refetch();
+        }}
         sortOptions={SORT_OPTIONS}
         multiSortKeys={STUDIO_MULTI_SORT_KEYS}
         displayMode={displayMode}
@@ -127,45 +146,62 @@ export function StudiosPage({ onNavigate }: Props) {
           </>
         }
       >
-      {displayMode === "tagger" ? (
-        <StudioTagger studios={items} selectedIds={selectedIds} selecting={selecting} onSelect={toggle} />
-      ) : displayMode === "grid" ? (
-        <VirtualizedEntityGrid
-          items={items}
-          getItemKey={(studio) => studio.id}
-          minCardWidth="var(--card-min-width, 200px)"
-          estimateRowHeight={300}
-          infinitePageSize={listData.infinitePageSize}
-          hasNextPage={listData.infiniteQuery.hasNextPage}
-          isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
-          loadMore={listData.loadMore}
-          renderItem={(s) => (
-            <StudioTile
-              studio={s}
-              engagement={engagementById.get(s.id)}
-              onClick={(toggleOptions) => selecting ? toggle(s.id, toggleOptions) : onNavigate({ page: "studio", id: s.id })}
-              onNavigate={onNavigate}
-              selected={selectedIds.has(s.id)}
-              onSelect={(toggleOptions) => toggle(s.id, toggleOptions)}
-              selecting={selecting}
-            >
-              <CardExtensionSlot slot="studio-card-footer" context={{ studio: s, onNavigate }} />
-            </StudioTile>
-          )}
-        />
-      ) : (
-        <RelatedEntityListView entityType="studios" items={items} displayMode="list" selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={listData.infinitePageSize} hasNextPage={listData.infiniteQuery.hasNextPage} isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage} loadMore={listData.loadMore} />
-      )}
-      {items.length === 0 && (
-        <div className="text-center text-secondary py-16">
-          <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-          <p>No studios found</p>
-        </div>
-      )}
+        {displayMode === "tagger" ? (
+          <StudioTagger studios={items} selectedIds={selectedIds} selecting={selecting} onSelect={toggle} />
+        ) : displayMode === "grid" ? (
+          <VirtualizedEntityGrid
+            items={items}
+            getItemKey={(studio) => studio.id}
+            minCardWidth="var(--card-min-width, 200px)"
+            estimateRowHeight={300}
+            infinitePageSize={listData.infinitePageSize}
+            hasNextPage={listData.infiniteQuery.hasNextPage}
+            isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+            loadMore={listData.loadMore}
+            renderItem={(s) => (
+              <StudioTile
+                studio={s}
+                engagement={engagementById.get(s.id)}
+                onClick={(toggleOptions) =>
+                  selecting ? toggle(s.id, toggleOptions) : onNavigate({ page: "studio", id: s.id })
+                }
+                onNavigate={onNavigate}
+                selected={selectedIds.has(s.id)}
+                onSelect={(toggleOptions) => toggle(s.id, toggleOptions)}
+                selecting={selecting}
+              >
+                <CardExtensionSlot slot="studio-card-footer" context={{ studio: s, onNavigate }} />
+              </StudioTile>
+            )}
+          />
+        ) : (
+          <RelatedEntityListView
+            entityType="studios"
+            items={items}
+            displayMode="list"
+            selectedIds={selectedIds}
+            selecting={selecting}
+            onToggle={toggle}
+            onNavigate={onNavigate}
+            infinitePageSize={listData.infinitePageSize}
+            hasNextPage={listData.infiniteQuery.hasNextPage}
+            isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+            loadMore={listData.loadMore}
+          />
+        )}
+        {items.length === 0 && (
+          <div className="text-center text-secondary py-16">
+            <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>No studios found</p>
+          </div>
+        )}
       </ListPage>
       <MergeDialog
         open={showMerge}
-        onClose={() => { setShowMerge(false); selectNone(); }}
+        onClose={() => {
+          setShowMerge(false);
+          selectNone();
+        }}
         entityType="studio"
         items={items.filter((s) => selectedIds.has(s.id)).map((s) => ({ id: s.id, name: s.name }))}
         onMerge={studios.merge}
@@ -175,7 +211,21 @@ export function StudiosPage({ onNavigate }: Props) {
   );
 }
 
-function StudioListTable({ studios: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { studios: Studio[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: MultiSelectToggleHandler; selecting?: boolean }) {
+function StudioListTable({
+  studios: items,
+  engagementById,
+  onNavigate,
+  selectedIds,
+  onToggle,
+  selecting,
+}: {
+  studios: Studio[];
+  engagementById: ReadonlyMap<number, EntityEngagement>;
+  onNavigate: (r: any) => void;
+  selectedIds?: Set<number>;
+  onToggle?: MultiSelectToggleHandler;
+  selecting?: boolean;
+}) {
   return (
     <table className="w-full text-sm">
       <thead>
@@ -191,10 +241,25 @@ function StudioListTable({ studios: items, engagementById, onNavigate, selectedI
         {items.map((s) => (
           <tr
             key={s.id}
-            onClick={(event) => selecting ? onToggle?.(s.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "studio", id: s.id })}
+            onClick={(event) =>
+              selecting ? onToggle?.(s.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "studio", id: s.id })
+            }
             className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(s.id) ? "bg-accent/10" : ""}`}
           >
-            {selectedIds && <td className="py-2 px-3"><input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => {}} onClick={(event) => { event.stopPropagation(); onToggle?.(s.id, toggleOptionsFromEvent(event)); }} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" /></td>}
+            {selectedIds && (
+              <td className="py-2 px-3">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(s.id)}
+                  onChange={() => {}}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggle?.(s.id, toggleOptionsFromEvent(event));
+                  }}
+                  className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent"
+                />
+              </td>
+            )}
             <td className="py-2 px-3 text-foreground">{s.name}</td>
             <td className="py-2 px-3 text-secondary">{s.parentName ?? ""}</td>
             <td className="py-2 px-3 text-secondary text-right">{s.videoCount}</td>
@@ -207,7 +272,15 @@ function StudioListTable({ studios: items, engagementById, onNavigate, selectedI
 }
 
 /* ── Studio Create Modal ── */
-export function StudioCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+export function StudioCreateModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (id: number) => void;
+}) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     name: "",
@@ -260,13 +333,33 @@ export function StudioCreateModal({ open, onClose, onCreated }: { open: boolean;
         <TextArea value={form.details} onChange={(v) => setForm({ ...form, details: v })} rows={3} />
       </Field>
       <Field label="Parent Studio">
-        <EntityReferenceSelector entityType="studio" value={parentId} onChange={setParentId} placeholder="Search parent studios..." />
+        <EntityReferenceSelector
+          entityType="studio"
+          value={parentId}
+          onChange={setParentId}
+          placeholder="Search parent studios..."
+        />
       </Field>
       <Field label="Custom Fields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="studio" />
+        <CustomFieldsEditor
+          value={customFields}
+          onChange={setCustomFields}
+          onValidityChange={setCustomFieldsValid}
+          entityType="studio"
+        />
       </Field>
-      {mutation.error ? <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
-      <CreateModalActions loading={mutation.isPending} disabled={!customFieldsValid} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      {mutation.error ? (
+        <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">
+          {getApiValidationFailureDetail(mutation.error)}
+        </div>
+      ) : null}
+      <CreateModalActions
+        loading={mutation.isPending}
+        disabled={!customFieldsValid}
+        onSave={save}
+        createAnother={createAnother}
+        onCreateAnotherChange={setCreateAnother}
+      />
     </EditModal>
   );
 }

@@ -2,7 +2,12 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Database, Loader2 } from "lucide-react";
 import { Navbar } from "./components/Navbar";
-import { TutorialStoryboardDialog, TUTORIAL_STORYBOARD_EVENT, openTutorialStoryboard, type TutorialOpenRequest } from "./components/TutorialStoryboardDialog";
+import {
+  TutorialStoryboardDialog,
+  TUTORIAL_STORYBOARD_EVENT,
+  openTutorialStoryboard,
+  type TutorialOpenRequest,
+} from "./components/TutorialStoryboardDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RouteRegistryProvider, useRouteRegistry } from "./router/RouteRegistry";
 import { AppConfigProvider, useAppConfig } from "./state/AppConfigContext";
@@ -18,7 +23,19 @@ import { auth, database } from "./api/client";
 import { useKeySequence } from "./hooks/useKeySequence";
 import { KeyboardShortcutProvider, useKeyboardShortcuts } from "./keyboard/KeyboardShortcutProvider";
 import { KeyboardShortcutsDialog } from "./components/KeyboardShortcutsDialog";
-import { LOCATION_CHANGE_EVENT, Route, buildCurrentUrl, buildRoutePath, buildRouteUrl, navigateToUrl, parseCurrentRoute, parseLegacyHashRoute, readStoredRoute, resolveCurrentRoute, syncRouteHistory } from "./router/location";
+import {
+  LOCATION_CHANGE_EVENT,
+  Route,
+  buildCurrentUrl,
+  buildRoutePath,
+  buildRouteUrl,
+  navigateToUrl,
+  parseCurrentRoute,
+  parseLegacyHashRoute,
+  readStoredRoute,
+  resolveCurrentRoute,
+  syncRouteHistory,
+} from "./router/location";
 import { DetailListStateCacheProvider } from "./hooks/useDetailListUrlState";
 import { AppFloatingUI } from "./components/AppFloatingUI";
 import { ServerAvailabilityBanner } from "./components/ServerAvailabilityBanner";
@@ -66,36 +83,50 @@ const BUILTIN_ROUTE_PERMISSIONS: Partial<Record<Route["page"], string>> = {
 };
 
 // Lazy-loaded page components for code splitting
-const VideosPage = lazy(() => import("./pages/VideosPage").then(m => ({ default: m.VideosPage })));
-const AudiosPage = lazy(() => import("./pages/AudiosPage").then(m => ({ default: m.AudiosPage })));
-const TextsPage = lazy(() => import("./pages/TextsPage").then(m => ({ default: m.TextsPage })));
-const SegmentsPage = lazy(() => import("./pages/SegmentsPage").then(m => ({ default: m.SegmentsPage })));
-const PerformersPage = lazy(() => import("./pages/PerformersPage").then(m => ({ default: m.PerformersPage })));
-const StudiosPage = lazy(() => import("./pages/StudiosPage").then(m => ({ default: m.StudiosPage })));
-const TagsPage = lazy(() => import("./pages/TagsPage").then(m => ({ default: m.TagsPage })));
-const GalleriesPage = lazy(() => import("./pages/GalleriesPage").then(m => ({ default: m.GalleriesPage })));
-const GroupsPage = lazy(() => import("./pages/GroupsPage").then(m => ({ default: m.GroupsPage })));
-const ImagesPage = lazy(() => import("./pages/ImagesPage").then(m => ({ default: m.ImagesPage })));
-const SettingsPage = lazy(() => import("./pages/SettingsPage").then(m => ({ default: m.SettingsPage })));
-const StatsPage = lazy(() => import("./pages/StatsPage").then(m => ({ default: m.StatsPage })));
-const VideoDetailPage = lazy(() => import("./pages/VideoDetailPage").then(m => ({ default: m.VideoDetailPage })));
-const AudioDetailPage = lazy(() => import("./pages/AudioDetailPage").then(m => ({ default: m.AudioDetailPage })));
-const TextDetailPage = lazy(() => import("./pages/TextDetailPage").then(m => ({ default: m.TextDetailPage })));
-const SegmentDetailPage = lazy(() => import("./pages/SegmentDetailPage").then(m => ({ default: m.SegmentDetailPage })));
-const ResolvedSpanPlayPage = lazy(() => import("./pages/ResolvedSpanPlayPage").then(m => ({ default: m.ResolvedSpanPlayPage })));
-const PerformerDetailPage = lazy(() => import("./pages/PerformerDetailPage").then(m => ({ default: m.PerformerDetailPage })));
-const StudioDetailPage = lazy(() => import("./pages/StudioDetailPage").then(m => ({ default: m.StudioDetailPage })));
-const TagDetailPage = lazy(() => import("./pages/TagDetailPage").then(m => ({ default: m.TagDetailPage })));
-const GalleryDetailPage = lazy(() => import("./pages/GalleryDetailPage").then(m => ({ default: m.GalleryDetailPage })));
-const GroupDetailPage = lazy(() => import("./pages/GroupDetailPage").then(m => ({ default: m.GroupDetailPage })));
-const CompilationPlayerPage = lazy(() => import("./pages/CompilationPlayerPage").then(m => ({ default: m.CompilationPlayerPage })));
-const ImageDetailPage = lazy(() => import("./pages/ImageDetailPage").then(m => ({ default: m.ImageDetailPage })));
-const FacesPage = lazy(() => import("./pages/FacesPage").then(m => ({ default: m.FacesPage })));
-const FaceDetailPage = lazy(() => import("./pages/FaceDetailPage").then(m => ({ default: m.FaceDetailPage })));
-const DuplicateFinderPage = lazy(() => import("./pages/DuplicateFinderPage").then(m => ({ default: m.DuplicateFinderPage })));
+const VideosPage = lazy(() => import("./pages/VideosPage").then((m) => ({ default: m.VideosPage })));
+const AudiosPage = lazy(() => import("./pages/AudiosPage").then((m) => ({ default: m.AudiosPage })));
+const TextsPage = lazy(() => import("./pages/TextsPage").then((m) => ({ default: m.TextsPage })));
+const SegmentsPage = lazy(() => import("./pages/SegmentsPage").then((m) => ({ default: m.SegmentsPage })));
+const PerformersPage = lazy(() => import("./pages/PerformersPage").then((m) => ({ default: m.PerformersPage })));
+const StudiosPage = lazy(() => import("./pages/StudiosPage").then((m) => ({ default: m.StudiosPage })));
+const TagsPage = lazy(() => import("./pages/TagsPage").then((m) => ({ default: m.TagsPage })));
+const GalleriesPage = lazy(() => import("./pages/GalleriesPage").then((m) => ({ default: m.GalleriesPage })));
+const GroupsPage = lazy(() => import("./pages/GroupsPage").then((m) => ({ default: m.GroupsPage })));
+const ImagesPage = lazy(() => import("./pages/ImagesPage").then((m) => ({ default: m.ImagesPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const StatsPage = lazy(() => import("./pages/StatsPage").then((m) => ({ default: m.StatsPage })));
+const VideoDetailPage = lazy(() => import("./pages/VideoDetailPage").then((m) => ({ default: m.VideoDetailPage })));
+const AudioDetailPage = lazy(() => import("./pages/AudioDetailPage").then((m) => ({ default: m.AudioDetailPage })));
+const TextDetailPage = lazy(() => import("./pages/TextDetailPage").then((m) => ({ default: m.TextDetailPage })));
+const SegmentDetailPage = lazy(() =>
+  import("./pages/SegmentDetailPage").then((m) => ({ default: m.SegmentDetailPage })),
+);
+const ResolvedSpanPlayPage = lazy(() =>
+  import("./pages/ResolvedSpanPlayPage").then((m) => ({ default: m.ResolvedSpanPlayPage })),
+);
+const PerformerDetailPage = lazy(() =>
+  import("./pages/PerformerDetailPage").then((m) => ({ default: m.PerformerDetailPage })),
+);
+const StudioDetailPage = lazy(() => import("./pages/StudioDetailPage").then((m) => ({ default: m.StudioDetailPage })));
+const TagDetailPage = lazy(() => import("./pages/TagDetailPage").then((m) => ({ default: m.TagDetailPage })));
+const GalleryDetailPage = lazy(() =>
+  import("./pages/GalleryDetailPage").then((m) => ({ default: m.GalleryDetailPage })),
+);
+const GroupDetailPage = lazy(() => import("./pages/GroupDetailPage").then((m) => ({ default: m.GroupDetailPage })));
+const CompilationPlayerPage = lazy(() =>
+  import("./pages/CompilationPlayerPage").then((m) => ({ default: m.CompilationPlayerPage })),
+);
+const ImageDetailPage = lazy(() => import("./pages/ImageDetailPage").then((m) => ({ default: m.ImageDetailPage })));
+const FacesPage = lazy(() => import("./pages/FacesPage").then((m) => ({ default: m.FacesPage })));
+const FaceDetailPage = lazy(() => import("./pages/FaceDetailPage").then((m) => ({ default: m.FaceDetailPage })));
+const DuplicateFinderPage = lazy(() =>
+  import("./pages/DuplicateFinderPage").then((m) => ({ default: m.DuplicateFinderPage })),
+);
 
-const VideoFilenameParserPage = lazy(() => import("./pages/VideoFilenameParserPage").then(m => ({ default: m.VideoFilenameParserPage })));
-const HomePage = lazy(() => import("./pages/HomePage").then(m => ({ default: m.HomePage })));
+const VideoFilenameParserPage = lazy(() =>
+  import("./pages/VideoFilenameParserPage").then((m) => ({ default: m.VideoFilenameParserPage })),
+);
+const HomePage = lazy(() => import("./pages/HomePage").then((m) => ({ default: m.HomePage })));
 
 export default function App() {
   const [route, setRoute] = useState<Route>(() => {
@@ -115,13 +146,19 @@ export default function App() {
     const legacyRoute = parseLegacyHashRoute(window.location.hash);
     if (legacyRoute) {
       const normalizedLegacyRoute = normalizeRoute(legacyRoute);
-      navigateToUrl(buildCurrentUrl(buildRoutePath(normalizedLegacyRoute), window.location.search), { replace: true, state: normalizedLegacyRoute });
+      navigateToUrl(buildCurrentUrl(buildRoutePath(normalizedLegacyRoute), window.location.search), {
+        replace: true,
+        state: normalizedLegacyRoute,
+      });
       setRoute(normalizedLegacyRoute);
     } else {
       const currentRoute = resolveCurrentRoute();
       const normalizedCurrentRoute = normalizeRoute(currentRoute);
       if (normalizedCurrentRoute.page !== currentRoute.page || normalizedCurrentRoute.id !== currentRoute.id) {
-        navigateToUrl(buildCurrentUrl(buildRoutePath(normalizedCurrentRoute), window.location.search), { replace: true, state: normalizedCurrentRoute });
+        navigateToUrl(buildCurrentUrl(buildRoutePath(normalizedCurrentRoute), window.location.search), {
+          replace: true,
+          state: normalizedCurrentRoute,
+        });
         setRoute(normalizedCurrentRoute);
       }
     }
@@ -141,9 +178,10 @@ export default function App() {
       // Recover route from history.state first, then from session-scoped route history.
       // This keeps derived-query provenance available even if a navigation path only preserved the URL.
       const rawState = event instanceof PopStateEvent ? event.state : window.history.state;
-      const stateRoute = rawState && typeof rawState === "object" && typeof (rawState as Route).page === "string"
-        ? rawState as Route
-        : undefined;
+      const stateRoute =
+        rawState && typeof rawState === "object" && typeof (rawState as Route).page === "string"
+          ? (rawState as Route)
+          : undefined;
       setRoute(normalizeRoute(stateRoute ?? readStoredRoute(currentUrl) ?? parseCurrentRoute()));
     };
     window.addEventListener("popstate", handleLocationChange);
@@ -199,24 +237,37 @@ export default function App() {
 function AppKeyboardShortcuts({ navigate }: { navigate: (route: Route) => void }) {
   const { setShortcutDialogOpen } = useKeyboardShortcuts();
 
-  const globalBindings = useMemo(() => [
-    { id: "global.shortcuts", keys: "?", surface: "global" as const, action: () => setShortcutDialogOpen(true) },
-    { id: "global.help", keys: "", surface: "global" as const, action: () => openTutorialStoryboard() },
-    { id: "global.home", keys: "g h", surface: "global" as const, action: () => navigate({ page: "home" }) },
-    { id: "global.videos", keys: "g s", surface: "global" as const, action: () => navigate({ page: "videos" }) },
-    { id: "global.audios", keys: "g a", surface: "global" as const, action: () => navigate({ page: "audios" }) },
-    { id: "global.texts", keys: "g x", surface: "global" as const, action: () => navigate({ page: "texts" }) },
-    { id: "global.segments", keys: "g m", surface: "global" as const, action: () => navigate({ page: "segments" }) },
-    { id: "global.faces", keys: "g f", surface: "global" as const, action: () => navigate({ page: "faces" }) },
-    { id: "global.images", keys: "g i", surface: "global" as const, action: () => navigate({ page: "images" }) },
-    { id: "global.groups", keys: "g v", surface: "global" as const, action: () => navigate({ page: "groups" }) },
-    { id: "global.galleries", keys: "g l", surface: "global" as const, action: () => navigate({ page: "galleries" }) },
-    { id: "global.performers", keys: "g p", surface: "global" as const, action: () => navigate({ page: "performers" }) },
-    { id: "global.studios", keys: "g u", surface: "global" as const, action: () => navigate({ page: "studios" }) },
-    { id: "global.tags", keys: "g t", surface: "global" as const, action: () => navigate({ page: "tags" }) },
-    { id: "global.settings", keys: "g z", surface: "global" as const, action: () => navigate({ page: "settings" }) },
-    { id: "global.stats", keys: "g d", surface: "global" as const, action: () => navigate({ page: "stats" }) },
-  ], [navigate, setShortcutDialogOpen]);
+  const globalBindings = useMemo(
+    () => [
+      { id: "global.shortcuts", keys: "?", surface: "global" as const, action: () => setShortcutDialogOpen(true) },
+      { id: "global.help", keys: "", surface: "global" as const, action: () => openTutorialStoryboard() },
+      { id: "global.home", keys: "g h", surface: "global" as const, action: () => navigate({ page: "home" }) },
+      { id: "global.videos", keys: "g s", surface: "global" as const, action: () => navigate({ page: "videos" }) },
+      { id: "global.audios", keys: "g a", surface: "global" as const, action: () => navigate({ page: "audios" }) },
+      { id: "global.texts", keys: "g x", surface: "global" as const, action: () => navigate({ page: "texts" }) },
+      { id: "global.segments", keys: "g m", surface: "global" as const, action: () => navigate({ page: "segments" }) },
+      { id: "global.faces", keys: "g f", surface: "global" as const, action: () => navigate({ page: "faces" }) },
+      { id: "global.images", keys: "g i", surface: "global" as const, action: () => navigate({ page: "images" }) },
+      { id: "global.groups", keys: "g v", surface: "global" as const, action: () => navigate({ page: "groups" }) },
+      {
+        id: "global.galleries",
+        keys: "g l",
+        surface: "global" as const,
+        action: () => navigate({ page: "galleries" }),
+      },
+      {
+        id: "global.performers",
+        keys: "g p",
+        surface: "global" as const,
+        action: () => navigate({ page: "performers" }),
+      },
+      { id: "global.studios", keys: "g u", surface: "global" as const, action: () => navigate({ page: "studios" }) },
+      { id: "global.tags", keys: "g t", surface: "global" as const, action: () => navigate({ page: "tags" }) },
+      { id: "global.settings", keys: "g z", surface: "global" as const, action: () => navigate({ page: "settings" }) },
+      { id: "global.stats", keys: "g d", surface: "global" as const, action: () => navigate({ page: "stats" }) },
+    ],
+    [navigate, setShortcutDialogOpen],
+  );
 
   useKeySequence(globalBindings);
   return null;
@@ -322,7 +373,7 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
   const ownerMissing = bootstrapStatus?.ownerExists === false;
 
   // Show setup wizard if config has no library paths and user hasn't dismissed it
-  const needsSetup = config && config.covePaths.filter(p => p.path.trim() !== "").length === 0 && !setupDismissed;
+  const needsSetup = config && config.covePaths.filter((p) => p.path.trim() !== "").length === 0 && !setupDismissed;
 
   useEffect(() => {
     if (needsSetup) {
@@ -405,21 +456,25 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
           {status.pendingMigrations && (
             <div className="text-xs text-muted-foreground bg-surface rounded p-3 text-left">
               <div className="font-medium mb-1">Pending migrations:</div>
-              {status.pendingMigrations.map(m => (
-                <div key={m} className="font-mono">{m}</div>
+              {status.pendingMigrations.map((m) => (
+                <div key={m} className="font-mono">
+                  {m}
+                </div>
               ))}
             </div>
           )}
-          <p className="text-xs text-muted-foreground">
-            A database backup will be created before any migration runs.
-          </p>
+          <p className="text-xs text-muted-foreground">A database backup will be created before any migration runs.</p>
           <button
             type="button"
             onClick={() => migrateMutation.mutate()}
             disabled={migrateMutation.isPending}
             className="inline-flex items-center justify-center gap-2 rounded bg-accent px-4 py-2 text-sm font-medium text-background transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {migrateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Database className="h-4 w-4" aria-hidden="true" />}
+            {migrateMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Database className="h-4 w-4" aria-hidden="true" />
+            )}
             Run Migration
           </button>
           {migrationResult?.preMigrationBackupPath ? (
@@ -463,7 +518,13 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
       <Navbar currentPage={route.page} navigate={navigate} />
       <main className="w-full px-3 sm:px-4 md:px-6 py-3 sm:py-5">
         <ErrorBoundary>
-          <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div></div>}>
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-64">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+              </div>
+            }
+          >
             <AppRoutes route={route} navigate={navigate} />
           </Suspense>
         </ErrorBoundary>
@@ -479,7 +540,10 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
         extensionTopics={manifest?.tutorialTopics ?? []}
         onTopicChange={(topicId, slideId) => {
           if (route.page === "manual") {
-            navigateToUrl(buildRoutePath({ page: "manual", manualTopicId: topicId, manualSlideId: slideId }), { replace: true, state: { page: "manual", manualTopicId: topicId, manualSlideId: slideId } });
+            navigateToUrl(buildRoutePath({ page: "manual", manualTopicId: topicId, manualSlideId: slideId }), {
+              replace: true,
+              state: { page: "manual", manualTopicId: topicId, manualSlideId: slideId },
+            });
           }
         }}
       />
@@ -544,32 +608,60 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
   // 4. Built-in pages
   return (
     <>
-      {(route.page === "home" || (route.page === "dashboard" && route.id !== undefined)) && <HomePage dashboardId={route.page === "dashboard" ? route.id : undefined} onNavigate={navigate} />}
+      {(route.page === "home" || (route.page === "dashboard" && route.id !== undefined)) && (
+        <HomePage dashboardId={route.page === "dashboard" ? route.id : undefined} onNavigate={navigate} />
+      )}
       {route.page === "manual" && <HomePage onNavigate={navigate} />}
       {route.page === "videos" && <VideosPage onNavigate={navigate} />}
-      {route.page === "video" && route.id !== undefined && <VideoDetailPage id={route.id} initialSeekTo={route.seekTo} initialTab={route.videoTab} onNavigate={navigate} />}
+      {route.page === "video" && route.id !== undefined && (
+        <VideoDetailPage id={route.id} initialSeekTo={route.seekTo} initialTab={route.videoTab} onNavigate={navigate} />
+      )}
       {route.page === "audios" && <AudiosPage onNavigate={navigate} />}
       {route.page === "audio" && route.id !== undefined && <AudioDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "texts" && <TextsPage onNavigate={navigate} />}
       {route.page === "text" && route.id !== undefined && <TextDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "video-span" && route.id !== undefined && route.spanKey !== undefined && (
-        <ResolvedSpanPlayPage videoId={route.id} spanKey={route.spanKey} profileId={route.profileId} derivedQueryDescriptor={route.derivedQueryDescriptor} onNavigate={navigate} />
+        <ResolvedSpanPlayPage
+          videoId={route.id}
+          spanKey={route.spanKey}
+          profileId={route.profileId}
+          derivedQueryDescriptor={route.derivedQueryDescriptor}
+          onNavigate={navigate}
+        />
       )}
       {route.page === "segments" && <SegmentsPage onNavigate={navigate} />}
       {route.page === "segment" && route.id !== undefined && <SegmentDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "faces" && <FacesPage onNavigate={navigate} />}
       {route.page === "face" && route.id !== undefined && <FaceDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "performers" && <PerformersPage onNavigate={navigate} />}
-      {route.page === "performer" && route.id !== undefined && <DetailListStateCacheProvider key={`performer-${route.id}`}><PerformerDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
+      {route.page === "performer" && route.id !== undefined && (
+        <DetailListStateCacheProvider key={`performer-${route.id}`}>
+          <PerformerDetailPage id={route.id} onNavigate={navigate} />
+        </DetailListStateCacheProvider>
+      )}
       {route.page === "studios" && <StudiosPage onNavigate={navigate} />}
-      {route.page === "studio" && route.id !== undefined && <DetailListStateCacheProvider key={`studio-${route.id}`}><StudioDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
+      {route.page === "studio" && route.id !== undefined && (
+        <DetailListStateCacheProvider key={`studio-${route.id}`}>
+          <StudioDetailPage id={route.id} onNavigate={navigate} />
+        </DetailListStateCacheProvider>
+      )}
       {route.page === "tags" && <TagsPage onNavigate={navigate} />}
-      {route.page === "tag" && route.id !== undefined && <DetailListStateCacheProvider key={`tag-${route.id}`}><TagDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
+      {route.page === "tag" && route.id !== undefined && (
+        <DetailListStateCacheProvider key={`tag-${route.id}`}>
+          <TagDetailPage id={route.id} onNavigate={navigate} />
+        </DetailListStateCacheProvider>
+      )}
       {route.page === "galleries" && <GalleriesPage onNavigate={navigate} />}
-      {route.page === "gallery" && route.id !== undefined && <DetailListStateCacheProvider key={`gallery-${route.id}`}><GalleryDetailPage id={route.id} onNavigate={navigate} /></DetailListStateCacheProvider>}
+      {route.page === "gallery" && route.id !== undefined && (
+        <DetailListStateCacheProvider key={`gallery-${route.id}`}>
+          <GalleryDetailPage id={route.id} onNavigate={navigate} />
+        </DetailListStateCacheProvider>
+      )}
       {route.page === "groups" && <GroupsPage onNavigate={navigate} />}
       {route.page === "group" && route.id !== undefined && <GroupDetailPage id={route.id} onNavigate={navigate} />}
-      {route.page === "compilation" && route.id !== undefined && <CompilationPlayerPage id={route.id} itemOrder={route.compilationItemOrder} onNavigate={navigate} />}
+      {route.page === "compilation" && route.id !== undefined && (
+        <CompilationPlayerPage id={route.id} itemOrder={route.compilationItemOrder} onNavigate={navigate} />
+      )}
       {route.page === "images" && <ImagesPage onNavigate={navigate} />}
       {route.page === "image" && route.id !== undefined && <ImageDetailPage id={route.id} onNavigate={navigate} />}
       {route.page === "settings" && <SettingsPage />}

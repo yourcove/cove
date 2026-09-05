@@ -115,7 +115,11 @@ export function CompilationPlayer({
     queryFn: () => audios.get(currentAudioId!),
     enabled: currentAudioId != null,
   });
-  const { data: currentTextContent, isLoading: currentTextLoading, isError: currentTextError } = useQuery({
+  const {
+    data: currentTextContent,
+    isLoading: currentTextLoading,
+    isError: currentTextError,
+  } = useQuery({
     queryKey: ["text-content", currentTextId],
     queryFn: () => texts.content(currentTextId!),
     enabled: currentTextId != null,
@@ -142,13 +146,19 @@ export function CompilationPlayer({
   const currentFile = currentVideo?.files[0];
   const currentAudioFile = currentAudio?.files
     .slice()
-    .sort((left, right) => (right.duration - left.duration) || (left.id - right.id))[0];
+    .sort((left, right) => right.duration - left.duration || left.id - right.id)[0];
   const mediaKind = getMediaKind(item);
   const itemIsVideo = mediaKind === "video";
   const itemIsAudio = mediaKind === "audio";
   const itemIsImage = mediaKind === "image";
   const itemIsText = mediaKind === "text";
-  const itemLoading = itemIsAudio ? currentAudioLoading : itemIsVideo ? currentVideoLoading : itemIsText ? currentTextLoading : false;
+  const itemLoading = itemIsAudio
+    ? currentAudioLoading
+    : itemIsVideo
+      ? currentVideoLoading
+      : itemIsText
+        ? currentTextLoading
+        : false;
   const currentPlayable = itemIsAudio
     ? currentAudioId != null
     : itemIsVideo
@@ -158,22 +168,21 @@ export function CompilationPlayer({
         : itemIsText
           ? currentTextId != null
           : false;
-  const videoSourceStart = currentVideo?.parentVideoId != null ? currentVideo.clipStartSec ?? 0 : 0;
-  const videoSourceEnd = currentVideo?.parentVideoId != null
-    ? currentVideo.clipEndSec ?? currentFile?.duration ?? 0
-    : currentFile?.duration ?? 0;
+  const videoSourceStart = currentVideo?.parentVideoId != null ? (currentVideo.clipStartSec ?? 0) : 0;
+  const videoSourceEnd =
+    currentVideo?.parentVideoId != null
+      ? (currentVideo.clipEndSec ?? currentFile?.duration ?? 0)
+      : (currentFile?.duration ?? 0);
   const videoItemStart = videoSourceStart + (item?.startSec ?? 0);
-  const videoItemEnd = item?.endSec != null
-    ? Math.min(videoSourceEnd, videoSourceStart + item.endSec)
-    : videoSourceEnd;
-  const playbackStart = itemIsVideo ? videoItemStart : item?.startSec ?? 0;
+  const videoItemEnd = item?.endSec != null ? Math.min(videoSourceEnd, videoSourceStart + item.endSec) : videoSourceEnd;
+  const playbackStart = itemIsVideo ? videoItemStart : (item?.startSec ?? 0);
   const displayDurationSec = item ? getDisplayDurationSec(item, imageDisplayDurationSec, textDisplayDurationSec) : 0;
   const clipEnd = item
     ? itemIsImage || itemIsText
       ? displayDurationSec
       : itemIsVideo
         ? videoItemEnd
-        : item.endSec ?? currentAudioFile?.duration ?? item.startSec + (item.durationSec ?? 0)
+        : (item.endSec ?? currentAudioFile?.duration ?? item.startSec + (item.durationSec ?? 0))
     : 0;
   const clipDuration = item
     ? itemIsImage || itemIsText
@@ -193,25 +202,28 @@ export function CompilationPlayer({
     seekRef.current?.(playbackStart);
   }, [autostart, autostartToken, currentPlayable, item, itemLoading, playbackStart]);
 
-  const moveToItem = useCallback((nextIndex: number, shouldAutoPlay = false) => {
-    if (visibleItems.length === 0) {
-      return;
-    }
+  const moveToItem = useCallback(
+    (nextIndex: number, shouldAutoPlay = false) => {
+      if (visibleItems.length === 0) {
+        return;
+      }
 
-    const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
-    if (boundedIndex === currentItemIndex) return;
-    transitionPosterStateRef.current.suppressed = shouldAutoPlay;
-    if (!shouldAutoPlay) playbackIntentSetRef.current = true;
-    if (shouldAutoPlay) {
-      playbackActiveRef.current = true;
-      setAutostart(true);
-      setAutostartToken((value) => value + 1);
-    } else {
-      playbackActiveRef.current = false;
-      setAutostart(false);
-    }
-    setCurrentItemIndex(boundedIndex);
-  }, [currentItemIndex, visibleItems.length]);
+      const boundedIndex = Math.min(visibleItems.length - 1, Math.max(0, nextIndex));
+      if (boundedIndex === currentItemIndex) return;
+      transitionPosterStateRef.current.suppressed = shouldAutoPlay;
+      if (!shouldAutoPlay) playbackIntentSetRef.current = true;
+      if (shouldAutoPlay) {
+        playbackActiveRef.current = true;
+        setAutostart(true);
+        setAutostartToken((value) => value + 1);
+      } else {
+        playbackActiveRef.current = false;
+        setAutostart(false);
+      }
+      setCurrentItemIndex(boundedIndex);
+    },
+    [currentItemIndex, visibleItems.length],
+  );
 
   const advanceToNextItem = useCallback(() => {
     if (currentItemIndex + 1 < visibleItems.length) {
@@ -273,35 +285,45 @@ export function CompilationPlayer({
     }
   }, [currentAudioId, currentImageId, currentVideoId, currentTextId, item, onNavigate, videoItemStart]);
 
-  const tabs = useMemo(() => [
-    { key: "playlist", label: "Playlist", icon: <ListMusic className="h-4 w-4" />, count: visibleItems.length },
-    { key: "current", label: "Current", icon: <Info className="h-4 w-4" /> },
-    { key: "filters", label: "Filters", icon: <Settings2 className="h-4 w-4" />, count: items.length - visibleItems.length },
-  ], [items.length, visibleItems.length]);
+  const tabs = useMemo(
+    () => [
+      { key: "playlist", label: "Playlist", icon: <ListMusic className="h-4 w-4" />, count: visibleItems.length },
+      { key: "current", label: "Current", icon: <Info className="h-4 w-4" /> },
+      {
+        key: "filters",
+        label: "Filters",
+        icon: <Settings2 className="h-4 w-4" />,
+        count: items.length - visibleItems.length,
+      },
+    ],
+    [items.length, visibleItems.length],
+  );
 
   const currentTitle = item ? getItemTitle(item) : "No playable item";
-  const currentPlaybackTracking = item ? {
-    hostType: "group",
-    hostId: groupId,
-    surface: "compilation",
-    scopeKey: `group:${groupId}`,
-    parentHostType: "group",
-    parentHostId: groupId,
-    itemHostType: item.hostType,
-    itemHostId: item.hostId,
-    groupItemId: item.groupItemId,
-    segmentId: item.segmentId ?? undefined,
-    clipStartSec: itemIsVideo ? videoItemStart : item.startSec,
-    clipEndSec: itemIsVideo ? videoItemEnd : item.endSec ?? null,
-    context: {
-      videoId: item.videoId ?? undefined,
-      audioId: item.audioId ?? undefined,
-      imageId: item.imageId ?? undefined,
-      textId: item.textId ?? undefined,
-      segmentId: item.segmentId ?? undefined,
-      itemIndex: currentItemIndex,
-    },
-  } : undefined;
+  const currentPlaybackTracking = item
+    ? {
+        hostType: "group",
+        hostId: groupId,
+        surface: "compilation",
+        scopeKey: `group:${groupId}`,
+        parentHostType: "group",
+        parentHostId: groupId,
+        itemHostType: item.hostType,
+        itemHostId: item.hostId,
+        groupItemId: item.groupItemId,
+        segmentId: item.segmentId ?? undefined,
+        clipStartSec: itemIsVideo ? videoItemStart : item.startSec,
+        clipEndSec: itemIsVideo ? videoItemEnd : (item.endSec ?? null),
+        context: {
+          videoId: item.videoId ?? undefined,
+          audioId: item.audioId ?? undefined,
+          imageId: item.imageId ?? undefined,
+          textId: item.textId ?? undefined,
+          segmentId: item.segmentId ?? undefined,
+          itemIndex: currentItemIndex,
+        },
+      }
+    : undefined;
   const playerMedia = (
     <div className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black">
       {renderPreloads(nextVideoId, nextAudioId, nextImageId)}
@@ -310,14 +332,16 @@ export function CompilationPlayer({
           No compilation items match the active filters.
         </div>
       ) : itemLoading ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-secondary">
-          Loading item playback...
-        </div>
+        <div className="flex flex-1 items-center justify-center text-sm text-secondary">Loading item playback...</div>
       ) : itemIsVideo && currentFile && currentVideoId != null ? (
         <div className="flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black">
           <VideoPlayer
             streamUrl={videos.streamUrl(currentVideoId)}
-            posterUrl={transitionPosterStateRef.current.suppressed ? undefined : item.posterPath ?? videos.screenshotUrl(currentVideoId)}
+            posterUrl={
+              transitionPosterStateRef.current.suppressed
+                ? undefined
+                : (item.posterPath ?? videos.screenshotUrl(currentVideoId))
+            }
             format={currentFile.format}
             audioCodec={currentFile.audioCodec}
             duration={currentFile.duration}
@@ -327,7 +351,11 @@ export function CompilationPlayer({
             interactionResetKey={`group:${groupId}:item:${item.groupItemId}`}
             detections={[]}
             captions={currentFile.captions}
-            onPlay={() => { playbackIntentSetRef.current = true; playbackActiveRef.current = true; setAutostart(false); }}
+            onPlay={() => {
+              playbackIntentSetRef.current = true;
+              playbackActiveRef.current = true;
+              setAutostart(false);
+            }}
             onPlaybackStateChange={(playing) => {
               if (playing || !autostart) playbackActiveRef.current = playing;
             }}
@@ -351,10 +379,24 @@ export function CompilationPlayer({
             format={currentAudioFile?.format ?? item.format ?? "audio"}
             duration={currentAudioFile?.duration ?? item.durationSec ?? 0}
             title={item.title || currentAudio?.title || currentAudioFile?.basename || `Audio ${currentAudioId}`}
-            subtitle={[currentAudio?.performers?.map((performer) => performer.name).filter(Boolean).join(", "), currentAudio?.studioName].filter(Boolean).join(" • ") || undefined}
+            subtitle={
+              [
+                currentAudio?.performers
+                  ?.map((performer) => performer.name)
+                  .filter(Boolean)
+                  .join(", "),
+                currentAudio?.studioName,
+              ]
+                .filter(Boolean)
+                .join(" • ") || undefined
+            }
             hasVideoTrack={currentAudioFile?.hasVideoTrack ?? item.hasVideoTrack}
             resumeTime={item.startSec}
-            onPlay={() => { playbackIntentSetRef.current = true; playbackActiveRef.current = true; setAutostart(false); }}
+            onPlay={() => {
+              playbackIntentSetRef.current = true;
+              playbackActiveRef.current = true;
+              setAutostart(false);
+            }}
             onPlaybackStateChange={(playing) => {
               if (playing || !autostart) playbackActiveRef.current = playing;
             }}
@@ -447,7 +489,9 @@ export function CompilationPlayer({
                   {getItemIcon(manifestItem)}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{index + 1}. {getItemTitle(manifestItem)}</span>
+                  <span className="block truncate text-sm font-medium">
+                    {index + 1}. {getItemTitle(manifestItem)}
+                  </span>
                   <span className="mt-0.5 block text-xs text-muted">{getItemTypeLabel(manifestItem)}</span>
                 </span>
               </button>
@@ -469,7 +513,10 @@ export function CompilationPlayer({
             </div>
             <dl className="mt-4 grid gap-3 text-sm">
               <MetadataRow label="Position" value={item ? `${currentItemIndex + 1}/${visibleItems.length}` : "-"} />
-              <MetadataRow label="Start" value={item && !itemIsImage && !itemIsText ? formatTime(item.startSec) : "-"} />
+              <MetadataRow
+                label="Start"
+                value={item && !itemIsImage && !itemIsText ? formatTime(item.startSec) : "-"}
+              />
               <MetadataRow label="Duration" value={clipDuration > 0 ? formatTime(clipDuration) : "-"} />
               <MetadataRow label="Format" value={item?.format || "-"} />
             </dl>
@@ -499,17 +546,54 @@ export function CompilationPlayer({
           <section className="rounded-lg border border-border bg-card/70 p-4">
             <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Item Types</div>
             <div className="space-y-2">
-              <TypeToggle label="Videos" checked={enabledTypes.videos} onChange={() => toggleType("videos")} count={countItems(items, "videos")} />
-              <TypeToggle label="Segments" checked={enabledTypes.segments} onChange={() => toggleType("segments")} count={countItems(items, "segments")} />
-              <TypeToggle label="Images" checked={enabledTypes.images} onChange={() => toggleType("images")} count={countItems(items, "images")} />
-              <TypeToggle label="Texts" checked={enabledTypes.texts} onChange={() => toggleType("texts")} count={countItems(items, "texts")} />
-              <TypeToggle label="Audios" checked={enabledTypes.audios} onChange={() => toggleType("audios")} count={countItems(items, "audios")} />
+              <TypeToggle
+                label="Videos"
+                checked={enabledTypes.videos}
+                onChange={() => toggleType("videos")}
+                count={countItems(items, "videos")}
+              />
+              <TypeToggle
+                label="Segments"
+                checked={enabledTypes.segments}
+                onChange={() => toggleType("segments")}
+                count={countItems(items, "segments")}
+              />
+              <TypeToggle
+                label="Images"
+                checked={enabledTypes.images}
+                onChange={() => toggleType("images")}
+                count={countItems(items, "images")}
+              />
+              <TypeToggle
+                label="Texts"
+                checked={enabledTypes.texts}
+                onChange={() => toggleType("texts")}
+                count={countItems(items, "texts")}
+              />
+              <TypeToggle
+                label="Audios"
+                checked={enabledTypes.audios}
+                onChange={() => toggleType("audios")}
+                count={countItems(items, "audios")}
+              />
             </div>
           </section>
           <section className="rounded-lg border border-border bg-card/70 p-4">
             <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Display Duration</div>
-            <NumberSetting label="Images" value={imageDisplayDurationSec} onChange={setImageDisplayDurationSec} min={0} max={300} />
-            <NumberSetting label="Texts" value={textDisplayDurationSec} onChange={setTextDisplayDurationSec} min={0} max={600} />
+            <NumberSetting
+              label="Images"
+              value={imageDisplayDurationSec}
+              onChange={setImageDisplayDurationSec}
+              min={0}
+              max={300}
+            />
+            <NumberSetting
+              label="Texts"
+              value={textDisplayDurationSec}
+              onChange={setTextDisplayDurationSec}
+              min={0}
+              max={600}
+            />
           </section>
         </div>
       ) : null}
@@ -522,8 +606,14 @@ export function CompilationPlayer({
         title={groupName}
         subtitle={
           <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
-            <span>{visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}</span>
-            {item ? <span>Now playing {currentItemIndex + 1}/{visibleItems.length}</span> : null}
+            <span>
+              {visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}
+            </span>
+            {item ? (
+              <span>
+                Now playing {currentItemIndex + 1}/{visibleItems.length}
+              </span>
+            ) : null}
             {clipDuration > 0 ? <span>{formatTime(clipDuration)}</span> : null}
           </div>
         }
@@ -550,8 +640,14 @@ export function CompilationPlayer({
           <h2 className="mt-2 text-xl font-semibold text-foreground">{groupName}</h2>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-secondary">
-          <span className="rounded-full border border-border bg-surface px-2 py-1">{visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}</span>
-          {item ? <span className="rounded-full border border-border bg-surface px-2 py-1">Now playing {currentItemIndex + 1}/{visibleItems.length}</span> : null}
+          <span className="rounded-full border border-border bg-surface px-2 py-1">
+            {visibleItems.length}/{items.length} item{items.length === 1 ? "" : "s"}
+          </span>
+          {item ? (
+            <span className="rounded-full border border-border bg-surface px-2 py-1">
+              Now playing {currentItemIndex + 1}/{visibleItems.length}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -601,7 +697,17 @@ function MetadataRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function TypeToggle({ label, checked, onChange, count }: { label: string; checked: boolean; onChange: () => void; count: number }) {
+function TypeToggle({
+  label,
+  checked,
+  onChange,
+  count,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+  count: number;
+}) {
   return (
     <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/60 px-3 py-2 text-sm text-foreground">
       <span className="inline-flex items-center gap-2">
@@ -613,7 +719,19 @@ function TypeToggle({ label, checked, onChange, count }: { label: string; checke
   );
 }
 
-function NumberSetting({ label, value, onChange, min, max }: { label: string; value: number; onChange: (value: number) => void; min: number; max: number }) {
+function NumberSetting({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+}) {
   return (
     <label className="mt-3 flex items-center justify-between gap-3 text-sm first:mt-0">
       <span className="text-secondary">{label}</span>
@@ -659,9 +777,7 @@ function formatTime(value: number) {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
 
-  const fractional = hundredths % 10 === 0
-    ? String(Math.floor(hundredths / 10))
-    : String(hundredths).padStart(2, "0");
+  const fractional = hundredths % 10 === 0 ? String(Math.floor(hundredths / 10)) : String(hundredths).padStart(2, "0");
 
   if (hours > 0) {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${fractional}`;
@@ -682,11 +798,16 @@ function getMediaKind(item?: GroupPlaybackManifestItem): MediaKind {
 function getTypeFilterKey(item: GroupPlaybackManifestItem): TypeFilterKey {
   if (isSegmentItem(item)) return "segments";
   switch (getMediaKind(item)) {
-    case "audio": return "audios";
-    case "image": return "images";
-    case "text": return "texts";
-    case "video": return "videos";
-    default: return "videos";
+    case "audio":
+      return "audios";
+    case "image":
+      return "images";
+    case "text":
+      return "texts";
+    case "video":
+      return "videos";
+    default:
+      return "videos";
   }
 }
 
@@ -749,22 +870,32 @@ function getItemTitle(item: GroupPlaybackManifestItem) {
 function getItemTypeLabel(item: GroupPlaybackManifestItem) {
   if (isSegmentItem(item)) return "Segment";
   switch (getMediaKind(item)) {
-    case "audio": return "Audio";
-    case "image": return "Image";
-    case "text": return "Text";
-    case "video": return "Video";
-    default: return "Item";
+    case "audio":
+      return "Audio";
+    case "image":
+      return "Image";
+    case "text":
+      return "Text";
+    case "video":
+      return "Video";
+    default:
+      return "Item";
   }
 }
 
 function getItemIcon(item: GroupPlaybackManifestItem) {
   if (isSegmentItem(item)) return <Merge className="h-4 w-4" />;
   switch (getMediaKind(item)) {
-    case "audio": return <Music className="h-4 w-4" />;
-    case "image": return <ImageIcon className="h-4 w-4" />;
-    case "text": return <FileText className="h-4 w-4" />;
-    case "video": return <Video className="h-4 w-4" />;
-    default: return <Info className="h-4 w-4" />;
+    case "audio":
+      return <Music className="h-4 w-4" />;
+    case "image":
+      return <ImageIcon className="h-4 w-4" />;
+    case "text":
+      return <FileText className="h-4 w-4" />;
+    case "video":
+      return <Video className="h-4 w-4" />;
+    default:
+      return <Info className="h-4 w-4" />;
   }
 }
 

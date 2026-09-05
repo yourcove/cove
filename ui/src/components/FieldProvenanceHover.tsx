@@ -22,10 +22,14 @@ export function FieldProvenanceHover({
   const entries = getFieldProvenanceEntries(fieldProvenance, fieldKey);
   const label = formatFieldProvenanceKey(Array.isArray(fieldKey) ? fieldKey[0] : fieldKey);
   const rootClassName = [
-    block ? "group/provenance relative block min-w-0" : "group/provenance relative inline-flex max-w-full min-w-0 items-baseline gap-1.5",
+    block
+      ? "group/provenance relative block min-w-0"
+      : "group/provenance relative inline-flex max-w-full min-w-0 items-baseline gap-1.5",
     entries.length > 0 ? "cursor-help" : "",
     className ?? "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   useLayoutEffect(() => {
     if (!showProvenance || entries.length === 0) {
@@ -62,16 +66,20 @@ export function FieldProvenanceHover({
   const content = (
     <>
       {children}
-      <span className="sr-only"><FieldProvenancePopupContent entries={entries} title={`${label} Sources`} /></span>
-      {showProvenance && typeof document !== "undefined" ? createPortal(
-        <span
-          className="pointer-events-none fixed z-[200] max-h-[min(70vh,26rem)] w-80 overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 text-left shadow-2xl backdrop-blur"
-          style={{ left: popupPosition.left, top: popupPosition.top }}
-        >
-          <FieldProvenancePopupContent entries={entries} title={`${label} Sources`} />
-        </span>,
-        document.body,
-      ) : null}
+      <span className="sr-only">
+        <FieldProvenancePopupContent entries={entries} title={`${label} Sources`} />
+      </span>
+      {showProvenance && typeof document !== "undefined"
+        ? createPortal(
+            <span
+              className="pointer-events-none fixed z-[200] max-h-[min(70vh,26rem)] w-80 overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 text-left shadow-2xl backdrop-blur"
+              style={{ left: popupPosition.left, top: popupPosition.top }}
+            >
+              <FieldProvenancePopupContent entries={entries} title={`${label} Sources`} />
+            </span>,
+            document.body,
+          )
+        : null}
     </>
   );
 
@@ -119,7 +127,10 @@ export function getFieldProvenanceEntries(fieldProvenance: FieldProvenance[] | u
   const normalizedKeys = new Set(keys.flatMap((key) => [normalizeFieldKey(key), compactFieldKey(key)]));
 
   return (fieldProvenance ?? [])
-    .filter((entry) => normalizedKeys.has(normalizeFieldKey(entry.fieldKey)) || normalizedKeys.has(compactFieldKey(entry.fieldKey)))
+    .filter(
+      (entry) =>
+        normalizedKeys.has(normalizeFieldKey(entry.fieldKey)) || normalizedKeys.has(compactFieldKey(entry.fieldKey)),
+    )
     .slice()
     .sort((left, right) => getSortableDate(right.createdAt) - getSortableDate(left.createdAt));
 }
@@ -130,14 +141,25 @@ function FieldProvenancePopupContent({ entries, title }: { entries: FieldProvena
       <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">{title}</span>
       <span className="flex flex-col gap-2">
         {entries.map((entry, index) => (
-          <span key={`${entry.fieldKey}-${entry.sourceKey}-${entry.sourceRunId ?? ""}-${entry.modelKey ?? ""}-${index}`} className="block rounded-lg border border-border/70 bg-card/70 px-2.5 py-2">
+          <span
+            key={`${entry.fieldKey}-${entry.sourceKey}-${entry.sourceRunId ?? ""}-${entry.modelKey ?? ""}-${index}`}
+            className="block rounded-lg border border-border/70 bg-card/70 px-2.5 py-2"
+          >
             <span className="flex items-center justify-between gap-2 text-xs text-foreground">
               <span className="font-medium">{formatProvenanceSource(entry.sourceKey)}</span>
-              {entry.confidence != null ? <span className="text-emerald-300">{formatConfidence(entry.confidence)}</span> : null}
+              {entry.confidence != null ? (
+                <span className="text-emerald-300">{formatConfidence(entry.confidence)}</span>
+              ) : null}
             </span>
-            <span className="mt-1 block break-words text-[11px] text-secondary">Value {formatFieldProvenanceValue(entry.value)}</span>
-            {entry.modelKey ? <span className="mt-1 block break-all text-[11px] text-secondary">Model {entry.modelKey}</span> : null}
-            {entry.sourceRunId ? <span className="mt-1 block break-all text-[11px] text-muted">Run {entry.sourceRunId}</span> : null}
+            <span className="mt-1 block break-words text-[11px] text-secondary">
+              Value {formatFieldProvenanceValue(entry.value)}
+            </span>
+            {entry.modelKey ? (
+              <span className="mt-1 block break-all text-[11px] text-secondary">Model {entry.modelKey}</span>
+            ) : null}
+            {entry.sourceRunId ? (
+              <span className="mt-1 block break-all text-[11px] text-muted">Run {entry.sourceRunId}</span>
+            ) : null}
             <span className="mt-1 block text-[11px] text-muted">Recorded {formatProvenanceDate(entry.createdAt)}</span>
           </span>
         ))}
@@ -152,11 +174,7 @@ function getFieldKeyAliases(fieldKey: string) {
     return [];
   }
 
-  return [
-    normalized,
-    normalized.replace(/([a-z0-9])([A-Z])/g, "$1_$2"),
-    normalized.replace(/_/g, ""),
-  ];
+  return [normalized, normalized.replace(/([a-z0-9])([A-Z])/g, "$1_$2"), normalized.replace(/_/g, "")];
 }
 
 function normalizeFieldKey(value: string) {
@@ -274,7 +292,10 @@ function formatProvenanceSource(sourceKey: string) {
     return `Metadata: ${formatProviderIdentifier(normalized.slice("metadata:".length))}`;
   }
 
-  return normalized.split(/[:._-]+/).map(capitalizeWord).join(" ");
+  return normalized
+    .split(/[:._-]+/)
+    .map(capitalizeWord)
+    .join(" ");
 }
 
 function formatProviderIdentifier(value: string) {

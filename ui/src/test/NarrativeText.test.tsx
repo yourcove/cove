@@ -37,7 +37,9 @@ describe("NarrativeText", () => {
     mocks.user.uiPreferences = { renderMarkdown: true };
 
     render(
-      <NarrativeText>{"# Heading\n\n**Bold** [safe](https://example.com) ![remote](https://example.com/image.jpg)\n\n<div>raw</div>"}</NarrativeText>,
+      <NarrativeText>
+        {"# Heading\n\n**Bold** [safe](https://example.com) ![remote](https://example.com/image.jpg)\n\n<div>raw</div>"}
+      </NarrativeText>,
     );
 
     expect(screen.getByRole("heading", { name: "Heading" })).toBeInTheDocument();
@@ -51,7 +53,11 @@ describe("NarrativeText", () => {
     mocks.user.uiPreferences = { renderMarkdown: true };
 
     render(
-      <NarrativeText>{"[relative](notes/123) [dot](./notes) [root](/notes) [fragment](#notes) [unsafe](javascript:alert(1)) [data](data:text/html,bad)"}</NarrativeText>,
+      <NarrativeText>
+        {
+          "[relative](notes/123) [dot](./notes) [root](/notes) [fragment](#notes) [unsafe](javascript:alert(1)) [data](data:text/html,bad)"
+        }
+      </NarrativeText>,
     );
 
     expect(screen.getByRole("link", { name: "relative" })).toHaveAttribute("href", "notes/123");

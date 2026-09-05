@@ -17,9 +17,11 @@ const { overrideRendererCalls, overrideRenderState } = vi.hoisted(() => ({
 vi.mock("../extensions/ExtensionLoader", () => ({
   ExtensionComponentOverrideRenderer: (props: OverrideRendererCall) => {
     overrideRendererCalls.push(props);
-    return overrideRenderState.replace
-      ? <div data-testid="tag-media-override">Animated tag media</div>
-      : props.renderDefault();
+    return overrideRenderState.replace ? (
+      <div data-testid="tag-media-override">Animated tag media</div>
+    ) : (
+      props.renderDefault()
+    );
   },
 }));
 
@@ -49,14 +51,7 @@ describe("TagTile entity media integration", () => {
   it("passes card context to entity.media while preserving host navigation and selection", () => {
     overrideRenderState.replace = true;
     const onSelect = vi.fn();
-    const { container } = render(
-      <TagTile
-        tag={baseTag as any}
-        onClick={vi.fn()}
-        selected
-        onSelect={onSelect}
-      />,
-    );
+    const { container } = render(<TagTile tag={baseTag as any} onClick={vi.fn()} selected onSelect={onSelect} />);
 
     expect(overrideRendererCalls).toHaveLength(1);
     expect(overrideRendererCalls[0]?.targetComponent).toBe("entity.media");
@@ -79,12 +74,7 @@ describe("TagTile entity media integration", () => {
   });
 
   it("keeps the native tag fallback available when an override delegates", () => {
-    const { container } = render(
-      <TagTile
-        tag={{ ...baseTag, imagePath: undefined } as any}
-        onClick={vi.fn()}
-      />,
-    );
+    const { container } = render(<TagTile tag={{ ...baseTag, imagePath: undefined } as any} onClick={vi.fn()} />);
 
     expect(overrideRendererCalls).toHaveLength(1);
     expect(overrideRendererCalls[0]?.componentProps).toMatchObject({
@@ -97,15 +87,16 @@ describe("TagTile entity media integration", () => {
   });
 
   it("shows audio and text usage in the card footer", () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], totalCount: 0, page: 1, perPage: 10 }), { status: 200 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ items: [], totalCount: 0, page: 1, perPage: 10 }), { status: 200 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
-        <TagTile
-          tag={{ ...baseTag, audioCount: 3, textCount: 2 } as any}
-          onClick={vi.fn()}
-        />
+        <TagTile tag={{ ...baseTag, audioCount: 3, textCount: 2 } as any} onClick={vi.fn()} />
       </QueryClientProvider>,
     );
 

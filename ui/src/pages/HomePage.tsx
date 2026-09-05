@@ -1,10 +1,64 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { videos, performers, studios, tags, galleries, groups, audios, texts, faces, segmentLibrary, segmentSpans, savedFilters, dashboards } from "../api/client";
-import type { AffinityHostType, Audio, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter, FindFilter, Dashboard, DashboardSummary, DashboardWidget, DashboardWidgetPresentation, ExtensionDashboardWidgetContribution, TextDocument } from "../api/types";
+import {
+  videos,
+  performers,
+  studios,
+  tags,
+  galleries,
+  groups,
+  audios,
+  texts,
+  faces,
+  segmentLibrary,
+  segmentSpans,
+  savedFilters,
+  dashboards,
+} from "../api/client";
+import type {
+  AffinityHostType,
+  Audio,
+  EntityEngagement,
+  Video,
+  Performer,
+  Studio,
+  Tag,
+  Gallery,
+  Group,
+  SavedFilter,
+  FindFilter,
+  Dashboard,
+  DashboardSummary,
+  DashboardWidget,
+  DashboardWidgetPresentation,
+  ExtensionDashboardWidgetContribution,
+  TextDocument,
+} from "../api/types";
 import { formatDuration, formatFileSize, getResolutionLabel, RatingBadge } from "../components/shared";
 import { RatingBanner } from "../components/Rating";
-import { ChevronLeft, ChevronRight, Settings2, Plus, Trash2, Film, User, Building2, Tag as TagIcon, Images, Clapperboard, GripVertical, Headphones, Layers, Copy, Home, AlertTriangle, X, Check, RotateCcw, FileText } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Settings2,
+  Plus,
+  Trash2,
+  Film,
+  User,
+  Building2,
+  Tag as TagIcon,
+  Images,
+  Clapperboard,
+  GripVertical,
+  Headphones,
+  Layers,
+  Copy,
+  Home,
+  AlertTriangle,
+  X,
+  Check,
+  RotateCcw,
+  FileText,
+} from "lucide-react";
 import { createRouteLinkProps } from "../components/cardNavigation";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { readAuthenticatedUserHomePageContent } from "../utils/userUiPreferences";
@@ -20,14 +74,33 @@ import { emitLocationChange, registerNavigationBlocker } from "../router/locatio
 import { buildSpanSearchRequest } from "./segments/useDerivedSpansQuery";
 import { buildRawSegmentListOptions } from "./segments/useRawSegmentsQuery";
 import { createDefaultRawSegmentFilter, readRawSegmentListFilter } from "./segments/rawSegmentFilter";
-import { buildSpanTitle, buildRawSegmentTitle, formatSegmentCardEyebrow, SegmentVideoPreview } from "./segments/segmentDisplayUtils";
+import {
+  buildSpanTitle,
+  buildRawSegmentTitle,
+  formatSegmentCardEyebrow,
+  SegmentVideoPreview,
+} from "./segments/segmentDisplayUtils";
 import type { DerivedSpanItem, RawSegmentItem } from "./segments/types";
-import { buildAppliedDerivedQuery, buildDerivedQueryDescriptor, readDerivedSpanQueryFilter } from "./segments/derivedQueryCriterion";
+import {
+  buildAppliedDerivedQuery,
+  buildDerivedQueryDescriptor,
+  readDerivedSpanQueryFilter,
+} from "./segments/derivedQueryCriterion";
 import { readMultiIdCriterionDepth, readMultiIdCriterionIds } from "./segments/segmentCriteriaDefinitions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type FilterMode = "videos" | "performers" | "studios" | "tags" | "galleries" | "groups" | "audios" | "texts" | "segments" | "rawsegments";
+type FilterMode =
+  | "videos"
+  | "performers"
+  | "studios"
+  | "tags"
+  | "galleries"
+  | "groups"
+  | "audios"
+  | "texts"
+  | "segments"
+  | "rawsegments";
 
 interface CustomFilter {
   type: "custom";
@@ -84,7 +157,7 @@ function parseJsonObject<T extends object>(json: string | undefined): T | undefi
   if (!json) return undefined;
   try {
     const parsed = JSON.parse(json);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as T : undefined;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as T) : undefined;
   } catch {
     return undefined;
   }
@@ -138,7 +211,9 @@ function loadContent(): FrontPageContent[] {
       }
       return content;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return DEFAULT_CONTENT;
 }
 
@@ -165,7 +240,10 @@ function getDefaultPresentation(definition: ExtensionDashboardWidgetContribution
     : supported[0];
 }
 
-function definitionSupportsPresentation(definition: ExtensionDashboardWidgetContribution | undefined, presentation: DashboardWidgetPresentation) {
+function definitionSupportsPresentation(
+  definition: ExtensionDashboardWidgetContribution | undefined,
+  presentation: DashboardWidgetPresentation,
+) {
   return !!definition && getSupportedPresentations(definition).includes(presentation);
 }
 
@@ -179,8 +257,8 @@ function cloneJsonConfiguration(value: unknown): unknown {
     ancestors.add(candidate);
     const valid = Array.isArray(candidate)
       ? candidate.every(validate)
-      : (Object.getPrototypeOf(candidate) === Object.prototype || Object.getPrototypeOf(candidate) === null)
-        && Object.values(candidate as Record<string, unknown>).every(validate);
+      : (Object.getPrototypeOf(candidate) === Object.prototype || Object.getPrototypeOf(candidate) === null) &&
+        Object.values(candidate as Record<string, unknown>).every(validate);
     ancestors.delete(candidate);
     return valid;
   };
@@ -191,32 +269,58 @@ function cloneJsonConfiguration(value: unknown): unknown {
 
 function contentToWidget(content: FrontPageContent): DashboardWidget {
   if (content.type === "continueWatching") {
-    return { instanceId: createInstanceId(), owner: "cove.core", widgetKey: "continue-watching", label: "Continue Watching", configuration: {}, presentation: FLOW_PRESENTATION };
+    return {
+      instanceId: createInstanceId(),
+      owner: "cove.core",
+      widgetKey: "continue-watching",
+      label: "Continue Watching",
+      configuration: {},
+      presentation: FLOW_PRESENTATION,
+    };
   }
   if (content.type === "saved") {
     return {
-      instanceId: createInstanceId(), owner: "cove.core", widgetKey: "collection", label: "Saved filter",
-      configuration: { source: "saved", savedFilterId: content.savedFilterId }, presentation: FLOW_PRESENTATION,
+      instanceId: createInstanceId(),
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Saved filter",
+      configuration: { source: "saved", savedFilterId: content.savedFilterId },
+      presentation: FLOW_PRESENTATION,
     };
   }
   return {
-    instanceId: createInstanceId(), owner: "cove.core", widgetKey: "collection", label: content.header,
-    configuration: { source: "premade", mode: content.mode, sortBy: content.sortBy, direction: content.direction, header: content.header }, presentation: FLOW_PRESENTATION,
+    instanceId: createInstanceId(),
+    owner: "cove.core",
+    widgetKey: "collection",
+    label: content.header,
+    configuration: {
+      source: "premade",
+      mode: content.mode,
+      sortBy: content.sortBy,
+      direction: content.direction,
+      header: content.header,
+    },
+    presentation: FLOW_PRESENTATION,
   };
 }
 
 function widgetToContent(widget: DashboardWidget): FrontPageContent | null {
   if (widget.owner !== "cove.core") return null;
   if (widget.widgetKey === "continue-watching") return { type: "continueWatching" };
-  if (widget.widgetKey !== "collection" || !widget.configuration || typeof widget.configuration !== "object") return null;
+  if (widget.widgetKey !== "collection" || !widget.configuration || typeof widget.configuration !== "object")
+    return null;
   const config = widget.configuration as Record<string, unknown>;
   if (config.source === "saved" && typeof config.savedFilterId === "number") {
     return { type: "saved", savedFilterId: config.savedFilterId };
   }
   const mode = normalizeFilterMode(typeof config.mode === "string" ? config.mode : undefined);
-  if (!mode || typeof config.sortBy !== "string" || (config.direction !== "asc" && config.direction !== "desc")) return null;
+  if (!mode || typeof config.sortBy !== "string" || (config.direction !== "asc" && config.direction !== "desc"))
+    return null;
   return {
-    type: "custom", mode, sortBy: config.sortBy, direction: config.direction,
+    type: "custom",
+    mode,
+    sortBy: config.sortBy,
+    direction: config.direction,
     header: typeof config.header === "string" ? config.header : widget.label,
   };
 }
@@ -240,10 +344,18 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
       try {
         await dashboards.bootstrap(legacyWidgets);
         const list = await dashboards.list();
-        const requested = dashboardId == null ? list.find((item) => item.isDefault) ?? list[0] : list.find((item) => item.id === dashboardId);
+        const requested =
+          dashboardId == null
+            ? (list.find((item) => item.isDefault) ?? list[0])
+            : list.find((item) => item.id === dashboardId);
         const fallback = list.find((item) => item.isDefault) ?? list[0];
         if (!fallback) throw new Error("No dashboard is available.");
-        return { list, dashboard: await dashboards.get((requested ?? fallback).id), missingRequested: dashboardId != null && !requested, readOnly: false };
+        return {
+          list,
+          dashboard: await dashboards.get((requested ?? fallback).id),
+          missingRequested: dashboardId != null && !requested,
+          readOnly: false,
+        };
       } catch (error) {
         // Anonymous and share-link principals have no personal storage. Preserve their existing
         // home experience as a local, read-only standard dashboard.
@@ -271,7 +383,7 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   const loadedDashboardId = dashboardQuery.data?.dashboard.id;
   useEffect(() => {
     if (loadedDashboardId != null) {
-      setEditingDashboard((current) => current == null || current.id === loadedDashboardId ? current : null);
+      setEditingDashboard((current) => (current == null || current.id === loadedDashboardId ? current : null));
     }
   }, [loadedDashboardId]);
 
@@ -280,7 +392,11 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   }, [queryClient]);
 
   if (dashboardQuery.isLoading) {
-    return <div className="flex min-h-[35vh] items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" /></div>;
+    return (
+      <div className="flex min-h-[35vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
+      </div>
+    );
   }
   if (dashboardQuery.error || !dashboardQuery.data) {
     return <DashboardLoadError error={dashboardQuery.error} onRetry={() => dashboardQuery.refetch()} />;
@@ -318,19 +434,32 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
         dashboards={list}
         onNavigate={onNavigate}
         onEdit={() => setEditingDashboard({ id: dashboard.id, selectName: false })}
-        onCreated={async (created) => { await refresh(); setEditingDashboard({ id: created.id, selectName: true }); onNavigate({ page: "dashboard", id: created.id }); }}
+        onCreated={async (created) => {
+          await refresh();
+          setEditingDashboard({ id: created.id, selectName: true });
+          onNavigate({ page: "dashboard", id: created.id });
+        }}
         readOnly={readOnly}
       />
       <div className={presentation === "canvas" ? "min-w-0" : "space-y-5"}>
         {dashboard.widgets.map((widget) => (
-          <DashboardWidgetHost key={widget.instanceId} dashboardId={dashboard.id} principalKey={principalKey} widget={widget} onNavigate={onNavigate} />
+          <DashboardWidgetHost
+            key={widget.instanceId}
+            dashboardId={dashboard.id}
+            principalKey={principalKey}
+            widget={widget}
+            onNavigate={onNavigate}
+          />
         ))}
         {dashboard.widgets.length === 0 && readOnly ? (
           <div className="flex min-h-40 w-full items-center justify-center rounded-lg border border-dashed border-border bg-card/40 text-sm text-muted">
             No dashboard widgets are available.
           </div>
         ) : dashboard.widgets.length === 0 ? (
-          <button onClick={() => setEditingDashboard({ id: dashboard.id, selectName: false })} className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 text-muted hover:border-accent/50 hover:text-accent">
+          <button
+            onClick={() => setEditingDashboard({ id: dashboard.id, selectName: false })}
+            className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 text-muted hover:border-accent/50 hover:text-accent"
+          >
             <Plus className="h-6 w-6" />
             Add your first widget
           </button>
@@ -345,13 +474,28 @@ function DashboardLoadError({ error, onRetry }: { error: unknown; onRetry: () =>
     <div className="mx-auto flex min-h-[35vh] max-w-lg flex-col items-center justify-center gap-3 text-center">
       <AlertTriangle className="h-8 w-8 text-yellow-400" />
       <h1 className="text-lg font-semibold text-foreground">Dashboard unavailable</h1>
-      <p className="text-sm text-muted">{error instanceof Error ? error.message : "The dashboard could not be loaded."}</p>
-      <button onClick={onRetry} className="rounded border border-border px-3 py-2 text-sm text-foreground hover:border-accent"><RotateCcw className="mr-2 inline h-4 w-4" />Retry</button>
+      <p className="text-sm text-muted">
+        {error instanceof Error ? error.message : "The dashboard could not be loaded."}
+      </p>
+      <button
+        onClick={onRetry}
+        className="rounded border border-border px-3 py-2 text-sm text-foreground hover:border-accent"
+      >
+        <RotateCcw className="mr-2 inline h-4 w-4" />
+        Retry
+      </button>
     </div>
   );
 }
 
-function DashboardHeader({ dashboard, dashboards: items, onNavigate, onEdit, onCreated, readOnly = false }: {
+function DashboardHeader({
+  dashboard,
+  dashboards: items,
+  onNavigate,
+  onEdit,
+  onCreated,
+  readOnly = false,
+}: {
   dashboard: Dashboard;
   dashboards: DashboardSummary[];
   onNavigate: (route: any) => void;
@@ -392,48 +536,115 @@ function DashboardHeader({ dashboard, dashboards: items, onNavigate, onEdit, onC
             }}
             className="min-w-40 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
           >
-            {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            {items.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
           </select>
         </div>
-        {!readOnly ? <div className="flex gap-2">
-          <button disabled={creating} onClick={createDashboard} className="rounded-md border border-accent/60 px-3 py-2 text-sm text-accent hover:bg-accent/10 disabled:opacity-50"><Plus className="mr-1 inline h-4 w-4" />{creating ? "Creating…" : "New Dashboard"}</button>
-          <button disabled={creating} onClick={onEdit} className="rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent/60 disabled:opacity-50"><Settings2 className="mr-1 inline h-4 w-4" />Customize</button>
-        </div> : null}
+        {!readOnly ? (
+          <div className="flex gap-2">
+            <button
+              disabled={creating}
+              onClick={createDashboard}
+              className="rounded-md border border-accent/60 px-3 py-2 text-sm text-accent hover:bg-accent/10 disabled:opacity-50"
+            >
+              <Plus className="mr-1 inline h-4 w-4" />
+              {creating ? "Creating…" : "New Dashboard"}
+            </button>
+            <button
+              disabled={creating}
+              onClick={onEdit}
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent/60 disabled:opacity-50"
+            >
+              <Settings2 className="mr-1 inline h-4 w-4" />
+              Customize
+            </button>
+          </div>
+        ) : null}
       </header>
-      {createError ? <div role="alert" className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{createError}</div> : null}
+      {createError ? (
+        <div role="alert" className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          {createError}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function DashboardWidgetHost({ dashboardId, principalKey, widget, onNavigate, editing = false }: { dashboardId: number; principalKey: string; widget: DashboardWidget; onNavigate: (route: any) => void; editing?: boolean }) {
+function DashboardWidgetHost({
+  dashboardId,
+  principalKey,
+  widget,
+  onNavigate,
+  editing = false,
+}: {
+  dashboardId: number;
+  principalKey: string;
+  widget: DashboardWidget;
+  onNavigate: (route: any) => void;
+  editing?: boolean;
+}) {
   const content = widgetToContent(widget);
   if (content) {
-    return <div style={{ containerType: "inline-size" }}>{content.type === "continueWatching" ? <ContinueWatchingRow principalKey={principalKey} onNavigate={onNavigate} /> : <RecommendationRow principalKey={principalKey} content={content} onNavigate={onNavigate} editing={editing} />}</div>;
+    return (
+      <div style={{ containerType: "inline-size" }}>
+        {content.type === "continueWatching" ? (
+          <ContinueWatchingRow principalKey={principalKey} onNavigate={onNavigate} />
+        ) : (
+          <RecommendationRow principalKey={principalKey} content={content} onNavigate={onNavigate} editing={editing} />
+        )}
+      </div>
+    );
   }
 
   return <ExtensionDashboardWidgetHost dashboardId={dashboardId} widget={widget} onNavigate={onNavigate} />;
 }
 
-function ExtensionDashboardWidgetHost({ dashboardId, widget, onNavigate }: { dashboardId: number; widget: DashboardWidget; onNavigate: (route: any) => void }) {
+function ExtensionDashboardWidgetHost({
+  dashboardId,
+  widget,
+  onNavigate,
+}: {
+  dashboardId: number;
+  widget: DashboardWidget;
+  onNavigate: (route: any) => void;
+}) {
   const { manifest, resolveComponent, getExtensionRevision } = useExtensions();
   const { hasPermission } = useAuth();
   const safeConfiguration = useMemo(() => cloneJsonConfiguration(widget.configuration), [widget.configuration]);
 
-  const definition = manifest?.dashboardWidgets?.find((item) => item.extensionId === widget.owner && item.id === widget.widgetKey);
+  const definition = manifest?.dashboardWidgets?.find(
+    (item) => item.extensionId === widget.owner && item.id === widget.widgetKey,
+  );
   const presentation = getWidgetPresentation(widget);
-  const Component = definition && definitionSupportsPresentation(definition, presentation) && canAccessExtensionContribution(definition, hasPermission)
-    ? resolveComponent(definition.extensionId, definition.componentName)
-    : undefined;
+  const Component =
+    definition &&
+    definitionSupportsPresentation(definition, presentation) &&
+    canAccessExtensionContribution(definition, hasPermission)
+      ? resolveComponent(definition.extensionId, definition.componentName)
+      : undefined;
   if (!definition || !Component) return <UnavailableWidget widget={widget} />;
 
   return (
-    <div style={{ containerType: "inline-size" }} className={`dashboard-widget-container dashboard-widget-${presentation}`} data-widget-presentation={presentation}>
+    <div
+      style={{ containerType: "inline-size" }}
+      className={`dashboard-widget-container dashboard-widget-${presentation}`}
+      data-widget-presentation={presentation}
+    >
       <ExtensionErrorBoundary
         extensionId={definition.extensionId}
         resetKey={`${widget.instanceId}:${getExtensionRevision(definition.extensionId)}`}
         fallback={<UnavailableWidget widget={widget} failed />}
       >
-        <Component dashboardId={dashboardId} instanceId={widget.instanceId} configuration={safeConfiguration} presentation={presentation} onNavigate={onNavigate} />
+        <Component
+          dashboardId={dashboardId}
+          instanceId={widget.instanceId}
+          configuration={safeConfiguration}
+          presentation={presentation}
+          onNavigate={onNavigate}
+        />
       </ExtensionErrorBoundary>
     </div>
   );
@@ -445,7 +656,10 @@ function UnavailableWidget({ widget, failed = false }: { widget: DashboardWidget
       <AlertTriangle className="h-5 w-5 shrink-0 text-yellow-400" />
       <div>
         <p className="font-medium text-foreground">{widget.label}</p>
-        <p className="text-xs text-muted">{failed ? "This widget failed to render." : "Its extension is unavailable or you no longer have access."} Configuration has been preserved.</p>
+        <p className="text-xs text-muted">
+          {failed ? "This widget failed to render." : "Its extension is unavailable or you no longer have access."}{" "}
+          Configuration has been preserved.
+        </p>
       </div>
     </div>
   );
@@ -453,19 +667,36 @@ function UnavailableWidget({ widget, failed = false }: { widget: DashboardWidget
 
 function WidgetLoadError({ label, error, onRetry }: { label: string; error: unknown; onRetry: () => void }) {
   return (
-    <div role="alert" className="flex min-h-24 flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+    <div
+      role="alert"
+      className="flex min-h-24 flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3"
+    >
       <div>
         <p className="font-medium text-foreground">{label} could not be loaded</p>
         <p className="text-xs text-muted">{error instanceof Error ? error.message : "The widget request failed."}</p>
       </div>
-      <button type="button" onClick={onRetry} aria-label={`Retry ${label}`} className="rounded border border-red-400/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10">
-        <RotateCcw className="mr-1 inline h-4 w-4" />Retry
+      <button
+        type="button"
+        onClick={onRetry}
+        aria-label={`Retry ${label}`}
+        className="rounded border border-red-400/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"
+      >
+        <RotateCcw className="mr-1 inline h-4 w-4" />
+        Retry
       </button>
     </div>
   );
 }
 
-function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMount = false, onNavigate, onCancel, onDeleted, onSaved }: {
+function DashboardEditor({
+  dashboard,
+  dashboards: dashboardList,
+  selectNameOnMount = false,
+  onNavigate,
+  onCancel,
+  onDeleted,
+  onSaved,
+}: {
   dashboard: Dashboard;
   dashboards: DashboardSummary[];
   selectNameOnMount?: boolean;
@@ -476,7 +707,10 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
 }) {
   const { manifest } = useExtensions();
   const { hasPermission, user } = useAuth();
-  const [draft, setDraft] = useState<Dashboard>(() => ({ ...dashboard, widgets: dashboard.widgets.map((widget) => ({ ...widget })) }));
+  const [draft, setDraft] = useState<Dashboard>(() => ({
+    ...dashboard,
+    widgets: dashboard.widgets.map((widget) => ({ ...widget })),
+  }));
   const [showCatalog, setShowCatalog] = useState(false);
   const [configuringId, setConfiguringId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -489,14 +723,18 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
   const dashboardNameInput = useRef<HTMLInputElement | null>(null);
   const editorUrl = useRef(`${window.location.pathname}${window.location.search}`);
   const editorHistoryState = useRef(window.history.state);
-  const dirty = JSON.stringify({ name: draft.name, widgets: draft.widgets }) !== JSON.stringify({ name: dashboard.name, widgets: dashboard.widgets });
+  const dirty =
+    JSON.stringify({ name: draft.name, widgets: draft.widgets }) !==
+    JSON.stringify({ name: dashboard.name, widgets: dashboard.widgets });
   const busy = saving || operation !== null;
   const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
   const { data: allSavedFilters } = useQuery({
     queryKey: ["saved-filters-all", "dashboard", user ? `${user.kind}:${user.id}` : "anonymous"],
     queryFn: () => savedFilters.list(),
   });
-  const definitions = (manifest?.dashboardWidgets ?? []).filter((definition) => canAccessExtensionContribution(definition, hasPermission));
+  const definitions = (manifest?.dashboardWidgets ?? []).filter((definition) =>
+    canAccessExtensionContribution(definition, hasPermission),
+  );
 
   useEffect(() => {
     if (!selectNameOnMount) return;
@@ -505,7 +743,8 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
   }, [selectNameOnMount]);
 
   useEffect(() => {
-    const confirmNavigation = () => allowNavigation.current || !dirty || window.confirm("Discard your unsaved dashboard changes?");
+    const confirmNavigation = () =>
+      allowNavigation.current || !dirty || window.confirm("Discard your unsaved dashboard changes?");
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!dirty) return;
       event.preventDefault();
@@ -586,16 +825,27 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
     setSaving(true);
     setError(null);
     try {
-      const saved = await dashboards.update(draft.id, { name: draft.name, expectedVersion: draft.version, widgets: draft.widgets });
+      const saved = await dashboards.update(draft.id, {
+        name: draft.name,
+        expectedVersion: draft.version,
+        widgets: draft.widgets,
+      });
       allowNavigation.current = true;
       await onSaved(saved);
     } catch (caught) {
       allowNavigation.current = false;
       const message = caught instanceof Error ? caught.message : "Dashboard save failed.";
-      if (message.includes("DASHBOARD_VERSION_CONFLICT") && window.confirm("This dashboard changed elsewhere. Overwrite it with this draft?")) {
+      if (
+        message.includes("DASHBOARD_VERSION_CONFLICT") &&
+        window.confirm("This dashboard changed elsewhere. Overwrite it with this draft?")
+      ) {
         try {
           const current = await dashboards.get(draft.id);
-          const overwritten = await dashboards.update(draft.id, { name: draft.name, expectedVersion: current.version, widgets: draft.widgets });
+          const overwritten = await dashboards.update(draft.id, {
+            name: draft.name,
+            expectedVersion: current.version,
+            widgets: draft.widgets,
+          });
           allowNavigation.current = true;
           await onSaved(overwritten);
           return;
@@ -624,13 +874,18 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
   };
   const removeWidget = (instanceId: string) => {
     if (busy) return;
-    setDraft((current) => ({ ...current, widgets: current.widgets.filter((widget) => widget.instanceId !== instanceId) }));
+    setDraft((current) => ({
+      ...current,
+      widgets: current.widgets.filter((widget) => widget.instanceId !== instanceId),
+    }));
   };
   const setWidgetPresentation = (instanceId: string, presentation: DashboardWidgetPresentation) => {
     if (busy || (presentation === "canvas" && draft.widgets.length !== 1)) return;
     setDraft((current) => ({
       ...current,
-      widgets: current.widgets.map((widget) => widget.instanceId === instanceId ? { ...widget, presentation } : widget),
+      widgets: current.widgets.map((widget) =>
+        widget.instanceId === instanceId ? { ...widget, presentation } : widget,
+      ),
     }));
   };
 
@@ -685,10 +940,15 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
     }
   };
 
-  const configuredWidget = configuringId ? draft.widgets.find((widget) => widget.instanceId === configuringId) : undefined;
+  const configuredWidget = configuringId
+    ? draft.widgets.find((widget) => widget.instanceId === configuringId)
+    : undefined;
   return (
     <div className="space-y-4">
-      <header ref={editorToolbar} className="sticky top-14 z-30 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
+      <header
+        ref={editorToolbar}
+        className="sticky top-14 z-30 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 shadow-lg"
+      >
         <div className="flex min-w-0 items-center gap-3">
           <span className="rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent">Editing Dashboard</span>
           <input
@@ -707,20 +967,71 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
           />
         </div>
         <div className="flex flex-wrap gap-2">
-          {!dashboard.isDefault ? <button disabled={busy} onClick={setDefault} className="rounded border border-border px-3 py-2 text-sm text-foreground hover:border-accent disabled:opacity-50"><Home className="mr-1 inline h-4 w-4" />{operation === "default" ? "Setting…" : "Set Default"}</button> : null}
-          <button disabled={busy} onClick={duplicateDashboard} className="rounded border border-border px-3 py-2 text-sm text-foreground hover:border-accent disabled:opacity-50"><Copy className="mr-1 inline h-4 w-4" />{operation === "duplicate" ? "Duplicating…" : "Duplicate"}</button>
-          <button disabled={busy} onClick={deleteDashboard} className="rounded border border-red-500/30 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 disabled:opacity-50"><Trash2 className="mr-1 inline h-4 w-4" />{operation === "delete" ? "Deleting…" : "Delete"}</button>
-          <button disabled={busy} onClick={() => { if (confirmDiscard()) onCancel(); }} className="rounded px-3 py-2 text-sm text-muted hover:text-foreground disabled:opacity-50">Cancel</button>
-          <button disabled={busy || !draft.name.trim()} onClick={save} className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"><Check className="mr-1 inline h-4 w-4" />{saving ? "Saving…" : "Done"}</button>
+          {!dashboard.isDefault ? (
+            <button
+              disabled={busy}
+              onClick={setDefault}
+              className="rounded border border-border px-3 py-2 text-sm text-foreground hover:border-accent disabled:opacity-50"
+            >
+              <Home className="mr-1 inline h-4 w-4" />
+              {operation === "default" ? "Setting…" : "Set Default"}
+            </button>
+          ) : null}
+          <button
+            disabled={busy}
+            onClick={duplicateDashboard}
+            className="rounded border border-border px-3 py-2 text-sm text-foreground hover:border-accent disabled:opacity-50"
+          >
+            <Copy className="mr-1 inline h-4 w-4" />
+            {operation === "duplicate" ? "Duplicating…" : "Duplicate"}
+          </button>
+          <button
+            disabled={busy}
+            onClick={deleteDashboard}
+            className="rounded border border-red-500/30 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            <Trash2 className="mr-1 inline h-4 w-4" />
+            {operation === "delete" ? "Deleting…" : "Delete"}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => {
+              if (confirmDiscard()) onCancel();
+            }}
+            className="rounded px-3 py-2 text-sm text-muted hover:text-foreground disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={busy || !draft.name.trim()}
+            onClick={save}
+            className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+          >
+            <Check className="mr-1 inline h-4 w-4" />
+            {saving ? "Saving…" : "Done"}
+          </button>
         </div>
       </header>
-      <button disabled={busy} onClick={() => setShowCatalog(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-4 text-sm text-accent hover:border-accent/60 hover:bg-accent/5 disabled:opacity-50"><Plus className="h-4 w-4" />Add Widget</button>
-      {error ? <div role="alert" className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+      <button
+        disabled={busy}
+        onClick={() => setShowCatalog(true)}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-4 text-sm text-accent hover:border-accent/60 hover:bg-accent/5 disabled:opacity-50"
+      >
+        <Plus className="h-4 w-4" />
+        Add Widget
+      </button>
+      {error ? (
+        <div role="alert" className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          {error}
+        </div>
+      ) : null}
 
       <SortableList
         items={draft.widgets}
         getKey={(widget) => widget.instanceId}
-        onReorder={(widgets) => { if (!busy) setDraft((current) => ({ ...current, widgets })); }}
+        onReorder={(widgets) => {
+          if (!busy) setDraft((current) => ({ ...current, widgets }));
+        }}
         className="space-y-3 pb-6"
         renderItem={(widget, { dragHandleProps, isDragging, isOver }) => (
           <section
@@ -732,23 +1043,64 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
           >
             <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center">
               <div className="flex min-w-0 items-center gap-2 sm:flex-1">
-                <span {...(busy ? {} : dragHandleProps)} aria-disabled={busy} className={busy ? "cursor-not-allowed text-muted opacity-50" : "cursor-grab text-muted active:cursor-grabbing"}><GripVertical className="h-4 w-4" /></span>
+                <span
+                  {...(busy ? {} : dragHandleProps)}
+                  aria-disabled={busy}
+                  className={
+                    busy ? "cursor-not-allowed text-muted opacity-50" : "cursor-grab text-muted active:cursor-grabbing"
+                  }
+                >
+                  <GripVertical className="h-4 w-4" />
+                </span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{widget.label}</span>
               </div>
               <div className="flex flex-wrap items-center gap-1 sm:ml-auto sm:justify-end">
                 <WidgetPresentationControl
                   widget={widget}
-                  definition={definitions.find((item) => item.extensionId === widget.owner && item.id === widget.widgetKey)}
+                  definition={definitions.find(
+                    (item) => item.extensionId === widget.owner && item.id === widget.widgetKey,
+                  )}
                   dashboardWidgetCount={draft.widgets.length}
                   disabled={busy}
                   onChange={(presentation) => setWidgetPresentation(widget.instanceId, presentation)}
                 />
-                <button disabled={busy} onClick={() => setConfiguringId(widget.instanceId)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Settings2 className="mr-1 inline h-3.5 w-3.5" />Configure</button>
-                {canDuplicateWidget(widget, definitions) ? <button disabled={busy} onClick={() => duplicateWidget(widget)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Copy className="mr-1 inline h-3.5 w-3.5" />Duplicate</button> : null}
-                <button disabled={busy} onClick={() => removeWidget(widget.instanceId)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Remove</button>
+                <button
+                  disabled={busy}
+                  onClick={() => setConfiguringId(widget.instanceId)}
+                  className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"
+                >
+                  <Settings2 className="mr-1 inline h-3.5 w-3.5" />
+                  Configure
+                </button>
+                {canDuplicateWidget(widget, definitions) ? (
+                  <button
+                    disabled={busy}
+                    onClick={() => duplicateWidget(widget)}
+                    className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"
+                  >
+                    <Copy className="mr-1 inline h-3.5 w-3.5" />
+                    Duplicate
+                  </button>
+                ) : null}
+                <button
+                  disabled={busy}
+                  onClick={() => removeWidget(widget.instanceId)}
+                  className="px-2 py-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                >
+                  <Trash2 className="mr-1 inline h-3.5 w-3.5" />
+                  Remove
+                </button>
               </div>
             </div>
-            <div className="p-3"><DashboardWidgetHost dashboardId={dashboard.id} principalKey={principalKey} widget={widget} onNavigate={onNavigate} editing /></div>
+            <div className="p-3">
+              <DashboardWidgetHost
+                dashboardId={dashboard.id}
+                principalKey={principalKey}
+                widget={widget}
+                onNavigate={onNavigate}
+                editing
+              />
+            </div>
           </section>
         )}
       />
@@ -766,13 +1118,19 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMou
       {configuredWidget ? (
         <WidgetConfigurationDialog
           widget={configuredWidget}
-          definition={definitions.find((item) => item.extensionId === configuredWidget.owner && item.id === configuredWidget.widgetKey)}
+          definition={definitions.find(
+            (item) => item.extensionId === configuredWidget.owner && item.id === configuredWidget.widgetKey,
+          )}
           disabled={busy}
           onSave={(configuration, label) => {
             if (busy) return;
             setDraft((current) => ({
               ...current,
-              widgets: current.widgets.map((widget) => widget.instanceId === configuredWidget.instanceId ? { ...widget, configuration, label: label ?? widget.label } : widget),
+              widgets: current.widgets.map((widget) =>
+                widget.instanceId === configuredWidget.instanceId
+                  ? { ...widget, configuration, label: label ?? widget.label }
+                  : widget,
+              ),
             }));
             setConfiguringId(null);
           }}
@@ -790,7 +1148,11 @@ function canDuplicateWidget(widget: DashboardWidget, definitions: ExtensionDashb
   return definition !== undefined && definition.allowMultiple !== false;
 }
 
-export function getWidgetRevealScrollDelta(rect: Pick<DOMRect, "top" | "bottom" | "height">, toolbarBottom: number, viewportHeight: number) {
+export function getWidgetRevealScrollDelta(
+  rect: Pick<DOMRect, "top" | "bottom" | "height">,
+  toolbarBottom: number,
+  viewportHeight: number,
+) {
   const revealTop = toolbarBottom + 4;
   const revealBottom = viewportHeight - 16;
   if (rect.height > revealBottom - revealTop) return rect.top - revealTop;
@@ -799,7 +1161,13 @@ export function getWidgetRevealScrollDelta(rect: Pick<DOMRect, "top" | "bottom" 
   return 0;
 }
 
-function WidgetPresentationControl({ widget, definition, dashboardWidgetCount, disabled, onChange }: {
+function WidgetPresentationControl({
+  widget,
+  definition,
+  dashboardWidgetCount,
+  disabled,
+  onChange,
+}: {
   widget: DashboardWidget;
   definition?: ExtensionDashboardWidgetContribution;
   dashboardWidgetCount: number;
@@ -810,10 +1178,18 @@ function WidgetPresentationControl({ widget, definition, dashboardWidgetCount, d
   const supported = widget.owner === "cove.core" ? [FLOW_PRESENTATION] : getSupportedPresentations(definition);
   const presentationSupported = supported.includes(presentation);
   if (!definition && widget.owner !== "cove.core") {
-    return presentation === "canvas" ? <span className="rounded bg-accent/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent">Canvas</span> : null;
+    return presentation === "canvas" ? (
+      <span className="rounded bg-accent/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
+        Canvas
+      </span>
+    ) : null;
   }
   if (supported.length < 2 && presentationSupported) {
-    return presentation === "canvas" ? <span className="rounded bg-accent/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent">Canvas</span> : null;
+    return presentation === "canvas" ? (
+      <span className="rounded bg-accent/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
+        Canvas
+      </span>
+    ) : null;
   }
   return (
     <label className="flex items-center gap-1 text-xs text-muted">
@@ -825,7 +1201,11 @@ function WidgetPresentationControl({ widget, definition, dashboardWidgetCount, d
         onChange={(event) => onChange(event.target.value as DashboardWidgetPresentation)}
         className="rounded border border-border bg-input px-2 py-1 text-xs text-foreground"
       >
-        {!presentationSupported ? <option value="unsupported" disabled>Unsupported {presentation === "canvas" ? "Canvas" : "Flow"}</option> : null}
+        {!presentationSupported ? (
+          <option value="unsupported" disabled>
+            Unsupported {presentation === "canvas" ? "Canvas" : "Flow"}
+          </option>
+        ) : null}
         {supported.map((option) => (
           <option key={option} value={option} disabled={option === "canvas" && dashboardWidgetCount !== 1}>
             {option === "canvas" ? "Canvas" : "Flow"}
@@ -861,9 +1241,11 @@ function useDashboardDialog<T extends HTMLElement>(onClose: () => void) {
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
-    const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-      "a[href]:not([hidden]), button:not(:disabled):not([hidden]), input:not(:disabled):not([type='hidden']):not([hidden]), select:not(:disabled):not([hidden]), textarea:not(:disabled):not([hidden]), [tabindex]:not([tabindex='-1']):not([hidden])",
-    ));
+    const focusable = Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>(
+        "a[href]:not([hidden]), button:not(:disabled):not([hidden]), input:not(:disabled):not([type='hidden']):not([hidden]), select:not(:disabled):not([hidden]), textarea:not(:disabled):not([hidden]), [tabindex]:not([tabindex='-1']):not([hidden])",
+      ),
+    );
     if (focusable.length === 0) {
       event.preventDefault();
       dialogRef.current.focus();
@@ -883,7 +1265,14 @@ function useDashboardDialog<T extends HTMLElement>(onClose: () => void) {
   return { dialogRef, onKeyDown };
 }
 
-function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinitions, disabled, onAdd, onClose }: {
+function WidgetCatalog({
+  currentWidgets,
+  savedFilters: filters,
+  extensionDefinitions,
+  disabled,
+  onAdd,
+  onClose,
+}: {
   currentWidgets: DashboardWidget[];
   savedFilters: SavedFilter[];
   extensionDefinitions: ExtensionDashboardWidgetContribution[];
@@ -899,11 +1288,20 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
   const hasCanvasWidget = currentWidgets.some((widget) => getWidgetPresentation(widget) === "canvas");
   const supportedSavedFilters = filters.filter((filter) => normalizeFilterMode(filter.mode));
   const normalizedSearch = search.trim().toLocaleLowerCase();
-  const matchesSearch = (label: string, description: string) => !normalizedSearch || `${label} ${description}`.toLocaleLowerCase().includes(normalizedSearch);
+  const matchesSearch = (label: string, description: string) =>
+    !normalizedSearch || `${label} ${description}`.toLocaleLowerCase().includes(normalizedSearch);
   const flowConflictDescription = "Remove the Canvas widget before adding Flow content.";
   const builtInItems = [
     ...(!currentWidgets.some((widget) => widget.owner === "cove.core" && widget.widgetKey === "continue-watching")
-      ? [{ key: "continue-watching", label: "Continue Watching", description: hasCanvasWidget ? flowConflictDescription : "Resume unfinished media.", disabled: disabled || hasCanvasWidget, onClick: () => onAdd(contentToWidget({ type: "continueWatching" })) }]
+      ? [
+          {
+            key: "continue-watching",
+            label: "Continue Watching",
+            description: hasCanvasWidget ? flowConflictDescription : "Resume unfinished media.",
+            disabled: disabled || hasCanvasWidget,
+            onClick: () => onAdd(contentToWidget({ type: "continueWatching" })),
+          },
+        ]
       : []),
     ...PREMADE_FILTERS.map((filter) => ({
       key: `${filter.mode}:${filter.sortBy}:${filter.header}`,
@@ -913,42 +1311,59 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
       onClick: () => addPremade(filter),
     })),
   ].filter((item) => matchesSearch(item.label, item.description));
-  const savedFilterItems = supportedSavedFilters.map((filter) => ({
-    key: `saved:${filter.id}`,
-    label: filter.name,
-    description: hasCanvasWidget ? flowConflictDescription : `Saved filter · ${filter.mode}`,
-    disabled: disabled || hasCanvasWidget,
-    onClick: () => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id })),
-  })).filter((item) => matchesSearch(item.label, item.description));
-  const extensionItems = extensionDefinitions.map((definition) => {
-    const alreadyAdded = !definition.allowMultiple && currentWidgets.some((widget) => widget.owner === definition.extensionId && widget.widgetKey === definition.id);
-    const defaultPresentation = getDefaultPresentation(definition);
-    const supportedPresentations = getSupportedPresentations(definition);
-    const presentation = currentWidgets.length > 0
-      && !hasCanvasWidget
-      && defaultPresentation === "canvas"
-      && supportedPresentations.includes("flow")
-      ? FLOW_PRESENTATION
-      : defaultPresentation;
-    const canvasConflict = presentation === "canvas" && currentWidgets.length > 0;
-    const flowConflict = presentation === "flow" && hasCanvasWidget;
-    const conflictDescription = canvasConflict
-      ? "Canvas widgets need an empty dashboard. Create or empty a dashboard first."
-      : flowConflict
-        ? flowConflictDescription
-        : undefined;
-    return {
-      key: `${definition.extensionId}:${definition.id}`,
-      label: definition.label,
-      description: conflictDescription ?? definition.description ?? definition.extensionId,
-      disabled: disabled || alreadyAdded || canvasConflict || flowConflict,
-      onClick: () => onAdd({ instanceId: createInstanceId(), owner: definition.extensionId, widgetKey: definition.id, label: definition.label, configuration: structuredClone(definition.defaultConfiguration ?? {}), presentation }),
-    };
-  }).filter((item) => matchesSearch(item.label, item.description));
+  const savedFilterItems = supportedSavedFilters
+    .map((filter) => ({
+      key: `saved:${filter.id}`,
+      label: filter.name,
+      description: hasCanvasWidget ? flowConflictDescription : `Saved filter · ${filter.mode}`,
+      disabled: disabled || hasCanvasWidget,
+      onClick: () => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id })),
+    }))
+    .filter((item) => matchesSearch(item.label, item.description));
+  const extensionItems = extensionDefinitions
+    .map((definition) => {
+      const alreadyAdded =
+        !definition.allowMultiple &&
+        currentWidgets.some((widget) => widget.owner === definition.extensionId && widget.widgetKey === definition.id);
+      const defaultPresentation = getDefaultPresentation(definition);
+      const supportedPresentations = getSupportedPresentations(definition);
+      const presentation =
+        currentWidgets.length > 0 &&
+        !hasCanvasWidget &&
+        defaultPresentation === "canvas" &&
+        supportedPresentations.includes("flow")
+          ? FLOW_PRESENTATION
+          : defaultPresentation;
+      const canvasConflict = presentation === "canvas" && currentWidgets.length > 0;
+      const flowConflict = presentation === "flow" && hasCanvasWidget;
+      const conflictDescription = canvasConflict
+        ? "Canvas widgets need an empty dashboard. Create or empty a dashboard first."
+        : flowConflict
+          ? flowConflictDescription
+          : undefined;
+      return {
+        key: `${definition.extensionId}:${definition.id}`,
+        label: definition.label,
+        description: conflictDescription ?? definition.description ?? definition.extensionId,
+        disabled: disabled || alreadyAdded || canvasConflict || flowConflict,
+        onClick: () =>
+          onAdd({
+            instanceId: createInstanceId(),
+            owner: definition.extensionId,
+            widgetKey: definition.id,
+            label: definition.label,
+            configuration: structuredClone(definition.defaultConfiguration ?? {}),
+            presentation,
+          }),
+      };
+    })
+    .filter((item) => matchesSearch(item.label, item.description));
   const hasMatches = builtInItems.length + savedFilterItems.length + extensionItems.length > 0;
   const onCatalogKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const items = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>("button[data-widget-catalog-item]:not(:disabled)") ?? []);
+    const items = Array.from(
+      dialogRef.current?.querySelectorAll<HTMLButtonElement>("button[data-widget-catalog-item]:not(:disabled)") ?? [],
+    );
     if (items.length === 0) return;
     if (event.currentTarget === searchRef.current) {
       if (event.key === "ArrowDown") {
@@ -965,36 +1380,123 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
   };
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/70" onClick={onClose}>
-      <aside ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+      <aside
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="sticky -top-5 z-10 -mx-5 mb-5 border-b border-border bg-surface px-5 pb-4 pt-5">
-          <div className="mb-4 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Add Widget</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
-          <input ref={searchRef} data-dialog-initial-focus type="search" aria-label="Search widgets" placeholder="Search widgets…" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={onCatalogKeyDown} className="block w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted" />
+          <div className="mb-4 flex items-center justify-between">
+            <h2 id={titleId} className="text-lg font-semibold text-foreground">
+              Add Widget
+            </h2>
+            <button onClick={onClose} aria-label="Close">
+              <X className="h-5 w-5 text-muted" />
+            </button>
+          </div>
+          <input
+            ref={searchRef}
+            data-dialog-initial-focus
+            type="search"
+            aria-label="Search widgets"
+            placeholder="Search widgets…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={onCatalogKeyDown}
+            className="block w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted"
+          />
         </div>
-        {builtInItems.length ? <CatalogSection title="Built-in" items={builtInItems} onItemKeyDown={onCatalogKeyDown} /> : null}
-        {savedFilterItems.length ? <CatalogSection title="Saved Filters" items={savedFilterItems} onItemKeyDown={onCatalogKeyDown} /> : null}
-        {extensionItems.length ? <CatalogSection title="Extensions" items={extensionItems} onItemKeyDown={onCatalogKeyDown} /> : null}
-        {!hasMatches ? <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted">No widgets match “{search.trim()}”.</p> : null}
+        {builtInItems.length ? (
+          <CatalogSection title="Built-in" items={builtInItems} onItemKeyDown={onCatalogKeyDown} />
+        ) : null}
+        {savedFilterItems.length ? (
+          <CatalogSection title="Saved Filters" items={savedFilterItems} onItemKeyDown={onCatalogKeyDown} />
+        ) : null}
+        {extensionItems.length ? (
+          <CatalogSection title="Extensions" items={extensionItems} onItemKeyDown={onCatalogKeyDown} />
+        ) : null}
+        {!hasMatches ? (
+          <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted">
+            No widgets match “{search.trim()}”.
+          </p>
+        ) : null}
       </aside>
     </div>
   );
 }
 
-function CatalogSection({ title, items, onItemKeyDown }: { title: string; items: Array<{ key: string; label: string; description: string; disabled: boolean; onClick: () => void }>; onItemKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void }) {
+function CatalogSection({
+  title,
+  items,
+  onItemKeyDown,
+}: {
+  title: string;
+  items: Array<{ key: string; label: string; description: string; disabled: boolean; onClick: () => void }>;
+  onItemKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+}) {
   return (
     <section className="mb-6" aria-labelledby={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`}>
-      <h3 id={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`} className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
+      <h3
+        id={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`}
+        className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted"
+      >
+        {title}
+      </h3>
       <div className="space-y-2">
-        {items.map((item) => <CatalogButton key={item.key} label={item.label} description={item.description} disabled={item.disabled} onClick={item.onClick} onKeyDown={onItemKeyDown} />)}
+        {items.map((item) => (
+          <CatalogButton
+            key={item.key}
+            label={item.label}
+            description={item.description}
+            disabled={item.disabled}
+            onClick={item.onClick}
+            onKeyDown={onItemKeyDown}
+          />
+        ))}
       </div>
     </section>
   );
 }
 
-function CatalogButton({ label, description, disabled, onClick, onKeyDown }: { label: string; description: string; disabled?: boolean; onClick: () => void; onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void }) {
-  return <button data-widget-catalog-item disabled={disabled} onClick={onClick} onKeyDown={onKeyDown} className="block w-full rounded-lg border border-border bg-card p-3 text-left hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-40"><span className="block text-sm font-medium text-foreground">{label}</span><span className="mt-1 block text-xs text-muted">{description}</span></button>;
+function CatalogButton({
+  label,
+  description,
+  disabled,
+  onClick,
+  onKeyDown,
+}: {
+  label: string;
+  description: string;
+  disabled?: boolean;
+  onClick: () => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+}) {
+  return (
+    <button
+      data-widget-catalog-item
+      disabled={disabled}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      className="block w-full rounded-lg border border-border bg-card p-3 text-left hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <span className="block text-sm font-medium text-foreground">{label}</span>
+      <span className="mt-1 block text-xs text-muted">{description}</span>
+    </button>
+  );
 }
 
-function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClose }: {
+function WidgetConfigurationDialog({
+  widget,
+  definition,
+  disabled,
+  onSave,
+  onClose,
+}: {
   widget: DashboardWidget;
   definition?: ExtensionDashboardWidgetContribution;
   disabled: boolean;
@@ -1008,42 +1510,107 @@ function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClo
   const [valid, setValid] = useState(true);
   const [validationMessage, setValidationMessage] = useState<string | undefined>();
   const [configurationError, setConfigurationError] = useState<string | undefined>();
-  const Editor = definition?.editorComponentName ? resolveComponent(definition.extensionId, definition.editorComponentName) : undefined;
+  const Editor = definition?.editorComponentName
+    ? resolveComponent(definition.extensionId, definition.editorComponentName)
+    : undefined;
   const coreContent = widgetToContent({ ...widget, configuration });
   const editorConfiguration = useMemo(() => cloneJsonConfiguration(configuration), [configuration]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="w-full max-w-lg rounded-lg border border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Configure {widget.label}</h2><button data-dialog-initial-focus onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        className="w-full max-w-lg rounded-lg border border-border bg-surface p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 id={titleId} className="text-lg font-semibold text-foreground">
+            Configure {widget.label}
+          </h2>
+          <button data-dialog-initial-focus onClick={onClose} aria-label="Close">
+            <X className="h-5 w-5 text-muted" />
+          </button>
+        </div>
         <fieldset disabled={disabled} className="contents">
-        {widget.owner === "cove.core" && coreContent?.type === "custom" ? (
-          <div className="space-y-3">
-            <label className="block text-sm text-secondary">Title<input value={coreContent.header} onChange={(event) => setConfiguration({ ...(configuration as object), header: event.target.value })} className="mt-1 block w-full rounded border border-border bg-input px-3 py-2 text-foreground" /></label>
-            <label className="block text-sm text-secondary">Direction<select value={coreContent.direction} onChange={(event) => setConfiguration({ ...(configuration as object), direction: event.target.value })} className="mt-1 block w-full rounded border border-border bg-input px-3 py-2 text-foreground"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
+          {widget.owner === "cove.core" && coreContent?.type === "custom" ? (
+            <div className="space-y-3">
+              <label className="block text-sm text-secondary">
+                Title
+                <input
+                  value={coreContent.header}
+                  onChange={(event) => setConfiguration({ ...(configuration as object), header: event.target.value })}
+                  className="mt-1 block w-full rounded border border-border bg-input px-3 py-2 text-foreground"
+                />
+              </label>
+              <label className="block text-sm text-secondary">
+                Direction
+                <select
+                  value={coreContent.direction}
+                  onChange={(event) =>
+                    setConfiguration({ ...(configuration as object), direction: event.target.value })
+                  }
+                  className="mt-1 block w-full rounded border border-border bg-input px-3 py-2 text-foreground"
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
+              </label>
+            </div>
+          ) : Editor && definition ? (
+            <ExtensionErrorBoundary
+              extensionId={definition.extensionId}
+              resetKey={getExtensionRevision(definition.extensionId)}
+              fallback={<UnavailableWidget widget={widget} failed />}
+            >
+              <Editor
+                configuration={editorConfiguration}
+                presentation={getWidgetPresentation(widget)}
+                onChange={(nextConfiguration: unknown) => {
+                  try {
+                    setConfiguration(cloneJsonConfiguration(nextConfiguration));
+                    setConfigurationError(undefined);
+                  } catch (caught) {
+                    setConfigurationError(
+                      caught instanceof Error ? caught.message : "Widget configuration must be valid JSON data.",
+                    );
+                  }
+                }}
+                onValidityChange={(nextValid: boolean, message?: string) => {
+                  setValid(nextValid);
+                  setValidationMessage(message);
+                }}
+              />
+            </ExtensionErrorBoundary>
+          ) : (
+            <p className="text-sm text-muted">
+              This widget has no additional settings. Its saved configuration will remain unchanged.
+            </p>
+          )}
+          {validationMessage ? (
+            <p className={`mt-3 text-sm ${valid ? "text-muted" : "text-red-400"}`}>{validationMessage}</p>
+          ) : null}
+          {configurationError ? (
+            <p role="alert" className="mt-3 text-sm text-red-400">
+              {configurationError}
+            </p>
+          ) : null}
+          <div className="mt-5 flex justify-end gap-2">
+            <button onClick={onClose} className="px-3 py-2 text-sm text-muted">
+              Cancel
+            </button>
+            <button
+              disabled={disabled || !valid || !!configurationError}
+              onClick={() => onSave(configuration, coreContent?.type === "custom" ? coreContent.header : undefined)}
+              className="rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+            >
+              Save
+            </button>
           </div>
-        ) : Editor && definition ? (
-          <ExtensionErrorBoundary extensionId={definition.extensionId} resetKey={getExtensionRevision(definition.extensionId)} fallback={<UnavailableWidget widget={widget} failed />}>
-            <Editor
-              configuration={editorConfiguration}
-              presentation={getWidgetPresentation(widget)}
-              onChange={(nextConfiguration: unknown) => {
-                try {
-                  setConfiguration(cloneJsonConfiguration(nextConfiguration));
-                  setConfigurationError(undefined);
-                } catch (caught) {
-                  setConfigurationError(caught instanceof Error ? caught.message : "Widget configuration must be valid JSON data.");
-                }
-              }}
-              onValidityChange={(nextValid: boolean, message?: string) => { setValid(nextValid); setValidationMessage(message); }}
-            />
-          </ExtensionErrorBoundary>
-        ) : (
-          <p className="text-sm text-muted">This widget has no additional settings. Its saved configuration will remain unchanged.</p>
-        )}
-        {validationMessage ? <p className={`mt-3 text-sm ${valid ? "text-muted" : "text-red-400"}`}>{validationMessage}</p> : null}
-        {configurationError ? <p role="alert" className="mt-3 text-sm text-red-400">{configurationError}</p> : null}
-        <div className="mt-5 flex justify-end gap-2"><button onClick={onClose} className="px-3 py-2 text-sm text-muted">Cancel</button><button disabled={disabled || !valid || !!configurationError} onClick={() => onSave(configuration, coreContent?.type === "custom" ? coreContent.header : undefined)} className="rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50">Save</button></div>
         </fieldset>
       </div>
     </div>
@@ -1062,14 +1629,39 @@ function ContinueWatchingRow({ principalKey, onNavigate }: { principalKey: strin
     queryFn: () => groups.items.page(continueGroup!.id, { page: 1, perPage: 12 }),
     enabled: !!continueGroup,
   });
-  if (groupQuery.isError) return <WidgetLoadError label="Continue Watching" error={groupQuery.error} onRetry={() => { void groupQuery.refetch(); }} />;
-  if (itemQuery.isError) return <WidgetLoadError label="Continue Watching" error={itemQuery.error} onRetry={() => { void itemQuery.refetch(); }} />;
+  if (groupQuery.isError)
+    return (
+      <WidgetLoadError
+        label="Continue Watching"
+        error={groupQuery.error}
+        onRetry={() => {
+          void groupQuery.refetch();
+        }}
+      />
+    );
+  if (itemQuery.isError)
+    return (
+      <WidgetLoadError
+        label="Continue Watching"
+        error={itemQuery.error}
+        onRetry={() => {
+          void itemQuery.refetch();
+        }}
+      />
+    );
   const { data: itemPage, isLoading } = itemQuery;
   const playableItems = itemPage?.items ?? [];
   if (!isLoading && playableItems.length === 0) return null;
 
   return (
-    <RecommendationRowShell header="Continue Watching" viewAllPage="group" viewAllId={continueGroup!.id} onNavigate={onNavigate} loading={isLoading} count={playableItems.length}>
+    <RecommendationRowShell
+      header="Continue Watching"
+      viewAllPage="group"
+      viewAllId={continueGroup!.id}
+      onNavigate={onNavigate}
+      loading={isLoading}
+      count={playableItems.length}
+    >
       {playableItems.map((item) => (
         <ContinueWatchingCard key={`${item.groupId}-${item.id}`} item={item} onNavigate={onNavigate} />
       ))}
@@ -1077,21 +1669,35 @@ function ContinueWatchingRow({ principalKey, onNavigate }: { principalKey: strin
   );
 }
 
-function ContinueWatchingCard({ item, onNavigate }: { item: { hostType?: string; hostId?: number; videoId?: number | null; videoTitle?: string; title?: string; startSec?: number }; onNavigate: (r: any) => void }) {
+function ContinueWatchingCard({
+  item,
+  onNavigate,
+}: {
+  item: {
+    hostType?: string;
+    hostId?: number;
+    videoId?: number | null;
+    videoTitle?: string;
+    title?: string;
+    startSec?: number;
+  };
+  onNavigate: (r: any) => void;
+}) {
   const hostType = item.hostType ?? "video";
   const hostId = item.hostId ?? item.videoId ?? 0;
   const videoId = item.videoId ?? (hostType === "video" ? hostId : 0);
   const title = item.title || item.videoTitle || "Untitled";
-  const route = hostType === "audio"
-    ? { page: "audio", id: hostId }
-    : hostType === "segment"
-      ? { page: "segment", id: hostId }
-      // Only pass an explicit seekTo when we actually have a position (segments carry startSec).
-      // Continue-watching video items have no startSec, so omit it and let VideoDetailPage resume
-      // from the engagement resumeTime — passing seekTo: 0 would force playback back to the start.
-      : item.startSec && item.startSec > 0
-        ? { page: "video", id: videoId, seekTo: item.startSec }
-        : { page: "video", id: videoId };
+  const route =
+    hostType === "audio"
+      ? { page: "audio", id: hostId }
+      : hostType === "segment"
+        ? { page: "segment", id: hostId }
+        : // Only pass an explicit seekTo when we actually have a position (segments carry startSec).
+          // Continue-watching video items have no startSec, so omit it and let VideoDetailPage resume
+          // from the engagement resumeTime — passing seekTo: 0 would force playback back to the start.
+          item.startSec && item.startSec > 0
+          ? { page: "video", id: videoId, seekTo: item.startSec }
+          : { page: "video", id: videoId };
   const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
   return (
     <a
@@ -1101,15 +1707,19 @@ function ContinueWatchingCard({ item, onNavigate }: { item: { hostType?: string;
     >
       <div className="relative aspect-video bg-black">
         {videoId > 0 ? (
-          <VideoCoverImage src={`/api/stream/video/${videoId}/screenshot`} alt={title} className="h-full w-full object-cover" fallbackClassName="video-recommendation-cover-fallback" loading="lazy" />
+          <VideoCoverImage
+            src={`/api/stream/video/${videoId}/screenshot`}
+            alt={title}
+            className="h-full w-full object-cover"
+            fallbackClassName="video-recommendation-cover-fallback"
+            loading="lazy"
+          />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-accent">
             {hostType === "audio" ? <Headphones className="h-10 w-10" /> : <Layers className="h-10 w-10" />}
           </div>
         )}
-        <div className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-          Resume
-        </div>
+        <div className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">Resume</div>
       </div>
       <div className="px-2 py-1.5">
         <p className="truncate text-sm font-medium text-foreground">{title}</p>
@@ -1120,12 +1730,29 @@ function ContinueWatchingCard({ item, onNavigate }: { item: { hostType?: string;
 
 // ─── Recommendation Row (dispatcher) ────────────────────────────────────────
 
-function RecommendationRow({ principalKey, content, onNavigate, editing = false }: { principalKey: string; content: FrontPageContent; onNavigate: (r: any) => void; editing?: boolean }) {
+function RecommendationRow({
+  principalKey,
+  content,
+  onNavigate,
+  editing = false,
+}: {
+  principalKey: string;
+  content: FrontPageContent;
+  onNavigate: (r: any) => void;
+  editing?: boolean;
+}) {
   if (content.type === "continueWatching") {
     return <ContinueWatchingRow principalKey={principalKey} onNavigate={onNavigate} />;
   }
   if (content.type === "saved") {
-    return <SavedFilterRecommendationRow principalKey={principalKey} savedFilterId={content.savedFilterId} onNavigate={onNavigate} editing={editing} />;
+    return (
+      <SavedFilterRecommendationRow
+        principalKey={principalKey}
+        savedFilterId={content.savedFilterId}
+        onNavigate={onNavigate}
+        editing={editing}
+      />
+    );
   }
   return <CustomFilterRecommendationRow filter={content} onNavigate={onNavigate} />;
 }
@@ -1140,13 +1767,20 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
 
   const fetchFn = useMemo((): (() => Promise<any>) => {
     switch (filter.mode) {
-      case "videos": return () => videos.find(findFilter);
-      case "performers": return () => performers.find(findFilter);
-      case "studios": return () => studios.find(findFilter);
-      case "tags": return () => tags.find(findFilter);
-      case "galleries": return () => galleries.find(findFilter);
-      case "groups": return () => groups.find(findFilter);
-      default: return () => Promise.resolve({ items: [], totalCount: 0 });
+      case "videos":
+        return () => videos.find(findFilter);
+      case "performers":
+        return () => performers.find(findFilter);
+      case "studios":
+        return () => studios.find(findFilter);
+      case "tags":
+        return () => tags.find(findFilter);
+      case "galleries":
+        return () => galleries.find(findFilter);
+      case "groups":
+        return () => groups.find(findFilter);
+      default:
+        return () => Promise.resolve({ items: [], totalCount: 0 });
     }
   }, [filter.mode, findFilter]);
 
@@ -1158,8 +1792,20 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
   const { data, isLoading } = query;
   const items = data?.items ?? [];
   const engagementHostType = getRecommendationEngagementHostType(filter.mode);
-  const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementHostType ? items.map((item: any) => item.id) : []);
-  if (query.isError) return <WidgetLoadError label={filter.header} error={query.error} onRetry={() => { void query.refetch(); }} />;
+  const { engagementById } = useEntityEngagementBatch(
+    engagementHostType ?? "video",
+    engagementHostType ? items.map((item: any) => item.id) : [],
+  );
+  if (query.isError)
+    return (
+      <WidgetLoadError
+        label={filter.header}
+        error={query.error}
+        onRetry={() => {
+          void query.refetch();
+        }}
+      />
+    );
   if (!isLoading && items.length === 0) return null;
 
   return (
@@ -1173,7 +1819,13 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
       count={items.length}
     >
       {items.map((item: any) => (
-        <EntityCard key={item.id} item={item} engagement={engagementById.get(item.id)} mode={filter.mode} onNavigate={onNavigate} />
+        <EntityCard
+          key={item.id}
+          item={item}
+          engagement={engagementById.get(item.id)}
+          mode={filter.mode}
+          onNavigate={onNavigate}
+        />
       ))}
     </RecommendationRowShell>
   );
@@ -1181,7 +1833,17 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
 
 // ─── Saved Filter Row ───────────────────────────────────────────────────────
 
-function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate, editing = false }: { principalKey: string; savedFilterId: number; onNavigate: (r: any) => void; editing?: boolean }) {
+function SavedFilterRecommendationRow({
+  principalKey,
+  savedFilterId,
+  onNavigate,
+  editing = false,
+}: {
+  principalKey: string;
+  savedFilterId: number;
+  onNavigate: (r: any) => void;
+  editing?: boolean;
+}) {
   const filterQuery = useQuery({
     queryKey: ["saved-filter", principalKey, savedFilterId],
     queryFn: () => savedFilters.get(savedFilterId),
@@ -1190,34 +1852,62 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate,
 
   const mode = normalizeFilterMode(filter?.mode);
   const parsedFilter = useMemo(() => parseJsonObject<FindFilter>(filter?.findFilter) ?? {}, [filter?.findFilter]);
-  const parsedObjectFilter = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.objectFilter), [filter?.objectFilter]);
-  const parsedUIOptions = useMemo(() => parseJsonObject<Record<string, unknown>>(filter?.uiOptions), [filter?.uiOptions]);
+  const parsedObjectFilter = useMemo(
+    () => parseJsonObject<Record<string, unknown>>(filter?.objectFilter),
+    [filter?.objectFilter],
+  );
+  const parsedUIOptions = useMemo(
+    () => parseJsonObject<Record<string, unknown>>(filter?.uiOptions),
+    [filter?.uiOptions],
+  );
   const hasObjectFilter = !!parsedObjectFilter && Object.keys(parsedObjectFilter).length > 0;
-  const segmentProfileId = typeof parsedUIOptions?.profileId === "number" && Number.isInteger(parsedUIOptions.profileId) && parsedUIOptions.profileId > 0
-    ? parsedUIOptions.profileId
-    : undefined;
+  const segmentProfileId =
+    typeof parsedUIOptions?.profileId === "number" &&
+    Number.isInteger(parsedUIOptions.profileId) &&
+    parsedUIOptions.profileId > 0
+      ? parsedUIOptions.profileId
+      : undefined;
   const findFilter = useMemo((): FindFilter | undefined => {
     if (!mode) return undefined;
-    return withSeededRandomSort({}, {
-      ...parsedFilter,
-      page: 1,
-      perPage: 25,
-      sort: parsedFilter.sort ?? DEFAULT_SORT_BY_MODE[mode],
-      direction: parsedFilter.direction ?? "desc",
-    });
+    return withSeededRandomSort(
+      {},
+      {
+        ...parsedFilter,
+        page: 1,
+        perPage: 25,
+        sort: parsedFilter.sort ?? DEFAULT_SORT_BY_MODE[mode],
+        direction: parsedFilter.direction ?? "desc",
+      },
+    );
   }, [mode, parsedFilter]);
 
   const fetchFn = useMemo((): (() => Promise<any>) => {
     if (!mode) return () => Promise.resolve({ items: [], totalCount: 0 });
     const fetchMap: Record<string, () => Promise<any>> = {
-      videos: hasObjectFilter ? () => videos.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => videos.find(findFilter),
-      performers: hasObjectFilter ? () => performers.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => performers.find(findFilter),
-      studios: hasObjectFilter ? () => studios.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => studios.find(findFilter),
-      tags: hasObjectFilter ? () => tags.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => tags.find(findFilter),
-      galleries: hasObjectFilter ? () => galleries.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => galleries.find(findFilter),
-      groups: hasObjectFilter ? () => groups.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => groups.find(findFilter),
-      audios: hasObjectFilter ? () => audios.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => audios.find(findFilter),
-      texts: hasObjectFilter ? () => texts.findFiltered({ findFilter, objectFilter: parsedObjectFilter }) : () => texts.find(findFilter),
+      videos: hasObjectFilter
+        ? () => videos.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => videos.find(findFilter),
+      performers: hasObjectFilter
+        ? () => performers.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => performers.find(findFilter),
+      studios: hasObjectFilter
+        ? () => studios.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => studios.find(findFilter),
+      tags: hasObjectFilter
+        ? () => tags.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => tags.find(findFilter),
+      galleries: hasObjectFilter
+        ? () => galleries.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => galleries.find(findFilter),
+      groups: hasObjectFilter
+        ? () => groups.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => groups.find(findFilter),
+      audios: hasObjectFilter
+        ? () => audios.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => audios.find(findFilter),
+      texts: hasObjectFilter
+        ? () => texts.findFiltered({ findFilter, objectFilter: parsedObjectFilter })
+        : () => texts.find(findFilter),
       segments: async () => {
         if (segmentProfileId == null) return { items: [], totalCount: 0 };
         const criteria = readRawSegmentListFilter(parsedObjectFilter ?? {});
@@ -1226,28 +1916,32 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate,
         const rawTagDepth = readMultiIdCriterionDepth(parsedObjectFilter?.rawTagsCriterion);
         const derivedFilter = readDerivedSpanQueryFilter(parsedObjectFilter?.derivedSpanQuery);
         const performerIds = Array.from(new Set(derivedFilter.operands.flatMap((operand) => operand.performerIds)));
-        const performerFaceEntries = await Promise.all(performerIds.map(async (performerId) => {
-          const response = await faces.list({ performerId, merged: false, page: 1, perPage: 200 });
-          return [performerId, response.items.map((face) => face.id)] as const;
-        }));
+        const performerFaceEntries = await Promise.all(
+          performerIds.map(async (performerId) => {
+            const response = await faces.list({ performerId, merged: false, page: 1, perPage: 200 });
+            return [performerId, response.items.map((face) => face.id)] as const;
+          }),
+        );
         const appliedQuery = buildAppliedDerivedQuery(derivedFilter, new Map(performerFaceEntries));
         const derivedQueryDescriptor = buildDerivedQueryDescriptor(derivedFilter);
-        const response = await segmentSpans.search(buildSpanSearchRequest({
-          activeProfileId: segmentProfileId,
-          pageNumber: 1,
-          perPage: 25,
-          q: findFilter?.q?.trim() ?? "",
-          videoTitle: criteria.videoTitle ?? "",
-          videoTagIds,
-          videoTagDepth,
-          sort: findFilter?.sort ?? DEFAULT_SORT_BY_MODE.segments,
-          direction: findFilter?.direction ?? "desc",
-          seed: findFilter?.seed,
-          includeVideoIds: criteria.videoIds,
-          excludeVideoIds: criteria.excludeVideoIds,
-          appliedQuery,
-          rawFilter: { ...createDefaultRawSegmentFilter(), ...criteria, tagDepth: rawTagDepth },
-        }));
+        const response = await segmentSpans.search(
+          buildSpanSearchRequest({
+            activeProfileId: segmentProfileId,
+            pageNumber: 1,
+            perPage: 25,
+            q: findFilter?.q?.trim() ?? "",
+            videoTitle: criteria.videoTitle ?? "",
+            videoTagIds,
+            videoTagDepth,
+            sort: findFilter?.sort ?? DEFAULT_SORT_BY_MODE.segments,
+            direction: findFilter?.direction ?? "desc",
+            seed: findFilter?.seed,
+            includeVideoIds: criteria.videoIds,
+            excludeVideoIds: criteria.excludeVideoIds,
+            appliedQuery,
+            rawFilter: { ...createDefaultRawSegmentFilter(), ...criteria, tagDepth: rawTagDepth },
+          }),
+        );
         return {
           ...response,
           items: response.items.map<DerivedSpanItem>((item) => ({
@@ -1269,22 +1963,24 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate,
         const videoTagIds = readMultiIdCriterionIds(parsedObjectFilter?.videoTagsCriterion);
         const videoTagDepth = readMultiIdCriterionDepth(parsedObjectFilter?.videoTagsCriterion);
         const rawTagDepth = readMultiIdCriterionDepth(parsedObjectFilter?.rawTagsCriterion);
-        const response = await segmentLibrary.list(buildRawSegmentListOptions({
-          pageNumber: 1,
-          perPage: 25,
-          q: findFilter?.q?.trim() ?? "",
-          videoTitle: criteria.videoTitle ?? "",
-          videoTagIds,
-          videoTagDepth,
-          sort: findFilter?.sort ?? DEFAULT_SORT_BY_MODE.rawsegments,
-          direction: findFilter?.direction ?? "desc",
-          seed: findFilter?.seed,
-          includeVideoIds: criteria.videoIds,
-          excludeVideoIds: criteria.excludeVideoIds,
-          rawSegmentIds: [],
-          rawFilter: { ...createDefaultRawSegmentFilter(), ...criteria, tagDepth: rawTagDepth },
-          includeAggregate: false,
-        }));
+        const response = await segmentLibrary.list(
+          buildRawSegmentListOptions({
+            pageNumber: 1,
+            perPage: 25,
+            q: findFilter?.q?.trim() ?? "",
+            videoTitle: criteria.videoTitle ?? "",
+            videoTagIds,
+            videoTagDepth,
+            sort: findFilter?.sort ?? DEFAULT_SORT_BY_MODE.rawsegments,
+            direction: findFilter?.direction ?? "desc",
+            seed: findFilter?.seed,
+            includeVideoIds: criteria.videoIds,
+            excludeVideoIds: criteria.excludeVideoIds,
+            rawSegmentIds: [],
+            rawFilter: { ...createDefaultRawSegmentFilter(), ...criteria, tagDepth: rawTagDepth },
+            includeAggregate: false,
+          }),
+        );
         return {
           ...response,
           items: response.items.map<RawSegmentItem>((item) => ({
@@ -1308,9 +2004,30 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate,
   const { data, isLoading } = itemQuery;
   const items = (data as any)?.items ?? [];
   const engagementHostType = getRecommendationEngagementHostType(mode ?? undefined);
-  const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementHostType ? items.map((item: any) => item.id) : []);
-  if (filterQuery.isError) return <WidgetLoadError label="Saved filter" error={filterQuery.error} onRetry={() => { void filterQuery.refetch(); }} />;
-  if (itemQuery.isError) return <WidgetLoadError label={filter?.name ?? "Saved filter"} error={itemQuery.error} onRetry={() => { void itemQuery.refetch(); }} />;
+  const { engagementById } = useEntityEngagementBatch(
+    engagementHostType ?? "video",
+    engagementHostType ? items.map((item: any) => item.id) : [],
+  );
+  if (filterQuery.isError)
+    return (
+      <WidgetLoadError
+        label="Saved filter"
+        error={filterQuery.error}
+        onRetry={() => {
+          void filterQuery.refetch();
+        }}
+      />
+    );
+  if (itemQuery.isError)
+    return (
+      <WidgetLoadError
+        label={filter?.name ?? "Saved filter"}
+        error={itemQuery.error}
+        onRetry={() => {
+          void itemQuery.refetch();
+        }}
+      />
+    );
   if (!filter || !mode) return null;
   if (itemQuery.isSuccess && items.length === 0) {
     if (!editing) return null;
@@ -1325,7 +2042,7 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate,
   return (
     <RecommendationRowShell
       header={filter.name}
-      viewAllPage={mode === "segments" || mode === "rawsegments" ? "segments" : mode ?? "videos"}
+      viewAllPage={mode === "segments" || mode === "rawsegments" ? "segments" : (mode ?? "videos")}
       viewAllFilter={{
         ...parsedFilter,
         q: parsedFilter.q ?? "",
@@ -1343,7 +2060,13 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate,
       count={items.length}
     >
       {items.map((item: any) => (
-        <EntityCard key={item.id} item={item} engagement={engagementById.get(item.id)} mode={mode!} onNavigate={onNavigate} />
+        <EntityCard
+          key={item.id}
+          item={item}
+          engagement={engagementById.get(item.id)}
+          mode={mode!}
+          onNavigate={onNavigate}
+        />
       ))}
     </RecommendationRowShell>
   );
@@ -1391,9 +2114,15 @@ function RecommendationRowShell({
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 5);
     const destinations = getCarouselPageDestinations(el.scrollWidth, el.clientWidth);
     setPageDestinations(destinations);
-    setCurrentPage(destinations.reduce((nearestIndex, destination, index) => (
-      Math.abs(destination - el.scrollLeft) < Math.abs(destinations[nearestIndex] - el.scrollLeft) ? index : nearestIndex
-    ), 0));
+    setCurrentPage(
+      destinations.reduce(
+        (nearestIndex, destination, index) =>
+          Math.abs(destination - el.scrollLeft) < Math.abs(destinations[nearestIndex] - el.scrollLeft)
+            ? index
+            : nearestIndex,
+        0,
+      ),
+    );
   }, []);
 
   useEffect(() => {
@@ -1403,7 +2132,10 @@ function RecommendationRowShell({
       el.addEventListener("scroll", updateScrollState);
       const resizeObserver = new ResizeObserver(updateScrollState);
       resizeObserver.observe(el);
-      return () => { el.removeEventListener("scroll", updateScrollState); resizeObserver.disconnect(); };
+      return () => {
+        el.removeEventListener("scroll", updateScrollState);
+        resizeObserver.disconnect();
+      };
     }
   }, [updateScrollState, count]);
 
@@ -1420,15 +2152,17 @@ function RecommendationRowShell({
       <div className="flex items-center justify-between mb-2 px-1">
         <h2 className="text-base font-semibold text-foreground">{header}</h2>
         <button
-          onClick={() => onNavigate({
-            page: viewAllPage,
-            ...(viewAllId !== undefined ? { id: viewAllId } : {}),
-            ...(viewAllFilter ? { listFilter: viewAllFilter } : {}),
-            ...(viewAllObjectFilter !== undefined ? { listObjectFilter: viewAllObjectFilter } : {}),
-            ...(viewAllView ? { listView: viewAllView } : {}),
-            ...(viewAllProfileId ? { profileId: viewAllProfileId } : {}),
-            ...(viewAllSegmentsView ? { segmentsView: viewAllSegmentsView } : {}),
-          })}
+          onClick={() =>
+            onNavigate({
+              page: viewAllPage,
+              ...(viewAllId !== undefined ? { id: viewAllId } : {}),
+              ...(viewAllFilter ? { listFilter: viewAllFilter } : {}),
+              ...(viewAllObjectFilter !== undefined ? { listObjectFilter: viewAllObjectFilter } : {}),
+              ...(viewAllView ? { listView: viewAllView } : {}),
+              ...(viewAllProfileId ? { profileId: viewAllProfileId } : {}),
+              ...(viewAllSegmentsView ? { segmentsView: viewAllSegmentsView } : {}),
+            })
+          }
           className="inline-flex min-h-9 items-center rounded-md px-2 text-sm text-muted hover:text-accent sm:min-h-0 sm:px-0 sm:text-xs"
         >
           View All
@@ -1485,7 +2219,9 @@ function RecommendationRowShell({
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-1 sm:w-6"
               aria-label={`Go to carousel page ${i + 1}`}
             >
-              <span className={`h-1.5 w-6 rounded-full transition-colors sm:h-full sm:w-full ${i === currentPage ? "bg-foreground" : "bg-muted/40"}`} />
+              <span
+                className={`h-1.5 w-6 rounded-full transition-colors sm:h-full sm:w-full ${i === currentPage ? "bg-foreground" : "bg-muted/40"}`}
+              />
             </button>
           ))}
         </div>
@@ -1497,65 +2233,222 @@ function RecommendationRowShell({
 export function getCarouselPageDestinations(scrollWidth: number, clientWidth: number) {
   if (clientWidth <= 0 || scrollWidth <= clientWidth) return [0];
   const maxScroll = scrollWidth - clientWidth;
-  const destinations = Array.from({ length: Math.floor(maxScroll / clientWidth) + 1 }, (_, index) => index * clientWidth);
+  const destinations = Array.from(
+    { length: Math.floor(maxScroll / clientWidth) + 1 },
+    (_, index) => index * clientWidth,
+  );
   if (maxScroll - destinations[destinations.length - 1] > 5) destinations.push(maxScroll);
   return destinations;
 }
 
 // ─── Entity Card (renders appropriate card based on mode) ───────────────────
 
-function EntityCard({ item, engagement, mode, onNavigate }: { item: any; engagement?: EntityEngagement; mode: FilterMode; onNavigate: (r: any) => void }) {
+function EntityCard({
+  item,
+  engagement,
+  mode,
+  onNavigate,
+}: {
+  item: any;
+  engagement?: EntityEngagement;
+  mode: FilterMode;
+  onNavigate: (r: any) => void;
+}) {
   switch (mode) {
-    case "videos": return <VideoRecommendationCard video={item} engagement={engagement} onNavigate={onNavigate} />;
-    case "performers": return <PerformerRecommendationCard performer={item} engagement={engagement} onNavigate={onNavigate} />;
-    case "studios": return <StudioRecommendationCard studio={item} engagement={engagement} onNavigate={onNavigate} />;
-    case "tags": return <TagRecommendationCard tag={item} onNavigate={onNavigate} />;
-    case "galleries": return <GalleryRecommendationCard gallery={item} engagement={engagement} onNavigate={onNavigate} />;
-    case "groups": return <GroupRecommendationCard group={item} engagement={engagement} onNavigate={onNavigate} />;
-    case "audios": return <AudioRecommendationCard audio={item} engagement={engagement} onNavigate={onNavigate} />;
-    case "texts": return <TextRecommendationCard text={item} engagement={engagement} onNavigate={onNavigate} />;
-    case "segments": return <DerivedSegmentRecommendationCard item={item} onNavigate={onNavigate} />;
-    case "rawsegments": return <RawSegmentRecommendationCard item={item} engagement={engagement} onNavigate={onNavigate} />;
-    default: return null;
+    case "videos":
+      return <VideoRecommendationCard video={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "performers":
+      return <PerformerRecommendationCard performer={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "studios":
+      return <StudioRecommendationCard studio={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "tags":
+      return <TagRecommendationCard tag={item} onNavigate={onNavigate} />;
+    case "galleries":
+      return <GalleryRecommendationCard gallery={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "groups":
+      return <GroupRecommendationCard group={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "audios":
+      return <AudioRecommendationCard audio={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "texts":
+      return <TextRecommendationCard text={item} engagement={engagement} onNavigate={onNavigate} />;
+    case "segments":
+      return <DerivedSegmentRecommendationCard item={item} onNavigate={onNavigate} />;
+    case "rawsegments":
+      return <RawSegmentRecommendationCard item={item} engagement={engagement} onNavigate={onNavigate} />;
+    default:
+      return null;
   }
 }
 
-function AudioRecommendationCard({ audio, engagement, onNavigate }: { audio: Audio; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
+function AudioRecommendationCard({
+  audio,
+  engagement,
+  onNavigate,
+}: {
+  audio: Audio;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
   const title = audio.title?.trim() || audio.files?.[0]?.basename || "Untitled audio";
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "audio", id: audio.id }, () => onNavigate({ page: "audio", id: audio.id }));
-  return <a {...linkProps} className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="relative flex aspect-video items-center justify-center bg-surface">{audio.imagePath ? <img src={audio.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" /> : <Headphones className="h-10 w-10 text-muted" />}<RatingBanner rating={engagement?.rating} /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p>{audio.date ? <p className="text-xs text-muted">{audio.date}</p> : null}</div></a>;
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "audio", id: audio.id }, () =>
+    onNavigate({ page: "audio", id: audio.id }),
+  );
+  return (
+    <a
+      {...linkProps}
+      className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      style={{ scrollSnapAlign: "start" }}
+    >
+      <div className="relative flex aspect-video items-center justify-center bg-surface">
+        {audio.imagePath ? (
+          <img src={audio.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" />
+        ) : (
+          <Headphones className="h-10 w-10 text-muted" />
+        )}
+        <RatingBanner rating={engagement?.rating} />
+      </div>
+      <div className="px-2 py-1.5">
+        <p className="truncate text-sm font-medium text-foreground">{title}</p>
+        {audio.date ? <p className="text-xs text-muted">{audio.date}</p> : null}
+      </div>
+    </a>
+  );
 }
 
-function TextRecommendationCard({ text, engagement, onNavigate }: { text: TextDocument; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
+function TextRecommendationCard({
+  text,
+  engagement,
+  onNavigate,
+}: {
+  text: TextDocument;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
   const title = text.title?.trim() || text.files?.[0]?.basename || "Untitled text";
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "text", id: text.id }, () => onNavigate({ page: "text", id: text.id }));
-  return <a {...linkProps} className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="relative flex aspect-video items-center justify-center bg-surface">{text.imagePath ? <img src={text.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" /> : <FileText className="h-10 w-10 text-muted" />}<RatingBanner rating={engagement?.rating} /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p>{text.date ? <p className="text-xs text-muted">{text.date}</p> : null}</div></a>;
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "text", id: text.id }, () =>
+    onNavigate({ page: "text", id: text.id }),
+  );
+  return (
+    <a
+      {...linkProps}
+      className="flex w-[200px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      style={{ scrollSnapAlign: "start" }}
+    >
+      <div className="relative flex aspect-video items-center justify-center bg-surface">
+        {text.imagePath ? (
+          <img src={text.imagePath} alt={title} className="h-full w-full object-cover" loading="lazy" />
+        ) : (
+          <FileText className="h-10 w-10 text-muted" />
+        )}
+        <RatingBanner rating={engagement?.rating} />
+      </div>
+      <div className="px-2 py-1.5">
+        <p className="truncate text-sm font-medium text-foreground">{title}</p>
+        {text.date ? <p className="text-xs text-muted">{text.date}</p> : null}
+      </div>
+    </a>
+  );
 }
 
-function DerivedSegmentRecommendationCard({ item, onNavigate }: { item: DerivedSpanItem; onNavigate: (r: any) => void }) {
+function DerivedSegmentRecommendationCard({
+  item,
+  onNavigate,
+}: {
+  item: DerivedSpanItem;
+  onNavigate: (r: any) => void;
+}) {
   const title = buildSpanTitle(item.span, item.videoTitle);
   const primarySegmentId = item.span.segmentIds[0];
-  const route = { page: "video-span", id: item.videoId, spanKey: item.span.spanKey, profileId: item.profileId, derivedQueryDescriptor: item.derivedQueryDescriptor };
+  const route = {
+    page: "video-span",
+    id: item.videoId,
+    spanKey: item.span.spanKey,
+    profileId: item.profileId,
+    derivedQueryDescriptor: item.derivedQueryDescriptor,
+  };
   const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
-  return <a {...linkProps} className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="aspect-video bg-black"><SegmentVideoPreview hostId={item.videoId} segmentId={primarySegmentId} updatedAt={item.videoUpdatedAt} startSec={item.span.startSec} endSec={item.span.endSec} title={title} imgClassName="h-full w-full object-cover" /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p><p className="text-xs text-muted">{formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}</p></div></a>;
+  return (
+    <a
+      {...linkProps}
+      className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      style={{ scrollSnapAlign: "start" }}
+    >
+      <div className="aspect-video bg-black">
+        <SegmentVideoPreview
+          hostId={item.videoId}
+          segmentId={primarySegmentId}
+          updatedAt={item.videoUpdatedAt}
+          startSec={item.span.startSec}
+          endSec={item.span.endSec}
+          title={title}
+          imgClassName="h-full w-full object-cover"
+        />
+      </div>
+      <div className="px-2 py-1.5">
+        <p className="truncate text-sm font-medium text-foreground">{title}</p>
+        <p className="text-xs text-muted">{formatSegmentCardEyebrow(item.span.startSec, item.span.endSec)}</p>
+      </div>
+    </a>
+  );
 }
 
-function RawSegmentRecommendationCard({ item, engagement, onNavigate }: { item: RawSegmentItem; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
+function RawSegmentRecommendationCard({
+  item,
+  engagement,
+  onNavigate,
+}: {
+  item: RawSegmentItem;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
   const title = buildRawSegmentTitle(item);
   const route = { page: "segment", id: item.id };
   const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
-  return <a {...linkProps} className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50" style={{ scrollSnapAlign: "start" }}><div className="relative aspect-video bg-black"><SegmentVideoPreview hostId={item.hostId} segmentId={item.id} updatedAt={item.updatedAt} startSec={item.startSec} endSec={item.endSec} title={title} imgClassName="h-full w-full object-cover" /><RatingBanner rating={engagement?.rating} /></div><div className="px-2 py-1.5"><p className="truncate text-sm font-medium text-foreground">{title}</p><p className="text-xs text-muted">{formatSegmentCardEyebrow(item.startSec, item.endSec)}</p></div></a>;
+  return (
+    <a
+      {...linkProps}
+      className="flex w-[220px] flex-shrink-0 flex-col overflow-hidden rounded border border-border bg-card hover:border-accent/50"
+      style={{ scrollSnapAlign: "start" }}
+    >
+      <div className="relative aspect-video bg-black">
+        <SegmentVideoPreview
+          hostId={item.hostId}
+          segmentId={item.id}
+          updatedAt={item.updatedAt}
+          startSec={item.startSec}
+          endSec={item.endSec}
+          title={title}
+          imgClassName="h-full w-full object-cover"
+        />
+        <RatingBanner rating={engagement?.rating} />
+      </div>
+      <div className="px-2 py-1.5">
+        <p className="truncate text-sm font-medium text-foreground">{title}</p>
+        <p className="text-xs text-muted">{formatSegmentCardEyebrow(item.startSec, item.endSec)}</p>
+      </div>
+    </a>
+  );
 }
 
 // ─── Video Card ─────────────────────────────────────────────────────────────
 
-function VideoRecommendationCard({ video, engagement, onNavigate }: { video: Video; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
+function VideoRecommendationCard({
+  video,
+  engagement,
+  onNavigate,
+}: {
+  video: Video;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
   const file = video.files[0];
   const duration = file?.duration ?? 0;
   const resLabel = file ? getResolutionLabel(file.width, file.height) : null;
   const screenshotUrl = videos.screenshotUrl(video.id);
   const screenshotAlt = video.imagePath ? video.title || "" : "";
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () => onNavigate({ page: "video", id: video.id }));
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "video", id: video.id }, () =>
+    onNavigate({ page: "video", id: video.id }),
+  );
   const rating = engagement?.rating;
 
   return (
@@ -1565,7 +2458,13 @@ function VideoRecommendationCard({ video, engagement, onNavigate }: { video: Vid
       style={{ scrollSnapAlign: "start" }}
     >
       <div className="relative aspect-video bg-black">
-        <VideoCoverImage src={screenshotUrl} alt={screenshotAlt} className="h-full w-full object-cover" fallbackClassName="video-recommendation-cover-fallback" loading="lazy" />
+        <VideoCoverImage
+          src={screenshotUrl}
+          alt={screenshotAlt}
+          className="h-full w-full object-cover"
+          fallbackClassName="video-recommendation-cover-fallback"
+          loading="lazy"
+        />
         {/* Resolution + duration overlay */}
         <div className="absolute bottom-0 right-0 flex items-center gap-0.5 p-1 text-xs text-white">
           {resLabel && <span className="bg-black/70 px-1 py-0.5 rounded font-bold">{resLabel}</span>}
@@ -1582,10 +2481,16 @@ function VideoRecommendationCard({ video, engagement, onNavigate }: { video: Vid
       {/* Bottom stats */}
       <div className="flex items-center gap-2 px-2 pb-1.5 text-xs text-muted">
         {video.tags.length > 0 && (
-          <span className="flex items-center gap-0.5"><TagIcon className="w-2.5 h-2.5" />{video.tags.length}</span>
+          <span className="flex items-center gap-0.5">
+            <TagIcon className="w-2.5 h-2.5" />
+            {video.tags.length}
+          </span>
         )}
         {video.performers.length > 0 && (
-          <span className="flex items-center gap-0.5"><User className="w-2.5 h-2.5" />{video.performers.length}</span>
+          <span className="flex items-center gap-0.5">
+            <User className="w-2.5 h-2.5" />
+            {video.performers.length}
+          </span>
         )}
       </div>
     </a>
@@ -1594,8 +2499,18 @@ function VideoRecommendationCard({ video, engagement, onNavigate }: { video: Vid
 
 // ─── Performer Card ─────────────────────────────────────────────────────────
 
-function PerformerRecommendationCard({ performer, engagement, onNavigate }: { performer: Performer; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () => onNavigate({ page: "performer", id: performer.id }));
+function PerformerRecommendationCard({
+  performer,
+  engagement,
+  onNavigate,
+}: {
+  performer: Performer;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performer.id }, () =>
+    onNavigate({ page: "performer", id: performer.id }),
+  );
   const rating = engagement?.rating;
 
   return (
@@ -1624,8 +2539,18 @@ function PerformerRecommendationCard({ performer, engagement, onNavigate }: { pe
 
 // ─── Studio Card ────────────────────────────────────────────────────────────
 
-function StudioRecommendationCard({ studio, engagement, onNavigate }: { studio: Studio; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "studio", id: studio.id }, () => onNavigate({ page: "studio", id: studio.id }));
+function StudioRecommendationCard({
+  studio,
+  engagement,
+  onNavigate,
+}: {
+  studio: Studio;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "studio", id: studio.id }, () =>
+    onNavigate({ page: "studio", id: studio.id }),
+  );
   const rating = engagement?.rating;
 
   return (
@@ -1652,7 +2577,9 @@ function StudioRecommendationCard({ studio, engagement, onNavigate }: { studio: 
 // ─── Tag Card ───────────────────────────────────────────────────────────────
 
 function TagRecommendationCard({ tag, onNavigate }: { tag: Tag; onNavigate: (r: any) => void }) {
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "tag", id: tag.id }, () => onNavigate({ page: "tag", id: tag.id }));
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "tag", id: tag.id }, () =>
+    onNavigate({ page: "tag", id: tag.id }),
+  );
 
   return (
     <a
@@ -1676,8 +2603,18 @@ function TagRecommendationCard({ tag, onNavigate }: { tag: Tag; onNavigate: (r: 
 
 // ─── Gallery Card ───────────────────────────────────────────────────────────
 
-function GalleryRecommendationCard({ gallery, engagement, onNavigate }: { gallery: Gallery; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "gallery", id: gallery.id }, () => onNavigate({ page: "gallery", id: gallery.id }));
+function GalleryRecommendationCard({
+  gallery,
+  engagement,
+  onNavigate,
+}: {
+  gallery: Gallery;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "gallery", id: gallery.id }, () =>
+    onNavigate({ page: "gallery", id: gallery.id }),
+  );
   const rating = engagement?.rating;
 
   return (
@@ -1688,14 +2625,21 @@ function GalleryRecommendationCard({ gallery, engagement, onNavigate }: { galler
     >
       <div className="relative aspect-video bg-surface flex items-center justify-center">
         {gallery.coverPath ? (
-          <img src={`/api/galleries/${gallery.id}/cover`} alt={gallery.title || ""} className="w-full h-full object-cover" loading="lazy" />
+          <img
+            src={`/api/galleries/${gallery.id}/cover`}
+            alt={gallery.title || ""}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
         ) : (
           <Images className="w-8 h-8 text-muted" />
         )}
         <RatingBanner rating={rating} />
       </div>
       <div className="px-2 py-1.5">
-        <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">{getGalleryDisplayTitle(gallery)}</p>
+        <p className="text-sm font-medium text-foreground truncate group-hover:text-accent">
+          {getGalleryDisplayTitle(gallery)}
+        </p>
         {gallery.date && <p className="text-xs text-muted">{gallery.date}</p>}
       </div>
     </a>
@@ -1704,8 +2648,18 @@ function GalleryRecommendationCard({ gallery, engagement, onNavigate }: { galler
 
 // ─── Group Card ─────────────────────────────────────────────────────────────
 
-function GroupRecommendationCard({ group, engagement, onNavigate }: { group: Group; engagement?: EntityEngagement; onNavigate: (r: any) => void }) {
-  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "group", id: group.id }, () => onNavigate({ page: "group", id: group.id }));
+function GroupRecommendationCard({
+  group,
+  engagement,
+  onNavigate,
+}: {
+  group: Group;
+  engagement?: EntityEngagement;
+  onNavigate: (r: any) => void;
+}) {
+  const linkProps = createRouteLinkProps<HTMLAnchorElement>({ page: "group", id: group.id }, () =>
+    onNavigate({ page: "group", id: group.id }),
+  );
   const rating = engagement?.rating;
 
   return (

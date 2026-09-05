@@ -66,21 +66,23 @@ function renderModal() {
       <GalleryEditModal
         open
         onClose={vi.fn()}
-        gallery={{
-          id: 21,
-          title: "Summer Set",
-          code: "SUM-21",
-          date: "2026-05-01",
-          details: "A bright summer gallery.",
-          photographer: "Riley Smith",
-          organized: true,
-          studioId: 9,
-          urls: ["https://example.com/gallery/21"],
-          tags: [{ id: 8, name: "Beach" }],
-          performers: [{ id: 5, name: "Alex" }],
-          videoIds: [14],
-          customFields: {},
-        } as any}
+        gallery={
+          {
+            id: 21,
+            title: "Summer Set",
+            code: "SUM-21",
+            date: "2026-05-01",
+            details: "A bright summer gallery.",
+            photographer: "Riley Smith",
+            organized: true,
+            studioId: 9,
+            urls: ["https://example.com/gallery/21"],
+            tags: [{ id: 8, name: "Beach" }],
+            performers: [{ id: 5, name: "Alex" }],
+            videoIds: [14],
+            customFields: {},
+          } as any
+        }
       />
     </QueryClientProvider>,
   );
@@ -157,8 +159,10 @@ describe("GalleryEditModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(mockGalleries.update).toHaveBeenCalledTimes(1));
-    expect(mockGalleries.update.mock.calls[0][1]).toEqual(expect.objectContaining({
-      clearFields: ["date", "studioId"],
-    }));
+    expect(mockGalleries.update.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        clearFields: ["date", "studioId"],
+      }),
+    );
   });
 });

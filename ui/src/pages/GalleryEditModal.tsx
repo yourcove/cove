@@ -52,10 +52,9 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
   });
 
   const save = () => {
-    const clearFields = [
-      !form.date && "date",
-      form.studioId === undefined && "studioId",
-    ].filter((field): field is string => Boolean(field));
+    const clearFields = [!form.date && "date", form.studioId === undefined && "studioId"].filter(
+      (field): field is string => Boolean(field),
+    );
     mutation.mutate({
       title: form.title,
       code: form.code,
@@ -101,25 +100,54 @@ export function GalleryEditModal({ gallery, open, onClose }: Props) {
         <TextArea value={form.details} onChange={(v) => setForm({ ...form, details: v })} rows={3} />
       </Field>
       <Field label="URLs" fieldProvenance={gallery.fieldProvenance} fieldKey="urls">
-        <StringListEditor values={form.urls} onChange={(value) => setForm({ ...form, urls: value })} placeholder="https://..." addLabel="Add URL" inputType="url" />
+        <StringListEditor
+          values={form.urls}
+          onChange={(value) => setForm({ ...form, urls: value })}
+          placeholder="https://..."
+          addLabel="Add URL"
+          inputType="url"
+        />
       </Field>
 
       {/* Tags picker */}
       <Field label="Tags" fieldProvenance={gallery.fieldProvenance} fieldKey="tags">
-        <EntityReferenceMultiSelector entityType="tag" values={form.tagIds} onChange={(tagIds) => setForm({ ...form, tagIds })} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} seedOptions={tagSeedOptions} />
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={form.tagIds}
+          onChange={(tagIds) => setForm({ ...form, tagIds })}
+          placeholder="Search tags..."
+          selectedProvenanceById={tagProvenanceById}
+          seedOptions={tagSeedOptions}
+        />
       </Field>
 
       {/* Performers picker */}
       <Field label="Performers" fieldProvenance={gallery.fieldProvenance} fieldKey="performers">
-        <EntityReferenceMultiSelector entityType="performer" values={form.performerIds} onChange={(performerIds) => setForm({ ...form, performerIds })} placeholder="Search performers..." seedOptions={performerSeedOptions} />
+        <EntityReferenceMultiSelector
+          entityType="performer"
+          values={form.performerIds}
+          onChange={(performerIds) => setForm({ ...form, performerIds })}
+          placeholder="Search performers..."
+          seedOptions={performerSeedOptions}
+        />
       </Field>
 
       <Field label="Videos" fieldProvenance={gallery.fieldProvenance} fieldKey="videos">
-        <EntityReferenceMultiSelector entityType="video" values={form.videoIds} onChange={(videoIds) => setForm({ ...form, videoIds })} placeholder="Search videos..." />
+        <EntityReferenceMultiSelector
+          entityType="video"
+          values={form.videoIds}
+          onChange={(videoIds) => setForm({ ...form, videoIds })}
+          placeholder="Search videos..."
+        />
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={gallery.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="gallery" />
+        <CustomFieldsEditor
+          value={customFields}
+          onChange={setCustomFields}
+          onValidityChange={setCustomFieldsValid}
+          entityType="gallery"
+        />
       </Field>
 
       <div className="flex justify-end mt-4">

@@ -1,19 +1,76 @@
 import { useQueries, useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { faces, videos, segmentDisplayProfiles, tagApplications, tags, entityImages, metadata, fileOps, galleries } from "../api/client";
-import { formatDuration, formatFileSize, formatDate, TagBadge, getResolutionLabel, CustomFieldsDisplay, CustomFieldsEditor, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { 
-  Plus, Trash2, Search, Eye, EyeOff, ArrowLeft, ThumbsUp,
-  Check, ChevronLeft, ChevronRight, ChevronDown, MoreVertical,
-  Gauge, Clapperboard, FolderOpen, Layers, Clock, List,
-  RefreshCw, Camera, Image, Merge, ExternalLink, Download, X, Sparkles, Volume2, Filter,
-  UserX, Loader2, Scissors,
+import {
+  faces,
+  videos,
+  segmentDisplayProfiles,
+  tagApplications,
+  tags,
+  entityImages,
+  metadata,
+  fileOps,
+  galleries,
+} from "../api/client";
+import {
+  formatDuration,
+  formatFileSize,
+  formatDate,
+  TagBadge,
+  getResolutionLabel,
+  CustomFieldsDisplay,
+  CustomFieldsEditor,
+  FieldProvenanceHover,
+  resolveTagProvenance,
+} from "../components/shared";
+import {
+  Plus,
+  Trash2,
+  Search,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+  ThumbsUp,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  MoreVertical,
+  Gauge,
+  Clapperboard,
+  FolderOpen,
+  Layers,
+  Clock,
+  List,
+  RefreshCw,
+  Camera,
+  Image,
+  Merge,
+  ExternalLink,
+  Download,
+  X,
+  Sparkles,
+  Volume2,
+  Filter,
+  UserX,
+  Loader2,
+  Scissors,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback, Fragment, useMemo, lazy, Suspense } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NarrativeText } from "../components/NarrativeText";
 import { FaceSplitDialog } from "../components/FaceSplitDialog";
 import { IsoDateInput } from "../components/IsoDateInput";
-import type { Detection, Face, MetadataServer, PerformerSummary, ResolvedSpan, Video, VideoUpdate, Segment, TagApplication, TagProvenance } from "../api/types";
+import type {
+  Detection,
+  Face,
+  MetadataServer,
+  PerformerSummary,
+  ResolvedSpan,
+  Video,
+  VideoUpdate,
+  Segment,
+  TagApplication,
+  TagProvenance,
+} from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { AspectRatingsPanel } from "../components/AspectRatingsPanel";
 import { InteractiveRating } from "../components/Rating";
@@ -39,7 +96,13 @@ import { serverAwareFetch } from "../state/serverAvailability";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useFaceCapabilities } from "../hooks/useFaceCapabilities";
 import { useAuth } from "../auth/AuthContext";
-import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission, hasAnyPermission } from "../auth/visibility";
+import {
+  canDeleteEntity,
+  canReadEntity,
+  canWriteEntity,
+  filterItemsByPermission,
+  hasAnyPermission,
+} from "../auth/visibility";
 import { useEntityEngagement } from "../hooks/useEntityEngagement";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { VideoPlayer } from "../components/VideoPlayer";
@@ -54,7 +117,11 @@ import { formatDateTime } from "../utils/dateFormat";
 import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
 import { VideoVisualSimilarityPanel, useVideoVisualSimilarityAvailability } from "../components/VisualSimilarityPanel";
 import { VideoAudioSimilarityPanel, useVideoAudioSimilarityAvailability } from "../components/AudioSimilarityPanel";
-import { EntityReferenceMultiSelector, EntityReferenceSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
+import {
+  EntityReferenceMultiSelector,
+  EntityReferenceSelector,
+  EntityReferenceValue,
+} from "../components/EntityReferenceSelector";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { MetadataServerLinks } from "../components/MetadataServerLinks";
 import { normalizeStoredResumeTime } from "../utils/playbackResume";
@@ -71,16 +138,29 @@ function directorVideosRoute(director: string) {
   };
 }
 
-function directorVideosLinkProps(director: string, onNavigate: (route: ReturnType<typeof directorVideosRoute>) => void) {
+function directorVideosLinkProps(
+  director: string,
+  onNavigate: (route: ReturnType<typeof directorVideosRoute>) => void,
+) {
   const route = directorVideosRoute(director);
   return createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
 }
 
-const GenerateDialog = lazy(() => import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })));
-const DetailMergeDialog = lazy(() => import("../components/DetailMergeDialog").then((module) => ({ default: module.DetailMergeDialog })));
-const IdentifyDialog = lazy(() => import("../components/IdentifyDialog").then((module) => ({ default: module.IdentifyDialog })));
-const VideoDownloadDialog = lazy(() => import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })));
-const VideoMetadataTaggerDialog = lazy(() => import("../components/MetadataTaggerDialog").then((module) => ({ default: module.VideoMetadataTaggerDialog })));
+const GenerateDialog = lazy(() =>
+  import("../components/GenerateDialog").then((module) => ({ default: module.GenerateDialog })),
+);
+const DetailMergeDialog = lazy(() =>
+  import("../components/DetailMergeDialog").then((module) => ({ default: module.DetailMergeDialog })),
+);
+const IdentifyDialog = lazy(() =>
+  import("../components/IdentifyDialog").then((module) => ({ default: module.IdentifyDialog })),
+);
+const VideoDownloadDialog = lazy(() =>
+  import("../components/VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })),
+);
+const VideoMetadataTaggerDialog = lazy(() =>
+  import("../components/MetadataTaggerDialog").then((module) => ({ default: module.VideoMetadataTaggerDialog })),
+);
 
 interface Props {
   id: number;
@@ -90,23 +170,35 @@ interface Props {
 }
 
 // localStorage-backed boolean flag with safe SSR fallback.
-function usePersistedFlag(key: string, defaultValue: boolean): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
+function usePersistedFlag(
+  key: string,
+  defaultValue: boolean,
+): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
   const [value, setValue] = useState<boolean>(() => {
     if (typeof window === "undefined") return defaultValue;
     try {
       const raw = window.localStorage.getItem(key);
       if (raw === "true") return true;
       if (raw === "false") return false;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return defaultValue;
   });
-  const set = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
-    setValue((prev) => {
-      const resolved = typeof next === "function" ? (next as (p: boolean) => boolean)(prev) : next;
-      try { window.localStorage.setItem(key, resolved ? "true" : "false"); } catch { /* ignore */ }
-      return resolved;
-    });
-  }, [key]);
+  const set = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setValue((prev) => {
+        const resolved = typeof next === "function" ? (next as (p: boolean) => boolean)(prev) : next;
+        try {
+          window.localStorage.setItem(key, resolved ? "true" : "false");
+        } catch {
+          /* ignore */
+        }
+        return resolved;
+      });
+    },
+    [key],
+  );
   return [value, set];
 }
 
@@ -132,20 +224,34 @@ function VideoQueuePanel({
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
         <div>
           <div className="text-sm font-semibold">Play Selected Queue</div>
-          <div className="text-xs text-white/50">{items.length} video{items.length === 1 ? "" : "s"}</div>
+          <div className="text-xs text-white/50">
+            {items.length} video{items.length === 1 ? "" : "s"}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={onToggleAutoplay}
-            className={["rounded px-2 py-1 text-xs", autoplay ? "bg-accent/20 text-accent" : "text-white/60 hover:bg-white/10 hover:text-white"].join(" ")}
+            className={[
+              "rounded px-2 py-1 text-xs",
+              autoplay ? "bg-accent/20 text-accent" : "text-white/60 hover:bg-white/10 hover:text-white",
+            ].join(" ")}
           >
             Auto
           </button>
-          <button type="button" onClick={onClear} className="rounded px-2 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white">
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded px-2 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white"
+          >
             Clear
           </button>
-          <button type="button" onClick={onClose} className="rounded p-1 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Close queue panel">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-white/60 hover:bg-white/10 hover:text-white"
+            aria-label="Close queue panel"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -159,10 +265,20 @@ function VideoQueuePanel({
                 key={`${item.id}-${index}`}
                 type="button"
                 onClick={() => onNavigate(item.id, index)}
-                className={["flex min-w-0 items-center gap-2 rounded border p-1.5 text-left transition", active ? "border-accent bg-accent/15" : "border-white/10 bg-white/[0.03] hover:border-accent/50 hover:bg-white/[0.06]"].join(" ")}
+                className={[
+                  "flex min-w-0 items-center gap-2 rounded border p-1.5 text-left transition",
+                  active
+                    ? "border-accent bg-accent/15"
+                    : "border-white/10 bg-white/[0.03] hover:border-accent/50 hover:bg-white/[0.06]",
+                ].join(" ")}
               >
                 {item.imagePath ? (
-                  <img src={item.imagePath} alt="" className="h-10 w-16 shrink-0 rounded object-cover bg-black" loading="lazy" />
+                  <img
+                    src={item.imagePath}
+                    alt=""
+                    className="h-10 w-16 shrink-0 rounded object-cover bg-black"
+                    loading="lazy"
+                  />
                 ) : (
                   <div className="flex h-10 w-16 shrink-0 items-center justify-center rounded bg-black/40 text-white/35">
                     <Clapperboard className="h-4 w-4" />
@@ -171,7 +287,8 @@ function VideoQueuePanel({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-medium text-white">{item.title || `Video ${item.id}`}</div>
                   <div className="mt-0.5 truncate text-[10px] text-white/45">
-                    {index + 1}{active ? " · Now playing" : item.subtitle ? ` · ${item.subtitle}` : ""}
+                    {index + 1}
+                    {active ? " · Now playing" : item.subtitle ? ` · ${item.subtitle}` : ""}
                   </div>
                 </div>
               </button>
@@ -186,7 +303,12 @@ function VideoQueuePanel({
 type TabKey = "details" | "segments" | "filters" | "file-info" | "edit" | "history" | string;
 
 export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: Props) {
-  const { data: video, isLoading, error: videoError, refetch: retryVideo } = useQuery({
+  const {
+    data: video,
+    isLoading,
+    error: videoError,
+    refetch: retryVideo,
+  } = useQuery({
     queryKey: ["video", id],
     queryFn: () => videos.get(id),
     // Keep the previous video's data on screen while the next one loads. Advancing in a queue
@@ -200,7 +322,21 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const videoLoadError = getLoadError(video?.id === id ? video : undefined, videoError);
   const { hasPermission, user } = useAuth();
   const { config } = useAppConfig();
-  const { queue, currentId: queueCurrentId, hasPrev, hasNext, currentPosition, queueLength, queueItems, goToIndex, goPrevious, goNext, clearQueue, autoplay: queueAutoplay, toggleAutoplay } = useVideoQueue();
+  const {
+    queue,
+    currentId: queueCurrentId,
+    hasPrev,
+    hasNext,
+    currentPosition,
+    queueLength,
+    queueItems,
+    goToIndex,
+    goPrevious,
+    goNext,
+    clearQueue,
+    autoplay: queueAutoplay,
+    toggleAutoplay,
+  } = useVideoQueue();
   const { getTabsForPage, getExtensionRevision, resolveComponent: resolveExtComponent, getFeature } = useExtensions();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
@@ -245,7 +381,13 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const [videoTime, setVideoTime] = useState(0);
   const [coverOpen, setCoverOpen] = useState(false);
-  const [videoFilters, setVideoFilters] = useState({ brightness: 100, contrast: 100, gamma: 100, saturation: 100, hue: 0 });
+  const [videoFilters, setVideoFilters] = useState({
+    brightness: 100,
+    contrast: 100,
+    gamma: 100,
+    saturation: 100,
+    hue: 0,
+  });
   const {
     engagement: videoEngagement,
     favorite: videoFavorite,
@@ -283,7 +425,9 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
     try {
       const opts = JSON.parse(localStorage.getItem("cove-style-options") ?? "{}");
       if (opts.gradient?.videopause === "off") return;
-    } catch { /* default to pausing */ }
+    } catch {
+      /* default to pausing */
+    }
     document.body.classList.add("has-video-player");
     return () => document.body.classList.remove("has-video-player");
   }, []);
@@ -301,14 +445,16 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
 
   const videoStyle = useMemo(() => {
     const { brightness, contrast, saturation, hue } = videoFilters;
-    return { filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)` };
+    return {
+      filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)`,
+    };
   }, [videoFilters]);
 
   const deleteMut = useMutation({
     mutationFn: (deleteFile?: boolean) => videos.delete(id, deleteFile),
-    onSuccess: () => { 
-      queryClient.invalidateQueries({ queryKey: ["videos"] }); 
-      goBack(); 
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      goBack();
     },
   });
 
@@ -348,7 +494,12 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
     setCoverFromCurrentFrameMut.mutate(videoTime);
   };
 
-  const { data: segmentsData, isLoading: segmentsLoading, error: segmentsError, refetch: retrySegments } = useQuery({
+  const {
+    data: segmentsData,
+    isLoading: segmentsLoading,
+    error: segmentsError,
+    refetch: retrySegments,
+  } = useQuery({
     queryKey: ["video", id, "segments"],
     queryFn: () => videos.segments.list(id),
     enabled: canReadSegments,
@@ -356,7 +507,11 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const segmentsLoadError = getLoadError(segmentsData, segmentsError);
   const segments = segmentsData ?? [];
 
-  const { data: displayProfilesData, error: displayProfilesError, refetch: retryDisplayProfiles } = useQuery({
+  const {
+    data: displayProfilesData,
+    error: displayProfilesError,
+    refetch: retryDisplayProfiles,
+  } = useQuery({
     queryKey: ["segment-display-profiles"],
     queryFn: () => segmentDisplayProfiles.list(),
     enabled: canReadSegments,
@@ -364,14 +519,24 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const displayProfilesLoadError = getLoadError(displayProfilesData, displayProfilesError);
   const displayProfiles = displayProfilesData ?? [];
 
-  const { data: resolvedSpansResponse, isLoading: resolvedSpansLoading, error: resolvedSpansError, refetch: retryResolvedSpans } = useQuery({
+  const {
+    data: resolvedSpansResponse,
+    isLoading: resolvedSpansLoading,
+    error: resolvedSpansError,
+    refetch: retryResolvedSpans,
+  } = useQuery({
     queryKey: ["video", id, "resolved-spans", selectedProfileId],
     queryFn: () => videos.segments.spans(id, selectedProfileId),
     enabled: canReadSegments,
   });
   const resolvedSpansLoadError = getLoadError(resolvedSpansResponse, resolvedSpansError);
 
-  const { data: detectionsData, isLoading: detectionsLoading, error: detectionsError, refetch: retryDetections } = useQuery({
+  const {
+    data: detectionsData,
+    isLoading: detectionsLoading,
+    error: detectionsError,
+    refetch: retryDetections,
+  } = useQuery({
     queryKey: ["video", id, "detections"],
     queryFn: () => videos.detections.list(id),
     enabled: canReadSegments,
@@ -483,10 +648,11 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const selectedTagGroupIds = segmentFilter.tagGroupIds;
   const { data: tagGroupMemberTags } = useQuery({
     queryKey: ["segment-filter-group-tags", selectedTagGroupIds],
-    queryFn: () => tags.findFiltered({
-      findFilter: { page: 1, perPage: 1000, sort: "name", direction: "asc" },
-      objectFilter: { tagGroupsCriterion: { value: selectedTagGroupIds, modifier: "INCLUDES" } },
-    }),
+    queryFn: () =>
+      tags.findFiltered({
+        findFilter: { page: 1, perPage: 1000, sort: "name", direction: "asc" },
+        objectFilter: { tagGroupsCriterion: { value: selectedTagGroupIds, modifier: "INCLUDES" } },
+      }),
     enabled: selectedTagGroupIds.length > 0,
   });
   const tagIdToGroupId = useMemo(() => {
@@ -499,34 +665,50 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
     }
     return map;
   }, [video?.tags, tagGroupMemberTags]);
-  const segmentFilterContext = useMemo<SegmentFilterContext>(() => ({ rawSegmentsById: segmentRawById, tagIdToGroupId }), [segmentRawById, tagIdToGroupId]);
+  const segmentFilterContext = useMemo<SegmentFilterContext>(
+    () => ({ rawSegmentsById: segmentRawById, tagIdToGroupId }),
+    [segmentRawById, tagIdToGroupId],
+  );
 
-  useEffect(() => { setSegmentFilter(EMPTY_SEGMENT_FILTER); }, [id]);
+  useEffect(() => {
+    setSegmentFilter(EMPTY_SEGMENT_FILTER);
+  }, [id]);
   const visualSimilarityAvailability = useVideoVisualSimilarityAvailability(id);
   const audioSimilarityAvailability = useVideoAudioSimilarityAvailability(id);
   const hasVisualSimilarity = visualSimilarityAvailability.available;
   const hasAudioSimilarity = audioSimilarityAvailability.available;
   const videoExtTabs = useMemo(() => getTabsForPage("video"), [getTabsForPage]);
 
-  const tabs = filterItemsByPermission([
-    { key: "details", label: "Details" },
-    { key: "segments", label: `Segments${segments.length ? ` (${segments.length})` : ""}` },
-    ...(hasVisualSimilarity ? [{ key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> }] : []),
-    ...(hasAudioSimilarity ? [{ key: "audio-similar", label: "Audio Similar", icon: <Volume2 className="h-4 w-4" /> }] : []),
-    { key: "filters", label: "Filters" },
-    { key: "file-info", label: `File Info${video?.files.length && video.files.length > 1 ? ` (${video.files.length})` : ""}` },
-    { key: "history", label: "History" },
-    ...videoExtTabs.map((t) => ({ key: `ext:${t.key}` as TabKey, label: t.label, manualContexts: t.manualContexts })),
-    { key: "edit", label: "Edit" },
-  ], {
-    segments: "segments.read",
-    "file-info": "files.read",
-    edit: "videos.write",
-  }, hasPermission);
+  const tabs = filterItemsByPermission(
+    [
+      { key: "details", label: "Details" },
+      { key: "segments", label: `Segments${segments.length ? ` (${segments.length})` : ""}` },
+      ...(hasVisualSimilarity ? [{ key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> }] : []),
+      ...(hasAudioSimilarity
+        ? [{ key: "audio-similar", label: "Audio Similar", icon: <Volume2 className="h-4 w-4" /> }]
+        : []),
+      { key: "filters", label: "Filters" },
+      {
+        key: "file-info",
+        label: `File Info${video?.files.length && video.files.length > 1 ? ` (${video.files.length})` : ""}`,
+      },
+      { key: "history", label: "History" },
+      ...videoExtTabs.map((t) => ({ key: `ext:${t.key}` as TabKey, label: t.label, manualContexts: t.manualContexts })),
+      { key: "edit", label: "Edit" },
+    ],
+    {
+      segments: "segments.read",
+      "file-info": "files.read",
+      edit: "videos.write",
+    },
+    hasPermission,
+  );
 
   useEffect(() => {
-    if ((activeTab === "similar" && visualSimilarityAvailability.loading)
-      || (activeTab === "audio-similar" && audioSimilarityAvailability.loading)) {
+    if (
+      (activeTab === "similar" && visualSimilarityAvailability.loading) ||
+      (activeTab === "audio-similar" && audioSimilarityAvailability.loading)
+    ) {
       return;
     }
     if (!tabs.some((tab) => tab.key === activeTab)) {
@@ -555,16 +737,66 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
     if (targetId != null) onNavigate({ page: "video", id: targetId, videoTab: activeTab });
   }, [activeTab, goNext, onNavigate]);
 
-  const videoKeyboardShortcuts = useMemo(() => [
-    { id: "detail.video.details", key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
-    { id: "detail.edit", key: "e", description: "Open edit tab", handler: () => canWriteVideo && setActiveTab("edit") },
-    { id: "detail.video.segments", key: "s", description: "Open segments tab", handler: () => canReadSegments && setActiveTab("segments") },
-    { id: "detail.fileInfo", key: "i", description: "Open file info tab", handler: () => canReadFiles && setActiveTab("file-info") },
-    { id: "detail.video.history", key: "h", description: "Open history tab", handler: () => setActiveTab("history") },
-    { id: "detail.favorite", key: "o", description: "Toggle favorite", handler: () => video && canEngageVideo && setVideoFavorite(!videoFavorite) },
-    { id: "detail.previous", key: "[", description: "Open previous video", handler: () => { if (queueSyncedToVideo && hasPrev) void navigatePreviousVideo(); } },
-    { id: "detail.next", key: "]", description: "Open next video", handler: () => { if (queueSyncedToVideo && hasNext) void navigateNextVideo(); } },
-  ], [canEngageVideo, canReadFiles, canReadSegments, canWriteVideo, hasNext, hasPrev, navigateNextVideo, navigatePreviousVideo, queueSyncedToVideo, video, videoFavorite, setVideoFavorite]);
+  const videoKeyboardShortcuts = useMemo(
+    () => [
+      { id: "detail.video.details", key: "a", description: "Open details tab", handler: () => setActiveTab("details") },
+      {
+        id: "detail.edit",
+        key: "e",
+        description: "Open edit tab",
+        handler: () => canWriteVideo && setActiveTab("edit"),
+      },
+      {
+        id: "detail.video.segments",
+        key: "s",
+        description: "Open segments tab",
+        handler: () => canReadSegments && setActiveTab("segments"),
+      },
+      {
+        id: "detail.fileInfo",
+        key: "i",
+        description: "Open file info tab",
+        handler: () => canReadFiles && setActiveTab("file-info"),
+      },
+      { id: "detail.video.history", key: "h", description: "Open history tab", handler: () => setActiveTab("history") },
+      {
+        id: "detail.favorite",
+        key: "o",
+        description: "Toggle favorite",
+        handler: () => video && canEngageVideo && setVideoFavorite(!videoFavorite),
+      },
+      {
+        id: "detail.previous",
+        key: "[",
+        description: "Open previous video",
+        handler: () => {
+          if (queueSyncedToVideo && hasPrev) void navigatePreviousVideo();
+        },
+      },
+      {
+        id: "detail.next",
+        key: "]",
+        description: "Open next video",
+        handler: () => {
+          if (queueSyncedToVideo && hasNext) void navigateNextVideo();
+        },
+      },
+    ],
+    [
+      canEngageVideo,
+      canReadFiles,
+      canReadSegments,
+      canWriteVideo,
+      hasNext,
+      hasPrev,
+      navigateNextVideo,
+      navigatePreviousVideo,
+      queueSyncedToVideo,
+      video,
+      videoFavorite,
+      setVideoFavorite,
+    ],
+  );
 
   if (isLoading) {
     return (
@@ -579,7 +811,16 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   }
 
   if (videoLoadError) {
-    return <ListLoadError error={videoLoadError} onRetry={() => { void retryVideo(); }} title="Could not load video" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={videoLoadError}
+        onRetry={() => {
+          void retryVideo();
+        }}
+        title="Could not load video"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!video) return <div className="text-center text-secondary py-16">Video not found</div>;
@@ -594,21 +835,24 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
   const studioImageUrl = video.studioId ? entityImages.studioImageUrl(video.studioId) : null;
   const videoTitle = video.title || file?.basename || `Video ${video.id}`;
 
-  const videoHeaderImage = studioImageUrl && video.studioId ? (
-    <button
-      type="button"
-      onClick={() => onNavigate({ page: "studio", id: video.studioId })}
-      className="block"
-      title={video.studioName || "Studio"}
-    >
-      <img
-        src={studioImageUrl}
-        alt={video.studioName || "Studio"}
-        className="h-20 w-auto max-w-full object-contain"
-        onError={(event) => { (event.target as HTMLImageElement).style.display = "none"; }}
-      />
-    </button>
-  ) : null;
+  const videoHeaderImage =
+    studioImageUrl && video.studioId ? (
+      <button
+        type="button"
+        onClick={() => onNavigate({ page: "studio", id: video.studioId })}
+        className="block"
+        title={video.studioName || "Studio"}
+      >
+        <img
+          src={studioImageUrl}
+          alt={video.studioName || "Studio"}
+          className="h-20 w-auto max-w-full object-contain"
+          onError={(event) => {
+            (event.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+      </button>
+    ) : null;
 
   const videoSubtitle = (
     <div className="flex flex-wrap items-start gap-4 text-sm text-secondary">
@@ -633,13 +877,14 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           ) : null}
           {file && file.frameRate > 0 ? <span>{file.frameRate.toFixed(0)} fps</span> : null}
           {file && resLabel ? <span className="font-semibold text-accent">{resLabel}</span> : null}
-          {video.code ? <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="code"><span>Code {video.code}</span></FieldProvenanceHover> : null}
+          {video.code ? (
+            <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="code">
+              <span>Code {video.code}</span>
+            </FieldProvenanceHover>
+          ) : null}
           {video.director ? (
             <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="director">
-              <a
-                {...directorVideosLinkProps(video.director, onNavigate)}
-                className="hover:text-foreground"
-              >
+              <a {...directorVideosLinkProps(video.director, onNavigate)} className="hover:text-foreground">
                 Director {video.director}
               </a>
             </FieldProvenanceHover>
@@ -654,7 +899,9 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       {canWriteVideo ? (
         <button
           type="button"
-          onClick={() => { if (!updateMut.isPending) updateMut.mutate({ organized: !video.organized }); }}
+          onClick={() => {
+            if (!updateMut.isPending) updateMut.mutate({ organized: !video.organized });
+          }}
           disabled={updateMut.isPending}
           className={`inline-flex items-center justify-center rounded p-1 transition ${video.organized ? "bg-green-600 text-white" : "bg-card text-muted hover:text-foreground"} ${updateMut.isPending ? "cursor-not-allowed opacity-60" : ""}`}
           title={video.organized ? "Organized" : "Mark organized"}
@@ -683,12 +930,17 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         <button
           type="button"
           onClick={() => setShowQueuePanel((value) => !value)}
-          className={["inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs transition", showQueuePanel ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"].join(" ")}
+          className={[
+            "inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs transition",
+            showQueuePanel ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground",
+          ].join(" ")}
           title="Show selected queue"
           aria-pressed={showQueuePanel}
         >
           <List className="h-4 w-4" />
-          <span>{currentPosition}/{queueLength}</span>
+          <span>
+            {currentPosition}/{queueLength}
+          </span>
         </button>
       ) : null}
 
@@ -701,23 +953,110 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         >
           <MoreVertical className="h-4 w-4" />
         </button>
-        <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[220px] py-1">
-            {!file && canDownloadVideo ? (
-              <button onClick={() => { setShowDownloadDialog(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"><Download className="h-3.5 w-3.5" /> Download Media…</button>
-            ) : null}
-            {file && canLibraryScan ? (
-              <button onClick={() => { rescanMut.mutate(); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"><RefreshCw className="h-3.5 w-3.5" /> Rescan</button>
-            ) : null}
-            {canScrapeVideo ? <button onClick={() => { setShowScrapeDialog(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"><Search className="h-3.5 w-3.5" /> Scrape / Metadata…</button> : null}
-            {canIdentifyVideo ? <button onClick={() => { setShowIdentify(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"><Search className="h-3.5 w-3.5" /> Identify…</button> : null}
-            {canGenerateVideo || canWriteVideo ? <div className="my-1 border-t border-border" /> : null}
-            <ExtensionEntityActions entityType="video" entityId={video.id} renderMode="menu" onInvoked={() => setShowOpsMenu(false)} />
-            {canGenerateVideo ? <button onClick={() => { setShowGenerate(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"><Clapperboard className="h-3.5 w-3.5" /> Generate…</button> : null}
-            {canWriteVideo ? <button onClick={() => { setCoverOpen(true); setShowOpsMenu(false); }} disabled={coverActionPending} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface disabled:opacity-60"><Image className="h-3.5 w-3.5" /> Set Cover…</button> : null}
-            {canWriteVideo ? <div className="my-1 border-t border-border" /> : null}
-            {canWriteVideo ? <button onClick={() => { setShowMerge(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"><Merge className="h-3.5 w-3.5" /> Merge…</button> : null}
-            {canDeleteVideo ? <div className="my-1 border-t border-border" /> : null}
-            {canDeleteVideo ? <button onClick={() => { setConfirmDelete(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-400 hover:bg-surface"><Trash2 className="h-3.5 w-3.5" /> Delete</button> : null}
+        <FloatingActionMenu
+          open={showOpsMenu}
+          anchorRef={opsMenuRef}
+          onClose={() => setShowOpsMenu(false)}
+          className="min-w-[220px] py-1"
+        >
+          {!file && canDownloadVideo ? (
+            <button
+              onClick={() => {
+                setShowDownloadDialog(true);
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+            >
+              <Download className="h-3.5 w-3.5" /> Download Media…
+            </button>
+          ) : null}
+          {file && canLibraryScan ? (
+            <button
+              onClick={() => {
+                rescanMut.mutate();
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Rescan
+            </button>
+          ) : null}
+          {canScrapeVideo ? (
+            <button
+              onClick={() => {
+                setShowScrapeDialog(true);
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+            >
+              <Search className="h-3.5 w-3.5" /> Scrape / Metadata…
+            </button>
+          ) : null}
+          {canIdentifyVideo ? (
+            <button
+              onClick={() => {
+                setShowIdentify(true);
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+            >
+              <Search className="h-3.5 w-3.5" /> Identify…
+            </button>
+          ) : null}
+          {canGenerateVideo || canWriteVideo ? <div className="my-1 border-t border-border" /> : null}
+          <ExtensionEntityActions
+            entityType="video"
+            entityId={video.id}
+            renderMode="menu"
+            onInvoked={() => setShowOpsMenu(false)}
+          />
+          {canGenerateVideo ? (
+            <button
+              onClick={() => {
+                setShowGenerate(true);
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+            >
+              <Clapperboard className="h-3.5 w-3.5" /> Generate…
+            </button>
+          ) : null}
+          {canWriteVideo ? (
+            <button
+              onClick={() => {
+                setCoverOpen(true);
+                setShowOpsMenu(false);
+              }}
+              disabled={coverActionPending}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface disabled:opacity-60"
+            >
+              <Image className="h-3.5 w-3.5" /> Set Cover…
+            </button>
+          ) : null}
+          {canWriteVideo ? <div className="my-1 border-t border-border" /> : null}
+          {canWriteVideo ? (
+            <button
+              onClick={() => {
+                setShowMerge(true);
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+            >
+              <Merge className="h-3.5 w-3.5" /> Merge…
+            </button>
+          ) : null}
+          {canDeleteVideo ? <div className="my-1 border-t border-border" /> : null}
+          {canDeleteVideo ? (
+            <button
+              onClick={() => {
+                setConfirmDelete(true);
+                setShowOpsMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-400 hover:bg-surface"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          ) : null}
         </FloatingActionMenu>
       </div>
 
@@ -725,72 +1064,95 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
     </>
   );
 
-  const activeTabContent = activeTab === "details" ? (
-    <>
-      {detectionsLoadError ? <ListLoadError error={detectionsLoadError} onRetry={() => { void retryDetections(); }} className="mb-4" /> : null}
-      <DetailsTab
-        video={video}
-        metadataServers={config?.scraping?.metadataServers}
+  const activeTabContent =
+    activeTab === "details" ? (
+      <>
+        {detectionsLoadError ? (
+          <ListLoadError
+            error={detectionsLoadError}
+            onRetry={() => {
+              void retryDetections();
+            }}
+            className="mb-4"
+          />
+        ) : null}
+        <DetailsTab
+          video={video}
+          metadataServers={config?.scraping?.metadataServers}
+          onNavigate={onNavigate}
+          videoFaces={videoFaces}
+          onMarkFaceNotPresent={
+            canWriteFaces && canEditOccurrences ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined
+          }
+          markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
+          onSplitFace={canWriteFaces && canEditOccurrences ? (face) => setSplitFace(face) : undefined}
+          onRequestReportTag={requestReportTag}
+        />
+      </>
+    ) : activeTab === "segments" && segmentsTabLoadError ? (
+      <ListLoadError
+        error={segmentsTabLoadError}
+        onRetry={() => {
+          void retrySegments();
+          void retryDisplayProfiles();
+          void retryResolvedSpans();
+        }}
+        className="mt-3"
+      />
+    ) : activeTab === "segments" ? (
+      <VideoSegmentsPanel
+        videoId={video.id}
+        spans={resolvedSpans}
+        rawSegments={segments}
+        loading={resolvedSpansLoading || segmentsLoading}
+        profiles={displayProfiles}
+        currentProfileId={activeProfileId}
+        onProfileChange={setSelectedProfileId}
+        filter={segmentFilter}
+        onFilterChange={setSegmentFilter}
+        tagIdToGroupId={tagIdToGroupId}
+        canEdit={canWriteSegments}
+        onSeek={(time) => seekRef.current?.(time)}
+        currentTime={videoTime}
         onNavigate={onNavigate}
-        videoFaces={videoFaces}
-        onMarkFaceNotPresent={canWriteFaces && canEditOccurrences ? (faceId) => markFaceNotPresentMut.mutate(faceId) : undefined}
-        markingFaceId={markFaceNotPresentMut.isPending ? (markFaceNotPresentMut.variables as number) : undefined}
-        onSplitFace={canWriteFaces && canEditOccurrences ? (face) => setSplitFace(face) : undefined}
+      />
+    ) : activeTab === "similar" ? (
+      <VideoVisualSimilarityPanel videoId={video.id} onNavigate={onNavigate} />
+    ) : activeTab === "audio-similar" ? (
+      <VideoAudioSimilarityPanel videoId={video.id} onNavigate={onNavigate} />
+    ) : activeTab === "filters" ? (
+      <VideoFiltersTab filters={videoFilters} onChange={setVideoFilters} />
+    ) : activeTab === "file-info" && video.files.length > 0 ? (
+      <FileInfoTab files={video.files} />
+    ) : activeTab === "history" ? (
+      <HistoryTab
+        video={video}
+        playCount={videoPlayCount}
+        playDuration={videoPlayDuration}
+        canAddHistoricalLike={canWriteVideo}
+      />
+    ) : activeTab === "edit" ? (
+      <VideoEditPanel
+        video={video}
+        onCancel={() => setActiveTab("details")}
+        onNavigate={onNavigate}
         onRequestReportTag={requestReportTag}
       />
-    </>
-  ) : activeTab === "segments" && segmentsTabLoadError ? (
-    <ListLoadError
-      error={segmentsTabLoadError}
-      onRetry={() => { void retrySegments(); void retryDisplayProfiles(); void retryResolvedSpans(); }}
-      className="mt-3"
-    />
-  ) : activeTab === "segments" ? (
-    <VideoSegmentsPanel
-      videoId={video.id}
-      spans={resolvedSpans}
-      rawSegments={segments}
-      loading={resolvedSpansLoading || segmentsLoading}
-      profiles={displayProfiles}
-      currentProfileId={activeProfileId}
-      onProfileChange={setSelectedProfileId}
-      filter={segmentFilter}
-      onFilterChange={setSegmentFilter}
-      tagIdToGroupId={tagIdToGroupId}
-      canEdit={canWriteSegments}
-      onSeek={(time) => seekRef.current?.(time)}
-      currentTime={videoTime}
-      onNavigate={onNavigate}
-    />
-  ) : activeTab === "similar" ? (
-    <VideoVisualSimilarityPanel videoId={video.id} onNavigate={onNavigate} />
-  ) : activeTab === "audio-similar" ? (
-    <VideoAudioSimilarityPanel videoId={video.id} onNavigate={onNavigate} />
-  ) : activeTab === "filters" ? (
-    <VideoFiltersTab filters={videoFilters} onChange={setVideoFilters} />
-  ) : activeTab === "file-info" && video.files.length > 0 ? (
-    <FileInfoTab files={video.files} />
-  ) : activeTab === "history" ? (
-    <HistoryTab
-      video={video}
-      playCount={videoPlayCount}
-      playDuration={videoPlayDuration}
-      canAddHistoricalLike={canWriteVideo}
-    />
-  ) : activeTab === "edit" ? (
-    <VideoEditPanel video={video} onCancel={() => setActiveTab("details")} onNavigate={onNavigate} onRequestReportTag={requestReportTag} />
-  ) : activeTab.startsWith("ext:") ? (() => {
-    const extTabKey = activeTab.replace("ext:", "");
-    const extTab = videoExtTabs.find((tab) => tab.key === extTabKey);
-    if (!extTab) return null;
-    const Component = resolveExtComponent(extTab.extensionId, extTab.componentName);
-    if (!Component) return <div className="p-4 text-muted">Extension component not found: {extTab.componentName}</div>;
-    return (
-      <ExtensionErrorBoundary extensionId={extTab.extensionId} resetKey={getExtensionRevision(extTab.extensionId)}>
-        <Component entityId={id} />
-      </ExtensionErrorBoundary>
-    );
-  })() : null;
+    ) : activeTab.startsWith("ext:") ? (
+      (() => {
+        const extTabKey = activeTab.replace("ext:", "");
+        const extTab = videoExtTabs.find((tab) => tab.key === extTabKey);
+        if (!extTab) return null;
+        const Component = resolveExtComponent(extTab.extensionId, extTab.componentName);
+        if (!Component)
+          return <div className="p-4 text-muted">Extension component not found: {extTab.componentName}</div>;
+        return (
+          <ExtensionErrorBoundary extensionId={extTab.extensionId} resetKey={getExtensionRevision(extTab.extensionId)}>
+            <Component entityId={id} />
+          </ExtensionErrorBoundary>
+        );
+      })()
+    ) : null;
 
   const videoMedia = (
     <div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black">
@@ -809,7 +1171,11 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             audioCodec={file.audioCodec}
             resumeTime={effectiveVideoResumeTime}
             seekTo={initialSeekTo}
-            clip={video.parentVideoId != null ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false } : undefined}
+            clip={
+              video.parentVideoId != null
+                ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false }
+                : undefined
+            }
             videoId={video.id}
             extensionSurface="detail"
             detections={detections}
@@ -817,14 +1183,30 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             faces={videoFaces.map(({ face }) => face)}
             captions={file.captions}
             videoStyle={videoStyle}
-            onSeekRegister={(fn) => { seekRef.current = fn; }}
+            onSeekRegister={(fn) => {
+              seekRef.current = fn;
+            }}
             onTimeUpdate={setVideoTime}
             autostart={config?.ui.autostartVideo}
             showAbLoop={config?.ui.showAbLoopControls}
             trackingEnabled={trackPlaybackActivity}
-            onEnded={() => { if (queueAutoplay && queueSyncedToVideo && hasNext) void navigateNextVideo(); }}
-            onPrev={queueSyncedToVideo && hasPrev ? () => { void navigatePreviousVideo(); } : undefined}
-            onNext={queueSyncedToVideo && hasNext ? () => { void navigateNextVideo(); } : undefined}
+            onEnded={() => {
+              if (queueAutoplay && queueSyncedToVideo && hasNext) void navigateNextVideo();
+            }}
+            onPrev={
+              queueSyncedToVideo && hasPrev
+                ? () => {
+                    void navigatePreviousVideo();
+                  }
+                : undefined
+            }
+            onNext={
+              queueSyncedToVideo && hasNext
+                ? () => {
+                    void navigateNextVideo();
+                  }
+                : undefined
+            }
           />
         ) : (
           <div className="flex h-48 items-center justify-center text-muted">No video file available</div>
@@ -853,7 +1235,10 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           currentId={id}
           autoplay={queueAutoplay}
           onClose={() => setShowQueuePanel(false)}
-          onClear={() => { clearQueue(); setShowQueuePanel(false); }}
+          onClear={() => {
+            clearQueue();
+            setShowQueuePanel(false);
+          }}
           onToggleAutoplay={toggleAutoplay}
           onNavigate={(videoId, index) => {
             goToIndex(index);
@@ -878,20 +1263,32 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         onSuccess={invalidateVideoCover}
         aspectRatio="16/9"
         externalPending={coverActionPending}
-        extraActions={file ? ((imageOperationPending) => (
-          <>
-            <button
-              type="button"
-              onClick={handleSetCoverFromCurrentFrame}
-              disabled={coverActionPending || imageOperationPending}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
-            >
-              {coverActionPending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" /> : <Camera className="h-3.5 w-3.5" />}
-              Use frame at {formatDuration(videoTime)}
-            </button>
-            {setCoverFromCurrentFrameMut.error ? <p role="alert" className="mt-2 text-xs text-red-400">{(setCoverFromCurrentFrameMut.error as Error).message}</p> : null}
-          </>
-        )) : null}
+        extraActions={
+          file
+            ? (imageOperationPending) => (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleSetCoverFromCurrentFrame}
+                    disabled={coverActionPending || imageOperationPending}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
+                  >
+                    {coverActionPending ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" />
+                    ) : (
+                      <Camera className="h-3.5 w-3.5" />
+                    )}
+                    Use frame at {formatDuration(videoTime)}
+                  </button>
+                  {setCoverFromCurrentFrameMut.error ? (
+                    <p role="alert" className="mt-2 text-xs text-red-400">
+                      {(setCoverFromCurrentFrameMut.error as Error).message}
+                    </p>
+                  ) : null}
+                </>
+              )
+            : null
+        }
       />
       <Suspense fallback={null}>
         {showGenerate ? (
@@ -923,7 +1320,12 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
             open={showMerge}
             onClose={() => setShowMerge(false)}
             entityType="video"
-            targetItem={{ id: video.id, name: video.title || file?.basename || `Video ${video.id}`, imagePath: videos.screenshotUrl(video.id, video.updatedAt), subtitle: video.studioName }}
+            targetItem={{
+              id: video.id,
+              name: video.title || file?.basename || `Video ${video.id}`,
+              imagePath: videos.screenshotUrl(video.id, video.updatedAt),
+              subtitle: video.studioName,
+            }}
             searchItems={async (term) => {
               const response = await videos.find({ page: 1, perPage: 20, direction: "desc", q: term || undefined });
               return response.items.map((item) => ({
@@ -938,11 +1340,7 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
           />
         ) : null}
         {showIdentify ? (
-          <IdentifyDialog
-            open={showIdentify}
-            onClose={() => setShowIdentify(false)}
-            videoIds={[id]}
-          />
+          <IdentifyDialog open={showIdentify} onClose={() => setShowIdentify(false)} videoIds={[id]} />
         ) : null}
       </Suspense>
       <ConfirmDialog
@@ -956,9 +1354,11 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       <ConfirmDialog
         open={reportTag != null}
         title="Is this detection wrong?"
-        message={reportTag
-          ? `"${reportTag.name}" was detected${describeTagEvidence(reportTag)} in this video. Removing it deletes the AI's detection from this video — use this only when the AI is mistaken. If it's correct but just too minor, adjust the tag's threshold instead.`
-          : ""}
+        message={
+          reportTag
+            ? `"${reportTag.name}" was detected${describeTagEvidence(reportTag)} in this video. Removing it deletes the AI's detection from this video — use this only when the AI is mistaken. If it's correct but just too minor, adjust the tag's threshold instead.`
+            : ""
+        }
         confirmLabel="Remove detection"
         isPending={reportTag != null && reportIncorrectTagMut.isPending}
         onCancel={() => setReportTag(null)}
@@ -971,15 +1371,23 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
       <FaceSplitDialog
         open={splitFace != null}
         faceId={splitFace?.id ?? null}
-        faceTitle={splitFace ? (splitFace.label?.trim() || splitFace.performerName || `Face #${splitFace.id}`) : ""}
+        faceTitle={splitFace ? splitFace.label?.trim() || splitFace.performerName || `Face #${splitFace.id}` : ""}
         hostType="video"
         hostId={Number(id)}
         onClose={() => setSplitFace(null)}
         onSplit={refreshAfterFaceEdit}
-        onMarkNotPresent={canWriteFaces && canEditOccurrences && splitFace ? () => markFaceNotPresentMut.mutate(splitFace.id) : undefined}
+        onMarkNotPresent={
+          canWriteFaces && canEditOccurrences && splitFace
+            ? () => markFaceNotPresentMut.mutate(splitFace.id)
+            : undefined
+        }
       />
       <MediaDetailLayout
-        title={<FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="title">{videoTitle}</FieldProvenanceHover>}
+        title={
+          <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="title">
+            {videoTitle}
+          </FieldProvenanceHover>
+        }
         headerImage={videoHeaderImage}
         subtitle={videoSubtitle}
         backLabel={backLabel}
@@ -992,7 +1400,13 @@ export function VideoDetailPage({ id, initialSeekTo, initialTab, onNavigate }: P
         activeTab={activeTab}
         onTabChange={(key) => setActiveTab(key as TabKey)}
         engagement={{
-          primaryContent: <InteractiveRating value={videoRating} onChange={(value) => setVideoRating(value)} readOnly={!canEngageVideo} />,
+          primaryContent: (
+            <InteractiveRating
+              value={videoRating}
+              onChange={(value) => setVideoRating(value)}
+              readOnly={!canEngageVideo}
+            />
+          ),
           favorite: videoFavorite,
           favoritePending: videoFavoritePending,
           onFavoriteChange: canEngageVideo ? setVideoFavorite : undefined,
@@ -1043,7 +1457,12 @@ function buildVideoEditPerformerContextTagIds(video: Video): Record<number, numb
   return result;
 }
 
-async function syncVideoEditPerformerContextTags(videoId: number, existingApplications: TagApplication[], desiredByPerformer: Record<number, number[]>, selectedPerformerIds: number[]) {
+async function syncVideoEditPerformerContextTags(
+  videoId: number,
+  existingApplications: TagApplication[],
+  desiredByPerformer: Record<number, number[]>,
+  selectedPerformerIds: number[],
+) {
   const selectedPerformers = new Set(selectedPerformerIds);
   const desiredKeys = new Set<string>();
 
@@ -1058,7 +1477,9 @@ async function syncVideoEditPerformerContextTags(videoId: number, existingApplic
     }
   }
 
-  const existingContextApplications = existingApplications.filter((application) => application.contextType === "performer" && application.contextId != null);
+  const existingContextApplications = existingApplications.filter(
+    (application) => application.contextType === "performer" && application.contextId != null,
+  );
 
   for (const application of existingContextApplications) {
     const key = `${application.contextId}:${application.tag.id}`;
@@ -1067,7 +1488,9 @@ async function syncVideoEditPerformerContextTags(videoId: number, existingApplic
     }
   }
 
-  const existingKeys = new Set(existingContextApplications.map((application) => `${application.contextId}:${application.tag.id}`));
+  const existingKeys = new Set(
+    existingContextApplications.map((application) => `${application.contextId}:${application.tag.id}`),
+  );
   for (const [performerIdText, tagIds] of Object.entries(desiredByPerformer)) {
     const performerId = Number(performerIdText);
     if (!selectedPerformers.has(performerId)) {
@@ -1094,7 +1517,10 @@ async function syncVideoEditPerformerContextTags(videoId: number, existingApplic
 
 // Renders the AI's evidence for a derived tag (" for 14s (3% of this video)") so the user can judge
 // whether it's a genuine mistake or just a minor-but-real detection before deciding to remove it.
-function describeTagEvidence(tag: { effectiveDurationSec?: number | null; effectiveDurationPercent?: number | null }): string {
+function describeTagEvidence(tag: {
+  effectiveDurationSec?: number | null;
+  effectiveDurationPercent?: number | null;
+}): string {
   const parts: string[] = [];
   if (typeof tag.effectiveDurationSec === "number" && tag.effectiveDurationSec > 0) {
     parts.push(formatDuration(tag.effectiveDurationSec));
@@ -1106,8 +1532,29 @@ function describeTagEvidence(tag: { effectiveDurationSec?: number | null; effect
 }
 
 // Details Tab Content
-export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = [], onMarkFaceNotPresent, markingFaceId, onSplitFace, onRequestReportTag }: { video: Video; onNavigate: (r: any) => void; metadataServers?: MetadataServer[]; videoFaces?: Array<{ face: Face; detectionCount: number; trackCount?: number }>; onMarkFaceNotPresent?: (faceId: number) => void; markingFaceId?: number; onSplitFace?: (face: Face) => void; onRequestReportTag?: (tag: any) => void }) {
-  const { engagementById: performerEngagement } = useEntityEngagementBatch("performer", video?.performers?.map((p) => p.id) ?? []);
+export function DetailsTab({
+  video,
+  onNavigate,
+  metadataServers,
+  videoFaces = [],
+  onMarkFaceNotPresent,
+  markingFaceId,
+  onSplitFace,
+  onRequestReportTag,
+}: {
+  video: Video;
+  onNavigate: (r: any) => void;
+  metadataServers?: MetadataServer[];
+  videoFaces?: Array<{ face: Face; detectionCount: number; trackCount?: number }>;
+  onMarkFaceNotPresent?: (faceId: number) => void;
+  markingFaceId?: number;
+  onSplitFace?: (face: Face) => void;
+  onRequestReportTag?: (tag: any) => void;
+}) {
+  const { engagementById: performerEngagement } = useEntityEngagementBatch(
+    "performer",
+    video?.performers?.map((p) => p.id) ?? [],
+  );
   return (
     <div className="space-y-4">
       {/* Created/Updated + Code/Director at top like original */}
@@ -1119,7 +1566,11 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
         {video.code && (
           <>
             <dt className="text-muted pr-3">Studio Code</dt>
-            <dd className="text-foreground"><FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="code">{video.code}</FieldProvenanceHover></dd>
+            <dd className="text-foreground">
+              <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="code">
+                {video.code}
+              </FieldProvenanceHover>
+            </dd>
           </>
         )}
         {video.director && (
@@ -1181,7 +1632,11 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
                     onNavigate={onNavigate}
                     referenceDate={video.date}
                   >
-                    {contextTags.length > 0 ? <div className="space-y-2 text-xs text-secondary"><PerformerContextTagList contextTags={contextTags} onNavigate={onNavigate} /></div> : null}
+                    {contextTags.length > 0 ? (
+                      <div className="space-y-2 text-xs text-secondary">
+                        <PerformerContextTagList contextTags={contextTags} onNavigate={onNavigate} />
+                      </div>
+                    ) : null}
                   </PerformerTile>
                 );
               })}
@@ -1249,7 +1704,12 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
                   >
                     <div className="h-14 w-14 overflow-hidden rounded-lg bg-surface/80">
                       {face.coverImageUrl ? (
-                        <img src={face.coverImageUrl} alt={title} className="h-full w-full object-cover" loading="lazy" />
+                        <img
+                          src={face.coverImageUrl}
+                          alt={title}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-muted">
                           <Image className="h-5 w-5" />
@@ -1264,7 +1724,9 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
                     </div>
                   </button>
                   {onMarkFaceNotPresent || canSplit ? (
-                    <div className={`absolute right-1 top-1 flex gap-1 transition-opacity group-hover:opacity-100 ${isMarking ? "opacity-100" : "opacity-0"}`}>
+                    <div
+                      className={`absolute right-1 top-1 flex gap-1 transition-opacity group-hover:opacity-100 ${isMarking ? "opacity-100" : "opacity-0"}`}
+                    >
                       {canSplit ? (
                         <button
                           type="button"
@@ -1283,13 +1745,21 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
                           aria-label="Mark face not present in this video"
                           disabled={isMarking}
                           onClick={() => {
-                            if (window.confirm(`Mark "${title}" as NOT present in this video?\n\nIts occurrences here (and other videos that match them) will be split off into the correct face.`)) {
+                            if (
+                              window.confirm(
+                                `Mark "${title}" as NOT present in this video?\n\nIts occurrences here (and other videos that match them) will be split off into the correct face.`,
+                              )
+                            ) {
                               onMarkFaceNotPresent(face.id);
                             }
                           }}
                           className="rounded-md bg-surface/80 p-1 text-muted transition-colors hover:text-red-300 disabled:cursor-not-allowed"
                         >
-                          {isMarking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
+                          {isMarking ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <UserX className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       ) : null}
                     </div>
@@ -1306,22 +1776,29 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
         <div>
           <h6 className="text-sm text-muted mb-2">URLs</h6>
           <div className="space-y-2">
-            <MetadataServerLinks className="flex flex-wrap gap-2" remoteIds={video.remoteIds} entityType="scenes" metadataServers={metadataServers} />
-            {video.urls?.length > 0 ? <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="urls" block>
-              <div className="space-y-1">
-              {video.urls.map((url: string, i: number) => (
-                <a
-                  key={i}
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent hover:underline text-sm block truncate"
-                >
-                  {url}
-                </a>
-              ))}
-              </div>
-            </FieldProvenanceHover> : null}
+            <MetadataServerLinks
+              className="flex flex-wrap gap-2"
+              remoteIds={video.remoteIds}
+              entityType="scenes"
+              metadataServers={metadataServers}
+            />
+            {video.urls?.length > 0 ? (
+              <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="urls" block>
+                <div className="space-y-1">
+                  {video.urls.map((url: string, i: number) => (
+                    <a
+                      key={i}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent hover:underline text-sm block truncate"
+                    >
+                      {url}
+                    </a>
+                  ))}
+                </div>
+              </FieldProvenanceHover>
+            ) : null}
           </div>
         </div>
       )}
@@ -1334,7 +1811,8 @@ export function DetailsTab({ video, onNavigate, metadataServers, videoFaces = []
 // File Info Tab — show every underlying video file rather than only the first one.
 export function FileInfoTab({ files }: { files: Video["files"] }) {
   const revealMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
-  const canReveal = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  const canReveal =
+    typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
   return (
     <div className="space-y-4 text-sm">
@@ -1342,12 +1820,17 @@ export function FileInfoTab({ files }: { files: Video["files"] }) {
         const sectionLabel = file.basename || file.path.split(/[\\/]/).pop() || `File ${index + 1}`;
 
         return (
-          <section key={file.id ?? `${file.path}-${index}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
+          <section
+            key={file.id ?? `${file.path}-${index}`}
+            className="rounded-xl border border-border bg-card p-4 space-y-3"
+          >
             {files.length > 1 && (
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h6 className="text-sm font-semibold text-foreground">{sectionLabel}</h6>
-                  <p className="text-xs text-muted">File {index + 1} of {files.length}</p>
+                  <p className="text-xs text-muted">
+                    File {index + 1} of {files.length}
+                  </p>
                 </div>
                 {canReveal && file.id ? (
                   <button
@@ -1386,7 +1869,9 @@ export function FileInfoTab({ files }: { files: Video["files"] }) {
               <dd className="text-foreground">{formatDuration(file.duration)}</dd>
 
               <dt className="text-muted">Dimensions</dt>
-              <dd className="text-foreground">{file.width}×{file.height}</dd>
+              <dd className="text-foreground">
+                {file.width}×{file.height}
+              </dd>
 
               <dt className="text-muted">Frame Rate</dt>
               <dd className="text-foreground">{file.frameRate.toFixed(2)} fps</dd>
@@ -1455,7 +1940,8 @@ function HistoryTab({
     },
   });
 
-  const btnCls = "rounded border border-border bg-card px-2 py-0.5 text-xs text-secondary hover:text-foreground hover:bg-card-hover";
+  const btnCls =
+    "rounded border border-border bg-card px-2 py-0.5 text-xs text-secondary hover:text-foreground hover:bg-card-hover";
   const recentSessions = history?.sessions?.slice(0, 10) ?? [];
 
   return (
@@ -1465,18 +1951,29 @@ function HistoryTab({
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-muted uppercase tracking-wide">Play History</h3>
           <div className="flex gap-1">
-            <button onClick={() => deletePlayMut.mutate()} className={btnCls} title="Remove last play">-1</button>
-            <button onClick={() => resetPlayMut.mutate()} className={btnCls} title="Reset play count">Reset</button>
+            <button onClick={() => deletePlayMut.mutate()} className={btnCls} title="Remove last play">
+              -1
+            </button>
+            <button onClick={() => resetPlayMut.mutate()} className={btnCls} title="Reset play count">
+              Reset
+            </button>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <div><span className="text-muted">Play Count:</span> <span className="text-foreground">{playCount}</span></div>
-          <div><span className="text-muted">Duration:</span> <span className="text-foreground">{formatDuration(playDuration)}</span></div>
+          <div>
+            <span className="text-muted">Play Count:</span> <span className="text-foreground">{playCount}</span>
+          </div>
+          <div>
+            <span className="text-muted">Duration:</span>{" "}
+            <span className="text-foreground">{formatDuration(playDuration)}</span>
+          </div>
         </div>
         {history?.playHistory && history.playHistory.length > 0 && (
           <div className="max-h-40 overflow-y-auto space-y-0.5 border-t border-border pt-2">
             {history.playHistory.map((date, i) => (
-              <div key={i} className="text-xs text-secondary">{formatDateTime(date)}</div>
+              <div key={i} className="text-xs text-secondary">
+                {formatDateTime(date)}
+              </div>
             ))}
           </div>
         )}
@@ -1511,7 +2008,13 @@ function HistoryTab({
         <section>
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">Playback Sessions</h3>
-            <span className="text-xs text-secondary">{recentSessions.length}{(history?.sessions?.length ?? 0) > recentSessions.length ? ` of ${history?.sessions?.length ?? 0}` : ""} sessions</span>
+            <span className="text-xs text-secondary">
+              {recentSessions.length}
+              {(history?.sessions?.length ?? 0) > recentSessions.length
+                ? ` of ${history?.sessions?.length ?? 0}`
+                : ""}{" "}
+              sessions
+            </span>
           </div>
           <div className="space-y-3 border-t border-border pt-3">
             {recentSessions.map((session) => (
@@ -1523,7 +2026,9 @@ function HistoryTab({
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-secondary">
                       <span>Watched {formatDuration(session.totalWatchedSec)}</span>
-                      {session.lastPositionSec != null ? <span>Last position {formatDuration(session.lastPositionSec)}</span> : null}
+                      {session.lastPositionSec != null ? (
+                        <span>Last position {formatDuration(session.lastPositionSec)}</span>
+                      ) : null}
                       <span>{session.intervals.length} intervals</span>
                     </div>
                   </div>
@@ -1532,7 +2037,10 @@ function HistoryTab({
                 {session.intervals.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {session.intervals.map((range, index) => (
-                      <span key={`${session.sessionId}-${range.startSec}-${range.endSec}-${index}`} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-secondary">
+                      <span
+                        key={`${session.sessionId}-${range.startSec}-${range.endSec}-${index}`}
+                        className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-secondary"
+                      >
                         {formatDuration(range.startSec)}-{formatDuration(range.endSec)}
                       </span>
                     ))}
@@ -1546,8 +2054,14 @@ function HistoryTab({
 
       {/* Timestamps */}
       <div className="grid grid-cols-2 gap-2">
-        <div><span className="text-muted">Created:</span> <span className="text-foreground">{formatDate(video.createdAt)}</span></div>
-        <div><span className="text-muted">Updated:</span> <span className="text-foreground">{formatDate(video.updatedAt)}</span></div>
+        <div>
+          <span className="text-muted">Created:</span>{" "}
+          <span className="text-foreground">{formatDate(video.createdAt)}</span>
+        </div>
+        <div>
+          <span className="text-muted">Updated:</span>{" "}
+          <span className="text-foreground">{formatDate(video.updatedAt)}</span>
+        </div>
       </div>
     </div>
   );
@@ -1563,7 +2077,15 @@ interface VideoFilters {
 }
 
 function VideoFiltersTab({ filters, onChange }: { filters: VideoFilters; onChange: (f: VideoFilters) => void }) {
-  const sliders: { key: keyof VideoFilters; label: string; min: number; max: number; default: number; unit: string; formatValue?: (v: number) => string }[] = [
+  const sliders: {
+    key: keyof VideoFilters;
+    label: string;
+    min: number;
+    max: number;
+    default: number;
+    unit: string;
+    formatValue?: (v: number) => string;
+  }[] = [
     { key: "brightness", label: "Brightness", min: 0, max: 200, default: 100, unit: "%" },
     { key: "contrast", label: "Contrast", min: 0, max: 200, default: 100, unit: "%" },
     { key: "gamma", label: "Gamma", min: 0, max: 200, default: 100, unit: "", formatValue: (v) => String(v - 100) },
@@ -1577,7 +2099,9 @@ function VideoFiltersTab({ filters, onChange }: { filters: VideoFilters; onChang
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h5 className="text-sm font-medium text-foreground">Filters</h5>
-        <button onClick={handleReset} className="text-xs text-accent hover:underline">Reset All</button>
+        <button onClick={handleReset} className="text-xs text-accent hover:underline">
+          Reset All
+        </button>
       </div>
       {sliders.map(({ key, label, min, max, default: def, unit, formatValue }) => (
         <div key={key} className="flex items-center gap-3">
@@ -1612,7 +2136,16 @@ type TimelineOverlayItem = {
   colorSeed?: string;
 };
 
-const SEGMENT_TIMELINE_COLORS = ["#a87a2d", "#4c6faa", "#7963a1", "#a05f7b", "#3f7f6e", "#4b7f8e", "#748a37", "#a35d4e"];
+const SEGMENT_TIMELINE_COLORS = [
+  "#a87a2d",
+  "#4c6faa",
+  "#7963a1",
+  "#a05f7b",
+  "#3f7f6e",
+  "#4b7f8e",
+  "#748a37",
+  "#a35d4e",
+];
 const FACE_TIMELINE_COLORS = ["#4d8569", "#4a807b", "#5a7ca5", "#7d8842", "#a07a3f", "#93658a"];
 
 function timelineHash(value: string) {
@@ -1670,9 +2203,9 @@ function isRawDataLabel(value: string) {
 }
 
 // Video Scrubber / Timeline Component
-function VideoScrubber({ 
-  videoId, 
-  duration, 
+function VideoScrubber({
+  videoId,
+  duration,
   spans,
   rawSegments,
   detections,
@@ -1687,7 +2220,10 @@ function VideoScrubber({
 }: {
   videoId: number;
   duration: number;
-  spans: Pick<ResolvedSpan, "spanKey" | "startSec" | "endSec" | "tagId" | "tagName" | "kind" | "colorHint" | "sourceKey" | "lane" | "segmentIds">[];
+  spans: Pick<
+    ResolvedSpan,
+    "spanKey" | "startSec" | "endSec" | "tagId" | "tagName" | "kind" | "colorHint" | "sourceKey" | "lane" | "segmentIds"
+  >[];
   rawSegments: Pick<Segment, "id" | "startSec" | "endSec" | "title" | "kind" | "sourceKey" | "refId">[];
   detections: Pick<Detection, "id" | "observedAtSec" | "class" | "score" | "refKind" | "refId">[];
   faces?: Pick<Face, "id" | "label" | "performerName" | "performerId">[];
@@ -1701,17 +2237,20 @@ function VideoScrubber({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [spriteData, setSpriteData] = useState<{ entries: { start: number; end: number; x: number; y: number; w: number; h: number }[]; imageUrl: string } | null>(null);
+  const [spriteData, setSpriteData] = useState<{
+    entries: { start: number; end: number; x: number; y: number; w: number; h: number }[];
+    imageUrl: string;
+  } | null>(null);
   const [spriteError, setSpriteError] = useState(false);
   const [spriteLoadSettled, setSpriteLoadSettled] = useState(false);
-  
+
   const spriteVttUrl = `/api/stream/video/${videoId}/vtt/thumbs`;
   const spriteImageUrl = `/api/stream/video/${videoId}/sprite`;
   const [showAllResolvedLanes, setShowAllResolvedLanes] = useState(false);
   const [showAllFaceLanes, setShowAllFaceLanes] = useState(false);
   const [overlaysCollapsed, setOverlaysCollapsed] = usePersistedFlag("cove.timeline.overlaysCollapsed", false);
   const [facesEnabled, setFacesEnabled] = usePersistedFlag("cove.timeline.facesEnabled", false);
-  
+
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
@@ -1727,8 +2266,11 @@ function VideoScrubber({
     setSpriteLoadSettled(false);
 
     serverAwareFetch(spriteVttUrl)
-      .then(r => { if (!r.ok) throw new Error("VTT not found"); return r.text(); })
-      .then(text => {
+      .then((r) => {
+        if (!r.ok) throw new Error("VTT not found");
+        return r.text();
+      })
+      .then((text) => {
         if (cancelled) return;
         const entries: typeof spriteData extends null ? never : NonNullable<typeof spriteData>["entries"] = [];
         const blocks = text.split(/\n\n+/);
@@ -1771,12 +2313,20 @@ function VideoScrubber({
 
   const thumbCount = spriteData ? spriteData.entries.length : 0;
   const thumbWidth = 160;
-  const thumbHeight = spriteData?.entries[0] ? Math.round(thumbWidth * (spriteData.entries[0].h / spriteData.entries[0].w)) : 0;
+  const thumbHeight = spriteData?.entries[0]
+    ? Math.round(thumbWidth * (spriteData.entries[0].h / spriteData.entries[0].w))
+    : 0;
   const rawSegmentsById = useMemo(() => new Map(rawSegments.map((segment) => [segment.id, segment])), [rawSegments]);
-  const performersById = useMemo(() => new Map((performers ?? []).map((performer) => [performer.id, performer])), [performers]);
+  const performersById = useMemo(
+    () => new Map((performers ?? []).map((performer) => [performer.id, performer])),
+    [performers],
+  );
   const filterActive = isSegmentFilterActive(filter);
   const nonFaceSpans = useMemo(
-    () => spans.filter((span) => !isFaceResolvedSpan(span, rawSegmentsById) && matchesSegmentFilter(span, filter, filterContext)),
+    () =>
+      spans.filter(
+        (span) => !isFaceResolvedSpan(span, rawSegmentsById) && matchesSegmentFilter(span, filter, filterContext),
+      ),
     [rawSegmentsById, spans, filter, filterContext],
   );
   // Faces carry no tags, so a tag/tag-group filter hides them; otherwise they pass when the
@@ -1796,20 +2346,28 @@ function VideoScrubber({
     };
   }, [filterActive, filter.tagIds, filter.tagGroupIds, filter.kinds, filter.faceIds, filter.performerIds]);
   // A face-targeting filter auto-reveals the faces lane even when the manual toggle is off.
-  const faceFilterTargetsFaces = filterActive
-    && filter.tagIds.length === 0 && filter.tagGroupIds.length === 0
-    && (filter.kinds.map((kind) => kind.toLowerCase()).includes("face") || filter.faceIds.length > 0 || filter.performerIds.length > 0);
+  const faceFilterTargetsFaces =
+    filterActive &&
+    filter.tagIds.length === 0 &&
+    filter.tagGroupIds.length === 0 &&
+    (filter.kinds.map((kind) => kind.toLowerCase()).includes("face") ||
+      filter.faceIds.length > 0 ||
+      filter.performerIds.length > 0);
   const effectiveFacesEnabled = facesEnabled || faceFilterTargetsFaces;
-  const segmentLanes = useMemo(() => buildTimelineLanes<TimelineOverlayItem>(
-    nonFaceSpans.map((span) => ({
-      key: span.spanKey,
-      startSec: span.startSec,
-      endSec: span.endSec,
-      label: getSegmentTimelineLabel(span, rawSegmentsById, performersById),
-      colorHint: span.colorHint,
-      colorSeed: `${span.kind ?? "span"}:${span.tagName ?? ""}:${span.sourceKey ?? ""}`,
-    })),
-  ), [nonFaceSpans, performersById, rawSegmentsById]);
+  const segmentLanes = useMemo(
+    () =>
+      buildTimelineLanes<TimelineOverlayItem>(
+        nonFaceSpans.map((span) => ({
+          key: span.spanKey,
+          startSec: span.startSec,
+          endSec: span.endSec,
+          label: getSegmentTimelineLabel(span, rawSegmentsById, performersById),
+          colorHint: span.colorHint,
+          colorSeed: `${span.kind ?? "span"}:${span.tagName ?? ""}:${span.sourceKey ?? ""}`,
+        })),
+      ),
+    [nonFaceSpans, performersById, rawSegmentsById],
+  );
   const faceLanes = useMemo(() => {
     if (!effectiveFacesEnabled) return [] as ReturnType<typeof buildTimelineLanes<TimelineOverlayItem>>;
     const facesById = new Map<number, Pick<Face, "id" | "label" | "performerName" | "performerId">>();
@@ -1824,7 +2382,11 @@ function VideoScrubber({
       const face = facesById.get(faceId);
       if (!faceFilterPredicate(faceId, face?.performerId)) continue;
       if (faceId > 0) segmentFaceIds.add(faceId);
-      const label = face?.performerName?.trim() || face?.label?.trim() || segment.title?.trim() || (faceId > 0 ? `Face #${faceId}` : "Face");
+      const label =
+        face?.performerName?.trim() ||
+        face?.label?.trim() ||
+        segment.title?.trim() ||
+        (faceId > 0 ? `Face #${faceId}` : "Face");
       items.push({
         key: `face-segment-${segment.id}`,
         startSec: segment.startSec,
@@ -1878,9 +2440,12 @@ function VideoScrubber({
   }, [detections, rawSegments, faces, effectiveFacesEnabled, faceFilterPredicate]);
   // Detection dots respect the face/performer filter; when a non-face filter is active they are hidden.
   const visibleDetections = useMemo(
-    () => detections.filter((det) => det.refId == null || det.refKind?.toLowerCase() !== "face"
-      ? !filterActive
-      : faceFilterPredicate(det.refId, null)),
+    () =>
+      detections.filter((det) =>
+        det.refId == null || det.refKind?.toLowerCase() !== "face"
+          ? !filterActive
+          : faceFilterPredicate(det.refId, null),
+      ),
     [detections, filterActive, faceFilterPredicate],
   );
   const visibleResolvedLanes = showAllResolvedLanes ? segmentLanes : segmentLanes.slice(0, 4);
@@ -1888,8 +2453,9 @@ function VideoScrubber({
   const hiddenResolvedLaneCount = Math.max(0, segmentLanes.length - visibleResolvedLanes.length);
   const hiddenFaceLaneCount = Math.max(0, faceLanes.length - visibleFaceLanes.length);
   const hasFaceDetections = useMemo(
-    () => detections.some((det) => det.refKind?.toLowerCase() === "face" && det.refId != null)
-      || rawSegments.some((segment) => isFaceTimelineSegment(segment)),
+    () =>
+      detections.some((det) => det.refKind?.toLowerCase() === "face" && det.refId != null) ||
+      rawSegments.some((segment) => isFaceTimelineSegment(segment)),
     [detections, rawSegments],
   );
 
@@ -1911,7 +2477,10 @@ function VideoScrubber({
       const targetLeft = activeIndex * thumbWidth;
       const { scrollLeft, clientWidth } = scrollRef.current;
       if (targetLeft < scrollLeft || targetLeft + thumbWidth > scrollLeft + clientWidth) {
-        scrollRef.current.scrollTo({ left: Math.max(0, targetLeft - clientWidth / 2 + thumbWidth / 2), behavior: "smooth" });
+        scrollRef.current.scrollTo({
+          left: Math.max(0, targetLeft - clientWidth / 2 + thumbWidth / 2),
+          behavior: "smooth",
+        });
       }
     }
   }, [activeIndex, thumbWidth]);
@@ -1921,7 +2490,7 @@ function VideoScrubber({
   };
   const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
   const timelineDuration = Math.max(0.001, duration || 0);
-  
+
   return (
     <div className="flex-shrink-0 bg-[#1a1a1a] border-t border-border">
       {(spans.length > 0 || hasFaceDetections) && (
@@ -1929,7 +2498,11 @@ function VideoScrubber({
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#20222a] px-2 py-1.5 pr-8 text-[10px] text-white/65">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="font-semibold uppercase tracking-[0.16em] text-white/70">Timeline overlays</span>
-              {nonFaceSpans.length > 0 ? <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5">{nonFaceSpans.length} segment{nonFaceSpans.length === 1 ? "" : "s"}</span> : null}
+              {nonFaceSpans.length > 0 ? (
+                <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5">
+                  {nonFaceSpans.length} segment{nonFaceSpans.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
               {filterActive ? (
                 <button
                   type="button"
@@ -1983,76 +2556,92 @@ function VideoScrubber({
               ) : null}
             </div>
           </div>
-          {!overlaysCollapsed ? <div className="space-y-2 px-2 py-2">
-            {nonFaceSpans.length > 0 ? (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
-                  <span>Segments{profileName ? ` · ${profileName}` : ""}</span>
-                  {hiddenResolvedLaneCount > 0 ? <span>{hiddenResolvedLaneCount} hidden</span> : null}
-                </div>
-                <div className="relative overflow-hidden rounded border border-white/10 bg-black/25" style={{ height: `${Math.max(28, visibleResolvedLanes.length * 24 + 6)}px` }}>
-                  {visibleResolvedLanes.map((lane, laneIndex) => lane.map(({ item, endSec }) => {
-                    const start = clampPercent((item.startSec / timelineDuration) * 100);
-                    const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
-                    const width = Math.max(0.45, end - start);
-                    const color = getTimelineOverlayColor(item, SEGMENT_TIMELINE_COLORS);
+          {!overlaysCollapsed ? (
+            <div className="space-y-2 px-2 py-2">
+              {nonFaceSpans.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
+                    <span>Segments{profileName ? ` · ${profileName}` : ""}</span>
+                    {hiddenResolvedLaneCount > 0 ? <span>{hiddenResolvedLaneCount} hidden</span> : null}
+                  </div>
+                  <div
+                    className="relative overflow-hidden rounded border border-white/10 bg-black/25"
+                    style={{ height: `${Math.max(28, visibleResolvedLanes.length * 24 + 6)}px` }}
+                  >
+                    {visibleResolvedLanes.map((lane, laneIndex) =>
+                      lane.map(({ item, endSec }) => {
+                        const start = clampPercent((item.startSec / timelineDuration) * 100);
+                        const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
+                        const width = Math.max(0.45, end - start);
+                        const color = getTimelineOverlayColor(item, SEGMENT_TIMELINE_COLORS);
 
-                    return (
-                      <button
-                        key={item.key}
-                        className="absolute h-5 overflow-hidden rounded-sm px-1.5 text-left text-[10px] font-semibold leading-5 text-white shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-1 focus:ring-white/70"
-                        style={{
-                          left: `${start}%`,
-                          top: `${laneIndex * 24 + 4}px`,
-                          width: `${width}%`,
-                          backgroundColor: color,
-                          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
-                        }}
-                        title={`${item.label} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
-                        onClick={() => onSeek?.(item.startSec)}
-                      >
-                        {timelineLabelFits(width, item.label) ? <span className="block truncate">{item.label}</span> : null}
-                      </button>
-                    );
-                  }))}
+                        return (
+                          <button
+                            key={item.key}
+                            className="absolute h-5 overflow-hidden rounded-sm px-1.5 text-left text-[10px] font-semibold leading-5 text-white shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-1 focus:ring-white/70"
+                            style={{
+                              left: `${start}%`,
+                              top: `${laneIndex * 24 + 4}px`,
+                              width: `${width}%`,
+                              backgroundColor: color,
+                              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
+                            }}
+                            title={`${item.label} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
+                            onClick={() => onSeek?.(item.startSec)}
+                          >
+                            {timelineLabelFits(width, item.label) ? (
+                              <span className="block truncate">{item.label}</span>
+                            ) : null}
+                          </button>
+                        );
+                      }),
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : null}
-            {hasFaceDetections && effectiveFacesEnabled && faceLanes.length > 0 ? (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
-                  <span>Faces</span>
-                  {hiddenFaceLaneCount > 0 ? <span>{hiddenFaceLaneCount} hidden</span> : null}
-                </div>
-                <div className="relative overflow-hidden rounded border border-white/10 bg-black/25" style={{ height: `${Math.max(28, visibleFaceLanes.length * 24 + 6)}px` }}>
-                  {visibleFaceLanes.map((lane, laneIndex) => lane.map(({ item, endSec }) => {
-                    const start = clampPercent((item.startSec / timelineDuration) * 100);
-                    const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
-                    const width = Math.max(0.45, end - start);
-                    const color = getTimelineOverlayColor(item, FACE_TIMELINE_COLORS);
+              ) : null}
+              {hasFaceDetections && effectiveFacesEnabled && faceLanes.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-white/45">
+                    <span>Faces</span>
+                    {hiddenFaceLaneCount > 0 ? <span>{hiddenFaceLaneCount} hidden</span> : null}
+                  </div>
+                  <div
+                    className="relative overflow-hidden rounded border border-white/10 bg-black/25"
+                    style={{ height: `${Math.max(28, visibleFaceLanes.length * 24 + 6)}px` }}
+                  >
+                    {visibleFaceLanes.map((lane, laneIndex) =>
+                      lane.map(({ item, endSec }) => {
+                        const start = clampPercent((item.startSec / timelineDuration) * 100);
+                        const end = clampPercent(((endSec + 0.001) / timelineDuration) * 100);
+                        const width = Math.max(0.45, end - start);
+                        const color = getTimelineOverlayColor(item, FACE_TIMELINE_COLORS);
 
-                    return (
-                      <button
-                        key={item.key}
-                        className="absolute h-5 overflow-hidden rounded-sm px-1.5 text-left text-[10px] font-semibold leading-5 text-white shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-1 focus:ring-white/70"
-                        style={{
-                          left: `${start}%`,
-                          top: `${laneIndex * 24 + 4}px`,
-                          width: `${width}%`,
-                          backgroundColor: color,
-                          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
-                        }}
-                        title={`${item.label} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
-                        onClick={() => onSeek?.(item.startSec)}
-                      >
-                        {timelineLabelFits(width, item.label) ? <span className="block truncate">{item.label}</span> : null}
-                      </button>
-                    );
-                  }))}
+                        return (
+                          <button
+                            key={item.key}
+                            className="absolute h-5 overflow-hidden rounded-sm px-1.5 text-left text-[10px] font-semibold leading-5 text-white shadow-sm transition hover:brightness-110 focus:outline-none focus:ring-1 focus:ring-white/70"
+                            style={{
+                              left: `${start}%`,
+                              top: `${laneIndex * 24 + 4}px`,
+                              width: `${width}%`,
+                              backgroundColor: color,
+                              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)",
+                            }}
+                            title={`${item.label} (${formatTimelineTime(item.startSec)} - ${formatTimelineTime(endSec)})`}
+                            onClick={() => onSeek?.(item.startSec)}
+                          >
+                            {timelineLabelFits(width, item.label) ? (
+                              <span className="block truncate">{item.label}</span>
+                            ) : null}
+                          </button>
+                        );
+                      }),
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : null}
-          </div> : null}
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
       {visibleDetections.length > 0 && (
@@ -2073,55 +2662,63 @@ function VideoScrubber({
       )}
 
       {spriteData && spriteLoadSettled && !spriteError ? (
-      <div className="relative flex overflow-hidden" ref={containerRef}>
-        <button onClick={() => scroll(-1)} className="flex-shrink-0 w-7 bg-[#222] hover:bg-[#333] text-muted border-r border-border z-10">
-          <ChevronLeft className="w-4 h-4 mx-auto" />
-        </button>
-        
-        <div ref={scrollRef} className="flex-1 flex overflow-x-auto scrollbar-thin scrollbar-thumb-border">
-          {Array.from({ length: thumbCount }).map((_, i) => {
-            const entry = spriteData.entries[i];
-            const time = entry?.start ?? 0;
-            const isActive = i === activeIndex;
-            return (
-              <div 
-                key={i} 
-                className={`flex-shrink-0 relative cursor-pointer hover:ring-2 hover:ring-accent hover:z-10 ${isActive ? "ring-2 ring-accent z-10" : ""}`}
-                style={{ width: thumbWidth }}
-                onClick={() => onSeek?.(time)}
-              >
-                <div className="bg-surface" style={{ width: thumbWidth, height: thumbHeight }}>
-                  {entry ? (
-                    <div
-                      style={{
-                        width: thumbWidth,
-                        height: thumbHeight,
-                        backgroundImage: `url(${spriteData!.imageUrl})`,
-                        backgroundPosition: `-${entry.x * (thumbWidth / entry.w)}px -${entry.y * (thumbHeight / entry.h)}px`,
-                        backgroundSize: `${(spriteData!.entries[0].w * Math.ceil(Math.sqrt(thumbCount))) * (thumbWidth / entry.w)}px auto`,
-                      }}
-                    />
-                  ) : null}
+        <div className="relative flex overflow-hidden" ref={containerRef}>
+          <button
+            onClick={() => scroll(-1)}
+            className="flex-shrink-0 w-7 bg-[#222] hover:bg-[#333] text-muted border-r border-border z-10"
+          >
+            <ChevronLeft className="w-4 h-4 mx-auto" />
+          </button>
+
+          <div ref={scrollRef} className="flex-1 flex overflow-x-auto scrollbar-thin scrollbar-thumb-border">
+            {Array.from({ length: thumbCount }).map((_, i) => {
+              const entry = spriteData.entries[i];
+              const time = entry?.start ?? 0;
+              const isActive = i === activeIndex;
+              return (
+                <div
+                  key={i}
+                  className={`flex-shrink-0 relative cursor-pointer hover:ring-2 hover:ring-accent hover:z-10 ${isActive ? "ring-2 ring-accent z-10" : ""}`}
+                  style={{ width: thumbWidth }}
+                  onClick={() => onSeek?.(time)}
+                >
+                  <div className="bg-surface" style={{ width: thumbWidth, height: thumbHeight }}>
+                    {entry ? (
+                      <div
+                        style={{
+                          width: thumbWidth,
+                          height: thumbHeight,
+                          backgroundImage: `url(${spriteData!.imageUrl})`,
+                          backgroundPosition: `-${entry.x * (thumbWidth / entry.w)}px -${entry.y * (thumbHeight / entry.h)}px`,
+                          backgroundSize: `${spriteData!.entries[0].w * Math.ceil(Math.sqrt(thumbCount)) * (thumbWidth / entry.w)}px auto`,
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 text-center text-[10px] text-white bg-black/70 py-0.5">
+                    {formatTime(time)}
+                  </div>
                 </div>
-                <div className="absolute bottom-0 left-0 right-0 text-center text-[10px] text-white bg-black/70 py-0.5">
-                  {formatTime(time)}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => scroll(1)}
+            className="flex-shrink-0 w-7 bg-[#222] hover:bg-[#333] text-muted border-l border-border z-10"
+          >
+            <ChevronRight className="w-4 h-4 mx-auto" />
+          </button>
         </div>
-        
-        <button onClick={() => scroll(1)} className="flex-shrink-0 w-7 bg-[#222] hover:bg-[#333] text-muted border-l border-border z-10">
-          <ChevronRight className="w-4 h-4 mx-auto" />
-        </button>
-      </div>
       ) : null}
     </div>
   );
 }
 
 function buildTimelineLanes<T extends { key: string; startSec: number; endSec: number }>(items: T[]) {
-  const ordered = [...items].sort((left, right) => left.startSec - right.startSec || left.endSec - right.endSec || left.key.localeCompare(right.key));
+  const ordered = [...items].sort(
+    (left, right) => left.startSec - right.startSec || left.endSec - right.endSec || left.key.localeCompare(right.key),
+  );
   const lanes: Array<Array<{ item: T; endSec: number }>> = [];
   const laneEnds: number[] = [];
 
@@ -2158,10 +2755,13 @@ function isFaceResolvedSpan(
   }
 
   const segmentIds = span.segmentIds ?? [];
-  return segmentIds.length > 0 && segmentIds.every((segmentId) => {
-    const segment = rawSegmentsById.get(segmentId);
-    return segment ? isFaceTimelineSegment(segment) : false;
-  });
+  return (
+    segmentIds.length > 0 &&
+    segmentIds.every((segmentId) => {
+      const segment = rawSegmentsById.get(segmentId);
+      return segment ? isFaceTimelineSegment(segment) : false;
+    })
+  );
 }
 
 function parseVttTime(timeStr: string): number {
@@ -2195,7 +2795,9 @@ function DetectionsPanel({
     for (const detection of detections) {
       counts.set(detection.class, (counts.get(detection.class) ?? 0) + 1);
     }
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
   }, [detections]);
 
   if (loading) {
@@ -2209,7 +2811,9 @@ function DetectionsPanel({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
-        <span>{detections.length} detection{detections.length !== 1 ? "s" : ""}</span>
+        <span>
+          {detections.length} detection{detections.length !== 1 ? "s" : ""}
+        </span>
         {classCounts.map(([name, count]) => (
           <span key={name} className="rounded-full border border-border bg-surface px-2 py-1">
             {name} · {count}
@@ -2220,12 +2824,21 @@ function DetectionsPanel({
         {detections.map((detection) => (
           <div key={detection.id} className="rounded border border-border bg-card px-3 py-2 text-sm">
             <div className="flex items-center justify-between gap-3">
-              <button className="flex items-center gap-3 text-left hover:text-accent" onClick={() => onSeek?.(detection.observedAtSec ?? 0)}>
-                <span className="w-20 font-mono text-xs text-accent">{formatTimelineTime(detection.observedAtSec ?? 0)}</span>
+              <button
+                className="flex items-center gap-3 text-left hover:text-accent"
+                onClick={() => onSeek?.(detection.observedAtSec ?? 0)}
+              >
+                <span className="w-20 font-mono text-xs text-accent">
+                  {formatTimelineTime(detection.observedAtSec ?? 0)}
+                </span>
                 <span className="text-foreground">{detection.class}</span>
-                <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">{Math.round(detection.score * 100)}%</span>
+                <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-secondary">
+                  {Math.round(detection.score * 100)}%
+                </span>
               </button>
-              <div className="text-xs text-secondary">{detection.frameWidth}×{detection.frameHeight}</div>
+              <div className="text-xs text-secondary">
+                {detection.frameWidth}×{detection.frameHeight}
+              </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-secondary">
               <span className="rounded bg-surface px-1.5 py-0.5">x {detection.x.toFixed(3)}</span>
@@ -2233,9 +2846,13 @@ function DetectionsPanel({
               <span className="rounded bg-surface px-1.5 py-0.5">w {detection.w.toFixed(3)}</span>
               <span className="rounded bg-surface px-1.5 py-0.5">h {detection.h.toFixed(3)}</span>
               {detection.refKind && detection.refId != null && (
-                <span className="rounded bg-surface px-1.5 py-0.5">{detection.refKind} #{detection.refId}</span>
+                <span className="rounded bg-surface px-1.5 py-0.5">
+                  {detection.refKind} #{detection.refId}
+                </span>
               )}
-              {detection.groupKey && <span className="rounded bg-surface px-1.5 py-0.5">group {detection.groupKey}</span>}
+              {detection.groupKey && (
+                <span className="rounded bg-surface px-1.5 py-0.5">group {detection.groupKey}</span>
+              )}
             </div>
           </div>
         ))}
@@ -2245,7 +2862,17 @@ function DetectionsPanel({
 }
 
 // ===== Inline Video Edit Panel =====
-function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { video: Video; onCancel: () => void; onNavigate?: (r: any) => void; onRequestReportTag?: (tag: any) => void }) {
+function VideoEditPanel({
+  video,
+  onCancel,
+  onNavigate,
+  onRequestReportTag,
+}: {
+  video: Video;
+  onCancel: () => void;
+  onNavigate?: (r: any) => void;
+  onRequestReportTag?: (tag: any) => void;
+}) {
   const queryClient = useQueryClient();
   const { config } = useAppConfig();
   const [title, setTitle] = useState(video.title || "");
@@ -2264,17 +2891,26 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(video.performers.map((p) => p.id));
   const [selectedGalleryIds, setSelectedGalleryIds] = useState<number[]>(video.galleries.map((g) => g.id));
   const [selectedGroups, setSelectedGroups] = useState<{ groupId: number; videoIndex: number }[]>(
-    video.groups.map((g) => ({ groupId: g.id, videoIndex: g.videoIndex }))
+    video.groups.map((g) => ({ groupId: g.id, videoIndex: g.videoIndex })),
   );
-  const [contextTagIdsByPerformer, setContextTagIdsByPerformer] = useState<Record<number, number[]>>(() => buildVideoEditPerformerContextTagIds(video));
+  const [contextTagIdsByPerformer, setContextTagIdsByPerformer] = useState<Record<number, number[]>>(() =>
+    buildVideoEditPerformerContextTagIds(video),
+  );
   const [performerOccurrenceTagsOpen, setPerformerOccurrenceTagsOpen] = useState(false);
   useEffect(() => {
-    setTitle(video.title || ""); setCode(video.code || ""); setDetails(video.details || "");
-    setDirector(video.director || ""); setDate(video.date || ""); setIsVr(video.isVr ?? false); setRating(undefined);
-    setUrls(video.urls.length > 0 ? video.urls : [""]); setStudioId(video.studioId ?? undefined);
+    setTitle(video.title || "");
+    setCode(video.code || "");
+    setDetails(video.details || "");
+    setDirector(video.director || "");
+    setDate(video.date || "");
+    setIsVr(video.isVr ?? false);
+    setRating(undefined);
+    setUrls(video.urls.length > 0 ? video.urls : [""]);
+    setStudioId(video.studioId ?? undefined);
     setRemoteIds(video.remoteIds?.length ? video.remoteIds : []);
     setCustomFields({ ...(video.customFields ?? {}) });
-    setSelectedTagIds(getEditableTagIds(video.tags)); setSelectedPerformerIds(video.performers.map((p) => p.id));
+    setSelectedTagIds(getEditableTagIds(video.tags));
+    setSelectedPerformerIds(video.performers.map((p) => p.id));
     setSelectedGalleryIds(video.galleries.map((g) => g.id));
     setSelectedGroups(video.groups.map((g) => ({ groupId: g.id, videoIndex: g.videoIndex })));
     setContextTagIdsByPerformer(buildVideoEditPerformerContextTagIds(video));
@@ -2284,31 +2920,60 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
     meta: { suppressGlobalError: true },
     mutationFn: async (data: VideoUpdate) => {
       const updated = await videos.update(video.id, data);
-      await syncVideoEditPerformerContextTags(video.id, video.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
+      await syncVideoEditPerformerContextTags(
+        video.id,
+        video.contextTagApplications ?? [],
+        contextTagIdsByPerformer,
+        selectedPerformerIds,
+      );
       return updated;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["video", video.id] }); queryClient.invalidateQueries({ queryKey: ["tagapplications"] }); queryClient.invalidateQueries({ queryKey: ["videos"] }); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["tagapplications"] });
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+    },
   });
 
   const handleSave = () => {
     const urlList = urls.map((url) => url.trim()).filter(Boolean);
     const clearFields = videoEditClearFields(date, studioId);
-    mutation.mutate({ title: title, code: code, details: details,
-      director: director, date: date || undefined, isVr, rating, studioId,
-      urls: urlList, remoteIds: normalizeRemoteIds(remoteIds), customFields,
-      tagIds: selectedTagIds, performerIds: selectedPerformerIds, galleryIds: selectedGalleryIds,
-      groups: selectedGroups, clearFields });
+    mutation.mutate({
+      title: title,
+      code: code,
+      details: details,
+      director: director,
+      date: date || undefined,
+      isVr,
+      rating,
+      studioId,
+      urls: urlList,
+      remoteIds: normalizeRemoteIds(remoteIds),
+      customFields,
+      tagIds: selectedTagIds,
+      performerIds: selectedPerformerIds,
+      galleryIds: selectedGalleryIds,
+      groups: selectedGroups,
+      clearFields,
+    });
   };
 
   const setPerformerContextTagIds = (performerId: number, tagIds: number[]) => {
     setContextTagIdsByPerformer((current) => ({ ...current, [performerId]: Array.from(new Set(tagIds)) }));
   };
   const setSelectedGroupIds = (groupIds: number[]) => {
-    setSelectedGroups(groupIds.map((groupId) => selectedGroups.find((group) => group.groupId === groupId) ?? { groupId, videoIndex: 0 }));
+    setSelectedGroups(
+      groupIds.map(
+        (groupId) => selectedGroups.find((group) => group.groupId === groupId) ?? { groupId, videoIndex: 0 },
+      ),
+    );
   };
 
   const lockedTagIds = getLockedTagIds(video.tags);
-  const reportableTagIds = useMemo(() => video.tags.filter((tag: any) => tag.canReportIncorrect).map((tag) => tag.id), [video.tags]);
+  const reportableTagIds = useMemo(
+    () => video.tags.filter((tag: any) => tag.canReportIncorrect).map((tag) => tag.id),
+    [video.tags],
+  );
   const displayedTagIds = mergeTagIds(lockedTagIds, selectedTagIds);
   const tagProvenanceById = useMemo(() => {
     const lookup: Record<number, TagProvenance[] | undefined> = {};
@@ -2326,37 +2991,62 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
   // each selected chip re-fetch its name by id (30 tags = 30 authz-gated GETs that also starve the
   // connection pool and delay the search requests fired while typing).
   const tagSeedOptions = useMemo(() => video.tags.map((tag) => ({ id: tag.id, label: tag.name })), [video.tags]);
-  const performerSeedOptions = useMemo(() => video.performers.map((performer) => ({
-    id: performer.id,
-    label: performer.name,
-    secondaryLabel: performer.disambiguation ? `(${performer.disambiguation})` : undefined,
-  })), [video.performers]);
+  const performerSeedOptions = useMemo(
+    () =>
+      video.performers.map((performer) => ({
+        id: performer.id,
+        label: performer.name,
+        secondaryLabel: performer.disambiguation ? `(${performer.disambiguation})` : undefined,
+      })),
+    [video.performers],
+  );
 
-  const inputCls = "w-full bg-input border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
+  const inputCls =
+    "w-full bg-input border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
 
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="title" block>
-          <label className="space-y-1"><span className="text-xs text-secondary">Title</span><input value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} /></label>
+          <label className="space-y-1">
+            <span className="text-xs text-secondary">Title</span>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} />
+          </label>
         </FieldProvenanceHover>
         <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="date" block>
-          <label className="space-y-1"><span className="text-xs text-secondary">Date</span><IsoDateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} /></label>
+          <label className="space-y-1">
+            <span className="text-xs text-secondary">Date</span>
+            <IsoDateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+          </label>
         </FieldProvenanceHover>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="code" block>
-          <label className="space-y-1"><span className="text-xs text-secondary">Studio Code</span><input value={code} onChange={(e) => setCode(e.target.value)} className={inputCls} /></label>
+          <label className="space-y-1">
+            <span className="text-xs text-secondary">Studio Code</span>
+            <input value={code} onChange={(e) => setCode(e.target.value)} className={inputCls} />
+          </label>
         </FieldProvenanceHover>
         <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="director" block>
-          <label className="space-y-1"><span className="text-xs text-secondary">Director</span><input value={director} onChange={(e) => setDirector(e.target.value)} className={inputCls} /></label>
+          <label className="space-y-1">
+            <span className="text-xs text-secondary">Director</span>
+            <input value={director} onChange={(e) => setDirector(e.target.value)} className={inputCls} />
+          </label>
         </FieldProvenanceHover>
       </div>
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="details" block>
-        <label className="block space-y-1"><span className="text-xs text-secondary">Details</span><textarea value={details} onChange={(e) => setDetails(e.target.value)} rows={3} className={inputCls} /></label>
+        <label className="block space-y-1">
+          <span className="text-xs text-secondary">Details</span>
+          <textarea value={details} onChange={(e) => setDetails(e.target.value)} rows={3} className={inputCls} />
+        </label>
       </FieldProvenanceHover>
       <label className="inline-flex items-center gap-2 text-sm text-secondary">
-        <input type="checkbox" checked={isVr} onChange={(e) => setIsVr(e.target.checked)} className="rounded border-border bg-card" />
+        <input
+          type="checkbox"
+          checked={isVr}
+          onChange={(e) => setIsVr(e.target.checked)}
+          className="rounded border-border bg-card"
+        />
         VR
       </label>
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="studio" block>
@@ -2366,7 +3056,16 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
         </div>
       </FieldProvenanceHover>
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="urls" block>
-        <div className="space-y-1"><span className="text-xs text-secondary">URLs</span><StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" /></div>
+        <div className="space-y-1">
+          <span className="text-xs text-secondary">URLs</span>
+          <StringListEditor
+            values={urls}
+            onChange={setUrls}
+            placeholder="https://..."
+            addLabel="Add URL"
+            inputType="url"
+          />
+        </div>
       </FieldProvenanceHover>
       {/* Tags */}
       <div className="space-y-1">
@@ -2381,7 +3080,9 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
           seedOptions={tagSeedOptions}
           selectedProvenanceById={tagProvenanceById}
           reportableIds={onRequestReportTag ? reportableTagIds : undefined}
-          onReportIncorrect={onRequestReportTag ? (tagId) => onRequestReportTag(video.tags.find((tag) => tag.id === tagId)) : undefined}
+          onReportIncorrect={
+            onRequestReportTag ? (tagId) => onRequestReportTag(video.tags.find((tag) => tag.id === tagId)) : undefined
+          }
           onAdjustThreshold={onNavigate ? (tagId) => onNavigate({ page: "tag", id: tagId }) : undefined}
         />
       </div>
@@ -2390,7 +3091,14 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
       <FieldProvenanceHover fieldProvenance={video.fieldProvenance} fieldKey="performers" block>
         <div className="space-y-1">
           <span className="text-xs text-secondary">Performers</span>
-          <EntityReferenceMultiSelector entityType="performer" values={selectedPerformerIds} onChange={setSelectedPerformerIds} placeholder="Search performers..." inputClassName={inputCls} seedOptions={performerSeedOptions} />
+          <EntityReferenceMultiSelector
+            entityType="performer"
+            values={selectedPerformerIds}
+            onChange={setSelectedPerformerIds}
+            placeholder="Search performers..."
+            inputClassName={inputCls}
+            seedOptions={performerSeedOptions}
+          />
         </div>
       </FieldProvenanceHover>
 
@@ -2403,38 +3111,58 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
           >
             <span>Performer Occurrence Tags</span>
             <span className="inline-flex items-center gap-2 normal-case tracking-normal text-muted">
-              {selectedPerformerIds.reduce((sum, performerId) => sum + (contextTagIdsByPerformer[performerId]?.length ?? 0), 0)} tag assignments
-              {performerOccurrenceTagsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              {selectedPerformerIds.reduce(
+                (sum, performerId) => sum + (contextTagIdsByPerformer[performerId]?.length ?? 0),
+                0,
+              )}{" "}
+              tag assignments
+              {performerOccurrenceTagsOpen ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
             </span>
           </button>
-          {performerOccurrenceTagsOpen ? selectedPerformerIds.map((performerId) => {
-            const tagIds = contextTagIdsByPerformer[performerId] ?? [];
+          {performerOccurrenceTagsOpen
+            ? selectedPerformerIds.map((performerId) => {
+                const tagIds = contextTagIdsByPerformer[performerId] ?? [];
 
-            return (
-              <div key={performerId} className="rounded-lg border border-border bg-card/70 p-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="min-w-0 text-sm font-medium text-foreground"><EntityReferenceValue entityType="performer" value={performerId} /></div>
-                  <div className="text-xs text-muted">{tagIds.length} tag{tagIds.length === 1 ? "" : "s"}</div>
-                </div>
-                <EntityReferenceMultiSelector
-                  entityType="tag"
-                  values={tagIds}
-                  onChange={(nextTagIds) => setPerformerContextTagIds(performerId, nextTagIds)}
-                  placeholder="Search tags for this occurrence..."
-                  emptyMessage="No tags found"
-                  inputClassName={inputCls}
-                  seedOptions={tagSeedOptions}
-                />
-              </div>
-            );
-          }) : null}
+                return (
+                  <div key={performerId} className="rounded-lg border border-border bg-card/70 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0 text-sm font-medium text-foreground">
+                        <EntityReferenceValue entityType="performer" value={performerId} />
+                      </div>
+                      <div className="text-xs text-muted">
+                        {tagIds.length} tag{tagIds.length === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <EntityReferenceMultiSelector
+                      entityType="tag"
+                      values={tagIds}
+                      onChange={(nextTagIds) => setPerformerContextTagIds(performerId, nextTagIds)}
+                      placeholder="Search tags for this occurrence..."
+                      emptyMessage="No tags found"
+                      inputClassName={inputCls}
+                      seedOptions={tagSeedOptions}
+                    />
+                  </div>
+                );
+              })
+            : null}
         </div>
       ) : null}
 
       {/* Galleries */}
       <div className="space-y-1">
         <span className="text-xs text-secondary">Galleries</span>
-        <EntityReferenceMultiSelector entityType="gallery" values={selectedGalleryIds} onChange={setSelectedGalleryIds} placeholder="Search galleries..." inputClassName={inputCls} />
+        <EntityReferenceMultiSelector
+          entityType="gallery"
+          values={selectedGalleryIds}
+          onChange={setSelectedGalleryIds}
+          placeholder="Search galleries..."
+          inputClassName={inputCls}
+        />
       </div>
 
       {/* Groups */}
@@ -2446,29 +3174,75 @@ function VideoEditPanel({ video, onCancel, onNavigate, onRequestReportTag }: { v
               <div key={sg.groupId} className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-orange-900 text-orange-300">
                   <EntityReferenceValue entityType="group" value={sg.groupId} />
-                  <button onClick={() => setSelectedGroups(selectedGroups.filter((g) => g.groupId !== sg.groupId))} className="hover:text-white">×</button>
+                  <button
+                    onClick={() => setSelectedGroups(selectedGroups.filter((g) => g.groupId !== sg.groupId))}
+                    className="hover:text-white"
+                  >
+                    ×
+                  </button>
                 </span>
                 <label className="flex items-center gap-1 text-xs text-muted">
                   Video #
-                  <input type="number" min={0} value={sg.videoIndex}
-                    onChange={(e) => setSelectedGroups(selectedGroups.map((g) => g.groupId === sg.groupId ? { ...g, videoIndex: Number(e.target.value) || 0 } : g))}
-                    className="w-16 bg-surface border border-border rounded px-2 py-0.5 text-xs text-foreground focus:outline-none focus:border-accent" />
+                  <input
+                    type="number"
+                    min={0}
+                    value={sg.videoIndex}
+                    onChange={(e) =>
+                      setSelectedGroups(
+                        selectedGroups.map((g) =>
+                          g.groupId === sg.groupId ? { ...g, videoIndex: Number(e.target.value) || 0 } : g,
+                        ),
+                      )
+                    }
+                    className="w-16 bg-surface border border-border rounded px-2 py-0.5 text-xs text-foreground focus:outline-none focus:border-accent"
+                  />
                 </label>
               </div>
             );
           })}
         </div>
-        <EntityReferenceMultiSelector entityType="group" values={selectedGroups.map((group) => group.groupId)} onChange={setSelectedGroupIds} placeholder="Search groups..." inputClassName={inputCls} />
+        <EntityReferenceMultiSelector
+          entityType="group"
+          values={selectedGroups.map((group) => group.groupId)}
+          onChange={setSelectedGroupIds}
+          placeholder="Search groups..."
+          inputClassName={inputCls}
+        />
       </div>
 
-      <div className="space-y-1"><span className="text-xs text-secondary">Remote IDs</span><RemoteIdsEditor value={remoteIds} onChange={setRemoteIds} metadataServers={config?.scraping?.metadataServers} /></div>
-      <div className="space-y-1"><span className="text-xs text-secondary">Custom Fields</span><CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="video" /></div>
+      <div className="space-y-1">
+        <span className="text-xs text-secondary">Remote IDs</span>
+        <RemoteIdsEditor
+          value={remoteIds}
+          onChange={setRemoteIds}
+          metadataServers={config?.scraping?.metadataServers}
+        />
+      </div>
+      <div className="space-y-1">
+        <span className="text-xs text-secondary">Custom Fields</span>
+        <CustomFieldsEditor
+          value={customFields}
+          onChange={setCustomFields}
+          onValidityChange={setCustomFieldsValid}
+          entityType="video"
+        />
+      </div>
 
-      {mutation.error && <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 text-sm">{(mutation.error as Error).message}</div>}
+      {mutation.error && (
+        <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 text-sm">
+          {(mutation.error as Error).message}
+        </div>
+      )}
 
       <div className="flex justify-end gap-3 pt-2">
-        <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-foreground">Cancel</button>
-        <button onClick={handleSave} disabled={mutation.isPending || !customFieldsValid} className="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50">
+        <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-foreground">
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={mutation.isPending || !customFieldsValid}
+          className="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded disabled:opacity-50"
+        >
           {mutation.isPending ? "Saving…" : "Save"}
         </button>
       </div>

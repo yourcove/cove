@@ -66,7 +66,13 @@ export function VideoAudioSimilarityPanel({ videoId, onNavigate }: PanelProps & 
   return (
     <div className="space-y-6">
       <SimilarityHeader />
-      <SimilarVideoSection title="Similar Videos" items={similarVideos.data?.items ?? []} loading={similarVideos.isLoading} error={similarVideos.isError} onNavigate={onNavigate} />
+      <SimilarVideoSection
+        title="Similar Videos"
+        items={similarVideos.data?.items ?? []}
+        loading={similarVideos.isLoading}
+        error={similarVideos.isError}
+        onNavigate={onNavigate}
+      />
     </div>
   );
 }
@@ -80,7 +86,19 @@ function SimilarityHeader() {
   );
 }
 
-function SimilarVideoSection({ title, items, loading, error, onNavigate }: { title: string; items: AudioSimilarVideo[]; loading: boolean; error: boolean; onNavigate: (route: any) => void }) {
+function SimilarVideoSection({
+  title,
+  items,
+  loading,
+  error,
+  onNavigate,
+}: {
+  title: string;
+  items: AudioSimilarVideo[];
+  loading: boolean;
+  error: boolean;
+  onNavigate: (route: any) => void;
+}) {
   const videoIds = useMemo(() => items.map((item) => item.video.id), [items]);
   const { engagementById: videoEngagement } = useEntityEngagementBatch("video", videoIds);
 
@@ -98,7 +116,12 @@ function SimilarVideoSection({ title, items, loading, error, onNavigate }: { tit
       ) : (
         <EntityCardGrid minCardWidth="240px" gapClassName="gap-4" className="mt-3">
           {items.map((item) => (
-            <SimilarVideoCard key={item.video.id} item={item} engagement={videoEngagement.get(item.video.id)} onNavigate={onNavigate} />
+            <SimilarVideoCard
+              key={item.video.id}
+              item={item}
+              engagement={videoEngagement.get(item.video.id)}
+              onNavigate={onNavigate}
+            />
           ))}
         </EntityCardGrid>
       )}
@@ -115,13 +138,30 @@ function SectionTitle({ title, count }: { title: string; count: number }) {
   );
 }
 
-function SimilarVideoCard({ item, engagement, onNavigate }: { item: AudioSimilarVideo; engagement?: EntityEngagement; onNavigate: (route: any) => void }) {
+function SimilarVideoCard({
+  item,
+  engagement,
+  onNavigate,
+}: {
+  item: AudioSimilarVideo;
+  engagement?: EntityEngagement;
+  onNavigate: (route: any) => void;
+}) {
   const video = item.video;
   const matchStart = item.sectionIndex > 0 ? item.startSec : undefined;
 
   return (
     <div className="relative h-full">
-      <VideoCard video={video} engagement={engagement} onClick={() => onNavigate(matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id })} onNavigate={onNavigate} />
+      <VideoCard
+        video={video}
+        engagement={engagement}
+        onClick={() =>
+          onNavigate(
+            matchStart != null ? { page: "video", id: video.id, seekTo: matchStart } : { page: "video", id: video.id },
+          )
+        }
+        onNavigate={onNavigate}
+      />
       <SimilarityOverlay distance={item.distance} label={getVideoMeta(item)} />
     </div>
   );
@@ -131,14 +171,26 @@ function SimilarityOverlay({ distance, label }: { distance: number; label?: stri
   const match = Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
   return (
     <div className="pointer-events-none absolute left-2 right-2 top-2 z-20 flex items-start justify-between gap-2">
-      {label ? <span className="max-w-[70%] truncate rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">{label}</span> : <span />}
-      <span className="shrink-0 rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">{match}%</span>
+      {label ? (
+        <span className="max-w-[70%] truncate rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">
+          {label}
+        </span>
+      ) : (
+        <span />
+      )}
+      <span className="shrink-0 rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm">
+        {match}%
+      </span>
     </div>
   );
 }
 
 function LoadingPanel() {
-  return <div className="mt-3 rounded-xl border border-border bg-surface/40 px-4 py-8 text-center text-sm text-secondary">Loading...</div>;
+  return (
+    <div className="mt-3 rounded-xl border border-border bg-surface/40 px-4 py-8 text-center text-sm text-secondary">
+      Loading...
+    </div>
+  );
 }
 
 function EmptyPanel({ icon, message }: { icon: ReactNode; message: string }) {
@@ -156,7 +208,9 @@ function UnavailablePanel({ message }: { message: string }) {
 
 function getVideoMeta(item: AudioSimilarVideo) {
   if (item.sectionIndex > 0 && item.startSec != null) {
-    return item.endSec != null ? `${formatDuration(item.startSec)} - ${formatDuration(item.endSec)}` : formatDuration(item.startSec);
+    return item.endSec != null
+      ? `${formatDuration(item.startSec)} - ${formatDuration(item.endSec)}`
+      : formatDuration(item.startSec);
   }
 
   return undefined;

@@ -9,8 +9,5 @@ export function useVisualSimilarityApi() {
   const feature = getFeature(VISUAL_SIMILARITY_FEATURE_KEY);
   const apiBasePath = feature?.options?.apiBasePath;
 
-  return useMemo(
-    () => apiBasePath ? createVisualSimilarityClient(apiBasePath) : null,
-    [apiBasePath],
-  );
+  return useMemo(() => (apiBasePath ? createVisualSimilarityClient(apiBasePath) : null), [apiBasePath]);
 }

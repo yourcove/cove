@@ -45,12 +45,14 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     if (!infiniteQuery.isPlaceholderData && infiniteQuery.hasNextPage && !infiniteQuery.isFetchingNextPage) {
       void infiniteQuery.fetchNextPage();
     }
-  }, [infiniteQuery.fetchNextPage, infiniteQuery.hasNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.isPlaceholderData]);
+  }, [
+    infiniteQuery.fetchNextPage,
+    infiniteQuery.hasNextPage,
+    infiniteQuery.isFetchingNextPage,
+    infiniteQuery.isPlaceholderData,
+  ]);
 
-  const fetchAllIds = useCallback(
-    () => fetchAllMatchingIds(filter, queryPage),
-    [filter, queryPage],
-  );
+  const fetchAllIds = useCallback(() => fetchAllMatchingIds(filter, queryPage), [filter, queryPage]);
 
   const items = infinitePageSize ? infiniteQuery.items : (pageQuery.data?.items ?? []);
   const totalCount = infinitePageSize ? infiniteQuery.totalCount : (pageQuery.data?.totalCount ?? 0);
@@ -60,13 +62,15 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
     : getLoadError(pageQuery.data, pageQuery.error);
   const refetch = infinitePageSize ? infiniteQuery.refetch : pageQuery.refetch;
 
-  const infiniteScroll = infinitePageSize ? {
-    hasNextPage: !infiniteQuery.isPlaceholderData && infiniteQuery.hasNextPage,
-    isFetchingNextPage: infiniteQuery.isFetchingNextPage,
-    onLoadMore: loadMore,
-    loadedCount: infiniteQuery.loadedThroughCount,
-    totalCount,
-  } : undefined;
+  const infiniteScroll = infinitePageSize
+    ? {
+        hasNextPage: !infiniteQuery.isPlaceholderData && infiniteQuery.hasNextPage,
+        isFetchingNextPage: infiniteQuery.isFetchingNextPage,
+        onLoadMore: loadMore,
+        loadedCount: infiniteQuery.loadedThroughCount,
+        totalCount,
+      }
+    : undefined;
 
   return {
     infinitePageSize,

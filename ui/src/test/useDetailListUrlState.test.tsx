@@ -26,9 +26,15 @@ function DetailListProbe({ stateKey = "videos" }: { stateKey?: string }) {
       <div data-testid="page">{filter.page}</div>
       <div data-testid="seed">{filter.seed}</div>
       <div data-testid="display-mode">{displayMode}</div>
-      <button type="button" onClick={() => setFilter({ ...filter, seed: 999 })}>Change seed</button>
-      <button type="button" onClick={() => setFilter({ ...filter, sort: "random", seed: 999 })}>Use random</button>
-      <button type="button" onClick={() => forceRender((value) => value + 1)}>Rerender</button>
+      <button type="button" onClick={() => setFilter({ ...filter, seed: 999 })}>
+        Change seed
+      </button>
+      <button type="button" onClick={() => setFilter({ ...filter, sort: "random", seed: 999 })}>
+        Use random
+      </button>
+      <button type="button" onClick={() => forceRender((value) => value + 1)}>
+        Rerender
+      </button>
     </div>
   );
 }
@@ -38,8 +44,12 @@ function TabProbe() {
   return (
     <div>
       <div data-testid="tab">{activeTab}</div>
-      <button type="button" onClick={() => setActiveTab("galleries")}>Galleries</button>
-      <button type="button" onClick={() => setActiveTab("videos")}>Videos</button>
+      <button type="button" onClick={() => setActiveTab("galleries")}>
+        Galleries
+      </button>
+      <button type="button" onClick={() => setActiveTab("videos")}>
+        Videos
+      </button>
     </div>
   );
 }
@@ -51,14 +61,21 @@ describe("detail list URL state", () => {
   });
 
   it("resolves the saved default before the first render and mints its random seed", async () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 3, perPage: 40, sort: "random", direction: "asc" },
-      objectFilter: { favorite: true },
-      uiOptions: { displayMode: "list" },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 3, perPage: 40, sort: "random", direction: "asc" },
+        objectFilter: { favorite: true },
+        uiOptions: { displayMode: "list" },
+      }),
+    );
     vi.spyOn(Math, "random").mockReturnValue(0.5);
 
-    render(<DetailListStateCacheProvider><DetailListProbe /></DetailListStateCacheProvider>);
+    render(
+      <DetailListStateCacheProvider>
+        <DetailListProbe />
+      </DetailListStateCacheProvider>,
+    );
 
     expect(screen.getByTestId("sort")).toHaveTextContent("random");
     expect(screen.getByTestId("page")).toHaveTextContent("1");
@@ -70,12 +87,19 @@ describe("detail list URL state", () => {
   });
 
   it("gives explicit URL state precedence over the saved default", () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { sort: "random", direction: "asc" },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { sort: "random", direction: "asc" },
+      }),
+    );
     window.history.replaceState(null, "", "/performer/477?sort=random&direction=desc&seed=2468");
 
-    render(<DetailListStateCacheProvider><DetailListProbe /></DetailListStateCacheProvider>);
+    render(
+      <DetailListStateCacheProvider>
+        <DetailListProbe />
+      </DetailListStateCacheProvider>,
+    );
 
     expect(screen.getByTestId("sort")).toHaveTextContent("random");
     expect(screen.getByTestId("seed")).toHaveTextContent("2468");
@@ -83,7 +107,11 @@ describe("detail list URL state", () => {
 
   it("keeps changed list state explicit in the URL after later renders", async () => {
     const user = userEvent.setup();
-    render(<DetailListStateCacheProvider><DetailListProbe /></DetailListStateCacheProvider>);
+    render(
+      <DetailListStateCacheProvider>
+        <DetailListProbe />
+      </DetailListStateCacheProvider>,
+    );
 
     await user.click(screen.getByRole("button", { name: "Use random" }));
     await waitFor(() => expect(window.location.search).toContain("sort=random"));
@@ -97,7 +125,11 @@ describe("detail list URL state", () => {
 
   it("stores the non-default tab in the URL and removes the previous tab's list state", async () => {
     const user = userEvent.setup();
-    window.history.replaceState(null, "", "/performer/477?sort=random&seed=2468&page=3&filters=%7B%22favorite%22%3Atrue%7D");
+    window.history.replaceState(
+      null,
+      "",
+      "/performer/477?sort=random&seed=2468&page=3&filters=%7B%22favorite%22%3Atrue%7D",
+    );
     render(<TabProbe />);
 
     await user.click(screen.getByRole("button", { name: "Galleries" }));

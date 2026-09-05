@@ -34,18 +34,23 @@ describe("filterExpressionTree", () => {
     const female = { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "Female" } } } } };
     const count = { filter: { performerCountCriterion: { modifier: "EQUALS", value: 3 } } };
 
-    const normalized = normalizeFilterExpressionForEditing({
-      _filterExpression: { operator: "AND", distinctRelatedMatches: true, children: [male, female, female, count] },
-    }, VIDEO_CRITERIA);
+    const normalized = normalizeFilterExpressionForEditing(
+      {
+        _filterExpression: { operator: "AND", distinctRelatedMatches: true, children: [male, female, female, count] },
+      },
+      VIDEO_CRITERIA,
+    );
 
     expect(normalized._filterExpression).toEqual({
       operator: "AND",
       children: [
-        { group: {
-          operator: "AND",
-          relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
-          children: [male, female, female],
-        } },
+        {
+          group: {
+            operator: "AND",
+            relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
+            children: [male, female, female],
+          },
+        },
         count,
       ],
     });
@@ -56,7 +61,8 @@ describe("filterExpressionTree", () => {
     const count = { filter: { performerCountCriterion: { modifier: "EQUALS", value: 3 } } };
     const female = { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "Female" } } } } };
     const source = { operator: "AND" as const, distinctRelatedMatches: true, children: [male, count, female] };
-    const destination = normalizeFilterExpressionForEditing({ _filterExpression: source }, VIDEO_CRITERIA)._filterExpression as EditableFilterExpression;
+    const destination = normalizeFilterExpressionForEditing({ _filterExpression: source }, VIDEO_CRITERIA)
+      ._filterExpression as EditableFilterExpression;
 
     expect(remapExpressionLeafPath(source, destination, [2])).toEqual([0, 1]);
     expect(remapExpressionLeafPath(source, destination, [1])).toEqual([1]);
@@ -64,13 +70,18 @@ describe("filterExpressionTree", () => {
 
   it("remaps duplicate legacy leaves by identity across nested and newly scoped groups", () => {
     const femaleFilter = { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "Female" } } } };
-    const source = { operator: "AND" as const, distinctRelatedMatches: true, children: [
-      { group: { operator: "OR" as const, children: [{ filter: femaleFilter }] } },
-      { filter: { ...femaleFilter } },
-      { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "Male" } } } } },
-      { filter: { performerCountCriterion: { modifier: "EQUALS", value: 3 } } },
-    ] };
-    const destination = normalizeFilterExpressionForEditing({ _filterExpression: source }, VIDEO_CRITERIA)._filterExpression as EditableFilterExpression;
+    const source = {
+      operator: "AND" as const,
+      distinctRelatedMatches: true,
+      children: [
+        { group: { operator: "OR" as const, children: [{ filter: femaleFilter }] } },
+        { filter: { ...femaleFilter } },
+        { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "Male" } } } } },
+        { filter: { performerCountCriterion: { modifier: "EQUALS", value: 3 } } },
+      ],
+    };
+    const destination = normalizeFilterExpressionForEditing({ _filterExpression: source }, VIDEO_CRITERIA)
+      ._filterExpression as EditableFilterExpression;
 
     expect(remapExpressionLeafPath(source, destination, [0, 0])).toEqual([1, 0]);
     expect(remapExpressionLeafPath(source, destination, [1])).toEqual([0, 0]);
@@ -88,15 +99,26 @@ describe("filterExpressionTree", () => {
     const repaired = repairRelatedScopes(expression);
     expect(repaired.operator).toBe("OR");
     expect(repaired.relatedScope).toBeUndefined();
-    expect(updateExpressionLeaf(repaired, [0], { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } } }).operator).toBe("OR");
+    expect(
+      updateExpressionLeaf(repaired, [0], {
+        performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: false } } },
+      }).operator,
+    ).toBe("OR");
   });
 
   it("keeps large reuse scopes during normalization", () => {
-    const normalized = normalizeFilterExpressionForEditing({ _filterExpression: {
-      operator: "AND",
-      relatedScope: { filterKey: "performerFilterCriterion", matchMode: "reuse" },
-      children: Array.from({ length: 9 }, () => ({ filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: true } } } } })),
-    } }, VIDEO_CRITERIA);
+    const normalized = normalizeFilterExpressionForEditing(
+      {
+        _filterExpression: {
+          operator: "AND",
+          relatedScope: { filterKey: "performerFilterCriterion", matchMode: "reuse" },
+          children: Array.from({ length: 9 }, () => ({
+            filter: { performerFilterCriterion: { objectFilter: { favoriteCriterion: { value: true } } } },
+          })),
+        },
+      },
+      VIDEO_CRITERIA,
+    );
     expect((normalized._filterExpression as EditableFilterExpression).relatedScope?.matchMode).toBe("reuse");
     expect((normalized._filterExpression as EditableFilterExpression).children).toHaveLength(9);
   });
@@ -112,19 +134,23 @@ describe("filterExpressionTree", () => {
       ],
     };
     for (let depth = 1; depth < 8; depth += 1) deepest = { operator: "AND", children: [{ group: deepest }] };
-    const normalized = normalizeFilterExpressionForEditing({ _filterExpression: deepest }, VIDEO_CRITERIA)._filterExpression as EditableFilterExpression;
+    const normalized = normalizeFilterExpressionForEditing({ _filterExpression: deepest }, VIDEO_CRITERIA)
+      ._filterExpression as EditableFilterExpression;
     let target = normalized;
     for (let depth = 1; depth < 8; depth += 1) target = target.children[0].group as EditableFilterExpression;
     expect(target.distinctRelatedMatches).toBe(true);
     expect(target.relatedScope).toBeUndefined();
     expect(target.children).toHaveLength(3);
     let sanitizedTarget = sanitizeFilterExpression(normalized, VIDEO_CRITERIA) as EditableFilterExpression;
-    for (let depth = 1; depth < 8; depth += 1) sanitizedTarget = sanitizedTarget.children[0].group as EditableFilterExpression;
+    for (let depth = 1; depth < 8; depth += 1)
+      sanitizedTarget = sanitizedTarget.children[0].group as EditableFilterExpression;
     expect(sanitizedTarget.distinctRelatedMatches).toBe(true);
   });
 
   it("moves an ineligible edited condition outside a distinct related scope", () => {
-    const performer = (gender: string) => ({ filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: gender } } } } });
+    const performer = (gender: string) => ({
+      filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: gender } } } },
+    });
     const expression: EditableFilterExpression = {
       operator: "AND",
       relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
@@ -137,12 +163,16 @@ describe("filterExpressionTree", () => {
     expect(edited).toEqual({
       operator: "AND",
       children: [
-        { group: {
-          operator: "AND",
-          relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
-          children: [performer("Female"), performer("Female")],
-        } },
-        { filter: { performerFilterCriterion: { mode: "every", objectFilter: { genderCriterion: { value: "Male" } } } } },
+        {
+          group: {
+            operator: "AND",
+            relatedScope: { filterKey: "performerFilterCriterion", matchMode: "distinct" },
+            children: [performer("Female"), performer("Female")],
+          },
+        },
+        {
+          filter: { performerFilterCriterion: { mode: "every", objectFilter: { genderCriterion: { value: "Male" } } } },
+        },
       ],
     });
   });
@@ -157,15 +187,17 @@ describe("filterExpressionTree", () => {
       ],
     };
 
-    expect(mergeFilterExpressionWithSimpleCriteria({
-      _filterExpression: scope,
-      performerCountCriterion: { modifier: "EQUALS", value: 2 },
-    }, VIDEO_CRITERIA)).toEqual({
+    expect(
+      mergeFilterExpressionWithSimpleCriteria(
+        {
+          _filterExpression: scope,
+          performerCountCriterion: { modifier: "EQUALS", value: 2 },
+        },
+        VIDEO_CRITERIA,
+      ),
+    ).toEqual({
       operator: "AND",
-      children: [
-        { group: scope },
-        { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
-      ],
+      children: [{ group: scope }, { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } }],
     });
   });
 

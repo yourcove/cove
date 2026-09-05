@@ -1,7 +1,18 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import type { BoolCriterion, CriterionModifier, CustomFieldCriterion, FindFilter, FaceSuggestion, FaceTopSuggestion, IntCriterion, MultiIdCriterion, PaginatedResponse, StringCriterion } from "../api/types";
+import type {
+  BoolCriterion,
+  CriterionModifier,
+  CustomFieldCriterion,
+  FindFilter,
+  FaceSuggestion,
+  FaceTopSuggestion,
+  IntCriterion,
+  MultiIdCriterion,
+  PaginatedResponse,
+  StringCriterion,
+} from "../api/types";
 import { faces } from "../api/client";
 import type { Face } from "../api/types";
 import { faceDisplayName } from "../utils/faceDisplay";
@@ -19,7 +30,12 @@ import { formatDate } from "../components/shared";
 import { getDefaultFilter, resolveSavedDisplayMode } from "../components/SavedFilterMenu";
 import { useListUrlState } from "../hooks/useListUrlState";
 import { useInfiniteListData } from "../hooks/useInfiniteListData";
-import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
+import {
+  toggleOptionsFromEvent,
+  useMultiSelect,
+  type BoundMultiSelectToggleHandler,
+  type MultiSelectToggleHandler,
+} from "../hooks/useMultiSelect";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity } from "../auth/visibility";
 import { VirtualizedEntityGrid } from "../components/VirtualizedEntityLayouts";
@@ -39,18 +55,37 @@ const FACE_CRITERIA: CriterionDefinition[] = [
   { id: "source", label: "Source", type: "string", filterKey: "primarySourceKeyCriterion" },
   { id: "hasCover", label: "Has Cover", type: "bool", filterKey: "hasCoverCriterion" },
   { id: "ignored", label: "Ignored", type: "bool", filterKey: "ignoredCriterion" },
-  { id: "performers", label: "Linked Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
-  { id: "topSuggestionPerformers", label: "Top Suggestion Performers", type: "multiId", entityType: "performers", filterKey: "topSuggestionPerformersCriterion" },
+  {
+    id: "performers",
+    label: "Linked Performers",
+    type: "multiId",
+    entityType: "performers",
+    filterKey: "performersCriterion",
+  },
+  {
+    id: "topSuggestionPerformers",
+    label: "Top Suggestion Performers",
+    type: "multiId",
+    entityType: "performers",
+    filterKey: "topSuggestionPerformersCriterion",
+  },
   { id: "detectionCount", label: "Detection Count", type: "number", filterKey: "detectionCountCriterion" },
   { id: "appearanceCount", label: "Appearance Count", type: "number", filterKey: "appearanceCountCriterion" },
   { id: "frameSampleCount", label: "Frame Sample Count", type: "number", filterKey: "frameSampleCountCriterion" },
   { id: "videoCount", label: "Video Count", type: "number", filterKey: "videoCountCriterion" },
   { id: "imageCount", label: "Image Count", type: "number", filterKey: "imageCountCriterion" },
-  { id: "suggestionConfidence", label: "Suggestion Confidence", type: "number", filterKey: "suggestionConfidenceCriterion" },
+  {
+    id: "suggestionConfidence",
+    label: "Suggestion Confidence",
+    type: "number",
+    filterKey: "suggestionConfidenceCriterion",
+  },
 ];
 
 function readFaceSort(value: unknown): FaceSort {
-  return typeof value === "string" && FACE_SORT_OPTIONS.some((option) => option.value === value) ? value : defaultFaceSort;
+  return typeof value === "string" && FACE_SORT_OPTIONS.some((option) => option.value === value)
+    ? value
+    : defaultFaceSort;
 }
 
 function readMinSuggestionConfidence(value: unknown) {
@@ -72,7 +107,11 @@ function readNumberCriterion(value: unknown): IntCriterion | undefined {
     modifier,
     value: Math.max(0, Math.min(100, candidate.value)),
   };
-  if ((modifier === "BETWEEN" || modifier === "NOT_BETWEEN") && typeof candidate.value2 === "number" && Number.isFinite(candidate.value2)) {
+  if (
+    (modifier === "BETWEEN" || modifier === "NOT_BETWEEN") &&
+    typeof candidate.value2 === "number" &&
+    Number.isFinite(candidate.value2)
+  ) {
     criterion.value2 = Math.max(0, Math.min(100, candidate.value2));
   }
 
@@ -91,7 +130,11 @@ function readCountCriterion(value: unknown): IntCriterion | undefined {
 
   const modifier = isCriterionModifier(candidate.modifier) ? candidate.modifier : "EQUALS";
   const criterion: IntCriterion = { modifier, value: Math.max(0, Math.floor(candidate.value)) };
-  if ((modifier === "BETWEEN" || modifier === "NOT_BETWEEN") && typeof candidate.value2 === "number" && Number.isFinite(candidate.value2)) {
+  if (
+    (modifier === "BETWEEN" || modifier === "NOT_BETWEEN") &&
+    typeof candidate.value2 === "number" &&
+    Number.isFinite(candidate.value2)
+  ) {
     criterion.value2 = Math.max(0, Math.floor(candidate.value2));
   }
   return criterion;
@@ -105,7 +148,7 @@ function readStringCriterion(value: unknown): StringCriterion | undefined {
   const candidate = value as Partial<StringCriterion>;
   const modifier = isCriterionModifier(candidate.modifier) ? candidate.modifier : "INCLUDES";
   const rawValue = typeof candidate.value === "string" ? candidate.value.trim() : "";
-  if ((modifier === "IS_NULL" || modifier === "NOT_NULL") || rawValue.length > 0) {
+  if (modifier === "IS_NULL" || modifier === "NOT_NULL" || rawValue.length > 0) {
     return { modifier, value: rawValue };
   }
 
@@ -133,22 +176,24 @@ function readMultiIdIncludes(value: unknown) {
 }
 
 function isCriterionModifier(value: unknown): value is CriterionModifier {
-  return value === "EQUALS"
-    || value === "NOT_EQUALS"
-    || value === "GREATER_THAN"
-    || value === "LESS_THAN"
-    || value === "INCLUDES"
-    || value === "EXCLUDES"
-    || value === "INCLUDES_ALL"
-    || value === "EXCLUDES_ALL"
-    || value === "IS_NULL"
-    || value === "NOT_NULL"
-    || value === "BETWEEN"
-    || value === "NOT_BETWEEN"
-    || value === "MATCHES_REGEX"
-    || value === "NOT_MATCHES_REGEX"
-    || value === "UNDER_PATH"
-    || value === "NOT_UNDER_PATH";
+  return (
+    value === "EQUALS" ||
+    value === "NOT_EQUALS" ||
+    value === "GREATER_THAN" ||
+    value === "LESS_THAN" ||
+    value === "INCLUDES" ||
+    value === "EXCLUDES" ||
+    value === "INCLUDES_ALL" ||
+    value === "EXCLUDES_ALL" ||
+    value === "IS_NULL" ||
+    value === "NOT_NULL" ||
+    value === "BETWEEN" ||
+    value === "NOT_BETWEEN" ||
+    value === "MATCHES_REGEX" ||
+    value === "NOT_MATCHES_REGEX" ||
+    value === "UNDER_PATH" ||
+    value === "NOT_UNDER_PATH"
+  );
 }
 
 function hasMultiIdIncludes(value: unknown) {
@@ -156,7 +201,9 @@ function hasMultiIdIncludes(value: unknown) {
 }
 
 function readCustomFieldCriteria(value: unknown): CustomFieldCriterion[] {
-  return Array.isArray(value) ? value.filter((item): item is CustomFieldCriterion => Boolean(item && typeof item === "object")) : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is CustomFieldCriterion => Boolean(item && typeof item === "object"))
+    : [];
 }
 
 function readSuggestionConfidenceLowerBound(value: unknown) {
@@ -243,7 +290,11 @@ function faceMatchesPatchedQuery(face: Face, query: FaceQueryPatchOptions) {
   if (performerIds && (!face.performerId || !performerIds.has(face.performerId))) return false;
 
   const topSuggestionPerformerIds = parseIdSet(query.topSuggestionPerformerIds);
-  if (topSuggestionPerformerIds && (!face.topSuggestion || !topSuggestionPerformerIds.has(face.topSuggestion.performerId))) return false;
+  if (
+    topSuggestionPerformerIds &&
+    (!face.topSuggestion || !topSuggestionPerformerIds.has(face.topSuggestion.performerId))
+  )
+    return false;
 
   return true;
 }
@@ -264,7 +315,7 @@ function patchFacePage(page: PaginatedResponse<Face>, updatedFace: Face, keepFac
   return {
     ...page,
     items: keepFace
-      ? page.items.map((item) => item.id === updatedFace.id ? updatedFace : item)
+      ? page.items.map((item) => (item.id === updatedFace.id ? updatedFace : item))
       : page.items.filter((item) => item.id !== updatedFace.id),
     totalCount: keepFace ? page.totalCount : Math.max(0, page.totalCount - 1),
   };
@@ -297,7 +348,9 @@ export function FacesPage({ onNavigate }: Props) {
   const defaultState = useMemo(() => {
     const savedFilter = getDefaultFilter("faces");
     return {
-      filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: defaultFaceSort, direction: defaultFaceDirection } as FindFilter,
+      filter:
+        savedFilter?.findFilter ??
+        ({ page: 1, perPage: 40, sort: defaultFaceSort, direction: defaultFaceDirection } as FindFilter),
       objectFilter: savedFilter?.objectFilter ?? { linkedCriterion: { value: false } },
       displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list"] as const, "grid") as DisplayMode,
     };
@@ -322,9 +375,18 @@ export function FacesPage({ onNavigate }: Props) {
   const frameSampleCountCriterion = readCountCriterion(objectFilter.frameSampleCountCriterion);
   const videoCountCriterion = readCountCriterion(objectFilter.videoCountCriterion);
   const imageCountCriterion = readCountCriterion(objectFilter.imageCountCriterion);
-  const linkedPerformerIds = useMemo(() => readMultiIdIncludes(objectFilter.performersCriterion), [objectFilter.performersCriterion]);
-  const topSuggestionPerformerIds = useMemo(() => readMultiIdIncludes(objectFilter.topSuggestionPerformersCriterion), [objectFilter.topSuggestionPerformersCriterion]);
-  const customFieldCriteria = useMemo(() => readCustomFieldCriteria(objectFilter.customFieldCriteria), [objectFilter.customFieldCriteria]);
+  const linkedPerformerIds = useMemo(
+    () => readMultiIdIncludes(objectFilter.performersCriterion),
+    [objectFilter.performersCriterion],
+  );
+  const topSuggestionPerformerIds = useMemo(
+    () => readMultiIdIncludes(objectFilter.topSuggestionPerformersCriterion),
+    [objectFilter.topSuggestionPerformersCriterion],
+  );
+  const customFieldCriteria = useMemo(
+    () => readCustomFieldCriteria(objectFilter.customFieldCriteria),
+    [objectFilter.customFieldCriteria],
+  );
   const sort = readFaceSort(filter.sort);
   const [comparison, setComparison] = useState<{ face: Face; suggestion: FaceTopSuggestion } | null>(null);
   const [batchCompareFaceIds, setBatchCompareFaceIds] = useState<number[]>([]);
@@ -335,65 +397,119 @@ export function FacesPage({ onNavigate }: Props) {
   const [linkConflicting, setLinkConflicting] = useState(false);
   const [mergeConflicting, setMergeConflicting] = useState(false);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const query = useMemo(() => ({
-    q: filter.q?.trim() || undefined,
-    linked: linkedCriterion?.value,
-    label: labelCriterion?.value,
-    labelModifier: labelCriterion?.modifier,
-    primarySourceKey: primarySourceKeyCriterion?.value,
-    primarySourceKeyModifier: primarySourceKeyCriterion?.modifier,
-    hasCover: hasCoverCriterion?.value,
-    ignored: ignoredCriterion?.value,
-    detectionCount: detectionCountCriterion?.value,
-    detectionCount2: detectionCountCriterion?.value2,
-    detectionCountModifier: detectionCountCriterion?.modifier,
-    appearanceCount: appearanceCountCriterion?.value,
-    appearanceCount2: appearanceCountCriterion?.value2,
-    appearanceCountModifier: appearanceCountCriterion?.modifier,
-    frameSampleCount: frameSampleCountCriterion?.value,
-    frameSampleCount2: frameSampleCountCriterion?.value2,
-    frameSampleCountModifier: frameSampleCountCriterion?.modifier,
-    videoCount: videoCountCriterion?.value,
-    videoCount2: videoCountCriterion?.value2,
-    videoCountModifier: videoCountCriterion?.modifier,
-    imageCount: imageCountCriterion?.value,
-    imageCount2: imageCountCriterion?.value2,
-    imageCountModifier: imageCountCriterion?.modifier,
-    minSuggestionConfidence,
-    suggestionConfidence: suggestionConfidenceCriterion?.value,
-    suggestionConfidence2: suggestionConfidenceCriterion?.value2,
-    suggestionConfidenceModifier: suggestionConfidenceCriterion?.modifier,
-    performerIds: linkedPerformerIds.length > 0 ? linkedPerformerIds.join(",") : undefined,
-    topSuggestionPerformerIds: topSuggestionPerformerIds.length > 0 ? topSuggestionPerformerIds.join(",") : undefined,
-    sort,
-    direction: filter.direction,
-    customFieldCriteria,
-    page: filter.page ?? 1,
-    seed: filter.seed,
-    perPage: filter.perPage ?? 40,
-  }), [appearanceCountCriterion?.modifier, appearanceCountCriterion?.value, appearanceCountCriterion?.value2, customFieldCriteria, detectionCountCriterion?.modifier, detectionCountCriterion?.value, detectionCountCriterion?.value2, filter.direction, filter.page, filter.perPage, filter.q, filter.seed, frameSampleCountCriterion?.modifier, frameSampleCountCriterion?.value, frameSampleCountCriterion?.value2, hasCoverCriterion?.value, ignoredCriterion?.value, imageCountCriterion?.modifier, imageCountCriterion?.value, imageCountCriterion?.value2, labelCriterion?.modifier, labelCriterion?.value, linkedCriterion?.value, linkedPerformerIds, minSuggestionConfidence, primarySourceKeyCriterion?.modifier, primarySourceKeyCriterion?.value, videoCountCriterion?.modifier, videoCountCriterion?.value, videoCountCriterion?.value2, sort, suggestionConfidenceCriterion?.modifier, suggestionConfidenceCriterion?.value, suggestionConfidenceCriterion?.value2, topSuggestionPerformerIds]);
+  const query = useMemo(
+    () => ({
+      q: filter.q?.trim() || undefined,
+      linked: linkedCriterion?.value,
+      label: labelCriterion?.value,
+      labelModifier: labelCriterion?.modifier,
+      primarySourceKey: primarySourceKeyCriterion?.value,
+      primarySourceKeyModifier: primarySourceKeyCriterion?.modifier,
+      hasCover: hasCoverCriterion?.value,
+      ignored: ignoredCriterion?.value,
+      detectionCount: detectionCountCriterion?.value,
+      detectionCount2: detectionCountCriterion?.value2,
+      detectionCountModifier: detectionCountCriterion?.modifier,
+      appearanceCount: appearanceCountCriterion?.value,
+      appearanceCount2: appearanceCountCriterion?.value2,
+      appearanceCountModifier: appearanceCountCriterion?.modifier,
+      frameSampleCount: frameSampleCountCriterion?.value,
+      frameSampleCount2: frameSampleCountCriterion?.value2,
+      frameSampleCountModifier: frameSampleCountCriterion?.modifier,
+      videoCount: videoCountCriterion?.value,
+      videoCount2: videoCountCriterion?.value2,
+      videoCountModifier: videoCountCriterion?.modifier,
+      imageCount: imageCountCriterion?.value,
+      imageCount2: imageCountCriterion?.value2,
+      imageCountModifier: imageCountCriterion?.modifier,
+      minSuggestionConfidence,
+      suggestionConfidence: suggestionConfidenceCriterion?.value,
+      suggestionConfidence2: suggestionConfidenceCriterion?.value2,
+      suggestionConfidenceModifier: suggestionConfidenceCriterion?.modifier,
+      performerIds: linkedPerformerIds.length > 0 ? linkedPerformerIds.join(",") : undefined,
+      topSuggestionPerformerIds: topSuggestionPerformerIds.length > 0 ? topSuggestionPerformerIds.join(",") : undefined,
+      sort,
+      direction: filter.direction,
+      customFieldCriteria,
+      page: filter.page ?? 1,
+      seed: filter.seed,
+      perPage: filter.perPage ?? 40,
+    }),
+    [
+      appearanceCountCriterion?.modifier,
+      appearanceCountCriterion?.value,
+      appearanceCountCriterion?.value2,
+      customFieldCriteria,
+      detectionCountCriterion?.modifier,
+      detectionCountCriterion?.value,
+      detectionCountCriterion?.value2,
+      filter.direction,
+      filter.page,
+      filter.perPage,
+      filter.q,
+      filter.seed,
+      frameSampleCountCriterion?.modifier,
+      frameSampleCountCriterion?.value,
+      frameSampleCountCriterion?.value2,
+      hasCoverCriterion?.value,
+      ignoredCriterion?.value,
+      imageCountCriterion?.modifier,
+      imageCountCriterion?.value,
+      imageCountCriterion?.value2,
+      labelCriterion?.modifier,
+      labelCriterion?.value,
+      linkedCriterion?.value,
+      linkedPerformerIds,
+      minSuggestionConfidence,
+      primarySourceKeyCriterion?.modifier,
+      primarySourceKeyCriterion?.value,
+      videoCountCriterion?.modifier,
+      videoCountCriterion?.value,
+      videoCountCriterion?.value2,
+      sort,
+      suggestionConfidenceCriterion?.modifier,
+      suggestionConfidenceCriterion?.value,
+      suggestionConfidenceCriterion?.value2,
+      topSuggestionPerformerIds,
+    ],
+  );
   const listData = useInfiniteListData<Face>({
     queryKey: ["faces", query],
     filter,
     chunkSize: defaultState.filter.perPage ?? 40,
-    queryPage: (nextFilter) => faces.list({
-      ...query,
-      seed: nextFilter.seed,
-      page: nextFilter.page ?? 1,
-      perPage: nextFilter.perPage ?? defaultState.filter.perPage ?? 40,
-    }),
+    queryPage: (nextFilter) =>
+      faces.list({
+        ...query,
+        seed: nextFilter.seed,
+        page: nextFilter.page ?? 1,
+        perPage: nextFilter.perPage ?? defaultState.filter.perPage ?? 40,
+      }),
   });
 
   const items = listData.items;
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }),
+    [listData.infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, {
+    preserveOnItemsChange: listData.infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const selectedFaceIds = useMemo(() => Array.from(selectedIds).map((value) => Number(value)), [selectedIds]);
-  const batchComparableFaces = useMemo(() => items.filter((face) => selectedIds.has(face.id) && !face.performerId && face.topSuggestion), [items, selectedIds]);
-  const batchComparisonFace = batchCompareFaceIds.length > 0 ? items.find((face) => face.id === batchCompareFaceIds[batchCompareIndex]) : undefined;
-  const activeComparison = batchComparisonFace?.topSuggestion ? { face: batchComparisonFace, suggestion: batchComparisonFace.topSuggestion } : comparison;
+  const batchComparableFaces = useMemo(
+    () => items.filter((face) => selectedIds.has(face.id) && !face.performerId && face.topSuggestion),
+    [items, selectedIds],
+  );
+  const batchComparisonFace =
+    batchCompareFaceIds.length > 0
+      ? items.find((face) => face.id === batchCompareFaceIds[batchCompareIndex])
+      : undefined;
+  const activeComparison = batchComparisonFace?.topSuggestion
+    ? { face: batchComparisonFace, suggestion: batchComparisonFace.topSuggestion }
+    : comparison;
   const comparisonFaceId = activeComparison?.face.id ?? null;
   const { data: comparisonFaceDetections = [] } = useQuery({
     queryKey: ["face", comparisonFaceId, "detections"],
@@ -414,8 +530,10 @@ export function FacesPage({ onNavigate }: Props) {
   });
   const comparisonSuggestion = useMemo(() => {
     if (!activeComparison) return null;
-    return comparisonSuggestions.find((item) => item.performerId === activeComparison.suggestion.performerId)
-      ?? activeComparison.suggestion;
+    return (
+      comparisonSuggestions.find((item) => item.performerId === activeComparison.suggestion.performerId) ??
+      activeComparison.suggestion
+    );
   }, [activeComparison, comparisonSuggestions]);
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -426,20 +544,42 @@ export function FacesPage({ onNavigate }: Props) {
     }
   };
 
-  const invalidateFace = useCallback((faceId: number) => {
-    queryClient.invalidateQueries({ queryKey: ["faces"] });
-    queryClient.invalidateQueries({ queryKey: ["face", faceId] });
-    queryClient.invalidateQueries({ queryKey: ["face", faceId, "suggestions"] });
-  }, [queryClient]);
+  const invalidateFace = useCallback(
+    (faceId: number) => {
+      queryClient.invalidateQueries({ queryKey: ["faces"] });
+      queryClient.invalidateQueries({ queryKey: ["face", faceId] });
+      queryClient.invalidateQueries({ queryKey: ["face", faceId, "suggestions"] });
+    },
+    [queryClient],
+  );
 
   const suggestionDecisionMutation = useMutation({
-    mutationFn: (data: { faceId: number; performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) =>
-      faces.recordSuggestionDecision(data.faceId, { performerId: data.performerId, decision: data.decision, setPerformerImage: data.setPerformerImage, secondaryPerformerIds: data.secondaryPerformerIds, referenceEndpoint: data.referenceEndpoint, referenceExternalId: data.referenceExternalId, referenceUpdateMetadata: data.referenceUpdateMetadata }),
+    mutationFn: (data: {
+      faceId: number;
+      performerId: number;
+      decision: "accept" | "reject" | "merge";
+      setPerformerImage?: boolean;
+      secondaryPerformerIds?: number[];
+      referenceEndpoint?: string;
+      referenceExternalId?: string;
+      referenceUpdateMetadata?: boolean;
+    }) =>
+      faces.recordSuggestionDecision(data.faceId, {
+        performerId: data.performerId,
+        decision: data.decision,
+        setPerformerImage: data.setPerformerImage,
+        secondaryPerformerIds: data.secondaryPerformerIds,
+        referenceEndpoint: data.referenceEndpoint,
+        referenceExternalId: data.referenceExternalId,
+        referenceUpdateMetadata: data.referenceUpdateMetadata,
+      }),
     onSuccess: (updatedFace, variables) => {
       queryClient.setQueryData(["face", variables.faceId], updatedFace);
       if (variables.decision === "accept") {
         const keepFace = faceMatchesPatchedQuery(updatedFace, query);
-        queryClient.setQueriesData({ queryKey: ["faces", query] }, (data) => patchFaceListCache(data, updatedFace, keepFace));
+        queryClient.setQueriesData({ queryKey: ["faces", query] }, (data) =>
+          patchFaceListCache(data, updatedFace, keepFace),
+        );
       }
       invalidateFace(variables.faceId);
     },
@@ -462,13 +602,19 @@ export function FacesPage({ onNavigate }: Props) {
     },
   });
 
-  const handleFilterChange = useCallback((next: FindFilter) => {
-    setFilter({ ...next, sort: readFaceSort(next.sort) });
-  }, [setFilter]);
+  const handleFilterChange = useCallback(
+    (next: FindFilter) => {
+      setFilter({ ...next, sort: readFaceSort(next.sort) });
+    },
+    [setFilter],
+  );
 
-  const handleObjectFilterChange = useCallback((next: Record<string, unknown>) => {
-    setObjectFilter(sanitizeFaceFilters(next));
-  }, [setObjectFilter]);
+  const handleObjectFilterChange = useCallback(
+    (next: Record<string, unknown>) => {
+      setObjectFilter(sanitizeFaceFilters(next));
+    },
+    [setObjectFilter],
+  );
 
   const compareBusy = suggestionDecisionMutation.isPending;
 
@@ -487,10 +633,19 @@ export function FacesPage({ onNavigate }: Props) {
     setBatchCompareIndex((current) => current + 1);
   }, [batchCompareFaceIds.length, batchCompareIndex, finishBatchCompare]);
 
-  const handleConfirmSuggestion = useCallback((face: Face, suggestion: FaceTopSuggestion, options?: { setPerformerImage?: boolean }) => {
-    suggestionDecisionMutation.mutate({ faceId: face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage, ...readReferenceLinkInfo(suggestion) });
-    setComparison(null);
-  }, [suggestionDecisionMutation]);
+  const handleConfirmSuggestion = useCallback(
+    (face: Face, suggestion: FaceTopSuggestion, options?: { setPerformerImage?: boolean }) => {
+      suggestionDecisionMutation.mutate({
+        faceId: face.id,
+        performerId: suggestion.performerId,
+        decision: "accept",
+        setPerformerImage: options?.setPerformerImage,
+        ...readReferenceLinkInfo(suggestion),
+      });
+      setComparison(null);
+    },
+    [suggestionDecisionMutation],
+  );
 
   const handleStartBatchCompare = useCallback(() => {
     setBatchCompareFaceIds(batchComparableFaces.map((face) => face.id));
@@ -509,7 +664,9 @@ export function FacesPage({ onNavigate }: Props) {
         totalCount={totalCount}
         isLoading={isLoading}
         error={listData.loadError}
-        onRetry={() => { void listData.refetch(); }}
+        onRetry={() => {
+          void listData.refetch();
+        }}
         sortOptions={FACE_SORT_OPTIONS}
         displayMode={displayMode}
         onDisplayModeChange={setDisplayMode}
@@ -528,13 +685,18 @@ export function FacesPage({ onNavigate }: Props) {
         onSelectAll={listData.infinitePageSize ? handleSelectAllMatching : selectAll}
         onSelectNone={selectNone}
         onInvertSelection={invertSelection}
-        selectionActions={(
+        selectionActions={
           <div className="flex flex-wrap items-center gap-2">
             {canWriteFaces ? (
               <button
                 type="button"
                 onClick={handleStartBatchCompare}
-                disabled={batchComparableFaces.length === 0 || batchLinkTopSuggestionMutation.isPending || batchDeleteMutation.isPending || compareBusy}
+                disabled={
+                  batchComparableFaces.length === 0 ||
+                  batchLinkTopSuggestionMutation.isPending ||
+                  batchDeleteMutation.isPending ||
+                  compareBusy
+                }
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-accent hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                 title="Compare selected unlinked faces that have top suggestions"
               >
@@ -546,7 +708,11 @@ export function FacesPage({ onNavigate }: Props) {
               <button
                 type="button"
                 onClick={() => setConfirmBatchLink(true)}
-                disabled={selectedFaceIds.length === 0 || batchLinkTopSuggestionMutation.isPending || batchDeleteMutation.isPending}
+                disabled={
+                  selectedFaceIds.length === 0 ||
+                  batchLinkTopSuggestionMutation.isPending ||
+                  batchDeleteMutation.isPending
+                }
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-accent hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Link2 className="h-3.5 w-3.5" />
@@ -557,7 +723,11 @@ export function FacesPage({ onNavigate }: Props) {
               <button
                 type="button"
                 onClick={() => setConfirmBatchDelete(true)}
-                disabled={selectedFaceIds.length === 0 || batchLinkTopSuggestionMutation.isPending || batchDeleteMutation.isPending}
+                disabled={
+                  selectedFaceIds.length === 0 ||
+                  batchLinkTopSuggestionMutation.isPending ||
+                  batchDeleteMutation.isPending
+                }
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-900/20 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -565,8 +735,12 @@ export function FacesPage({ onNavigate }: Props) {
               </button>
             ) : null}
           </div>
-        )}
-        metadataByline={<span className="hidden text-xs text-muted lg:inline">Review face clusters with suggestions, links, and sample counts.</span>}
+        }
+        metadataByline={
+          <span className="hidden text-xs text-muted lg:inline">
+            Review face clusters with suggestions, links, and sample counts.
+          </span>
+        }
       >
         {displayMode === "grid" ? (
           <VirtualizedEntityGrid
@@ -583,7 +757,9 @@ export function FacesPage({ onNavigate }: Props) {
             renderItem={(face) => (
               <FaceTile
                 face={face}
-                onClick={(toggleOptions) => selecting ? toggle(face.id, toggleOptions) : onNavigate({ page: "face", id: face.id })}
+                onClick={(toggleOptions) =>
+                  selecting ? toggle(face.id, toggleOptions) : onNavigate({ page: "face", id: face.id })
+                }
                 selected={selectedIds.has(face.id)}
                 onSelect={(toggleOptions) => toggle(face.id, toggleOptions)}
                 selecting={selecting}
@@ -656,7 +832,8 @@ export function FacesPage({ onNavigate }: Props) {
               <span>
                 Create new performers from metadata servers for reference matches.
                 <span className="mt-0.5 block text-xs text-muted">
-                  When unchecked, faces whose only match is a reference pack identity without a local performer are skipped.
+                  When unchecked, faces whose only match is a reference pack identity without a local performer are
+                  skipped.
                 </span>
               </span>
             </label>
@@ -734,7 +911,9 @@ export function FacesPage({ onNavigate }: Props) {
         faceImageUrls={comparisonFaceImageUrls}
         disabled={compareBusy}
         canReadPerformers={canReadPerformers}
-        batchLabel={batchCompareFaceIds.length > 0 ? `${batchCompareIndex + 1} of ${batchCompareFaceIds.length}` : undefined}
+        batchLabel={
+          batchCompareFaceIds.length > 0 ? `${batchCompareIndex + 1} of ${batchCompareFaceIds.length}` : undefined
+        }
         onSkip={batchCompareFaceIds.length > 0 ? advanceBatchCompare : undefined}
         onClose={() => {
           setComparison(null);
@@ -743,7 +922,13 @@ export function FacesPage({ onNavigate }: Props) {
         }}
         onConfirm={(suggestion, options) => {
           if (activeComparison) {
-            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: suggestion.performerId, decision: "accept", setPerformerImage: options?.setPerformerImage, ...readReferenceLinkInfo(suggestion) });
+            suggestionDecisionMutation.mutate({
+              faceId: activeComparison.face.id,
+              performerId: suggestion.performerId,
+              decision: "accept",
+              setPerformerImage: options?.setPerformerImage,
+              ...readReferenceLinkInfo(suggestion),
+            });
             if (batchCompareFaceIds.length > 0) {
               advanceBatchCompare();
             } else {
@@ -753,7 +938,11 @@ export function FacesPage({ onNavigate }: Props) {
         }}
         onReject={(suggestion) => {
           if (activeComparison) {
-            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: suggestion.performerId, decision: "reject" });
+            suggestionDecisionMutation.mutate({
+              faceId: activeComparison.face.id,
+              performerId: suggestion.performerId,
+              decision: "reject",
+            });
             if (batchCompareFaceIds.length > 0) {
               advanceBatchCompare();
             } else {
@@ -763,7 +952,12 @@ export function FacesPage({ onNavigate }: Props) {
         }}
         onMerge={(primaryPerformerId, secondaryPerformerIds) => {
           if (activeComparison) {
-            suggestionDecisionMutation.mutate({ faceId: activeComparison.face.id, performerId: primaryPerformerId, decision: "merge", secondaryPerformerIds });
+            suggestionDecisionMutation.mutate({
+              faceId: activeComparison.face.id,
+              performerId: primaryPerformerId,
+              decision: "merge",
+              secondaryPerformerIds,
+            });
             if (batchCompareFaceIds.length > 0) {
               advanceBatchCompare();
             } else {
@@ -903,25 +1097,44 @@ function FaceListRow({
         <div className="relative min-w-0 pl-8">
           <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onToggle} />
           <div className="flex items-start gap-3">
-            {density.showPreview ? <div className="hidden shrink-0 overflow-hidden rounded-full bg-surface sm:block" style={{ height: density.previewSize, width: density.previewSize }}>
-              {face.coverImageUrl ? (
-                      <img src={face.coverImageUrl} alt={title} className="h-full w-full bg-surface/85 object-contain p-1" loading="lazy" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-muted">
-                  <Fingerprint className="h-6 w-6" />
-                </div>
-              )}
-            </div> : null}
+            {density.showPreview ? (
+              <div
+                className="hidden shrink-0 overflow-hidden rounded-full bg-surface sm:block"
+                style={{ height: density.previewSize, width: density.previewSize }}
+              >
+                {face.coverImageUrl ? (
+                  <img
+                    src={face.coverImageUrl}
+                    alt={title}
+                    className="h-full w-full bg-surface/85 object-contain p-1"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-muted">
+                    <Fingerprint className="h-6 w-6" />
+                  </div>
+                )}
+              </div>
+            ) : null}
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{title}</div>
-              {density.showMeta ? <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
-                {face.performerId ? <Badge icon={<Link2 className="h-3 w-3" />} label={face.performerName || `Performer #${face.performerId}`} /> : null}
-              </div> : null}
+              {density.showMeta ? (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">
+                  {face.performerId ? (
+                    <Badge
+                      icon={<Link2 className="h-3 w-3" />}
+                      label={face.performerName || `Performer #${face.performerId}`}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
         <div className="hidden text-xs text-secondary lg:block">{face.detectionCount}</div>
-        <div className="hidden text-xs text-secondary lg:block">{face.videoCount} / {face.imageCount}</div>
+        <div className="hidden text-xs text-secondary lg:block">
+          {face.videoCount} / {face.imageCount}
+        </div>
         <div className="hidden lg:block">
           {face.performerId ? (
             <LinkedPerformerSummary face={face} onNavigate={onNavigate} canReadPerformers={canReadPerformers} compact />
@@ -976,37 +1189,53 @@ function TopSuggestionFooter({
     return <div className="text-xs text-secondary">No top suggestion yet.</div>;
   }
 
-  const localPerformerId = suggestion.localPerformerId ?? (suggestion.performerId > 0 ? suggestion.performerId : undefined);
-  const performerLinkProps = localPerformerId != null && canReadPerformers
-    ? createNestedRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: localPerformerId }, () => onNavigate({ page: "performer", id: localPerformerId }))
-    : null;
+  const localPerformerId =
+    suggestion.localPerformerId ?? (suggestion.performerId > 0 ? suggestion.performerId : undefined);
+  const performerLinkProps =
+    localPerformerId != null && canReadPerformers
+      ? createNestedRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: localPerformerId }, () =>
+          onNavigate({ page: "performer", id: localPerformerId }),
+        )
+      : null;
 
   return (
-      <div className={`relative z-20 flex items-center gap-3 ${compact ? "min-w-0" : ""}`}>
+    <div className={`relative z-20 flex items-center gap-3 ${compact ? "min-w-0" : ""}`}>
       <div className={`${compact ? "h-10 w-10" : "h-12 w-12"} shrink-0 overflow-hidden rounded-xl bg-surface/80`}>
         {suggestion.coverImageUrl ? (
-          <img src={suggestion.coverImageUrl} alt={suggestion.performerName} className="h-full w-full object-cover object-top" loading="lazy" />
+          <img
+            src={suggestion.coverImageUrl}
+            alt={suggestion.performerName}
+            className="h-full w-full object-cover object-top"
+            loading="lazy"
+          />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted">
             <Fingerprint className="h-5 w-5" />
           </div>
         )}
       </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Top suggestion</div>
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Top suggestion</div>
         {performerLinkProps ? (
           <a {...performerLinkProps} className="block truncate text-sm font-medium text-accent hover:underline">
             {suggestion.performerName}
           </a>
         ) : suggestion.externalUrl ? (
-          <a href={suggestion.externalUrl} target="_blank" rel="noopener noreferrer" className="block truncate text-sm font-medium text-accent hover:underline">
+          <a
+            href={suggestion.externalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate text-sm font-medium text-accent hover:underline"
+          >
             {suggestion.performerName}
           </a>
         ) : (
           <div className="truncate text-sm font-medium text-foreground">{suggestion.performerName}</div>
         )}
-          <div className={canWriteFaces ? "pr-20 text-xs text-secondary" : "text-xs text-secondary"}>{formatPercent(suggestion.confidence)}% confidence</div>
+        <div className={canWriteFaces ? "pr-20 text-xs text-secondary" : "text-xs text-secondary"}>
+          {formatPercent(suggestion.confidence)}% confidence
         </div>
+      </div>
       {canWriteFaces ? (
         <div className="absolute bottom-0 right-0 z-20 flex shrink-0 items-center gap-1.5">
           <button
@@ -1062,7 +1291,9 @@ function LinkedPerformerSummary({
   }
 
   const performerLinkProps = canReadPerformers
-    ? createNestedRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performerId }, () => onNavigate({ page: "performer", id: performerId }))
+    ? createNestedRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: performerId }, () =>
+        onNavigate({ page: "performer", id: performerId }),
+      )
     : null;
 
   return (
@@ -1073,7 +1304,9 @@ function LinkedPerformerSummary({
           {face.performerName || `Performer #${performerId}`}
         </a>
       ) : (
-        <div className="truncate text-sm font-medium text-foreground">{face.performerName || `Performer #${performerId}`}</div>
+        <div className="truncate text-sm font-medium text-foreground">
+          {face.performerName || `Performer #${performerId}`}
+        </div>
       )}
     </div>
   );

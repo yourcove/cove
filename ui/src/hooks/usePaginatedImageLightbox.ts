@@ -28,13 +28,21 @@ export function usePaginatedImageLightbox({
   const sourceItems = scopeItems ?? items;
   const lightboxImages = useMemo(() => sourceItems.map(toLightboxImage), [sourceItems, toLightboxImage]);
 
-  const openImage = useCallback((imageId: number) => {
-    setScopeItems(null);
-    setPageBounds({ first: filter.page ?? 1, last: filter.page ?? 1 });
-    setAutoPlay(false);
-    setInitialIndex(Math.max(0, items.findIndex((image) => image.id === imageId)));
-    setOpen(true);
-  }, [filter.page, items]);
+  const openImage = useCallback(
+    (imageId: number) => {
+      setScopeItems(null);
+      setPageBounds({ first: filter.page ?? 1, last: filter.page ?? 1 });
+      setAutoPlay(false);
+      setInitialIndex(
+        Math.max(
+          0,
+          items.findIndex((image) => image.id === imageId),
+        ),
+      );
+      setOpen(true);
+    },
+    [filter.page, items],
+  );
 
   const openScope = useCallback((images: Image[], shouldAutoPlay = images.length > 1) => {
     if (images.length === 0) return;
@@ -50,13 +58,28 @@ export function usePaginatedImageLightbox({
     setScopeItems(null);
   }, []);
 
-  const loadPage = useCallback(async (page: number, direction: "previous" | "next") => {
-    const response = await queryPage({ ...filter, page });
-    setPageBounds((bounds) => extendLightboxPageBounds(bounds, page, direction));
-    return response.items.map(toLightboxImage);
-  }, [filter, queryPage, toLightboxImage]);
+  const loadPage = useCallback(
+    async (page: number, direction: "previous" | "next") => {
+      const response = await queryPage({ ...filter, page });
+      setPageBounds((bounds) => extendLightboxPageBounds(bounds, page, direction));
+      return response.items.map(toLightboxImage);
+    },
+    [filter, queryPage, toLightboxImage],
+  );
 
-  const lightboxProps: Pick<LightboxProps, "images" | "initialIndex" | "open" | "onClose" | "autoPlay" | "hasPrevious" | "hasNext" | "loadPrevious" | "loadNext" | "wrap"> = {
+  const lightboxProps: Pick<
+    LightboxProps,
+    | "images"
+    | "initialIndex"
+    | "open"
+    | "onClose"
+    | "autoPlay"
+    | "hasPrevious"
+    | "hasNext"
+    | "loadPrevious"
+    | "loadNext"
+    | "wrap"
+  > = {
     images: lightboxImages,
     initialIndex,
     open,

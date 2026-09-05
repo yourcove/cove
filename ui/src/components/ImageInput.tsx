@@ -37,9 +37,12 @@ export function ImageInput({
   const [inputError, setInputError] = useState<string | null>(null);
   const [preparationPending, setPreparationPending] = useState(false);
 
-  useEffect(() => () => {
-    if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview);
-  }, [preview]);
+  useEffect(
+    () => () => {
+      if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview);
+    },
+    [preview],
+  );
 
   useEffect(() => {
     setImgError(false);
@@ -84,10 +87,13 @@ export function ImageInput({
     [uploadMut],
   );
 
-  const handleFile = useCallback((file: File) => {
-    if (disabled || isLoading) return;
-    processFile(file);
-  }, [disabled, isLoading, processFile]);
+  const handleFile = useCallback(
+    (file: File) => {
+      if (disabled || isLoading) return;
+      processFile(file);
+    },
+    [disabled, isLoading, processFile],
+  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -270,7 +276,9 @@ export function ImageInput({
       )}
 
       {(uploadMut.error || deleteMut.error || inputError) && (
-        <p role="alert" className="text-xs text-red-400">{inputError ?? ((uploadMut.error || deleteMut.error) as Error).message}</p>
+        <p role="alert" className="text-xs text-red-400">
+          {inputError ?? ((uploadMut.error || deleteMut.error) as Error).message}
+        </p>
       )}
     </div>
   );

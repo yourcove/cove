@@ -63,13 +63,19 @@ export type VirtualizedInfiniteListProps<TItem> =
 export function VirtualizedInfiniteList<TItem>(props: VirtualizedInfiniteListProps<TItem>) {
   const useContainerScroll = Boolean(props.scrollElementRef);
   if (props.layout === "grid") {
-    return useContainerScroll
-      ? <GridContainerScroll {...(props as GridProps<TItem> & { scrollElementRef: RefObject<HTMLElement | null> })} />
-      : <GridWindowScroll {...(props as GridProps<TItem>)} />;
+    return useContainerScroll ? (
+      <GridContainerScroll {...(props as GridProps<TItem> & { scrollElementRef: RefObject<HTMLElement | null> })} />
+    ) : (
+      <GridWindowScroll {...(props as GridProps<TItem>)} />
+    );
   }
-  return useContainerScroll
-    ? <SingleColumnContainerScroll {...(props as SingleColumnProps<TItem> & { scrollElementRef: RefObject<HTMLElement | null> })} />
-    : <SingleColumnWindowScroll {...(props as SingleColumnProps<TItem>)} />;
+  return useContainerScroll ? (
+    <SingleColumnContainerScroll
+      {...(props as SingleColumnProps<TItem> & { scrollElementRef: RefObject<HTMLElement | null> })}
+    />
+  ) : (
+    <SingleColumnWindowScroll {...(props as SingleColumnProps<TItem>)} />
+  );
 }
 
 // ---------- Single-column, window scroll ----------
@@ -91,7 +97,8 @@ function SingleColumnWindowScroll<TItem>(props: SingleColumnProps<TItem>) {
     scrollMargin: parentOffsetTop,
     getItemKey: (index) => props.getItemKey(props.items[index], index),
   });
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+    props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
 
   useInfiniteLoadTrigger({
     virtualItems: virtualizer.getVirtualItems(),
@@ -123,7 +130,9 @@ function SingleColumnWindowScroll<TItem>(props: SingleColumnProps<TItem>) {
 
 // ---------- Single-column, inner container scroll ----------
 
-function SingleColumnContainerScroll<TItem>(props: SingleColumnProps<TItem> & { scrollElementRef: RefObject<HTMLElement | null> }) {
+function SingleColumnContainerScroll<TItem>(
+  props: SingleColumnProps<TItem> & { scrollElementRef: RefObject<HTMLElement | null> },
+) {
   const virtualizer = useVirtualizer({
     count: props.items.length,
     getScrollElement: () => props.scrollElementRef.current,
@@ -131,7 +140,8 @@ function SingleColumnContainerScroll<TItem>(props: SingleColumnProps<TItem> & { 
     overscan: props.overscan ?? 3,
     getItemKey: (index) => props.getItemKey(props.items[index], index),
   });
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+    props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
 
   useInfiniteLoadTrigger({
     virtualItems: virtualizer.getVirtualItems(),
@@ -178,7 +188,22 @@ interface SingleColumnFrameProps<TItem> {
   scrollElement?: HTMLElement | null;
 }
 
-function SingleColumnFrame<TItem>({ parentRef, virtualizer, offset, items, renderItem, itemClassName, className, style, endContent, isFetchingNextPage, hasNextPage, onActiveIndexChange, windowScroll, scrollElement }: SingleColumnFrameProps<TItem>) {
+function SingleColumnFrame<TItem>({
+  parentRef,
+  virtualizer,
+  offset,
+  items,
+  renderItem,
+  itemClassName,
+  className,
+  style,
+  endContent,
+  isFetchingNextPage,
+  hasNextPage,
+  onActiveIndexChange,
+  windowScroll,
+  scrollElement,
+}: SingleColumnFrameProps<TItem>) {
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
   const activeRange = useMemo(() => {
@@ -218,7 +243,9 @@ function SingleColumnFrame<TItem>({ parentRef, virtualizer, offset, items, rende
               {renderItem({
                 item,
                 index: virtualRow.index,
-                measureRef: () => {/* measured via the outer ref */},
+                measureRef: () => {
+                  /* measured via the outer ref */
+                },
                 isActive: virtualRow.index >= activeRange.first && virtualRow.index <= activeRange.last,
               })}
             </div>
@@ -226,9 +253,7 @@ function SingleColumnFrame<TItem>({ parentRef, virtualizer, offset, items, rende
         })}
       </div>
       {(isFetchingNextPage || hasNextPage || endContent) && (
-        <div className="py-3 text-center text-xs text-muted">
-          {isFetchingNextPage ? "Loading…" : endContent}
-        </div>
+        <div className="py-3 text-center text-xs text-muted">{isFetchingNextPage ? "Loading…" : endContent}</div>
       )}
     </div>
   );
@@ -269,7 +294,8 @@ function GridWindowScroll<TItem>(props: GridProps<TItem>) {
       return first ? `row-${props.getItemKey(first, rowIndex * columns)}` : `row-${rowIndex}`;
     },
   });
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+    props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
 
   useInfiniteLoadTriggerRows({
     virtualItems: virtualizer.getVirtualItems(),
@@ -330,7 +356,8 @@ function GridContainerScroll<TItem>(props: GridProps<TItem> & { scrollElementRef
       return first ? `row-${props.getItemKey(first, rowIndex * columns)}` : `row-${rowIndex}`;
     },
   });
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+    props.adjustScrollOnItemSizeChange === false ? () => false : undefined;
 
   useInfiniteLoadTriggerRows({
     virtualItems: virtualizer.getVirtualItems(),
@@ -379,17 +406,38 @@ interface GridFrameProps<TItem> {
   scrollElement?: HTMLElement | null;
 }
 
-function GridFrame<TItem>({ parentRef, virtualizer, offset, items, columns, gap, renderItem, className, style, endContent, isFetchingNextPage, hasNextPage, onActiveIndexChange, windowScroll, scrollElement }: GridFrameProps<TItem>) {
+function GridFrame<TItem>({
+  parentRef,
+  virtualizer,
+  offset,
+  items,
+  columns,
+  gap,
+  renderItem,
+  className,
+  style,
+  endContent,
+  isFetchingNextPage,
+  hasNextPage,
+  onActiveIndexChange,
+  windowScroll,
+  scrollElement,
+}: GridFrameProps<TItem>) {
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
   const activeRange = useMemo(() => {
     if (virtualRows.length === 0) return { first: -1, last: -1 };
-    return { first: virtualRows[0].index * columns, last: (virtualRows[virtualRows.length - 1].index + 1) * columns - 1 };
+    return {
+      first: virtualRows[0].index * columns,
+      last: (virtualRows[virtualRows.length - 1].index + 1) * columns - 1,
+    };
   }, [virtualRows, columns]);
 
   useActiveIndexNotifier({
     virtualItems: virtualRows,
-    onActiveIndexChange: onActiveIndexChange ? (rowIndex) => onActiveIndexChange(rowIndex == null ? null : rowIndex * columns) : undefined,
+    onActiveIndexChange: onActiveIndexChange
+      ? (rowIndex) => onActiveIndexChange(rowIndex == null ? null : rowIndex * columns)
+      : undefined,
     getScrollOffset: () => (windowScroll ? window.scrollY - offset : (scrollElement?.scrollTop ?? 0)),
     getViewportSize: () => (windowScroll ? window.innerHeight : (scrollElement?.clientHeight ?? window.innerHeight)),
     windowScroll,
@@ -427,7 +475,9 @@ function GridFrame<TItem>({ parentRef, virtualizer, offset, items, columns, gap,
                     {renderItem({
                       item,
                       index: itemIndex,
-                      measureRef: () => {/* row-level measurement */},
+                      measureRef: () => {
+                        /* row-level measurement */
+                      },
                       isActive: itemIndex >= activeRange.first && itemIndex <= activeRange.last,
                     })}
                   </div>
@@ -438,9 +488,7 @@ function GridFrame<TItem>({ parentRef, virtualizer, offset, items, columns, gap,
         })}
       </div>
       {(isFetchingNextPage || hasNextPage || endContent) && (
-        <div className="py-3 text-center text-xs text-muted">
-          {isFetchingNextPage ? "Loading…" : endContent}
-        </div>
+        <div className="py-3 text-center text-xs text-muted">{isFetchingNextPage ? "Loading…" : endContent}</div>
       )}
     </div>
   );

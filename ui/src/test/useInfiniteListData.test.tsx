@@ -20,12 +20,16 @@ describe("useInfiniteListData", () => {
       perPage: filter.perPage,
     }));
 
-    const { result } = renderHook(() => useInfiniteListData({
-      queryKey: ["studios"],
-      filter: { page: 1, perPage: 0 },
-      chunkSize: 0,
-      queryPage,
-    }), { wrapper: createWrapper(queryClient) });
+    const { result } = renderHook(
+      () =>
+        useInfiniteListData({
+          queryKey: ["studios"],
+          filter: { page: 1, perPage: 0 },
+          chunkSize: 0,
+          queryPage,
+        }),
+      { wrapper: createWrapper(queryClient) },
+    );
 
     await waitFor(() => expect(result.current.items).toEqual([{ id: 1 }]));
     expect(queryPage).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 40 }));

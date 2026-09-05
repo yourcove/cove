@@ -44,7 +44,11 @@ export function FileBackedCreateSource({
       {modes.length > 1 ? (
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Create From</div>
-          <div className="mt-2 inline-flex rounded-lg border border-border bg-surface p-1" role="group" aria-label="Create source">
+          <div
+            className="mt-2 inline-flex rounded-lg border border-border bg-surface p-1"
+            role="group"
+            aria-label="Create source"
+          >
             {modes.includes("metadata") ? (
               <button
                 type="button"
@@ -104,7 +108,11 @@ export function FileBackedCreateSource({
           </Field>
           {onUrlDownloadModeChange ? (
             <Field label="Download">
-              <div className="inline-flex rounded-lg border border-border bg-surface p-1" role="group" aria-label="Download timing">
+              <div
+                className="inline-flex rounded-lg border border-border bg-surface p-1"
+                role="group"
+                aria-label="Download timing"
+              >
                 <button
                   type="button"
                   onClick={() => onUrlDownloadModeChange("now")}
@@ -140,12 +148,20 @@ export function FileBackedCreateSource({
               <div className="font-medium">No downloader found for this URL.</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {onCreateWithoutDownload ? (
-                  <button type="button" onClick={onCreateWithoutDownload} className="rounded bg-amber-500 px-3 py-1.5 text-xs font-medium text-black hover:bg-amber-400">
+                  <button
+                    type="button"
+                    onClick={onCreateWithoutDownload}
+                    className="rounded bg-amber-500 px-3 py-1.5 text-xs font-medium text-black hover:bg-amber-400"
+                  >
                     Create Without Download
                   </button>
                 ) : null}
                 {onDismissNoDownloader ? (
-                  <button type="button" onClick={onDismissNoDownloader} className="rounded border border-amber-300/50 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/20">
+                  <button
+                    type="button"
+                    onClick={onDismissNoDownloader}
+                    className="rounded border border-amber-300/50 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/20"
+                  >
                     Edit URL
                   </button>
                 ) : null}

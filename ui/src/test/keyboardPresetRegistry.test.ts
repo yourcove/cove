@@ -100,26 +100,36 @@ describe("keyboard preset registry", () => {
     const b: KeyboardShortcutPreset = { ...a, id: "b", name: "B", basePresetId: "a" };
 
     expect(() => resolveKeyboardPreset(a, [a, b], actions)).toThrow(/cycle/i);
-    expect(validateKeyboardPreset({
-      ...cove,
-      bindings: { "list.filters": ["g f x y"] },
-    }).errors).toContainEqual(expect.stringMatching(/three strokes/i));
+    expect(
+      validateKeyboardPreset({
+        ...cove,
+        bindings: { "list.filters": ["g f x y"] },
+      }).errors,
+    ).toContainEqual(expect.stringMatching(/three strokes/i));
   });
 
   it("prefers the most specific active surface", () => {
-    const resolution = resolveKeyboardDispatch([
-      { actionId: "global", sequence: "f", priority: 0, value: "global" },
-      { actionId: "detail", sequence: "f", priority: 20, value: "detail" },
-    ], "f");
+    const resolution = resolveKeyboardDispatch(
+      [
+        { actionId: "global", sequence: "f", priority: 0, value: "global" },
+        { actionId: "detail", sequence: "f", priority: 20, value: "detail" },
+      ],
+      "f",
+    );
 
     expect(resolution).toMatchObject({ kind: "action", candidate: { value: "detail" } });
   });
 
   it("blocks peer and prefix conflicts", () => {
-    expect(resolveKeyboardDispatch([
-      { actionId: "one", sequence: "g", priority: 10, value: 1 },
-      { actionId: "two", sequence: "g g", priority: 10, value: 2 },
-    ], "g")).toEqual({ kind: "conflict", actionIds: ["one", "two"] });
+    expect(
+      resolveKeyboardDispatch(
+        [
+          { actionId: "one", sequence: "g", priority: 10, value: 1 },
+          { actionId: "two", sequence: "g g", priority: 10, value: 2 },
+        ],
+        "g",
+      ),
+    ).toEqual({ kind: "conflict", actionIds: ["one", "two"] });
   });
 
   it("allows several chords to share a prefix", () => {

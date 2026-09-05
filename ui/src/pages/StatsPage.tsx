@@ -1,5 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, BarChart3, Brain, Building2, CheckCircle2, Database, Eye, FileText, Film, Fingerprint, HardDrive, Headphones, Heart, ImageIcon, Images, Layers, ScanSearch, Sparkles, Tags, Users } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Brain,
+  Building2,
+  CheckCircle2,
+  Database,
+  Eye,
+  FileText,
+  Film,
+  Fingerprint,
+  HardDrive,
+  Headphones,
+  Heart,
+  ImageIcon,
+  Images,
+  Layers,
+  ScanSearch,
+  Sparkles,
+  Tags,
+  Users,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { system } from "../api/client";
 import type { Stats } from "../api/types";
@@ -41,7 +62,17 @@ export function StatsPage(_props?: { onNavigate?: (route: Route) => void }) {
     return <div className="p-6 text-secondary">No stats available.</div>;
   }
 
-  const totalEntities = stats.videoCount + stats.imageCount + stats.galleryCount + stats.performerCount + stats.studioCount + stats.tagCount + stats.groupCount + stats.audioCount + stats.textCount + stats.segmentCount;
+  const totalEntities =
+    stats.videoCount +
+    stats.imageCount +
+    stats.galleryCount +
+    stats.performerCount +
+    stats.studioCount +
+    stats.tagCount +
+    stats.groupCount +
+    stats.audioCount +
+    stats.textCount +
+    stats.segmentCount;
 
   return (
     <div className="space-y-8 p-6">
@@ -65,7 +96,15 @@ export function StatsPage(_props?: { onNavigate?: (route: Route) => void }) {
   );
 }
 
-function MetricSection({ title, icon: Icon, metrics }: { title: string; icon: LucideIcon; metrics: MetricCardProps[] }) {
+function MetricSection({
+  title,
+  icon: Icon,
+  metrics,
+}: {
+  title: string;
+  icon: LucideIcon;
+  metrics: MetricCardProps[];
+}) {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -73,7 +112,9 @@ function MetricSection({ title, icon: Icon, metrics }: { title: string; icon: Lu
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => <MetricCard key={`${title}-${metric.label}`} {...metric} />)}
+        {metrics.map((metric) => (
+          <MetricCard key={`${title}-${metric.label}`} {...metric} />
+        ))}
       </div>
     </section>
   );
@@ -111,20 +152,62 @@ function entityMetrics(stats: Stats): MetricCardProps[] {
 function fileMetrics(stats: Stats): MetricCardProps[] {
   return [
     { label: "Total File Size", value: formatFileSize(stats.totalFileSize), icon: HardDrive, tone: "slate" },
-    { label: "Video Files", value: formatFileSize(stats.videoFileSize), detail: formatDuration(stats.videoDuration), icon: Film, tone: "cyan" },
+    {
+      label: "Video Files",
+      value: formatFileSize(stats.videoFileSize),
+      detail: formatDuration(stats.videoDuration),
+      icon: Film,
+      tone: "cyan",
+    },
     { label: "Image Files", value: formatFileSize(stats.imageFileSize), icon: ImageIcon, tone: "emerald" },
-    { label: "Audio Files", value: formatFileSize(stats.audioFileSize), detail: formatDuration(stats.audioDuration), icon: Headphones, tone: "amber" },
+    {
+      label: "Audio Files",
+      value: formatFileSize(stats.audioFileSize),
+      detail: formatDuration(stats.audioDuration),
+      icon: Headphones,
+      tone: "amber",
+    },
     { label: "Text Files", value: formatFileSize(stats.textFileSize), icon: FileText, tone: "rose" },
   ];
 }
 
 function engagementMetrics(stats: Stats): MetricCardProps[] {
   return [
-    { label: "Video Plays", value: formatCount(stats.videoPlayCount), detail: `${formatCount(stats.videoCompleteCount)} completed`, icon: Film, tone: "cyan" },
-    { label: "Audio Plays", value: formatCount(stats.audioPlayCount), detail: `${formatCount(stats.audioCompleteCount)} completed`, icon: Headphones, tone: "amber" },
-    { label: "Text Reads", value: formatCount(stats.textReadCount), detail: `${formatCount(stats.textCompleteCount)} completed`, icon: FileText, tone: "rose" },
-    { label: "Image Views", value: formatCount(stats.imageViewCount), detail: `${formatCount(stats.imageCompleteCount)} completed`, icon: Eye, tone: "emerald" },
-    { label: "Segment Plays", value: formatCount(stats.segmentViewCount), detail: `${formatCount(stats.segmentCompleteCount)} completed`, icon: Layers, tone: "cyan" },
+    {
+      label: "Video Plays",
+      value: formatCount(stats.videoPlayCount),
+      detail: `${formatCount(stats.videoCompleteCount)} completed`,
+      icon: Film,
+      tone: "cyan",
+    },
+    {
+      label: "Audio Plays",
+      value: formatCount(stats.audioPlayCount),
+      detail: `${formatCount(stats.audioCompleteCount)} completed`,
+      icon: Headphones,
+      tone: "amber",
+    },
+    {
+      label: "Text Reads",
+      value: formatCount(stats.textReadCount),
+      detail: `${formatCount(stats.textCompleteCount)} completed`,
+      icon: FileText,
+      tone: "rose",
+    },
+    {
+      label: "Image Views",
+      value: formatCount(stats.imageViewCount),
+      detail: `${formatCount(stats.imageCompleteCount)} completed`,
+      icon: Eye,
+      tone: "emerald",
+    },
+    {
+      label: "Segment Plays",
+      value: formatCount(stats.segmentViewCount),
+      detail: `${formatCount(stats.segmentCompleteCount)} completed`,
+      icon: Layers,
+      tone: "cyan",
+    },
     { label: "Video Watch Time", value: formatDuration(stats.videoConsumedSeconds), icon: CheckCircle2, tone: "sky" },
     { label: "Audio Listen Time", value: formatDuration(stats.audioConsumedSeconds), icon: Activity, tone: "violet" },
     { label: "Text Read Time", value: formatDuration(stats.textConsumedSeconds), icon: FileText, tone: "slate" },

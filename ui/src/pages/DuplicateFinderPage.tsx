@@ -19,9 +19,17 @@ const GROUP_PAGE_SIZE = 10;
 
 const MATCH_OPTIONS: Array<{ value: DuplicateMatchType; label: string; description: string }> = [
   { value: "fingerprint", label: "Exact file fingerprint", description: "Groups videos that share an MD5 or OSHash." },
-  { value: "phash", label: "Similar visual pHash", description: "Finds visually similar videos within a pHash distance and duration window." },
+  {
+    value: "phash",
+    label: "Similar visual pHash",
+    description: "Finds visually similar videos within a pHash distance and duration window.",
+  },
   { value: "title", label: "Same title", description: "Groups videos with the same normalized title." },
-  { value: "remoteId", label: "Same remote ID", description: "Groups videos that share a scraper or metadata-server ID." },
+  {
+    value: "remoteId",
+    label: "Same remote ID",
+    description: "Groups videos that share a scraper or metadata-server ID.",
+  },
 ];
 
 function getSearchIdFromUrl() {
@@ -77,14 +85,11 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
     queryKey: ["duplicate-search-groups", searchId],
     queryFn: ({ pageParam }) => videos.getDuplicateSearchGroups(searchId!, pageParam, GROUP_PAGE_SIZE),
     initialPageParam: 1,
-    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     enabled: searchId != null && completed,
   });
 
-  const groups = useMemo(
-    () => groupsQuery.data?.pages.flatMap((page) => page.items) ?? [],
-    [groupsQuery.data],
-  );
+  const groups = useMemo(() => groupsQuery.data?.pages.flatMap((page) => page.items) ?? [], [groupsQuery.data]);
 
   useEffect(() => {
     setKeeperChoices(new Map());
@@ -106,11 +111,12 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
 
   const startMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: () => videos.startDuplicateSearch({
-      matchType,
-      distance: matchType === "phash" ? phashDistance : 0,
-      durationDiff: matchType === "phash" ? durationDiff : null,
-    }),
+    mutationFn: () =>
+      videos.startDuplicateSearch({
+        matchType,
+        distance: matchType === "phash" ? phashDistance : 0,
+        durationDiff: matchType === "phash" ? durationDiff : null,
+      }),
     onSuccess: (result) => {
       replaceSearchIdInUrl(result.searchId);
       setSearchId(result.searchId);
@@ -169,7 +175,8 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
   const search = searchQuery.data;
   const resultError = searchQuery.error ?? groupsQuery.error;
   const isRunning = search?.status === "pending" || search?.status === "running";
-  const terminalFailure = search?.status === "failed" || search?.status === "cancelled" || search?.status === "interrupted";
+  const terminalFailure =
+    search?.status === "failed" || search?.status === "cancelled" || search?.status === "interrupted";
 
   return (
     <>
@@ -188,9 +195,15 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                 onChange={(event) => setMatchType(event.target.value as DuplicateMatchType)}
                 className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
               >
-                {MATCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {MATCH_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
-              <p className="mt-1 text-xs text-muted">{MATCH_OPTIONS.find((option) => option.value === matchType)?.description}</p>
+              <p className="mt-1 text-xs text-muted">
+                {MATCH_OPTIONS.find((option) => option.value === matchType)?.description}
+              </p>
             </div>
             <label className={`block text-xs font-medium text-secondary ${matchType === "phash" ? "" : "opacity-50"}`}>
               pHash distance
@@ -243,7 +256,10 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
               <Loader2 className="h-5 w-5 animate-spin text-accent" />
               <div>
                 <p className="font-medium text-foreground">Searching {search.candidateCount.toLocaleString()} videos</p>
-                <p className="text-sm text-muted">This runs as a background job. You can leave this page and open the results from Jobs when it finishes.</p>
+                <p className="text-sm text-muted">
+                  This runs as a background job. You can leave this page and open the results from Jobs when it
+                  finishes.
+                </p>
               </div>
             </div>
           </div>
@@ -254,7 +270,12 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
               <p className="font-medium capitalize">Search {search.status}</p>
-              <p>{search.error || (search.status === "interrupted" ? "The server restarted while this search was running. Start a new search to try again." : "Start a new search to try again.")}</p>
+              <p>
+                {search.error ||
+                  (search.status === "interrupted"
+                    ? "The server restarted while this search was running. Start a new search to try again."
+                    : "Start a new search to try again.")}
+              </p>
             </div>
           </div>
         )}
@@ -263,7 +284,9 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
           <>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
               <div className="text-sm text-secondary">
-                Found <strong className="text-foreground">{search.groupCount.toLocaleString()}</strong> duplicate group{search.groupCount === 1 ? "" : "s"} containing <strong className="text-foreground">{search.videoCount.toLocaleString()}</strong> videos.
+                Found <strong className="text-foreground">{search.groupCount.toLocaleString()}</strong> duplicate group
+                {search.groupCount === 1 ? "" : "s"} containing{" "}
+                <strong className="text-foreground">{search.videoCount.toLocaleString()}</strong> videos.
               </div>
               {canDeleteVideos && search.unkeptVideoCount > 0 && (
                 <button
@@ -273,7 +296,9 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                   className="inline-flex items-center gap-2 rounded bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" />
-                  {search.deletionJobId ? "Deletion queued" : `Remove ${search.unkeptVideoCount.toLocaleString()} unwanted`}
+                  {search.deletionJobId
+                    ? "Deletion queued"
+                    : `Remove ${search.unkeptVideoCount.toLocaleString()} unwanted`}
                 </button>
               )}
             </div>
@@ -284,7 +309,9 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
               <div className="py-16 text-center">
                 <Check className="mx-auto mb-3 h-12 w-12 text-green-400" />
                 <p className="text-secondary">No duplicates found</p>
-                <p className="mt-1 text-sm text-muted">Try a visual pHash search if exact file hashes are unavailable for this library.</p>
+                <p className="mt-1 text-sm text-muted">
+                  Try a visual pHash search if exact file hashes are unavailable for this library.
+                </p>
               </div>
             )}
 
@@ -316,7 +343,9 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
                       className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-foreground hover:border-accent disabled:opacity-50"
                     >
                       {groupsQuery.isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin" />}
-                      {groupsQuery.isFetchingNextPage ? "Loading…" : `Load more (${groups.length.toLocaleString()} of ${search.groupCount.toLocaleString()})`}
+                      {groupsQuery.isFetchingNextPage
+                        ? "Loading…"
+                        : `Load more (${groups.length.toLocaleString()} of ${search.groupCount.toLocaleString()})`}
                     </button>
                   </div>
                 )}
@@ -329,9 +358,11 @@ export function DuplicateFinderPage({ onNavigate }: Props) {
       <ConfirmDialog
         open={showDeleteConfirm}
         title="Delete unwanted duplicate videos"
-        message={search
-          ? `Queue deletion of ${search.unkeptVideoCount.toLocaleString()} video record(s). They reference ${search.unkeptFileCount.toLocaleString()} file record(s) totaling ${formatFileSize(search.unkeptBytes)}. Your keeper choices are saved with this search.`
-          : ""}
+        message={
+          search
+            ? `Queue deletion of ${search.unkeptVideoCount.toLocaleString()} video record(s). They reference ${search.unkeptFileCount.toLocaleString()} file record(s) totaling ${formatFileSize(search.unkeptBytes)}. Your keeper choices are saved with this search.`
+            : ""
+        }
         confirmLabel="Queue deletion"
         onConfirm={(options) => deleteMutation.mutate(options)}
         onCancel={() => setShowDeleteConfirm(false)}
@@ -369,7 +400,9 @@ function DuplicateGroupCard({
   return (
     <div className="overflow-hidden rounded-lg border border-border">
       <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-2">
-        <span className="text-sm font-medium text-foreground">Group {group.position + 1} — {group.videos.length} videos</span>
+        <span className="text-sm font-medium text-foreground">
+          Group {group.position + 1} — {group.videos.length} videos
+        </span>
         <span className="text-xs text-muted">{keepVideoIds.size} selected to keep</span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -405,15 +438,25 @@ function DuplicateVideoCard({
   const route = { page: "video", id: video.id };
   const linkProps = createRouteLinkProps<HTMLAnchorElement>(route, () => onNavigate(route));
   return (
-    <div className={`relative border-b border-r border-border ${keep ? "bg-green-900/20 ring-2 ring-inset ring-green-500/50" : "bg-background"}`}>
+    <div
+      className={`relative border-b border-r border-border ${keep ? "bg-green-900/20 ring-2 ring-inset ring-green-500/50" : "bg-background"}`}
+    >
       <button
         type="button"
         onClick={onToggle}
         disabled={disableToggle}
-        title={disableToggle && keep ? "Every group must keep at least one video" : keep ? "Do not keep this video" : "Keep this video"}
+        title={
+          disableToggle && keep
+            ? "Every group must keep at least one video"
+            : keep
+              ? "Do not keep this video"
+              : "Keep this video"
+        }
         className="absolute left-2 top-2 z-10 disabled:cursor-not-allowed"
       >
-        <span className={`flex h-5 w-5 items-center justify-center rounded border-2 ${keep ? "border-green-500 bg-green-500" : "border-muted bg-black/40"}`}>
+        <span
+          className={`flex h-5 w-5 items-center justify-center rounded border-2 ${keep ? "border-green-500 bg-green-500" : "border-muted bg-black/40"}`}
+        >
           {keep && <Check className="h-3 w-3 text-white" />}
         </span>
       </button>
@@ -423,7 +466,9 @@ function DuplicateVideoCard({
           alt={video.imagePath ? video.title || "" : ""}
           className="h-full w-full object-cover"
           loading="lazy"
-          onError={(event) => { event.currentTarget.style.display = "none"; }}
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+          }}
         />
       </a>
       <div className="space-y-1 p-2">
@@ -432,7 +477,9 @@ function DuplicateVideoCard({
         </a>
         {file && (
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted">
-            <span>{file.width}×{file.height}</span>
+            <span>
+              {file.width}×{file.height}
+            </span>
             <span>{getResolutionLabel(file.width, file.height)}</span>
             <span>{formatDuration(file.duration)}</span>
             <span>{formatFileSize(file.size)}</span>
@@ -440,7 +487,11 @@ function DuplicateVideoCard({
             <span>{Math.round(file.bitRate / 1000)} kbps</span>
           </div>
         )}
-        {file?.path && <p className="truncate text-[9px] text-muted" title={file.path}>{file.path}</p>}
+        {file?.path && (
+          <p className="truncate text-[9px] text-muted" title={file.path}>
+            {file.path}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -172,9 +172,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
 
   afterEach(() => {
     cleanup();
-    document
-      .querySelectorAll('[data-cove-extension-bundle="true"]')
-      .forEach((element) => element.remove());
+    document.querySelectorAll('[data-cove-extension-bundle="true"]').forEach((element) => element.remove());
   });
 
   it("loads per-extension bundle descriptors with the injected importer and resolves components by owner", async () => {
@@ -211,9 +209,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     expect(screen.getByText("Alpha owned component")).toBeInTheDocument();
     expect(screen.getByText("Alpha component slot")).toBeInTheDocument();
     expect(screen.getByText("Alpha HTML slot")).toBeInTheDocument();
-    const stylesheet = document.querySelector(
-      'link[data-cove-extension-bundle="true"][data-extension-id="ext.alpha"]',
-    );
+    const stylesheet = document.querySelector('link[data-cove-extension-bundle="true"][data-extension-id="ext.alpha"]');
     expect(stylesheet).toHaveAttribute("href", alphaBundle.cssBundleUrl);
   });
 
@@ -302,9 +298,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
           : undefined,
       },
     }));
-    getManifestMock
-      .mockResolvedValueOnce(legacyManifest)
-      .mockResolvedValueOnce(ownedManifest);
+    getManifestMock.mockResolvedValueOnce(legacyManifest).mockResolvedValueOnce(ownedManifest);
     const InjectableProvider = ExtensionLoaderProvider as ComponentType<{
       children: ReactNode;
       importBundle: BundleImporter;
@@ -426,9 +420,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
       },
     };
     const importer = vi.fn<BundleImporter>(async (url) => modules[url]);
-    getManifestMock
-      .mockResolvedValueOnce(alphaManifest)
-      .mockResolvedValueOnce(betaManifest);
+    getManifestMock.mockResolvedValueOnce(alphaManifest).mockResolvedValueOnce(betaManifest);
 
     const view = renderRuntime(importer);
 
@@ -507,9 +499,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
       },
     };
     const importer = vi.fn<BundleImporter>(async (url) => modules[url]);
-    getManifestMock
-      .mockResolvedValueOnce(alphaManifest)
-      .mockResolvedValueOnce(betaManifest);
+    getManifestMock.mockResolvedValueOnce(alphaManifest).mockResolvedValueOnce(betaManifest);
     const InjectableProvider = ExtensionLoaderProvider as ComponentType<{
       children: ReactNode;
       importBundle: BundleImporter;
@@ -558,9 +548,12 @@ describe("ExtensionLoaderProvider reconciliation", () => {
     );
     let resolveInitialManifest!: (manifest: ExtensionManifest) => void;
     getManifestMock
-      .mockImplementationOnce(() => new Promise<ExtensionManifest>((resolve) => {
-        resolveInitialManifest = resolve;
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<ExtensionManifest>((resolve) => {
+            resolveInitialManifest = resolve;
+          }),
+      )
       .mockResolvedValueOnce(betaManifest);
 
     const importer = vi.fn<BundleImporter>(async (url) => {
@@ -609,9 +602,7 @@ describe("ExtensionLoaderProvider reconciliation", () => {
       { id: "beta-component", componentName: "BetaSlot" },
       { id: "beta-html", html: "<span>Beta HTML slot</span>" },
     );
-    getManifestMock
-      .mockResolvedValueOnce(alphaManifest)
-      .mockResolvedValueOnce(failedRefreshManifest);
+    getManifestMock.mockResolvedValueOnce(alphaManifest).mockResolvedValueOnce(failedRefreshManifest);
     let resolveAlphaImport!: (module: { default: ExtensionBundleModule }) => void;
     const alphaImport = new Promise<{ default: ExtensionBundleModule }>((resolve) => {
       resolveAlphaImport = resolve;

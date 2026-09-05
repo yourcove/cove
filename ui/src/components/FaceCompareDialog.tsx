@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ExternalLink, Fingerprint, GitMerge, Link2, SkipForward, XCircle } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Fingerprint,
+  GitMerge,
+  Link2,
+  SkipForward,
+  XCircle,
+} from "lucide-react";
 import type { Face, FaceSuggestion, FaceSuggestionEvidence, FaceTopSuggestion } from "../api/types";
 import { createRouteLinkProps } from "./cardNavigation";
 import { EditModal } from "./EditModal";
@@ -81,22 +90,29 @@ export function FaceCompareDialog({
       return false;
     }
     const localPerformerId = readLocalPerformerId(active);
-    return localPerformerId != null
-      && (!!face.coverImageUrl || (faceImageUrls?.length ?? 0) > 0)
-      && active.localPerformerHasImage === false
-      && active.localPerformerIsLocalOnly === true
+    return (
+      localPerformerId != null &&
+      (!!face.coverImageUrl || (faceImageUrls?.length ?? 0) > 0) &&
+      active.localPerformerHasImage === false &&
+      active.localPerformerIsLocalOnly === true &&
       // When linking this reference match will refresh the performer from a metadata server, the
       // performer's image comes from there — setting it from the face crop is irrelevant.
-      && !readReferenceWillRefreshFromMetadata(active);
+      !readReferenceWillRefreshFromMetadata(active)
+    );
   }, [face, active, faceImageUrls]);
 
-  const evidence = useMemo(() => active ? readEvidence(active).slice(0, 5) : [], [active]);
+  const evidence = useMemo(() => (active ? readEvidence(active).slice(0, 5) : []), [active]);
   const faceImages = useMemo(
     () => buildCarouselImageUrls(face?.coverImageUrl, faceImageUrls ?? []),
     [face?.coverImageUrl, faceImageUrls],
   );
   const suggestionImages = useMemo(
-    () => buildCarouselImageUrls(active?.coverImageUrl, evidence.map((item) => item.thumbnailUrl), true),
+    () =>
+      buildCarouselImageUrls(
+        active?.coverImageUrl,
+        evidence.map((item) => item.thumbnailUrl),
+        true,
+      ),
     [evidence, active?.coverImageUrl],
   );
 
@@ -132,19 +148,25 @@ export function FaceCompareDialog({
     onNavigate({ page: "face", id: face.id });
   });
 
-  const performerLinkProps = localPerformerId != null && canReadPerformers
-    ? createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: localPerformerId }, () => {
-      onClose();
-      onNavigate({ page: "performer", id: localPerformerId });
-    })
-    : null;
+  const performerLinkProps =
+    localPerformerId != null && canReadPerformers
+      ? createRouteLinkProps<HTMLAnchorElement>({ page: "performer", id: localPerformerId }, () => {
+          onClose();
+          onNavigate({ page: "performer", id: localPerformerId });
+        })
+      : null;
 
   const secondaryPerformerIds = conflictCandidates
     .filter((item) => item.performerId !== active.performerId)
     .map((item) => item.performerId);
 
   return (
-    <EditModal title={batchLabel ? `Compare suggestion - ${batchLabel}` : "Compare suggestion"} open={open} onClose={onClose} maxWidthClassName="sm:max-w-4xl">
+    <EditModal
+      title={batchLabel ? `Compare suggestion - ${batchLabel}` : "Compare suggestion"}
+      open={open}
+      onClose={onClose}
+      maxWidthClassName="sm:max-w-4xl"
+    >
       <div className="space-y-5 py-5">
         <div className="grid gap-4 lg:grid-cols-2">
           <ComparePane
@@ -154,48 +176,65 @@ export function FaceCompareDialog({
             imageIndex={faceImageIndex}
             onImageIndexChange={setFaceImageIndex}
             fallbackLabel="Unidentified face"
-            footer={(
+            footer={
               <div className="space-y-2 text-xs text-secondary">
-                <div>{face.appearanceCount ?? 0} appearance{(face.appearanceCount ?? 0) === 1 ? "" : "s"}</div>
-                <div>{face.videoCount} video{face.videoCount === 1 ? "" : "s"} and {face.imageCount} image{face.imageCount === 1 ? "" : "s"}</div>
+                <div>
+                  {face.appearanceCount ?? 0} appearance{(face.appearanceCount ?? 0) === 1 ? "" : "s"}
+                </div>
+                <div>
+                  {face.videoCount} video{face.videoCount === 1 ? "" : "s"} and {face.imageCount} image
+                  {face.imageCount === 1 ? "" : "s"}
+                </div>
                 <a {...faceLinkProps} className="inline-flex items-center gap-1 text-accent hover:underline">
                   Open face page
                 </a>
               </div>
-            )}
+            }
           />
 
           <ComparePane
             eyebrow={referenceOnly ? "Reference suggestion" : "Suggested performer"}
             title={active.performerName}
-            titleBadge={isReferenceMatch ? (
-              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">Reference DB</span>
-            ) : undefined}
+            titleBadge={
+              isReferenceMatch ? (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                  Reference DB
+                </span>
+              ) : undefined
+            }
             imageUrls={suggestionImages}
             imageIndex={suggestionImageIndex}
             onImageIndexChange={setSuggestionImageIndex}
             fallbackLabel={active.performerName}
             alignTop
-            footer={(
+            footer={
               <div className="space-y-2 text-xs text-secondary">
                 <div>{formatPercent(active.confidence)}% confidence</div>
                 {why ? <p>{why}</p> : <p>Review the side-by-side cover images before confirming the link.</p>}
                 <div className="flex flex-wrap gap-2 pt-1">
                   {performerLinkProps ? (
-                    <a {...performerLinkProps} className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-foreground transition-colors hover:border-accent hover:text-accent">
+                    <a
+                      {...performerLinkProps}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-foreground transition-colors hover:border-accent hover:text-accent"
+                    >
                       <Link2 className="h-3.5 w-3.5" />
                       Open performer
                     </a>
                   ) : null}
                   {active.externalUrl ? (
-                    <a href={active.externalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-foreground transition-colors hover:border-accent hover:text-accent">
+                    <a
+                      href={active.externalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-foreground transition-colors hover:border-accent hover:text-accent"
+                    >
                       <ExternalLink className="h-3.5 w-3.5" />
                       Open external
                     </a>
                   ) : null}
                 </div>
               </div>
-            )}
+            }
           />
         </div>
 
@@ -218,7 +257,9 @@ export function FaceCompareDialog({
               />
               Use face image for this local performer
             </label>
-          ) : <span />}
+          ) : (
+            <span />
+          )}
           <div className="flex flex-wrap justify-end gap-2">
             {onSkip ? (
               <button
@@ -258,7 +299,11 @@ export function FaceCompareDialog({
               disabled={disabled}
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isConflict ? `Use ${truncate(active.performerName)}` : referenceOnly ? "Import performer" : "Confirm link"}
+              {isConflict
+                ? `Use ${truncate(active.performerName)}`
+                : referenceOnly
+                  ? "Import performer"
+                  : "Confirm link"}
             </button>
           </div>
         </div>
@@ -279,9 +324,12 @@ function ConflictChooser({
   return (
     <section className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
       <div>
-        <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Possible duplicate — {candidates.length} sources</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">
+          Possible duplicate — {candidates.length} sources
+        </div>
         <p className="mt-1 text-sm text-secondary">
-          This face matched more than one performer. Pick the one to use, or merge them into a single performer (the selected one becomes the primary and the others are added as aliases).
+          This face matched more than one performer. Pick the one to use, or merge them into a single performer (the
+          selected one becomes the primary and the others are added as aliases).
         </p>
       </div>
       <div className="space-y-2">
@@ -302,7 +350,12 @@ function ConflictChooser({
               />
               <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-surface/80">
                 {candidate.coverImageUrl ? (
-                  <img src={candidate.coverImageUrl} alt={candidate.performerName} className="h-full w-full object-cover object-top" loading="lazy" />
+                  <img
+                    src={candidate.coverImageUrl}
+                    alt={candidate.performerName}
+                    className="h-full w-full object-cover object-top"
+                    loading="lazy"
+                  />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-muted">
                     <Fingerprint className="h-5 w-5" />
@@ -313,10 +366,14 @@ function ConflictChooser({
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-semibold text-foreground">{candidate.performerName}</span>
                   {isReferenceMatch ? (
-                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">Reference DB</span>
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                      Reference DB
+                    </span>
                   ) : null}
                   {selected ? (
-                    <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">Primary</span>
+                    <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                      Primary
+                    </span>
                   ) : null}
                 </div>
                 <div className="text-xs text-secondary">{formatPercent(candidate.confidence)}% confidence</div>
@@ -429,9 +486,10 @@ function CompareImage({ src, alt, alignTop }: { src: string; alt: string; alignT
     setImageAspect(null);
   }, [src]);
 
-  const shouldContain = imageAspect != null && frameAspect != null
-    ? imageAspect > frameAspect * 1.12 || imageAspect < frameAspect / 1.12
-    : false;
+  const shouldContain =
+    imageAspect != null && frameAspect != null
+      ? imageAspect > frameAspect * 1.12 || imageAspect < frameAspect / 1.12
+      : false;
 
   return (
     <div ref={wrapperRef} className="h-full w-full">
@@ -442,7 +500,9 @@ function CompareImage({ src, alt, alignTop }: { src: string; alt: string; alignT
         loading="lazy"
         onLoad={(event) => {
           const image = event.currentTarget;
-          setImageAspect(image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight : null);
+          setImageAspect(
+            image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight : null,
+          );
         }}
       />
     </div>
@@ -462,14 +522,19 @@ function readConflictGroupId(suggestion: ComparableSuggestion | null) {
 }
 
 function readReferenceWillRefreshFromMetadata(suggestion: ComparableSuggestion) {
-  return "referenceWillRefreshFromMetadata" in suggestion ? suggestion.referenceWillRefreshFromMetadata === true : false;
+  return "referenceWillRefreshFromMetadata" in suggestion
+    ? suggestion.referenceWillRefreshFromMetadata === true
+    : false;
 }
 
 // Reference (metadata-server) link info to send back on accept, so the host can record the remote id on
 // the linked performer and scrape it when enabled. Empty for non-reference suggestions (or the cached
 // top-suggestion projection, which does not carry the endpoint).
-export function readReferenceLinkInfo(suggestion: FaceSuggestion | FaceTopSuggestion):
-  { referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean } {
+export function readReferenceLinkInfo(suggestion: FaceSuggestion | FaceTopSuggestion): {
+  referenceEndpoint?: string;
+  referenceExternalId?: string;
+  referenceUpdateMetadata?: boolean;
+} {
   if (!("referenceEndpoint" in suggestion) || !suggestion.referenceEndpoint || !suggestion.referenceExternalId) {
     return {};
   }
@@ -484,7 +549,11 @@ function readLocalPerformerId(suggestion: ComparableSuggestion) {
   return suggestion.localPerformerId ?? (suggestion.performerId > 0 ? suggestion.performerId : undefined);
 }
 
-function buildCarouselImageUrls(primaryUrl: string | undefined, samples: Array<string | undefined>, skipFirstSampleWithPrimary = false) {
+function buildCarouselImageUrls(
+  primaryUrl: string | undefined,
+  samples: Array<string | undefined>,
+  skipFirstSampleWithPrimary = false,
+) {
   const usableSamples = primaryUrl && skipFirstSampleWithPrimary ? samples.slice(1) : samples;
   return uniqueImageUrls([primaryUrl, ...usableSamples]).slice(0, 3);
 }

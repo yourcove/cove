@@ -31,22 +31,22 @@ vi.mock("../api/client", () => ({
 
 function buildStudio() {
   return {
-      id: 25,
-      name: "Example Studio",
-      aliases: [],
-      urls: [],
-      tags: [],
-      remoteIds: [],
-      videoCount: 1,
-      performerCount: 0,
-      galleryCount: 0,
-      imageCount: 0,
-      audioCount: 0,
-      textCount: 0,
-      childStudioCount: 0,
-      groupCount: 0,
-      customFields: {},
-    };
+    id: 25,
+    name: "Example Studio",
+    aliases: [],
+    urls: [],
+    tags: [],
+    remoteIds: [],
+    videoCount: 1,
+    performerCount: 0,
+    galleryCount: 0,
+    imageCount: 0,
+    audioCount: 0,
+    textCount: 0,
+    childStudioCount: 0,
+    groupCount: 0,
+    customFields: {},
+  };
 }
 
 vi.mock("../hooks/useDetailListQuery", () => ({

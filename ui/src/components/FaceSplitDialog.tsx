@@ -122,7 +122,12 @@ export function FaceSplitDialog({
   const hostNoun = hostType === "video" ? "video" : "image";
 
   return (
-    <EditModal title={`Separate people in "${faceTitle}"`} open={open} onClose={onClose} maxWidthClassName="sm:max-w-3xl">
+    <EditModal
+      title={`Separate people in "${faceTitle}"`}
+      open={open}
+      onClose={onClose}
+      maxWidthClassName="sm:max-w-3xl"
+    >
       <div className="space-y-4">
         <p className="text-sm text-secondary">
           {hasProposal
@@ -140,7 +145,9 @@ export function FaceSplitDialog({
             <p className="mt-1 break-words text-sm text-red-200/80">{describeError(error)}</p>
             <button
               type="button"
-              onClick={() => { void refetch(); }}
+              onClick={() => {
+                void refetch();
+              }}
               className="mt-4 rounded-lg border border-red-300/40 px-3 py-1.5 text-sm text-red-100 hover:bg-red-500/15"
             >
               Try again
@@ -155,13 +162,16 @@ export function FaceSplitDialog({
           <div className="space-y-3 rounded-2xl border border-border bg-card/40 p-5 text-center">
             <Fingerprint className="mx-auto h-8 w-8 text-muted" />
             <p className="text-sm text-secondary">
-              This face appears only once in this {hostNoun}, so there is nothing to separate. If it is the
-              wrong person here, mark it not present instead.
+              This face appears only once in this {hostNoun}, so there is nothing to separate. If it is the wrong person
+              here, mark it not present instead.
             </p>
             {onMarkNotPresent ? (
               <button
                 type="button"
-                onClick={() => { onClose(); onMarkNotPresent(); }}
+                onClick={() => {
+                  onClose();
+                  onMarkNotPresent();
+                }}
                 className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-foreground transition-colors hover:border-accent"
               >
                 <UserX className="h-4 w-4" />
@@ -213,8 +223,8 @@ export function FaceSplitDialog({
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-200">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              Every appearance is selected, which would leave this face with nothing here. Deselect at least
-              one, or mark the face not present in this {hostNoun} instead.
+              Every appearance is selected, which would leave this face with nothing here. Deselect at least one, or
+              mark the face not present in this {hostNoun} instead.
             </span>
           </div>
         ) : null}
@@ -290,20 +300,13 @@ function describeError(error: unknown): string {
   return detail ? `${detail} (HTTP ${status})` : `The request failed (HTTP ${status}).`;
 }
 
-function TrackCard({
-  track,
-  selected,
-  onToggle,
-}: {
-  track: FaceHostTrack;
-  selected: boolean;
-  onToggle: () => void;
-}) {
+function TrackCard({ track, selected, onToggle }: { track: FaceHostTrack; selected: boolean; onToggle: () => void }) {
   // Tight crop: the whole point here is telling one face apart from the others in the same shot, and
   // the default portrait context (1.8x the box) routinely pulls a neighbour's face into frame.
-  const thumbnailUrl = track.representativeDetectionId != null
-    ? faces.detectionCropUrl(track.representativeDetectionId, 320, 1.15)
-    : undefined;
+  const thumbnailUrl =
+    track.representativeDetectionId != null
+      ? faces.detectionCropUrl(track.representativeDetectionId, 320, 1.15)
+      : undefined;
   const start = track.firstSeenSeconds;
   const end = track.lastSeenSeconds;
   const spanSeconds = start != null && end != null ? Math.max(0, end - start) : null;
@@ -329,7 +332,9 @@ function TrackCard({
         )}
         <span
           className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors ${
-            selected ? "border-accent bg-accent text-white" : "border-white/30 bg-black/50 text-transparent group-hover:text-white/60"
+            selected
+              ? "border-accent bg-accent text-white"
+              : "border-white/30 bg-black/50 text-transparent group-hover:text-white/60"
           }`}
         >
           <Check className="h-3.5 w-3.5" />

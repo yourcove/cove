@@ -29,9 +29,38 @@ import type { CriterionDefinition, CriterionType } from "./filterCriteriaTypes";
 
 const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   string: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
-  country: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
-  path: ["UNDER_PATH", "NOT_UNDER_PATH", "EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
-  remoteId: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
+  country: [
+    "EQUALS",
+    "NOT_EQUALS",
+    "INCLUDES",
+    "EXCLUDES",
+    "MATCHES_REGEX",
+    "NOT_MATCHES_REGEX",
+    "IS_NULL",
+    "NOT_NULL",
+  ],
+  path: [
+    "UNDER_PATH",
+    "NOT_UNDER_PATH",
+    "EQUALS",
+    "NOT_EQUALS",
+    "INCLUDES",
+    "EXCLUDES",
+    "MATCHES_REGEX",
+    "NOT_MATCHES_REGEX",
+    "IS_NULL",
+    "NOT_NULL",
+  ],
+  remoteId: [
+    "EQUALS",
+    "NOT_EQUALS",
+    "INCLUDES",
+    "EXCLUDES",
+    "MATCHES_REGEX",
+    "NOT_MATCHES_REGEX",
+    "IS_NULL",
+    "NOT_NULL",
+  ],
   hash: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   number: ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"],
   bool: ["EQUALS"],
@@ -46,7 +75,6 @@ const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   enum: ["EQUALS", "NOT_EQUALS", "IS_NULL", "NOT_NULL"],
   related: [],
 };
-
 
 export function CriterionEditor({
   criterion,
@@ -92,9 +120,22 @@ export function CriterionEditor({
         />
       );
     case "tagDuration":
-      return <TagDurationEditor value={value as TagDurationCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
+      return (
+        <TagDurationEditor
+          value={value as TagDurationCriterion | undefined}
+          onChange={onChange}
+          modifiers={modifiers}
+        />
+      );
     case "hash":
-      return <HashEditor value={value as FingerprintCriterion | undefined} onChange={onChange} modifiers={modifiers} options={criterion.options ?? []} />;
+      return (
+        <HashEditor
+          value={value as FingerprintCriterion | undefined}
+          onChange={onChange}
+          modifiers={modifiers}
+          options={criterion.options ?? []}
+        />
+      );
     case "string":
       return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "country":
@@ -102,17 +143,44 @@ export function CriterionEditor({
     case "path":
       return <PathEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "remoteId":
-      return <RemoteIdFilterEditor value={value as (StringCriterion & { endpoint?: string }) | undefined} onChange={onChange} modifiers={modifiers} />;
+      return (
+        <RemoteIdFilterEditor
+          value={value as (StringCriterion & { endpoint?: string }) | undefined}
+          onChange={onChange}
+          modifiers={modifiers}
+        />
+      );
     case "enum":
-      return criterion.multiSelectOptions
-        ? <MultiEnumEditor value={value as StringCriterion | undefined} onChange={onChange} options={criterion.options ?? []} />
-        : <EnumEditor value={value as StringCriterion | undefined} onChange={onChange} options={criterion.options ?? []} modifiers={modifiers} />;
+      return criterion.multiSelectOptions ? (
+        <MultiEnumEditor
+          value={value as StringCriterion | undefined}
+          onChange={onChange}
+          options={criterion.options ?? []}
+        />
+      ) : (
+        <EnumEditor
+          value={value as StringCriterion | undefined}
+          onChange={onChange}
+          options={criterion.options ?? []}
+          modifiers={modifiers}
+        />
+      );
     case "date":
       return <DateEditor value={value as DateCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "timestamp":
-      return <TimestampEditor value={value as TimestampCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
+      return (
+        <TimestampEditor value={value as TimestampCriterion | undefined} onChange={onChange} modifiers={modifiers} />
+      );
     case "multiId":
-      return <MultiIdEditor value={value as MultiIdCriterion | undefined} onChange={onChange} entityType={entityType!} modifiers={modifiers} hierarchyToggleLabel={criterion.hierarchyToggleLabel} />;
+      return (
+        <MultiIdEditor
+          value={value as MultiIdCriterion | undefined}
+          onChange={onChange}
+          entityType={entityType!}
+          modifiers={modifiers}
+          hierarchyToggleLabel={criterion.hierarchyToggleLabel}
+        />
+      );
     default:
       return null;
   }

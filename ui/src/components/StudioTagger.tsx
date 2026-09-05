@@ -1,7 +1,12 @@
 import { useCallback, useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { studios } from "../api/client";
-import type { Studio, MetadataServer, MetadataServerStudioMatch, MetadataServerStudioImportRequest } from "../api/types";
+import type {
+  Studio,
+  MetadataServer,
+  MetadataServerStudioMatch,
+  MetadataServerStudioImportRequest,
+} from "../api/types";
 import { useAppConfig } from "../state/AppConfigContext";
 import { DEFAULT_COLLECTION_MODES, type CollectionMode } from "./videoScrapeUtils";
 import {
@@ -15,9 +20,7 @@ import {
   TaggerToolbar,
   cleanTaggerQueryString,
 } from "./TaggerShared";
-import {
-  Search, Loader2, Check, AlertCircle, Fingerprint, CloudUpload,
-} from "lucide-react";
+import { Search, Loader2, Check, AlertCircle, Fingerprint, CloudUpload } from "lucide-react";
 import { toggleOptionsFromEvent, withOrderedToggle, type MultiSelectToggleOptions } from "../hooks/useMultiSelect";
 
 interface StudioTaggerProps {
@@ -47,7 +50,12 @@ interface StudioSearchState {
 type StudioFieldStrategy = "ignore" | "merge" | "overwrite";
 
 const CONCURRENCY_LIMIT = 5;
-async function runWithConcurrency<T>(items: T[], fn: (item: T) => Promise<void>, limit: number, signal?: AbortSignal): Promise<void> {
+async function runWithConcurrency<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<void> {
   let index = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (index < items.length) {
@@ -71,29 +79,41 @@ function normalizeDecisionValue(value?: string | number | null) {
 
 function getStudioCurrentValue(studio: Studio, field: string) {
   switch (field) {
-    case "name": return studio.name;
-    case "parent": return studio.parentName;
-    case "image": return studio.imagePath ? "Current logo" : undefined;
-    default: return undefined;
+    case "name":
+      return studio.name;
+    case "parent":
+      return studio.parentName;
+    case "image":
+      return studio.imagePath ? "Current logo" : undefined;
+    default:
+      return undefined;
   }
 }
 
 function getStudioScrapedValue(result: MetadataServerStudioMatch, field: string) {
   switch (field) {
-    case "name": return result.name;
-    case "parent": return result.parentName;
-    case "image": return result.imageUrl ? "MetadataServer logo" : undefined;
-    default: return undefined;
+    case "name":
+      return result.name;
+    case "parent":
+      return result.parentName;
+    case "image":
+      return result.imageUrl ? "MetadataServer logo" : undefined;
+    default:
+      return undefined;
   }
 }
 
-function buildDefaultStudioFieldStrategies(studio: Studio, result: MetadataServerStudioMatch): Record<string, StudioFieldStrategy> {
+function buildDefaultStudioFieldStrategies(
+  studio: Studio,
+  result: MetadataServerStudioMatch,
+): Record<string, StudioFieldStrategy> {
   const strategies: Record<string, StudioFieldStrategy> = {};
   for (const field of studioScalarFields) {
     const scraped = getStudioScrapedValue(result, field.key);
     if (scraped === undefined || scraped === null || scraped === "") continue;
     const current = getStudioCurrentValue(studio, field.key);
-    strategies[field.key] = normalizeDecisionValue(current) === normalizeDecisionValue(scraped) ? "ignore" : "overwrite";
+    strategies[field.key] =
+      normalizeDecisionValue(current) === normalizeDecisionValue(scraped) ? "ignore" : "overwrite";
   }
   // Cover logo: replace-if-empty, keep-if-exists. "overwrite" replaces the logo; "ignore" keeps it.
   if (result.imageUrl) {
@@ -134,7 +154,13 @@ function buildStudioFieldStrategies(studio: Studio, result: MetadataServerStudio
   };
 }
 
-export function StudioTagger({ studios: studioList, selectedIds, selecting = false, onSelect, mode = "bulk" }: StudioTaggerProps) {
+export function StudioTagger({
+  studios: studioList,
+  selectedIds,
+  selecting = false,
+  onSelect,
+  mode = "bulk",
+}: StudioTaggerProps) {
   const { config } = useAppConfig();
   const metadataServers = config?.scraping?.metadataServers ?? [];
 
@@ -148,12 +174,9 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
   const [queryOverrides, setQueryOverrides] = useState<Record<number, string>>({});
   const [showSettings, setShowSettings] = useState(false);
 
-  const updateSearchState = useCallback(
-    (studioId: number, update: Partial<StudioSearchState>) => {
-      setSearchStates((prev) => ({ ...prev, [studioId]: { ...prev[studioId], ...update } }));
-    },
-    []
-  );
+  const updateSearchState = useCallback((studioId: number, update: Partial<StudioSearchState>) => {
+    setSearchStates((prev) => ({ ...prev, [studioId]: { ...prev[studioId], ...update } }));
+  }, []);
 
   const searchStudio = useCallback(
     async (studio: Studio) => {
@@ -174,7 +197,7 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
         });
       }
     },
-    [queryOverrides, taggerConfig.blacklist, taggerConfig.selectedEndpoint, updateSearchState]
+    [queryOverrides, taggerConfig.blacklist, taggerConfig.selectedEndpoint, updateSearchState],
   );
 
   const [batchSearching, setBatchSearching] = useState(false);
@@ -208,9 +231,10 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
 
   // Detail mode was opened for this specific studio, so always show it (the bulk "hide tagged"
   // convenience filter would otherwise leave the dialog empty for an already-tagged studio).
-  const visibleStudios = mode === "detail" || taggerConfig.showTagged
-    ? studioList
-    : studioList.filter((s) => !s.remoteIds || s.remoteIds.length === 0);
+  const visibleStudios =
+    mode === "detail" || taggerConfig.showTagged
+      ? studioList
+      : studioList.filter((s) => !s.remoteIds || s.remoteIds.length === 0);
   const visibleStudioIds = visibleStudios.map((studio) => studio.id);
 
   return (
@@ -222,12 +246,16 @@ export function StudioTagger({ studios: studioList, selectedIds, selecting = fal
           setTaggerConfig((current) => ({ ...current, selectedEndpoint: value }));
           setQueryOverrides({});
         }}
-        showToggle={mode === "bulk" ? {
-          value: taggerConfig.showTagged,
-          onChange: (value) => setTaggerConfig((current) => ({ ...current, showTagged: value })),
-          enabledLabel: "Hide Already Tagged",
-          disabledLabel: "Show All Studios",
-        } : undefined}
+        showToggle={
+          mode === "bulk"
+            ? {
+                value: taggerConfig.showTagged,
+                onChange: (value) => setTaggerConfig((current) => ({ ...current, showTagged: value })),
+                enabledLabel: "Hide Already Tagged",
+                disabledLabel: "Show All Studios",
+              }
+            : undefined
+        }
         batchSearching={batchSearching}
         onCancelBatch={cancelBatchSearch}
         onRunAll={searchAll}
@@ -302,23 +330,26 @@ function StudioTaggerRow({
   const imageUrl = studio.imagePath;
   const [refreshBusyEndpoint, setRefreshBusyEndpoint] = useState<string | null>(null);
 
-  const refreshFromRemote = useCallback(async (refreshEndpoint: string, remoteId: string) => {
-    setRefreshBusyEndpoint(refreshEndpoint);
-    onUpdateState({ loading: true, error: undefined, results: undefined, saved: false });
-    try {
-      const results = await studios.findMetadataServerByIds({ endpoint: refreshEndpoint, ids: [remoteId] });
-      onUpdateState({
-        loading: false,
-        results,
-        selectedIndex: results.length > 0 ? 0 : undefined,
-        error: results.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
-      });
-    } catch (err) {
-      onUpdateState({ loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
-    } finally {
-      setRefreshBusyEndpoint(null);
-    }
-  }, [onUpdateState]);
+  const refreshFromRemote = useCallback(
+    async (refreshEndpoint: string, remoteId: string) => {
+      setRefreshBusyEndpoint(refreshEndpoint);
+      onUpdateState({ loading: true, error: undefined, results: undefined, saved: false });
+      try {
+        const results = await studios.findMetadataServerByIds({ endpoint: refreshEndpoint, ids: [remoteId] });
+        onUpdateState({
+          loading: false,
+          results,
+          selectedIndex: results.length > 0 ? 0 : undefined,
+          error: results.length === 0 ? "No metadata-server entry found for this remote id." : undefined,
+        });
+      } catch (err) {
+        onUpdateState({ loading: false, error: err instanceof Error ? err.message : "Refresh failed" });
+      } finally {
+        setRefreshBusyEndpoint(null);
+      }
+    },
+    [onUpdateState],
+  );
 
   const importMut = useMutation({
     mutationFn: () => {
@@ -371,7 +402,11 @@ function StudioTaggerRow({
           {studio.remoteIds && studio.remoteIds.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               {studio.remoteIds.map((sid) => (
-                <span key={`${sid.endpoint}-${sid.remoteId}`} className="text-[9px] px-1.5 py-0.5 rounded bg-green-600/20 text-green-300" title={sid.endpoint}>
+                <span
+                  key={`${sid.endpoint}-${sid.remoteId}`}
+                  className="text-[9px] px-1.5 py-0.5 rounded bg-green-600/20 text-green-300"
+                  title={sid.endpoint}
+                >
                   <Fingerprint className="w-2.5 h-2.5 inline mr-0.5" />
                   {sid.remoteId.substring(0, 8)}…
                 </span>
@@ -413,26 +448,35 @@ function StudioTaggerRow({
               className="flex items-center gap-1 px-2 py-1.5 rounded text-xs bg-surface border border-border text-muted hover:text-foreground disabled:opacity-60"
               title="Submit this studio as a draft entry to the metadata server"
             >
-              {submitDraftMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+              {submitDraftMut.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <CloudUpload className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
 
           {submitDraftMut.isError && (
-            <p className="text-xs text-red-400 mb-2"><AlertCircle className="w-3 h-3 inline mr-1" />{submitDraftMut.error.message}</p>
+            <p className="text-xs text-red-400 mb-2">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {submitDraftMut.error.message}
+            </p>
           )}
           {submitDraftMut.isSuccess && (
-            <p className="text-xs text-green-400 mb-2"><Check className="w-3 h-3 inline mr-1" />Studio draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.</p>
+            <p className="text-xs text-green-400 mb-2">
+              <Check className="w-3 h-3 inline mr-1" />
+              Studio draft submitted{submitDraftMut.data.draftId ? ` (${submitDraftMut.data.draftId})` : ""}.
+            </p>
           )}
 
           {state?.error && (
             <p className="text-xs text-red-400 mb-2">
-              <AlertCircle className="w-3 h-3 inline mr-1" />{state.error}
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {state.error}
             </p>
           )}
 
-          {state?.results && state.results.length === 0 && (
-            <p className="text-xs text-muted">No matches found.</p>
-          )}
+          {state?.results && state.results.length === 0 && <p className="text-xs text-muted">No matches found.</p>}
 
           {state?.results && state.results.length > 0 && (
             <div className="space-y-1">
@@ -444,9 +488,21 @@ function StudioTaggerRow({
                   isSelected={i === (state.selectedIndex ?? 0)}
                   fieldStrategies={getStudioFieldStrategies(studio, result, state)}
                   collectionModes={getStudioCollectionModes(result, state)}
-                  onFieldStrategyChange={(field, strategy) => onUpdateState({ fieldStrategies: { ...getStudioFieldStrategies(studio, result, state), [field]: strategy } })}
-                  onCollectionModeChange={(field, mode) => onUpdateState({ collectionModes: { ...getStudioCollectionModes(result, state), [field]: mode } })}
-                  onClick={() => onUpdateState(i === (state.selectedIndex ?? 0) ? { selectedIndex: i } : { selectedIndex: i, fieldStrategies: undefined, collectionModes: undefined })}
+                  onFieldStrategyChange={(field, strategy) =>
+                    onUpdateState({
+                      fieldStrategies: { ...getStudioFieldStrategies(studio, result, state), [field]: strategy },
+                    })
+                  }
+                  onCollectionModeChange={(field, mode) =>
+                    onUpdateState({ collectionModes: { ...getStudioCollectionModes(result, state), [field]: mode } })
+                  }
+                  onClick={() =>
+                    onUpdateState(
+                      i === (state.selectedIndex ?? 0)
+                        ? { selectedIndex: i }
+                        : { selectedIndex: i, fieldStrategies: undefined, collectionModes: undefined },
+                    )
+                  }
                   onSave={i === (state.selectedIndex ?? 0) ? () => importMut.mutate() : undefined}
                   saving={i === (state.selectedIndex ?? 0) ? importMut.isPending : false}
                   saved={state.saved}
@@ -457,7 +513,8 @@ function StudioTaggerRow({
 
           {state?.saved && (
             <div className="flex items-center gap-1 mt-2 text-xs text-green-400">
-              <Check className="w-3.5 h-3.5" />Saved successfully
+              <Check className="w-3.5 h-3.5" />
+              Saved successfully
             </div>
           )}
         </div>
@@ -565,7 +622,10 @@ function StudioResultRow({
           {onSave && !saved && (
             <div className="flex justify-end">
               <button
-                onClick={(e) => { e.stopPropagation(); onSave(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSave();
+                }}
                 disabled={saving}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-500 disabled:opacity-60"
               >

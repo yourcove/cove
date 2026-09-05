@@ -52,13 +52,15 @@ describe("metadata refresh import endpoints", () => {
 
   it("imports a tag through the endpoint that returned the refreshed result", async () => {
     const user = userEvent.setup();
-    mocks.tagsFindByIds.mockResolvedValue([{
-      endpoint: "https://second.example/graphql",
-      metadataServerName: "Second",
-      id: "second-tag",
-      name: "Refreshed tag",
-      aliases: [],
-    }]);
+    mocks.tagsFindByIds.mockResolvedValue([
+      {
+        endpoint: "https://second.example/graphql",
+        metadataServerName: "Second",
+        id: "second-tag",
+        name: "Refreshed tag",
+        aliases: [],
+      },
+    ]);
     const tag = {
       id: 11,
       name: "Local tag",
@@ -75,21 +77,25 @@ describe("metadata refresh import endpoints", () => {
     await user.click(screen.getByRole("button", { name: "Refresh from Second" }));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.tagsImport).toHaveBeenCalledWith(11, {
-      endpoint: "https://second.example/graphql",
-      tagId: "second-tag",
-    }));
+    await waitFor(() =>
+      expect(mocks.tagsImport).toHaveBeenCalledWith(11, {
+        endpoint: "https://second.example/graphql",
+        tagId: "second-tag",
+      }),
+    );
   });
 
   it("shows tag metadata imports that skipped conflicting remote claims as partial successes", async () => {
     const user = userEvent.setup();
-    mocks.tagsFindByIds.mockResolvedValue([{
-      endpoint: "https://second.example/graphql",
-      metadataServerName: "Second",
-      id: "second-tag",
-      name: "Refreshed tag",
-      aliases: ["Remote alias"],
-    }]);
+    mocks.tagsFindByIds.mockResolvedValue([
+      {
+        endpoint: "https://second.example/graphql",
+        metadataServerName: "Second",
+        id: "second-tag",
+        name: "Refreshed tag",
+        aliases: ["Remote alias"],
+      },
+    ]);
     mocks.tagsImport.mockResolvedValue({
       importWarnings: ["Skipped a remote alias because it is already claimed by another tag."],
     });
@@ -112,14 +118,16 @@ describe("metadata refresh import endpoints", () => {
 
   it("imports a studio through the endpoint that returned the refreshed result", async () => {
     const user = userEvent.setup();
-    mocks.studiosFindByIds.mockResolvedValue([{
-      endpoint: "https://second.example/graphql",
-      serverName: "Second",
-      id: "second-studio",
-      name: "Refreshed studio",
-      aliases: [],
-      urls: [],
-    }]);
+    mocks.studiosFindByIds.mockResolvedValue([
+      {
+        endpoint: "https://second.example/graphql",
+        serverName: "Second",
+        id: "second-studio",
+        name: "Refreshed studio",
+        aliases: [],
+        urls: [],
+      },
+    ]);
     const studio: Studio = {
       id: 21,
       name: "Local studio",
@@ -148,9 +156,14 @@ describe("metadata refresh import endpoints", () => {
     await user.click(screen.getByRole("button", { name: "Refresh from Second" }));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.studiosImport).toHaveBeenCalledWith(21, expect.objectContaining({
-      endpoint: "https://second.example/graphql",
-      studioId: "second-studio",
-    })));
+    await waitFor(() =>
+      expect(mocks.studiosImport).toHaveBeenCalledWith(
+        21,
+        expect.objectContaining({
+          endpoint: "https://second.example/graphql",
+          studioId: "second-studio",
+        }),
+      ),
+    );
   });
 });

@@ -144,7 +144,11 @@ export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClo
               Queue MetadataServer tagging for {selectedIds.length} selected {entityCopy.plural}.
             </p>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-foreground" aria-label="Close MetadataServer batch dialog">
+          <button
+            onClick={onClose}
+            className="text-muted hover:text-foreground"
+            aria-label="Close MetadataServer batch dialog"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -171,7 +175,8 @@ export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClo
             )}
             {selectedServer ? (
               <div className="rounded-xl border border-border bg-card/50 px-4 py-3 text-xs text-muted">
-                Estimated remote lookups: {estimatedRequests}. At {selectedServer.maxRequestsPerMinute} requests/minute this batch should take about {estimatedMinutes} minute{estimatedMinutes === 1 ? "" : "s"}.
+                Estimated remote lookups: {estimatedRequests}. At {selectedServer.maxRequestsPerMinute} requests/minute
+                this batch should take about {estimatedMinutes} minute{estimatedMinutes === 1 ? "" : "s"}.
               </div>
             ) : null}
           </div>
@@ -206,7 +211,10 @@ export function MetadataServerBatchDialog({ open, entityType, selectedIds, onClo
               {fieldOptions.map((option) => {
                 const selected = excludeFields.includes(option.id);
                 return (
-                  <label key={option.id} className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm text-secondary">
+                  <label
+                    key={option.id}
+                    className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm text-secondary"
+                  >
                     <input
                       type="checkbox"
                       checked={selected}

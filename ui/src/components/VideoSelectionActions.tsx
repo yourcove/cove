@@ -20,8 +20,12 @@ import {
   type BatchDownloadOptions,
 } from "../utils/batchDownloads";
 
-const VideoDownloadDialog = lazy(() => import("./VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })));
-const BatchDownloadOptionsDialog = lazy(() => import("./BatchDownloadOptionsDialog").then((module) => ({ default: module.BatchDownloadOptionsDialog })));
+const VideoDownloadDialog = lazy(() =>
+  import("./VideoDownloadDialog").then((module) => ({ default: module.VideoDownloadDialog })),
+);
+const BatchDownloadOptionsDialog = lazy(() =>
+  import("./BatchDownloadOptionsDialog").then((module) => ({ default: module.BatchDownloadOptionsDialog })),
+);
 const MergeDialog = lazy(() => import("./MergeDialog").then((module) => ({ default: module.MergeDialog })));
 const IdentifyDialog = lazy(() => import("./IdentifyDialog").then((module) => ({ default: module.IdentifyDialog })));
 
@@ -80,11 +84,16 @@ export function VideoSelectionActions({
 
   const selectedVideos = useMemo(() => items.filter((video) => selectedIds.has(video.id)), [items, selectedIds]);
   const selectedVideo = selectedIds.size === 1 ? selectedVideos[0] : undefined;
-  const selectedDownloadTargets = useMemo(() => getUndownloadedSelectionItems(items, selectedIds), [items, selectedIds]);
+  const selectedDownloadTargets = useMemo(
+    () => getUndownloadedSelectionItems(items, selectedIds),
+    [items, selectedIds],
+  );
   const canDownloadSelection = canDownload && selectedDownloadTargets.length > 0;
 
   const batchDownloadStorageKey = getBatchDownloadOptionsStorageKey(storageKey);
-  const [batchDownloadOptions, setBatchDownloadOptions] = useState<BatchDownloadOptions>(() => loadStoredBatchDownloadOptions(batchDownloadStorageKey));
+  const [batchDownloadOptions, setBatchDownloadOptions] = useState<BatchDownloadOptions>(() =>
+    loadStoredBatchDownloadOptions(batchDownloadStorageKey),
+  );
   useEffect(() => {
     setBatchDownloadOptions(loadStoredBatchDownloadOptions(batchDownloadStorageKey));
   }, [batchDownloadStorageKey]);
@@ -93,8 +102,13 @@ export function VideoSelectionActions({
     queryClient.invalidateQueries({ queryKey: [queryKey] });
   }, [queryClient, queryKey]);
 
-  const bulkDeleteMut = useMutation<BulkDeletionJobStart, Error, { deleteFile?: boolean; deleteGenerated?: boolean } | undefined>({
-    mutationFn: (options?: { deleteFile?: boolean; deleteGenerated?: boolean }) => videos.bulkDelete([...selectedIds], options),
+  const bulkDeleteMut = useMutation<
+    BulkDeletionJobStart,
+    Error,
+    { deleteFile?: boolean; deleteGenerated?: boolean } | undefined
+  >({
+    mutationFn: (options?: { deleteFile?: boolean; deleteGenerated?: boolean }) =>
+      videos.bulkDelete([...selectedIds], options),
     onSuccess: () => {
       setShowDeleteConfirm(false);
       onSelectNone();
@@ -128,12 +142,17 @@ export function VideoSelectionActions({
     const ids = selectedVideos.map((video) => video.id);
     if (ids.length === 0) return;
 
-    setQueue(ids, ids[0], selectedVideos.map((video) => ({
-      id: video.id,
-      title: video.title || video.files[0]?.basename || `Video ${video.id}`,
-      subtitle: video.studioName || video.date || undefined,
-      imagePath: videos.screenshotUrl(video.id, video.updatedAt),
-    })), { autoplay: continuePlaylistDefault });
+    setQueue(
+      ids,
+      ids[0],
+      selectedVideos.map((video) => ({
+        id: video.id,
+        title: video.title || video.files[0]?.basename || `Video ${video.id}`,
+        subtitle: video.studioName || video.date || undefined,
+        imagePath: videos.screenshotUrl(video.id, video.updatedAt),
+      })),
+      { autoplay: continuePlaylistDefault },
+    );
     onSelectNone();
     onNavigate({ page: "video", id: ids[0] });
   }, [continuePlaylistDefault, onNavigate, onSelectNone, selectedVideos, setQueue]);
@@ -157,24 +176,36 @@ export function VideoSelectionActions({
         </button>
       )}
       {canWrite && (
-        <button onClick={() => setShowBulkEdit(true)} className={`${actionClass} text-accent hover:text-accent-hover hover:bg-accent/10`}>
+        <button
+          onClick={() => setShowBulkEdit(true)}
+          className={`${actionClass} text-accent hover:text-accent-hover hover:bg-accent/10`}
+        >
           <Edit className="w-3 h-3" />
           Edit
         </button>
       )}
       {canIdentify && (
-        <button onClick={() => setShowIdentify(true)} className={`${actionClass} text-accent hover:text-accent-hover hover:bg-accent/10`}>
+        <button
+          onClick={() => setShowIdentify(true)}
+          className={`${actionClass} text-accent hover:text-accent-hover hover:bg-accent/10`}
+        >
           <Search className="w-3 h-3" />
           Identify
         </button>
       )}
       {canWrite && selectedIds.size >= 2 && (
-        <button onClick={() => setShowMerge(true)} className={`${actionClass} text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20`}>
+        <button
+          onClick={() => setShowMerge(true)}
+          className={`${actionClass} text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20`}
+        >
           <Merge className="w-3 h-3" />
           Merge
         </button>
       )}
-      <button onClick={handlePlaySelected} className={`${actionClass} text-green-400 hover:text-green-300 hover:bg-green-900/20`}>
+      <button
+        onClick={handlePlaySelected}
+        className={`${actionClass} text-green-400 hover:text-green-300 hover:bg-green-900/20`}
+      >
         <Play className="w-3 h-3" />
         Play
       </button>
@@ -213,7 +244,12 @@ export function VideoSelectionActions({
       />
       <Suspense fallback={null}>
         {downloadTarget !== null ? (
-          <VideoDownloadDialog open video={downloadTarget} onClose={() => setDownloadTarget(null)} onNavigate={onNavigate} />
+          <VideoDownloadDialog
+            open
+            video={downloadTarget}
+            onClose={() => setDownloadTarget(null)}
+            onNavigate={onNavigate}
+          />
         ) : null}
         {showBatchDownloadOptions ? (
           <BatchDownloadOptionsDialog
@@ -234,15 +270,28 @@ export function VideoSelectionActions({
         {showMerge ? (
           <MergeDialog
             open
-            onClose={() => { setShowMerge(false); onSelectNone(); }}
+            onClose={() => {
+              setShowMerge(false);
+              onSelectNone();
+            }}
             entityType="video"
-            items={selectedVideos.map((video) => ({ id: video.id, name: video.title || video.files[0]?.basename || `Video ${video.id}` }))}
+            items={selectedVideos.map((video) => ({
+              id: video.id,
+              name: video.title || video.files[0]?.basename || `Video ${video.id}`,
+            }))}
             onMerge={videos.merge}
             queryKey={queryKey}
           />
         ) : null}
         {showIdentify ? (
-          <IdentifyDialog open onClose={() => { setShowIdentify(false); onSelectNone(); }} videoIds={[...selectedIds]} />
+          <IdentifyDialog
+            open
+            onClose={() => {
+              setShowIdentify(false);
+              onSelectNone();
+            }}
+            videoIds={[...selectedIds]}
+          />
         ) : null}
       </Suspense>
     </>

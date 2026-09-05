@@ -43,7 +43,7 @@ function generateUuid() {
   }
 
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-    const random = Math.random() * 16 | 0;
+    const random = (Math.random() * 16) | 0;
     const value = character === "x" ? random : (random & 0x3) | 0x8;
     return value.toString(16);
   });
@@ -56,11 +56,9 @@ const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const CLIP_BOUNDARY_TOLERANCE_SEC = 0.05;
 
 function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() => (
-    typeof window !== "undefined"
-    && typeof window.matchMedia === "function"
-    && window.matchMedia(query).matches
-  ));
+  const [matches, setMatches] = useState(
+    () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches,
+  );
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
@@ -123,7 +121,10 @@ function isBrowserCompatibleAudio(codec?: string) {
   return !INCOMPATIBLE_AUDIO_CODECS.has(normalized);
 }
 
-function usePersistedFlag(key: string, defaultValue: boolean): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
+function usePersistedFlag(
+  key: string,
+  defaultValue: boolean,
+): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
   const [value, setValue] = useState<boolean>(() => {
     if (typeof window === "undefined") return defaultValue;
     try {
@@ -136,17 +137,20 @@ function usePersistedFlag(key: string, defaultValue: boolean): [boolean, (next: 
     return defaultValue;
   });
 
-  const setPersistedValue = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
-    setValue((previous) => {
-      const resolved = typeof next === "function" ? (next as (prev: boolean) => boolean)(previous) : next;
-      try {
-        window.localStorage.setItem(key, resolved ? "true" : "false");
-      } catch {
-        // Ignore storage access failures.
-      }
-      return resolved;
-    });
-  }, [key]);
+  const setPersistedValue = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setValue((previous) => {
+        const resolved = typeof next === "function" ? (next as (prev: boolean) => boolean)(previous) : next;
+        try {
+          window.localStorage.setItem(key, resolved ? "true" : "false");
+        } catch {
+          // Ignore storage access failures.
+        }
+        return resolved;
+      });
+    },
+    [key],
+  );
 
   return [value, setPersistedValue];
 }
@@ -160,7 +164,7 @@ function getConfiguredPlaybackStartTime(duration: number, startPercent: number, 
     return undefined;
   }
 
-  return roundPlaybackTime(duration * Math.min(95, Math.max(0, startPercent)) / 100);
+  return roundPlaybackTime((duration * Math.min(95, Math.max(0, startPercent))) / 100);
 }
 
 /**
@@ -332,12 +336,13 @@ export function VideoPlayer({
     identity: compatibilityIdentity,
     pending: compatibilityRequired,
   }));
-  const compatibilityLookupPending = compatibilityLookup.identity === compatibilityIdentity
-    ? compatibilityLookup.pending
-    : compatibilityRequired;
+  const compatibilityLookupPending =
+    compatibilityLookup.identity === compatibilityIdentity ? compatibilityLookup.pending : compatibilityRequired;
   const [transcodeStartSec, setTranscodeStartSec] = useState(0);
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
-  const [compatibilityFallbackReason, setCompatibilityFallbackReason] = useState<"video format" | "audio codec" | null>(null);
+  const [compatibilityFallbackReason, setCompatibilityFallbackReason] = useState<"video format" | "audio codec" | null>(
+    null,
+  );
   // Guards the one-shot automatic transcode fallback (on direct-play error). Reset per video.
   const autoTranscodeTriedRef = useRef(false);
   // Guards the one-shot compatibility default selection so a user can still pick Direct later.
@@ -372,12 +377,18 @@ export function VideoPlayer({
   const [videoBox, setVideoBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
   const [intrinsicSize, setIntrinsicSize] = useState({ width: 0, height: 0 });
   const ownerTokensRef = useRef(new Map<string, symbol>());
-  const interactionLeasesRef = useRef(new Map<symbol, {
-    ownerToken: symbol;
-    options: Required<MediaPlayerInteractionModeOptions>;
-  }>());
+  const interactionLeasesRef = useRef(
+    new Map<
+      symbol,
+      {
+        ownerToken: symbol;
+        options: Required<MediaPlayerInteractionModeOptions>;
+      }
+    >(),
+  );
   const interactionSnapshotRef = useRef<MediaPlayerInteractionSnapshot>(EMPTY_MEDIA_PLAYER_INTERACTION);
-  const [interactionSnapshot, setInteractionSnapshot] = useState<MediaPlayerInteractionSnapshot>(EMPTY_MEDIA_PLAYER_INTERACTION);
+  const [interactionSnapshot, setInteractionSnapshot] =
+    useState<MediaPlayerInteractionSnapshot>(EMPTY_MEDIA_PLAYER_INTERACTION);
   const [interactionGeneration, setInteractionGeneration] = useState(0);
   const trackingLeaseTransitionRef = useRef<(paused: boolean, resume: boolean) => void>(() => {});
   const pendingTrackingStartRef = useRef<number | null>(null);
@@ -410,78 +421,90 @@ export function VideoPlayer({
     }
 
     interactionSnapshotRef.current = next;
-    setInteractionSnapshot((current) => (
-      current.active === next.active
-      && current.hideNativeControls === next.hideNativeControls
-      && current.pauseTracking === next.pauseTracking
-      && current.pausePlayback === next.pausePlayback
+    setInteractionSnapshot((current) =>
+      current.active === next.active &&
+      current.hideNativeControls === next.hideNativeControls &&
+      current.pauseTracking === next.pauseTracking &&
+      current.pausePlayback === next.pausePlayback
         ? current
-        : next
-    ));
+        : next,
+    );
   }, []);
 
-  const releaseOwner = useCallback((ownerKey: string, ownerToken: symbol, resumeTracking: boolean) => {
-    if (ownerTokensRef.current.get(ownerKey) !== ownerToken) return;
-    ownerTokensRef.current.delete(ownerKey);
-    for (const [leaseToken, lease] of interactionLeasesRef.current) {
-      if (lease.ownerToken === ownerToken) interactionLeasesRef.current.delete(leaseToken);
-    }
-    applyInteractionSnapshot(resumeTracking && playerActiveRef.current);
-  }, [applyInteractionSnapshot]);
+  const releaseOwner = useCallback(
+    (ownerKey: string, ownerToken: symbol, resumeTracking: boolean) => {
+      if (ownerTokensRef.current.get(ownerKey) !== ownerToken) return;
+      ownerTokensRef.current.delete(ownerKey);
+      for (const [leaseToken, lease] of interactionLeasesRef.current) {
+        if (lease.ownerToken === ownerToken) interactionLeasesRef.current.delete(leaseToken);
+      }
+      applyInteractionSnapshot(resumeTracking && playerActiveRef.current);
+    },
+    [applyInteractionSnapshot],
+  );
 
-  const acquireOwnerInteractionMode = useCallback((
-    ownerKey: string,
-    ownerToken: symbol,
-    options: MediaPlayerInteractionModeOptions = {},
-  ) => {
-    if (ownerTokensRef.current.get(ownerKey) !== ownerToken) return () => {};
+  const acquireOwnerInteractionMode = useCallback(
+    (ownerKey: string, ownerToken: symbol, options: MediaPlayerInteractionModeOptions = {}) => {
+      if (ownerTokensRef.current.get(ownerKey) !== ownerToken) return () => {};
 
-    const leaseToken = Symbol(ownerKey);
-    interactionLeasesRef.current.set(leaseToken, {
-      ownerToken,
-      options: {
-        hideNativeControls: options.hideNativeControls === true,
-        pauseTracking: options.pauseTracking === true,
-        pausePlayback: options.pausePlayback === true,
-      },
-    });
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    setShowControls(true);
-    setShowCursor(true);
-    if (options.pausePlayback === true) videoRef.current?.pause();
-    applyInteractionSnapshot(true);
-
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      if (!interactionLeasesRef.current.delete(leaseToken)) return;
+      const leaseToken = Symbol(ownerKey);
+      interactionLeasesRef.current.set(leaseToken, {
+        ownerToken,
+        options: {
+          hideNativeControls: options.hideNativeControls === true,
+          pauseTracking: options.pauseTracking === true,
+          pausePlayback: options.pausePlayback === true,
+        },
+      });
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      setShowControls(true);
+      setShowCursor(true);
+      if (options.pausePlayback === true) videoRef.current?.pause();
       applyInteractionSnapshot(true);
-    };
-  }, [applyInteractionSnapshot]);
 
-  const resetInteractionModes = useCallback((options: {
-    notify?: boolean;
-    resumeTracking?: boolean;
-  } = {}) => {
-    const { notify = true, resumeTracking = false } = options;
-    ownerTokensRef.current.clear();
-    interactionLeasesRef.current.clear();
-    const previous = interactionSnapshotRef.current;
-    if (previous.pauseTracking) trackingLeaseTransitionRef.current(false, resumeTracking);
-    interactionSnapshotRef.current = EMPTY_MEDIA_PLAYER_INTERACTION;
-    if (notify) {
-      setInteractionSnapshot(EMPTY_MEDIA_PLAYER_INTERACTION);
-      setInteractionGeneration((generation) => generation + 1);
-    }
-  }, []);
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        if (!interactionLeasesRef.current.delete(leaseToken)) return;
+        applyInteractionSnapshot(true);
+      };
+    },
+    [applyInteractionSnapshot],
+  );
+
+  const resetInteractionModes = useCallback(
+    (
+      options: {
+        notify?: boolean;
+        resumeTracking?: boolean;
+      } = {},
+    ) => {
+      const { notify = true, resumeTracking = false } = options;
+      ownerTokensRef.current.clear();
+      interactionLeasesRef.current.clear();
+      const previous = interactionSnapshotRef.current;
+      if (previous.pauseTracking) trackingLeaseTransitionRef.current(false, resumeTracking);
+      interactionSnapshotRef.current = EMPTY_MEDIA_PLAYER_INTERACTION;
+      if (notify) {
+        setInteractionSnapshot(EMPTY_MEDIA_PLAYER_INTERACTION);
+        setInteractionGeneration((generation) => generation + 1);
+      }
+    },
+    [],
+  );
 
   const basePlaybackTrackingTarget = useMemo<PlaybackTrackingTarget | null>(() => {
     if (!trackingEnabled) {
       return null;
     }
 
-    const baseTarget = playbackTracking ?? { hostType: "video", hostId: videoId, scopeKey: `video:${videoId}`, surface: "detail" };
+    const baseTarget = playbackTracking ?? {
+      hostType: "video",
+      hostId: videoId,
+      scopeKey: `video:${videoId}`,
+      surface: "detail",
+    };
     return {
       ...baseTarget,
       clipStartSec: clip?.start ?? baseTarget.clipStartSec,
@@ -490,17 +513,20 @@ export function VideoPlayer({
       muted,
       fullscreen,
       playbackRate: rate,
-      route: typeof window === "undefined" ? baseTarget.route : baseTarget.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      route:
+        typeof window === "undefined"
+          ? baseTarget.route
+          : (baseTarget.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`),
     };
   }, [autostart, clip?.end, clip?.start, fullscreen, muted, playbackTracking, rate, videoId, trackingEnabled]);
   const nextPlaybackTrackingTarget = interactionSnapshot.pauseTracking ? null : basePlaybackTrackingTarget;
-  const playbackTrackingSignature = useMemo(() => JSON.stringify(nextPlaybackTrackingTarget), [nextPlaybackTrackingTarget]);
+  const playbackTrackingSignature = useMemo(
+    () => JSON.stringify(nextPlaybackTrackingTarget),
+    [nextPlaybackTrackingTarget],
+  );
   // Callers commonly build playbackTracking inline. Preserve the normalized target identity while its
   // serialized meaning is unchanged so parent renders cannot tear down tracking effects and flush intervals.
-  const playbackTrackingTarget = useMemo(
-    () => nextPlaybackTrackingTarget,
-    [playbackTrackingSignature],
-  );
+  const playbackTrackingTarget = useMemo(() => nextPlaybackTrackingTarget, [playbackTrackingSignature]);
 
   useLayoutEffect(() => {
     const previousIdentity = interactionIdentityRef.current;
@@ -547,33 +573,36 @@ export function VideoPlayer({
     void playbackTracker.current.setTarget(playbackTrackingTarget);
   }, [playbackTrackingSignature]);
 
-  const trackPlayerInteraction = useCallback((kind: "pause" | "seek" | "fullscreen", meta: Record<string, unknown> = {}) => {
-    if (!playbackTrackingTarget) {
-      return;
-    }
+  const trackPlayerInteraction = useCallback(
+    (kind: "pause" | "seek" | "fullscreen", meta: Record<string, unknown> = {}) => {
+      if (!playbackTrackingTarget) {
+        return;
+      }
 
-    trackInteraction({
-      hostType: playbackTrackingTarget.hostType as never,
-      hostId: playbackTrackingTarget.hostId,
-      kind,
-      meta: {
-        surface: playbackTrackingTarget.surface,
-        scopeKey: playbackTrackingTarget.scopeKey,
-        groupItemId: playbackTrackingTarget.groupItemId,
-        parentHostType: playbackTrackingTarget.parentHostType,
-        parentHostId: playbackTrackingTarget.parentHostId,
-        itemHostType: playbackTrackingTarget.itemHostType,
-        itemHostId: playbackTrackingTarget.itemHostId,
-        segmentId: playbackTrackingTarget.segmentId,
-        clipStartSec: playbackTrackingTarget.clipStartSec,
-        clipEndSec: playbackTrackingTarget.clipEndSec,
-        playbackRate: rate,
-        muted,
-        fullscreen,
-        ...meta,
-      },
-    });
-  }, [fullscreen, muted, playbackTrackingTarget, rate]);
+      trackInteraction({
+        hostType: playbackTrackingTarget.hostType as never,
+        hostId: playbackTrackingTarget.hostId,
+        kind,
+        meta: {
+          surface: playbackTrackingTarget.surface,
+          scopeKey: playbackTrackingTarget.scopeKey,
+          groupItemId: playbackTrackingTarget.groupItemId,
+          parentHostType: playbackTrackingTarget.parentHostType,
+          parentHostId: playbackTrackingTarget.parentHostId,
+          itemHostType: playbackTrackingTarget.itemHostType,
+          itemHostId: playbackTrackingTarget.itemHostId,
+          segmentId: playbackTrackingTarget.segmentId,
+          clipStartSec: playbackTrackingTarget.clipStartSec,
+          clipEndSec: playbackTrackingTarget.clipEndSec,
+          playbackRate: rate,
+          muted,
+          fullscreen,
+          ...meta,
+        },
+      });
+    },
+    [fullscreen, muted, playbackTrackingTarget, rate],
+  );
 
   useEffect(() => {
     clipEndedHandled.current = false;
@@ -589,53 +618,66 @@ export function VideoPlayer({
     v.muted = muted;
   }, []);
 
-  const toAbsoluteTime = useCallback((mediaTime: number) => (
-    selectedQuality === "Direct" ? mediaTime : transcodeStartSec + mediaTime
-  ), [selectedQuality, transcodeStartSec]);
+  const toAbsoluteTime = useCallback(
+    (mediaTime: number) => (selectedQuality === "Direct" ? mediaTime : transcodeStartSec + mediaTime),
+    [selectedQuality, transcodeStartSec],
+  );
 
-  const toMediaTime = useCallback((absoluteTime: number) => (
-    selectedQuality === "Direct" ? absoluteTime : Math.max(0, absoluteTime - transcodeStartSec)
-  ), [selectedQuality, transcodeStartSec]);
+  const toMediaTime = useCallback(
+    (absoluteTime: number) =>
+      selectedQuality === "Direct" ? absoluteTime : Math.max(0, absoluteTime - transcodeStartSec),
+    [selectedQuality, transcodeStartSec],
+  );
 
   const handleRecoveryPlayFailed = useCallback(() => {
     setPlaying(false);
     onPlaybackStateChange?.(false);
   }, [onPlaybackStateChange]);
 
-  const seekToAbsoluteTime = useCallback((targetTime: number, forcePlay = false) => {
-    const video = videoRef.current;
-    // A seek must not fold the skipped span into watched time: flush the open interval up to the real
-    // last-watched position and close it. onSeeked re-opens a fresh interval at the destination. (We can't
-    // call flushInterval here — it's declared below — so record directly.)
-    if (playbackTrackingTarget && intervalStart.current !== null) {
-      const s = intervalStart.current;
-      const e = roundPlaybackTime(lastSeenTime.current);
-      if (e > s)
-        playbackTracker.current.recordInterval({ startSec: s, endSec: e, mediaDurationSec: duration || video?.duration || 0, currentPositionSec: e, state: "active", mode: "default" });
-      intervalStart.current = null;
-    }
-    const maxTarget = Number.isFinite(duration) && duration > 0 ? duration : targetTime;
-    const target = Math.min(Math.max(0, targetTime), Math.max(0, maxTarget));
-    const rounded = roundPlaybackTime(target);
-
-    if (selectedQuality === "Direct") {
-      if (video) {
-        video.currentTime = target;
-        if (forcePlay) video.play().catch(() => {});
+  const seekToAbsoluteTime = useCallback(
+    (targetTime: number, forcePlay = false) => {
+      const video = videoRef.current;
+      // A seek must not fold the skipped span into watched time: flush the open interval up to the real
+      // last-watched position and close it. onSeeked re-opens a fresh interval at the destination. (We can't
+      // call flushInterval here — it's declared below — so record directly.)
+      if (playbackTrackingTarget && intervalStart.current !== null) {
+        const s = intervalStart.current;
+        const e = roundPlaybackTime(lastSeenTime.current);
+        if (e > s)
+          playbackTracker.current.recordInterval({
+            startSec: s,
+            endSec: e,
+            mediaDurationSec: duration || video?.duration || 0,
+            currentPositionSec: e,
+            state: "active",
+            mode: "default",
+          });
+        intervalStart.current = null;
       }
+      const maxTarget = Number.isFinite(duration) && duration > 0 ? duration : targetTime;
+      const target = Math.min(Math.max(0, targetTime), Math.max(0, maxTarget));
+      const rounded = roundPlaybackTime(target);
+
+      if (selectedQuality === "Direct") {
+        if (video) {
+          video.currentTime = target;
+          if (forcePlay) video.play().catch(() => {});
+        }
+        setCurTime(rounded);
+        onTimeUpdateProp?.(rounded);
+        lastSeenTime.current = rounded;
+        return;
+      }
+
+      const shouldPlay = forcePlay || Boolean(video && !video.paused);
+      sourceRestoreRef.current = { time: target, shouldPlay };
       setCurTime(rounded);
       onTimeUpdateProp?.(rounded);
       lastSeenTime.current = rounded;
-      return;
-    }
-
-    const shouldPlay = forcePlay || Boolean(video && !video.paused);
-    sourceRestoreRef.current = { time: target, shouldPlay };
-    setCurTime(rounded);
-    onTimeUpdateProp?.(rounded);
-    lastSeenTime.current = rounded;
-    setTranscodeStartSec(target);
-  }, [duration, onTimeUpdateProp, selectedQuality, playbackTrackingTarget]);
+      setTranscodeStartSec(target);
+    },
+    [duration, onTimeUpdateProp, selectedQuality, playbackTrackingTarget],
+  );
 
   useEffect(() => {
     if (onSeekRegister) {
@@ -661,11 +703,11 @@ export function VideoPlayer({
       return;
     }
 
-    setIntrinsicSize((current) => (
+    setIntrinsicSize((current) =>
       current.width === intrinsicWidth && current.height === intrinsicHeight
         ? current
-        : { width: intrinsicWidth, height: intrinsicHeight }
-    ));
+        : { width: intrinsicWidth, height: intrinsicHeight },
+    );
 
     const scale = Math.min(containerWidth / intrinsicWidth, containerHeight / intrinsicHeight);
     const normalize = (value: number) => {
@@ -679,10 +721,10 @@ export function VideoPlayer({
 
     setVideoBox((current) => {
       if (
-        Math.abs(current.left - left) < 0.5
-        && Math.abs(current.top - top) < 0.5
-        && Math.abs(current.width - width) < 0.5
-        && Math.abs(current.height - height) < 0.5
+        Math.abs(current.left - left) < 0.5 &&
+        Math.abs(current.top - top) < 0.5 &&
+        Math.abs(current.width - width) < 0.5 &&
+        Math.abs(current.height - height) < 0.5
       ) {
         return current;
       }
@@ -748,8 +790,9 @@ export function VideoPlayer({
         continue;
       }
 
-      const key = detection.groupKey
-        ?? `${detection.refKind ?? detection.class}:${detection.refId ?? detection.id}:${detection.class}`;
+      const key =
+        detection.groupKey ??
+        `${detection.refKind ?? detection.class}:${detection.refId ?? detection.id}:${detection.class}`;
       const existing = byKey.get(key);
       if (!existing) {
         byKey.set(key, detection);
@@ -773,12 +816,16 @@ export function VideoPlayer({
         }
 
         const trackKey = getSegmentTrackKey(segment);
-        let segmentCandidates = trackKey && faceGroups.has(trackKey)
-          ? faceGroups.get(trackKey) ?? []
-          : faceDetections.filter((detection) => detection.refId != null
-              && segment.refId != null
-              && detection.refId === segment.refId
-              && isDetectionWithinSegment(detection, segment, toleranceSec));
+        let segmentCandidates =
+          trackKey && faceGroups.has(trackKey)
+            ? (faceGroups.get(trackKey) ?? [])
+            : faceDetections.filter(
+                (detection) =>
+                  detection.refId != null &&
+                  segment.refId != null &&
+                  detection.refId === segment.refId &&
+                  isDetectionWithinSegment(detection, segment, toleranceSec),
+              );
 
         if (segmentCandidates.length === 0) {
           segmentCandidates = getSegmentFaceKeyframes(segment);
@@ -838,7 +885,10 @@ export function VideoPlayer({
 
   // The source sentinel transcodes at the original resolution (no `resolution` query param).
   const transcodeResolution = selectedQuality === SOURCE_TRANSCODE_QUALITY ? undefined : selectedQuality;
-  const effectiveStreamUrl = selectedQuality === "Direct" ? streamUrl : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined);
+  const effectiveStreamUrl =
+    selectedQuality === "Direct"
+      ? streamUrl
+      : videos.transcodeUrl(videoId, transcodeResolution, transcodeStartSec > 0 ? transcodeStartSec : undefined);
   const effectiveSourceType = selectedQuality === "Direct" ? getVideoSourceMimeType(format) : "video/mp4";
   const effectiveSourceSignature = `${effectiveStreamUrl}|${effectiveSourceType ?? ""}`;
 
@@ -903,8 +953,9 @@ export function VideoPlayer({
     // the engagement cache being rewritten when you rate/favorite mid-playback — must NOT re-seek.
     const sourceKey = `${videoId}|${selectedQuality}|${streamUrl}|${clip?.start ?? ""}|${clip?.end ?? ""}|${clip?.loop ?? ""}|${navigationSeekTo ?? ""}`;
     const isNewSource = sourceKey !== resumeSourceKeyRef.current;
-    const shouldSeek = hasNewNavigationSeek
-      || (navigationSeekTo == null && (isNewSource || (!resumeSettledRef.current && effectiveStartTime != null)));
+    const shouldSeek =
+      hasNewNavigationSeek ||
+      (navigationSeekTo == null && (isNewSource || (!resumeSettledRef.current && effectiveStartTime != null)));
     if (isNewSource) {
       resumeSourceKeyRef.current = sourceKey;
       resumeSettledRef.current = effectiveStartTime != null;
@@ -915,7 +966,7 @@ export function VideoPlayer({
     if (shouldSeek) {
       const nextTime = clip
         ? Math.min(Math.max(effectiveStartTime ?? clip.start, clip.start), clip.end ?? duration)
-        : effectiveStartTime ?? defaultPlaybackStartTime;
+        : (effectiveStartTime ?? defaultPlaybackStartTime);
       if (v && nextTime != null) {
         if (selectedQuality === "Direct") {
           v.currentTime = nextTime;
@@ -926,10 +977,8 @@ export function VideoPlayer({
       }
     }
 
-    const canDelegateNavigationSeekToRecovery = hasNewNavigationSeek
-      && mediaRecoveryPhase !== "healthy"
-      && selectedQuality === "Direct"
-      && v != null;
+    const canDelegateNavigationSeekToRecovery =
+      hasNewNavigationSeek && mediaRecoveryPhase !== "healthy" && selectedQuality === "Direct" && v != null;
     if (canDelegateNavigationSeekToRecovery) {
       recordMediaUserSeek(v);
       if (automaticResumeEnabled) {
@@ -942,11 +991,12 @@ export function VideoPlayer({
       }
     }
 
-    const canConsumeNavigationSeekImmediately = selectedQuality === "Direct"
-      && lastLoadedSourceRef.current === effectiveSourceSignature
-      && metadataHandledGenerationRef.current === sourceGenerationRef.current
-      && v != null
-      && v.readyState >= HTMLMediaElement.HAVE_METADATA;
+    const canConsumeNavigationSeekImmediately =
+      selectedQuality === "Direct" &&
+      lastLoadedSourceRef.current === effectiveSourceSignature &&
+      metadataHandledGenerationRef.current === sourceGenerationRef.current &&
+      v != null &&
+      v.readyState >= HTMLMediaElement.HAVE_METADATA;
     if (hasNewNavigationSeek && v && canConsumeNavigationSeekImmediately) {
       if (automaticResumeEnabled) {
         void v.play().catch(() => {});
@@ -963,7 +1013,24 @@ export function VideoPlayer({
     } else if (clip) {
       setAbLoop({ a: null, b: null });
     }
-  }, [automaticResumeEnabled, clip?.end, clip?.loop, clip?.start, defaultPlaybackStartTime, duration, effectiveSourceSignature, effectiveStartTime, mediaRecoveryPhase, navigationSeekTo, recordMediaUserPause, recordMediaUserPlay, recordMediaUserSeek, selectedQuality, streamUrl, videoId]);
+  }, [
+    automaticResumeEnabled,
+    clip?.end,
+    clip?.loop,
+    clip?.start,
+    defaultPlaybackStartTime,
+    duration,
+    effectiveSourceSignature,
+    effectiveStartTime,
+    mediaRecoveryPhase,
+    navigationSeekTo,
+    recordMediaUserPause,
+    recordMediaUserPlay,
+    recordMediaUserSeek,
+    selectedQuality,
+    streamUrl,
+    videoId,
+  ]);
 
   useEffect(() => {
     if (!autostart || navigationAutostartSuppressedRef.current) {
@@ -974,9 +1041,9 @@ export function VideoPlayer({
     pendingAutostartRef.current = true;
     const video = videoRef.current;
     if (
-      !video
-      || lastLoadedSourceRef.current !== effectiveSourceSignature
-      || metadataHandledGenerationRef.current !== sourceGenerationRef.current
+      !video ||
+      lastLoadedSourceRef.current !== effectiveSourceSignature ||
+      metadataHandledGenerationRef.current !== sourceGenerationRef.current
     ) {
       return;
     }
@@ -1029,25 +1096,31 @@ export function VideoPlayer({
     window.localStorage.removeItem("cove-video-activity-journal");
   }, []);
 
-  const flushInterval = useCallback((state: string, mode: "default" | "keepalive" = "default") => {
-    const video = videoRef.current;
-    if (!playbackTrackingTarget || !video || intervalStart.current === null) return;
-    const startSec = intervalStart.current;
-    const endSec = roundPlaybackTime(lastSeenTime.current);
-    if (endSec <= startSec) return;
-    playbackTracker.current.recordInterval({
-      startSec,
-      endSec,
-      mediaDurationSec: duration || video.duration || 0,
-      currentPositionSec: endSec,
-      state,
-      mode,
-    });
-  }, [duration, playbackTrackingTarget]);
+  const flushInterval = useCallback(
+    (state: string, mode: "default" | "keepalive" = "default") => {
+      const video = videoRef.current;
+      if (!playbackTrackingTarget || !video || intervalStart.current === null) return;
+      const startSec = intervalStart.current;
+      const endSec = roundPlaybackTime(lastSeenTime.current);
+      if (endSec <= startSec) return;
+      playbackTracker.current.recordInterval({
+        startSec,
+        endSec,
+        mediaDurationSec: duration || video.duration || 0,
+        currentPositionSec: endSec,
+        state,
+        mode,
+      });
+    },
+    [duration, playbackTrackingTarget],
+  );
 
-  const flushIntervalKeepalive = useCallback((state: string) => {
-    flushInterval(state, "keepalive");
-  }, [flushInterval]);
+  const flushIntervalKeepalive = useCallback(
+    (state: string) => {
+      flushInterval(state, "keepalive");
+    },
+    [flushInterval],
+  );
 
   const startTrackedInterval = useCallback((time: number) => {
     intervalStart.current = time;
@@ -1065,9 +1138,10 @@ export function VideoPlayer({
     }
 
     const video = videoRef.current;
-    pendingTrackingStartRef.current = resume && basePlaybackTrackingTarget && video && !video.paused
-      ? roundPlaybackTime(toAbsoluteTime(video.currentTime))
-      : null;
+    pendingTrackingStartRef.current =
+      resume && basePlaybackTrackingTarget && video && !video.paused
+        ? roundPlaybackTime(toAbsoluteTime(video.currentTime))
+        : null;
   };
 
   useLayoutEffect(() => {
@@ -1131,7 +1205,17 @@ export function VideoPlayer({
     return () => {
       video.removeEventListener("timeupdate", handleClipBoundary);
     };
-  }, [clip, clipEnd, clipStart, flushInterval, loop, onEndedProp, seekToAbsoluteTime, startTrackedInterval, toAbsoluteTime]);
+  }, [
+    clip,
+    clipEnd,
+    clipStart,
+    flushInterval,
+    loop,
+    onEndedProp,
+    seekToAbsoluteTime,
+    startTrackedInterval,
+    toAbsoluteTime,
+  ]);
 
   useEffect(() => {
     if (!playbackTrackingTarget) {
@@ -1221,34 +1305,37 @@ export function VideoPlayer({
 
   useEffect(() => {
     let cancelled = false;
-    videos.getResolutions(videoId).then((res) => {
-      if (cancelled) return;
-      const resolutions = res ?? [];
-      setAvailableQualities(resolutions);
+    videos
+      .getResolutions(videoId)
+      .then((res) => {
+        if (cancelled) return;
+        const resolutions = res ?? [];
+        setAvailableQualities(resolutions);
 
-      const fallbackReason = prefersTranscodedVideoFormat(format)
-        ? "video format"
-        : !isBrowserCompatibleAudio(audioCodec) ? "audio codec" : null;
-      if (
-        !compatibilityFallbackAppliedRef.current
-        && !autoTranscodeTriedRef.current
-        && fallbackReason
-        && selectedQualityRef.current === "Direct"
-      ) {
-        compatibilityFallbackAppliedRef.current = true;
-        const target = resolutions.length > 0
-          ? resolutions[resolutions.length - 1]
-          : SOURCE_TRANSCODE_QUALITY;
-        selectedQualityRef.current = target;
-        setSelectedQuality(target);
-        setCompatibilityFallbackReason(fallbackReason);
-      }
-      setCompatibilityLookup({ identity: compatibilityIdentity, pending: false });
-    }).catch(() => {
-      if (!cancelled) {
+        const fallbackReason = prefersTranscodedVideoFormat(format)
+          ? "video format"
+          : !isBrowserCompatibleAudio(audioCodec)
+            ? "audio codec"
+            : null;
+        if (
+          !compatibilityFallbackAppliedRef.current &&
+          !autoTranscodeTriedRef.current &&
+          fallbackReason &&
+          selectedQualityRef.current === "Direct"
+        ) {
+          compatibilityFallbackAppliedRef.current = true;
+          const target = resolutions.length > 0 ? resolutions[resolutions.length - 1] : SOURCE_TRANSCODE_QUALITY;
+          selectedQualityRef.current = target;
+          setSelectedQuality(target);
+          setCompatibilityFallbackReason(fallbackReason);
+        }
         setCompatibilityLookup({ identity: compatibilityIdentity, pending: false });
-      }
-    });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCompatibilityLookup({ identity: compatibilityIdentity, pending: false });
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -1256,18 +1343,16 @@ export function VideoPlayer({
 
   const prepareClipForPlayback = useCallback(() => {
     const video = videoRef.current;
-    const currentPosition = roundPlaybackTime(
-      video ? toAbsoluteTime(video.currentTime) : lastSeenTime.current,
-    );
+    const currentPosition = roundPlaybackTime(video ? toAbsoluteTime(video.currentTime) : lastSeenTime.current);
 
     if (!video || !clip || loop) {
       return currentPosition;
     }
 
     if (
-      clipEndedHandled.current
-      || currentPosition >= clipEnd - CLIP_BOUNDARY_TOLERANCE_SEC
-      || currentPosition < clipStart - CLIP_BOUNDARY_TOLERANCE_SEC
+      clipEndedHandled.current ||
+      currentPosition >= clipEnd - CLIP_BOUNDARY_TOLERANCE_SEC ||
+      currentPosition < clipStart - CLIP_BOUNDARY_TOLERANCE_SEC
     ) {
       const startPosition = roundPlaybackTime(clipStart);
       clipEndedHandled.current = false;
@@ -1301,10 +1386,13 @@ export function VideoPlayer({
     videoRef.current?.pause();
   }, [recordMediaUserPause]);
 
-  const seekForExtension = useCallback((seconds: number) => {
-    if (!Number.isFinite(seconds)) return;
-    seekToAbsoluteTime(seconds);
-  }, [seekToAbsoluteTime]);
+  const seekForExtension = useCallback(
+    (seconds: number) => {
+      if (!Number.isFinite(seconds)) return;
+      seekToAbsoluteTime(seconds);
+    },
+    [seekToAbsoluteTime],
+  );
 
   const toggleForRegisteredControl = useCallback(() => {
     const video = videoRef.current;
@@ -1313,11 +1401,14 @@ export function VideoPlayer({
     else pauseForExtension();
   }, [pauseForExtension, playForExtension]);
 
-  const seekByForRegisteredControl = useCallback((seconds: number) => {
-    const video = videoRef.current;
-    if (!video || !Number.isFinite(seconds)) return;
-    seekToAbsoluteTime(toAbsoluteTime(video.currentTime) + seconds, false);
-  }, [seekToAbsoluteTime, toAbsoluteTime]);
+  const seekByForRegisteredControl = useCallback(
+    (seconds: number) => {
+      const video = videoRef.current;
+      if (!video || !Number.isFinite(seconds)) return;
+      seekToAbsoluteTime(toAbsoluteTime(video.currentTime) + seconds, false);
+    },
+    [seekToAbsoluteTime, toAbsoluteTime],
+  );
 
   useEffect(() => {
     if (!onPlaybackControlRegister) return;
@@ -1327,7 +1418,13 @@ export function VideoPlayer({
       toggle: toggleForRegisteredControl,
       seekBy: seekByForRegisteredControl,
     });
-  }, [onPlaybackControlRegister, pauseForExtension, playForExtension, seekByForRegisteredControl, toggleForRegisteredControl]);
+  }, [
+    onPlaybackControlRegister,
+    pauseForExtension,
+    playForExtension,
+    seekByForRegisteredControl,
+    toggleForRegisteredControl,
+  ]);
 
   const toggleFullscreen = useCallback(() => {
     const nextFullscreen = !document.fullscreenElement;
@@ -1343,9 +1440,11 @@ export function VideoPlayer({
       return;
     }
 
-    const video = videoRef.current as (HTMLVideoElement & {
-      webkitEnterFullscreen?: () => void;
-    }) | null;
+    const video = videoRef.current as
+      | (HTMLVideoElement & {
+          webkitEnterFullscreen?: () => void;
+        })
+      | null;
     video?.webkitEnterFullscreen?.();
   }, [currentTime, trackPlayerInteraction]);
 
@@ -1358,32 +1457,72 @@ export function VideoPlayer({
       resetHideTimer();
     };
     return [
-      { id: "player.playPause", keys: "Space", surface: "player" as const, action: withPlayer((v) => {
-        if (v.paused) playVideo();
-        else {
-          recordMediaUserPause();
-          v.pause();
-        }
-      }) },
-      { id: "player.seekBackward", keys: "ArrowLeft", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime - 5)) },
-      { id: "player.seekForward", keys: "ArrowRight", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime + 5)) },
-      { id: "player.seekBackwardLarge", keys: "Shift+ArrowLeft", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime - 10)) },
-      { id: "player.seekForwardLarge", keys: "Shift+ArrowRight", surface: "player" as const, action: withPlayer(() => seekToAbsoluteTime(currentTime + 10)) },
-      { id: "player.volumeUp", keys: "ArrowUp", surface: "player" as const, action: withPlayer((v) => {
+      {
+        id: "player.playPause",
+        keys: "Space",
+        surface: "player" as const,
+        action: withPlayer((v) => {
+          if (v.paused) playVideo();
+          else {
+            recordMediaUserPause();
+            v.pause();
+          }
+        }),
+      },
+      {
+        id: "player.seekBackward",
+        keys: "ArrowLeft",
+        surface: "player" as const,
+        action: withPlayer(() => seekToAbsoluteTime(currentTime - 5)),
+      },
+      {
+        id: "player.seekForward",
+        keys: "ArrowRight",
+        surface: "player" as const,
+        action: withPlayer(() => seekToAbsoluteTime(currentTime + 5)),
+      },
+      {
+        id: "player.seekBackwardLarge",
+        keys: "Shift+ArrowLeft",
+        surface: "player" as const,
+        action: withPlayer(() => seekToAbsoluteTime(currentTime - 10)),
+      },
+      {
+        id: "player.seekForwardLarge",
+        keys: "Shift+ArrowRight",
+        surface: "player" as const,
+        action: withPlayer(() => seekToAbsoluteTime(currentTime + 10)),
+      },
+      {
+        id: "player.volumeUp",
+        keys: "ArrowUp",
+        surface: "player" as const,
+        action: withPlayer((v) => {
           v.volume = Math.min(1, v.volume + 0.1);
           setVol(v.volume);
           localStorage.setItem(VOLUME_KEY, String(v.volume));
-      }) },
-      { id: "player.volumeDown", keys: "ArrowDown", surface: "player" as const, action: withPlayer((v) => {
+        }),
+      },
+      {
+        id: "player.volumeDown",
+        keys: "ArrowDown",
+        surface: "player" as const,
+        action: withPlayer((v) => {
           v.volume = Math.max(0, v.volume - 0.1);
           setVol(v.volume);
           localStorage.setItem(VOLUME_KEY, String(v.volume));
-      }) },
-      { id: "player.mute", keys: "m", surface: "player" as const, action: withPlayer((v) => {
+        }),
+      },
+      {
+        id: "player.mute",
+        keys: "m",
+        surface: "player" as const,
+        action: withPlayer((v) => {
           v.muted = !v.muted;
           setMuted(v.muted);
           localStorage.setItem(MUTED_KEY, String(v.muted));
-      }) },
+        }),
+      },
       { id: "player.fullscreen", keys: "f", surface: "player" as const, action: withPlayer(() => toggleFullscreen()) },
       ...Array.from({ length: 10 }, (_, value) => ({
         id: `player.seekPercent.${value}`,
@@ -1392,7 +1531,16 @@ export function VideoPlayer({
         action: withPlayer(() => seekToAbsoluteTime(timelineStart + timelineDuration * (value / 10))),
       })),
     ];
-  }, [currentTime, playVideo, recordMediaUserPause, resetHideTimer, seekToAbsoluteTime, timelineDuration, timelineStart, toggleFullscreen]);
+  }, [
+    currentTime,
+    playVideo,
+    recordMediaUserPause,
+    resetHideTimer,
+    seekToAbsoluteTime,
+    timelineDuration,
+    timelineStart,
+    toggleFullscreen,
+  ]);
   useKeySequence(playerKeyboardBindings);
 
   const togglePlay = () => {
@@ -1449,10 +1597,7 @@ export function VideoPlayer({
 
   const changeRate = useCallback((nextRate: number) => {
     if (!Number.isFinite(nextRate)) return;
-    const supportedRate = Math.min(
-      PLAYBACK_RATES[PLAYBACK_RATES.length - 1],
-      Math.max(PLAYBACK_RATES[0], nextRate),
-    );
+    const supportedRate = Math.min(PLAYBACK_RATES[PLAYBACK_RATES.length - 1], Math.max(PLAYBACK_RATES[0], nextRate));
     const v = videoRef.current;
     try {
       if (v) v.playbackRate = supportedRate;
@@ -1487,9 +1632,8 @@ export function VideoPlayer({
   const fallbackToTranscode = () => {
     if (autoTranscodeTriedRef.current) return;
     autoTranscodeTriedRef.current = true;
-    const target = availableQualities.length > 0
-      ? availableQualities[availableQualities.length - 1]
-      : SOURCE_TRANSCODE_QUALITY;
+    const target =
+      availableQualities.length > 0 ? availableQualities[availableQualities.length - 1] : SOURCE_TRANSCODE_QUALITY;
     changeQuality(target);
   };
 
@@ -1530,16 +1674,20 @@ export function VideoPlayer({
 
     const pendingRestore = sourceRestoreRef.current;
     const pendingNavigationSeek = navigationSeekIntentRef.current;
-    const shouldAutoplayAfterLoad = pendingNavigationSeek?.play
-      ?? (pendingRestore?.shouldPlay || pendingAutostartRef.current || (autostart && !isSameVideo));
+    const shouldAutoplayAfterLoad =
+      pendingNavigationSeek?.play ??
+      (pendingRestore?.shouldPlay || pendingAutostartRef.current || (autostart && !isSameVideo));
 
     // Capture the current absolute playback position BEFORE video.load() resets the element. If a
     // source reload happens mid-playback (e.g. a transient src refresh) with no explicit restore /
     // clip / resume target, we restore to this position instead of letting the element seek to 0.
     // Only treat it as a real position when the video had already started playing.
-    const positionBeforeLoad = isSameVideo && video.currentTime > 0.01
-      ? (selectedQuality === "Direct" ? video.currentTime : transcodeStartSec + video.currentTime)
-      : undefined;
+    const positionBeforeLoad =
+      isSameVideo && video.currentTime > 0.01
+        ? selectedQuality === "Direct"
+          ? video.currentTime
+          : transcodeStartSec + video.currentTime
+        : undefined;
 
     const handleLoadedMetadata = () => {
       if (sourceGenerationRef.current !== sourceGeneration) {
@@ -1549,11 +1697,19 @@ export function VideoPlayer({
       if (sourceRestoreRef.current === pendingRestore) {
         sourceRestoreRef.current = null;
       }
-      const mediaDuration = selectedQuality === "Direct" && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : duration;
-      const configuredStartTime = getConfiguredPlaybackStartTime(mediaDuration, playerVideoStartPercent, playerVideoStartMinDuration);
-      const targetTime = (pendingNavigationSeek ? navigationSeekTo : pendingRestore?.time)
-        ?? (clip ? clip.start : effectiveResumeTime ?? configuredStartTime)
-        ?? positionBeforeLoad;
+      const mediaDuration =
+        selectedQuality === "Direct" && Number.isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : duration;
+      const configuredStartTime = getConfiguredPlaybackStartTime(
+        mediaDuration,
+        playerVideoStartPercent,
+        playerVideoStartMinDuration,
+      );
+      const targetTime =
+        (pendingNavigationSeek ? navigationSeekTo : pendingRestore?.time) ??
+        (clip ? clip.start : (effectiveResumeTime ?? configuredStartTime)) ??
+        positionBeforeLoad;
       if (targetTime != null && Number.isFinite(targetTime)) {
         video.currentTime = selectedQuality === "Direct" ? targetTime : Math.max(0, targetTime - transcodeStartSec);
         setCurTime(roundPlaybackTime(targetTime));
@@ -1583,7 +1739,22 @@ export function VideoPlayer({
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-  }, [autostart, clip?.start, compatibilityLookupPending, duration, effectiveResumeTime, effectiveSourceSignature, effectiveSourceType, effectiveStreamUrl, navigationSeekTo, playerVideoStartMinDuration, playerVideoStartPercent, selectedQuality, transcodeStartSec, videoId]);
+  }, [
+    autostart,
+    clip?.start,
+    compatibilityLookupPending,
+    duration,
+    effectiveResumeTime,
+    effectiveSourceSignature,
+    effectiveSourceType,
+    effectiveStreamUrl,
+    navigationSeekTo,
+    playerVideoStartMinDuration,
+    playerVideoStartPercent,
+    selectedQuality,
+    transcodeStartSec,
+    videoId,
+  ]);
 
   // Release the media element's network connection when the player unmounts. Without this, leaving a
   // video (back to the list, or advancing to the next item in a queue when the player is keyed by id)
@@ -1630,9 +1801,8 @@ export function VideoPlayer({
       setAbLoop({ a: currentTime, b: null });
     } else if (abLoop.b == null) {
       const rawEnd = currentTime;
-      const cappedEnd = maxLoopDuration > 0 && rawEnd > abLoop.a
-        ? Math.min(rawEnd, abLoop.a + maxLoopDuration)
-        : rawEnd;
+      const cappedEnd =
+        maxLoopDuration > 0 && rawEnd > abLoop.a ? Math.min(rawEnd, abLoop.a + maxLoopDuration) : rawEnd;
       setAbLoop({ a: abLoop.a, b: cappedEnd });
     } else {
       setAbLoop({ a: null, b: null });
@@ -1644,66 +1814,72 @@ export function VideoPlayer({
     const h = Math.floor(value / 3600);
     const m = Math.floor((value % 3600) / 60);
     const sec = Math.floor(value % 60);
-    return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}` : `${m}:${sec.toString().padStart(2, "0")}`;
+    return h > 0
+      ? `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`
+      : `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const mediaPlayerExtensionContext = useMemo<MediaPlayerExtensionContext | null>(() => (
-    extensionSurface
-      ? {
-          hostType: "video",
-          hostId: videoId,
-          surface: extensionSurface,
-          currentTime,
-          duration,
-          playing,
-          playbackRate: rate,
-          intrinsicWidth: intrinsicSize.width,
-          intrinsicHeight: intrinsicSize.height,
-          contentRect: videoBox,
-          play: playForExtension,
-          pause: pauseForExtension,
-          seek: seekForExtension,
-          setPlaybackRate: changeRate,
-          // Every rendered contribution receives an owner-bound implementation
-          // from createMediaPlayerEntryContext below.
-          acquireInteractionMode: () => () => {},
-        }
-      : null
-  ), [
-    currentTime,
-    changeRate,
-    duration,
-    extensionSurface,
-    intrinsicSize.height,
-    intrinsicSize.width,
-    pauseForExtension,
-    playForExtension,
-    rate,
-    playing,
-    seekForExtension,
-    videoBox,
-    videoId,
-  ]);
+  const mediaPlayerExtensionContext = useMemo<MediaPlayerExtensionContext | null>(
+    () =>
+      extensionSurface
+        ? {
+            hostType: "video",
+            hostId: videoId,
+            surface: extensionSurface,
+            currentTime,
+            duration,
+            playing,
+            playbackRate: rate,
+            intrinsicWidth: intrinsicSize.width,
+            intrinsicHeight: intrinsicSize.height,
+            contentRect: videoBox,
+            play: playForExtension,
+            pause: pauseForExtension,
+            seek: seekForExtension,
+            setPlaybackRate: changeRate,
+            // Every rendered contribution receives an owner-bound implementation
+            // from createMediaPlayerEntryContext below.
+            acquireInteractionMode: () => () => {},
+          }
+        : null,
+    [
+      currentTime,
+      changeRate,
+      duration,
+      extensionSurface,
+      intrinsicSize.height,
+      intrinsicSize.width,
+      pauseForExtension,
+      playForExtension,
+      rate,
+      playing,
+      seekForExtension,
+      videoBox,
+      videoId,
+    ],
+  );
   const mediaPlayerExtensionResetKey = useMemo(
     () => ({ videoId, interactionResetKey }),
     [interactionResetKey, videoId],
   );
 
-  const createMediaPlayerEntryContext = useCallback((entry: SlotEntry<MediaPlayerExtensionContext>) => {
-    const ownerKey = JSON.stringify([entry.extensionId ?? null, entry.id]);
-    const ownerToken = Symbol(ownerKey);
-    return {
-      context: {
-        acquireInteractionMode: (options?: MediaPlayerInteractionModeOptions) => (
-          acquireOwnerInteractionMode(ownerKey, ownerToken, options)
-        ),
-      },
-      mount: () => {
-        ownerTokensRef.current.set(ownerKey, ownerToken);
-        return () => releaseOwner(ownerKey, ownerToken, true);
-      },
-    };
-  }, [acquireOwnerInteractionMode, interactionGeneration, releaseOwner]);
+  const createMediaPlayerEntryContext = useCallback(
+    (entry: SlotEntry<MediaPlayerExtensionContext>) => {
+      const ownerKey = JSON.stringify([entry.extensionId ?? null, entry.id]);
+      const ownerToken = Symbol(ownerKey);
+      return {
+        context: {
+          acquireInteractionMode: (options?: MediaPlayerInteractionModeOptions) =>
+            acquireOwnerInteractionMode(ownerKey, ownerToken, options),
+        },
+        mount: () => {
+          ownerTokensRef.current.set(ownerKey, ownerToken);
+          return () => releaseOwner(ownerKey, ownerToken, true);
+        },
+      };
+    },
+    [acquireOwnerInteractionMode, interactionGeneration, releaseOwner],
+  );
 
   return (
     <div
@@ -1734,7 +1910,10 @@ export function VideoPlayer({
           // Only a genuine container/codec failure (DECODE / SRC_NOT_SUPPORTED) warrants swapping to a
           // server transcode. MEDIA_ERR_NETWORK (2) / MEDIA_ERR_ABORTED (1) are transient buffering
           // stalls — recover in place at the same position rather than reloading from 0.
-          if (selectedQuality === "Direct" && (code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)) {
+          if (
+            selectedQuality === "Direct" &&
+            (code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)
+          ) {
             fallbackToTranscode();
           } else if (code === MediaError.MEDIA_ERR_NETWORK || code === MediaError.MEDIA_ERR_ABORTED) {
             const video = e.currentTarget;
@@ -1769,17 +1948,20 @@ export function VideoPlayer({
             pendingTrackingStartRef.current = null;
             startTrackedInterval(currentPos);
           }
-          if (!playTriggered.current) { playTriggered.current = true; onPlay?.(); }
-          }}
-          onPause={() => {
-            setPlaying(false);
-            onPlaybackStateChange?.(false);
-            onPause?.();
-            if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
-              startTrackedInterval(pendingTrackingStartRef.current);
-            }
-            pendingTrackingStartRef.current = null;
-            flushInterval("paused");
+          if (!playTriggered.current) {
+            playTriggered.current = true;
+            onPlay?.();
+          }
+        }}
+        onPause={() => {
+          setPlaying(false);
+          onPlaybackStateChange?.(false);
+          onPause?.();
+          if (intervalStart.current === null && pendingTrackingStartRef.current !== null) {
+            startTrackedInterval(pendingTrackingStartRef.current);
+          }
+          pendingTrackingStartRef.current = null;
+          flushInterval("paused");
           intervalStart.current = null;
           trackPlayerInteraction("pause", { positionSec: lastSeenTime.current });
         }}
@@ -1849,7 +2031,8 @@ export function VideoPlayer({
         }}
         onProgress={() => {
           const v = videoRef.current;
-          if (v && v.buffered.length > 0) setBuffered(Math.min(duration, toAbsoluteTime(v.buffered.end(v.buffered.length - 1))));
+          if (v && v.buffered.length > 0)
+            setBuffered(Math.min(duration, toAbsoluteTime(v.buffered.end(v.buffered.length - 1))));
         }}
         onEnded={() => {
           recordMediaEnded();
@@ -1869,7 +2052,11 @@ export function VideoPlayer({
           onEndedProp?.();
         }}
       >
-        <source ref={sourceRef} src={compatibilityLookupPending ? undefined : effectiveStreamUrl} type={effectiveSourceType} />
+        <source
+          ref={sourceRef}
+          src={compatibilityLookupPending ? undefined : effectiveStreamUrl}
+          type={effectiveSourceType}
+        />
         {captions?.map((cap, idx) => (
           <track
             key={cap.id}
@@ -1938,8 +2125,14 @@ export function VideoPlayer({
         <div className="px-3">
           <div className="relative h-4 flex items-center cursor-pointer group/seek" onClick={seekTo}>
             <div className="w-full h-1 bg-white/20 rounded-full group-hover/seek:h-1.5 transition-all relative">
-              <div className="absolute top-0 left-0 h-full bg-white/30 rounded-full" style={{ width: `${(visibleBuffered / timelineDuration) * 100}%` }} />
-              <div className="absolute top-0 left-0 h-full bg-accent rounded-full" style={{ width: `${(visibleCurrentTime / timelineDuration) * 100}%` }} />
+              <div
+                className="absolute top-0 left-0 h-full bg-white/30 rounded-full"
+                style={{ width: `${(visibleBuffered / timelineDuration) * 100}%` }}
+              />
+              <div
+                className="absolute top-0 left-0 h-full bg-accent rounded-full"
+                style={{ width: `${(visibleCurrentTime / timelineDuration) * 100}%` }}
+              />
               {abLoop.a != null && (
                 <div
                   className="absolute top-0 h-full bg-accent/25 pointer-events-none"
@@ -1974,25 +2167,44 @@ export function VideoPlayer({
             </button>
           )}
 
-          <button onClick={() => seekToAbsoluteTime(currentTime - 10)} className="hidden hover:text-accent p-1 md:inline-flex" title="Back 10s">
+          <button
+            onClick={() => seekToAbsoluteTime(currentTime - 10)}
+            className="hidden hover:text-accent p-1 md:inline-flex"
+            title="Back 10s"
+          >
             <SkipBack className="w-4 h-4" />
           </button>
-          <button onClick={() => seekToAbsoluteTime(currentTime + 10)} className="hidden hover:text-accent p-1 md:inline-flex" title="Forward 10s">
+          <button
+            onClick={() => seekToAbsoluteTime(currentTime + 10)}
+            className="hidden hover:text-accent p-1 md:inline-flex"
+            title="Forward 10s"
+          >
             <SkipForward className="w-4 h-4" />
           </button>
 
-          <button onClick={() => {
-            const v = videoRef.current;
-            if (!v) return;
-            v.muted = !v.muted;
-            setMuted(v.muted);
-            localStorage.setItem(MUTED_KEY, String(v.muted));
-          }} className="hover:text-accent p-1">
+          <button
+            onClick={() => {
+              const v = videoRef.current;
+              if (!v) return;
+              v.muted = !v.muted;
+              setMuted(v.muted);
+              localStorage.setItem(MUTED_KEY, String(v.muted));
+            }}
+            className="hover:text-accent p-1"
+          >
             {muted || vol === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
-          <div ref={volumeTrackRef} className="hidden w-20 h-3 items-center cursor-pointer group/vol touch-none md:flex" onClick={changeVolume} onPointerDown={startVolumeDrag}>
+          <div
+            ref={volumeTrackRef}
+            className="hidden w-20 h-3 items-center cursor-pointer group/vol touch-none md:flex"
+            onClick={changeVolume}
+            onPointerDown={startVolumeDrag}
+          >
             <div className="w-full h-1 bg-white/20 rounded-full relative">
-              <div className="absolute top-0 left-0 h-full bg-white rounded-full" style={{ width: `${(muted ? 0 : vol) * 100}%` }} />
+              <div
+                className="absolute top-0 left-0 h-full bg-white rounded-full"
+                style={{ width: `${(muted ? 0 : vol) * 100}%` }}
+              />
             </div>
           </div>
 
@@ -2036,92 +2248,112 @@ export function VideoPlayer({
               >
                 <EllipsisVertical className="h-4 w-4" />
               </button>
-              {showMobileOptions ? createPortal(
-                <div
-                  ref={mobileOptionsMenuRef}
-                  className="fixed z-[100] min-w-56 overflow-y-auto rounded border border-border bg-surface p-2 text-sm text-primary shadow-xl"
-                  style={{
-                    top: mobileOptionsPosition.top,
-                    bottom: mobileOptionsPosition.bottom,
-                    right: mobileOptionsPosition.right,
-                    maxHeight: mobileOptionsPosition.maxHeight,
-                  }}
-                  role="dialog"
-                  aria-label="Playback options menu"
-                >
-                  <div className="mb-2 px-2 text-xs text-secondary">Video quality</div>
-                  <div className="mb-2 grid grid-cols-2 gap-1">
-                    <button
-                      onClick={() => changeQuality("Direct")}
-                      className={`rounded px-2 py-1 hover:bg-card ${selectedQuality === "Direct" ? "bg-card text-accent" : ""}`}
+              {showMobileOptions
+                ? createPortal(
+                    <div
+                      ref={mobileOptionsMenuRef}
+                      className="fixed z-[100] min-w-56 overflow-y-auto rounded border border-border bg-surface p-2 text-sm text-primary shadow-xl"
+                      style={{
+                        top: mobileOptionsPosition.top,
+                        bottom: mobileOptionsPosition.bottom,
+                        right: mobileOptionsPosition.right,
+                        maxHeight: mobileOptionsPosition.maxHeight,
+                      }}
+                      role="dialog"
+                      aria-label="Playback options menu"
                     >
-                      Direct
-                    </button>
-                    {availableQualities.map((quality) => (
-                      <button
-                        key={quality}
-                        onClick={() => changeQuality(quality)}
-                        className={`rounded px-2 py-1 hover:bg-card ${selectedQuality === quality ? "bg-card text-accent" : ""}`}
-                      >
-                        {quality}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mb-2 px-2 text-xs text-secondary">Playback speed</div>
-                  <div className="mb-2 grid grid-cols-4 gap-1">
-                    {PLAYBACK_RATES.map((playbackRate) => (
-                      <button
-                        key={playbackRate}
-                        onClick={() => changeRate(playbackRate)}
-                        className={`rounded px-2 py-1 hover:bg-card ${playbackRate === rate ? "bg-card text-accent" : ""}`}
-                      >
-                        {playbackRate}x
-                      </button>
-                    ))}
-                  </div>
-                  {effectiveShowAbLoop ? (
-                    <button onClick={cycleAbLoop} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
-                      <Repeat className="h-4 w-4" />
-                      {abLoop.a == null ? "Set loop start" : abLoop.b == null ? "Set loop end" : "Clear A–B loop"}
-                    </button>
-                  ) : null}
-                  <button onClick={() => setLoop(!loop)} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
-                    <Repeat1 className="h-4 w-4" />
-                    {loop ? "Disable video loop" : "Loop video"}
-                  </button>
-                  <button onClick={togglePip} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
-                    <PictureInPicture2 className="h-4 w-4" />
-                    Picture-in-Picture
-                  </button>
-                  {captions && captions.length > 0 ? (
-                    <button onClick={() => setShowCaptions((visible) => !visible)} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
-                      <Subtitles className="h-4 w-4" />
-                      {showCaptions ? "Hide captions" : "Show captions"}
-                    </button>
-                  ) : null}
-                  {hasFaceDetections ? (
-                    <button onClick={() => setFaceOverlayEnabled((enabled) => !enabled)} className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card">
-                      {faceOverlayEnabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                      X-ray
-                    </button>
-                  ) : null}
-                  {compactControls && hasMediaPlayerActions && mediaPlayerExtensionContext ? (
-                    <>
-                      <div className="my-2 border-t border-border pt-2 px-2 text-xs text-secondary">Extension actions</div>
-                      {/* Let an extension handle the action before its menu contribution is unmounted. */}
-                      <div onClick={() => setShowMobileOptions(false)}>
-                        <ExtensionSlot
-                          slot={MEDIA_PLAYER_ACTIONS_SLOT}
-                          context={mediaPlayerExtensionContext}
-                          contextResetKey={mediaPlayerExtensionResetKey}
-                          createEntryContext={createMediaPlayerEntryContext}
-                          wrapperClassName="[&_button]:flex [&_button]:w-full [&_button]:items-center [&_button]:gap-2 [&_button]:rounded [&_button]:px-2 [&_button]:py-2 [&_button]:hover:bg-card"
-                        />
+                      <div className="mb-2 px-2 text-xs text-secondary">Video quality</div>
+                      <div className="mb-2 grid grid-cols-2 gap-1">
+                        <button
+                          onClick={() => changeQuality("Direct")}
+                          className={`rounded px-2 py-1 hover:bg-card ${selectedQuality === "Direct" ? "bg-card text-accent" : ""}`}
+                        >
+                          Direct
+                        </button>
+                        {availableQualities.map((quality) => (
+                          <button
+                            key={quality}
+                            onClick={() => changeQuality(quality)}
+                            className={`rounded px-2 py-1 hover:bg-card ${selectedQuality === quality ? "bg-card text-accent" : ""}`}
+                          >
+                            {quality}
+                          </button>
+                        ))}
                       </div>
-                    </>
-                  ) : null}
-                </div>
-              , document.body) : null}
+                      <div className="mb-2 px-2 text-xs text-secondary">Playback speed</div>
+                      <div className="mb-2 grid grid-cols-4 gap-1">
+                        {PLAYBACK_RATES.map((playbackRate) => (
+                          <button
+                            key={playbackRate}
+                            onClick={() => changeRate(playbackRate)}
+                            className={`rounded px-2 py-1 hover:bg-card ${playbackRate === rate ? "bg-card text-accent" : ""}`}
+                          >
+                            {playbackRate}x
+                          </button>
+                        ))}
+                      </div>
+                      {effectiveShowAbLoop ? (
+                        <button
+                          onClick={cycleAbLoop}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card"
+                        >
+                          <Repeat className="h-4 w-4" />
+                          {abLoop.a == null ? "Set loop start" : abLoop.b == null ? "Set loop end" : "Clear A–B loop"}
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() => setLoop(!loop)}
+                        className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card"
+                      >
+                        <Repeat1 className="h-4 w-4" />
+                        {loop ? "Disable video loop" : "Loop video"}
+                      </button>
+                      <button
+                        onClick={togglePip}
+                        className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card"
+                      >
+                        <PictureInPicture2 className="h-4 w-4" />
+                        Picture-in-Picture
+                      </button>
+                      {captions && captions.length > 0 ? (
+                        <button
+                          onClick={() => setShowCaptions((visible) => !visible)}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card"
+                        >
+                          <Subtitles className="h-4 w-4" />
+                          {showCaptions ? "Hide captions" : "Show captions"}
+                        </button>
+                      ) : null}
+                      {hasFaceDetections ? (
+                        <button
+                          onClick={() => setFaceOverlayEnabled((enabled) => !enabled)}
+                          className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-card"
+                        >
+                          {faceOverlayEnabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                          X-ray
+                        </button>
+                      ) : null}
+                      {compactControls && hasMediaPlayerActions && mediaPlayerExtensionContext ? (
+                        <>
+                          <div className="my-2 border-t border-border pt-2 px-2 text-xs text-secondary">
+                            Extension actions
+                          </div>
+                          {/* Let an extension handle the action before its menu contribution is unmounted. */}
+                          <div onClick={() => setShowMobileOptions(false)}>
+                            <ExtensionSlot
+                              slot={MEDIA_PLAYER_ACTIONS_SLOT}
+                              context={mediaPlayerExtensionContext}
+                              contextResetKey={mediaPlayerExtensionResetKey}
+                              createEntryContext={createMediaPlayerEntryContext}
+                              wrapperClassName="[&_button]:flex [&_button]:w-full [&_button]:items-center [&_button]:gap-2 [&_button]:rounded [&_button]:px-2 [&_button]:py-2 [&_button]:hover:bg-card"
+                            />
+                          </div>
+                        </>
+                      ) : null}
+                    </div>,
+                    document.body,
+                  )
+                : null}
             </div>
             <div className="relative hidden md:block">
               <button
@@ -2149,7 +2381,9 @@ export function VideoPlayer({
               <button
                 onClick={cycleAbLoop}
                 className={`hidden hover:text-accent p-1 text-xs font-medium items-center gap-1 md:flex ${abLoop.a != null ? "text-accent" : ""}`}
-                title={abLoop.a == null ? "Set loop start (A)" : abLoop.b == null ? "Set loop end (B)" : "Clear A-B loop"}
+                title={
+                  abLoop.a == null ? "Set loop start (A)" : abLoop.b == null ? "Set loop end (B)" : "Clear A-B loop"
+                }
               >
                 <Repeat className="w-4 h-4" />
                 {abLoop.a != null && abLoop.b == null && "A"}
@@ -2196,7 +2430,11 @@ export function VideoPlayer({
               <Repeat1 className="w-4 h-4" />
             </button>
 
-            <button onClick={togglePip} className={`hidden hover:text-accent p-1 md:inline-flex ${pip ? "text-accent" : ""}`} title="Picture-in-Picture">
+            <button
+              onClick={togglePip}
+              className={`hidden hover:text-accent p-1 md:inline-flex ${pip ? "text-accent" : ""}`}
+              title="Picture-in-Picture"
+            >
               <PictureInPicture2 className="w-4 h-4" />
             </button>
 
@@ -2235,7 +2473,10 @@ export function VideoPlayer({
       </div>
 
       {mediaRecoveryPhase === "exhausted" ? (
-        <div role="alert" className="absolute inset-0 z-[5] flex items-center justify-center bg-black/65 px-4 text-center">
+        <div
+          role="alert"
+          className="absolute inset-0 z-[5] flex items-center justify-center bg-black/65 px-4 text-center"
+        >
           <div>
             <p className="font-medium text-white">Playback could not reconnect.</p>
             <button
@@ -2262,7 +2503,10 @@ export function VideoPlayer({
       )}
 
       {!playing && !isBuffering && !interactionSnapshot.hideNativeControls && (
-        <div data-testid="video-player-paused-affordance" className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div
+          data-testid="video-player-paused-affordance"
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+        >
           <div className="bg-black/40 rounded-full p-4">
             <Play className="w-12 h-12 text-white" />
           </div>
@@ -2281,7 +2525,7 @@ function detectionColor(className: string) {
 
   let hash = 0;
   for (let index = 0; index < normalized.length; index += 1) {
-    hash = ((hash << 5) - hash) + normalized.charCodeAt(index);
+    hash = (hash << 5) - hash + normalized.charCodeAt(index);
     hash |= 0;
   }
 
@@ -2341,9 +2585,7 @@ function readNumberArray(value: unknown): number[] {
     return [];
   }
 
-  return value
-    .map(readFiniteNumber)
-    .filter((item): item is number => item != null);
+  return value.map(readFiniteNumber).filter((item): item is number => item != null);
 }
 
 function getSegmentKeyframeItems(segment: Segment): unknown[] {
@@ -2356,8 +2598,10 @@ function hasSegmentFaceKeyframes(segment: Segment) {
     return false;
   }
 
-  return getSegmentKeyframeItems(segment).length > 0
-    || readNumberArray(getPayloadJsonValue(segment.payload, "bestBbox")).length >= 4;
+  return (
+    getSegmentKeyframeItems(segment).length > 0 ||
+    readNumberArray(getPayloadJsonValue(segment.payload, "bestBbox")).length >= 4
+  );
 }
 
 function getSegmentFaceKeyframes(segment: Segment): Detection[] {
@@ -2375,13 +2619,15 @@ function getSegmentFaceKeyframes(segment: Segment): Detection[] {
     return [];
   }
 
-  return [createSegmentFaceDetection(
-    segment,
-    0,
-    readFiniteNumber(getPayloadValue(segment.payload, "bestTimeSec")) ?? segment.startSec,
-    bestBbox,
-    readFiniteNumber(getPayloadValue(segment.payload, "bestScore")) ?? segment.confidence ?? 1,
-  )];
+  return [
+    createSegmentFaceDetection(
+      segment,
+      0,
+      readFiniteNumber(getPayloadValue(segment.payload, "bestTimeSec")) ?? segment.startSec,
+      bestBbox,
+      readFiniteNumber(getPayloadValue(segment.payload, "bestScore")) ?? segment.confidence ?? 1,
+    ),
+  ];
 }
 
 function createSegmentKeyframeDetection(segment: Segment, keyframe: unknown, index: number): Detection | null {
@@ -2404,7 +2650,13 @@ function createSegmentKeyframeDetection(segment: Segment, keyframe: unknown, ind
   );
 }
 
-function createSegmentFaceDetection(segment: Segment, index: number, observedAtSec: number, bbox: number[], score: number): Detection {
+function createSegmentFaceDetection(
+  segment: Segment,
+  index: number,
+  observedAtSec: number,
+  bbox: number[],
+  score: number,
+): Detection {
   const x = bbox[0];
   const y = bbox[1];
   const width = bbox[2] > x ? bbox[2] - x : bbox[2];
@@ -2436,8 +2688,10 @@ function createSegmentFaceDetection(segment: Segment, index: number, observedAtS
 }
 
 function isFaceTimelineSegment(segment: Segment) {
-  return (segment.kind ?? "").toLowerCase() === "face"
-    || getPayloadString(segment.payload, "refKind")?.toLowerCase() === "face";
+  return (
+    (segment.kind ?? "").toLowerCase() === "face" ||
+    getPayloadString(segment.payload, "refKind")?.toLowerCase() === "face"
+  );
 }
 
 function getSegmentTrackKey(segment: Segment) {
@@ -2461,8 +2715,7 @@ function isDetectionWithinSegment(detection: Detection, segment: Segment, tolera
 }
 
 function getFaceDetectionGroupKey(detection: Detection) {
-  return detection.groupKey
-    ?? (detection.refId != null ? `face:${detection.refId}` : `detection:${detection.id}`);
+  return detection.groupKey ?? (detection.refId != null ? `face:${detection.refId}` : `detection:${detection.id}`);
 }
 
 function groupFaceDetections(detections: Detection[]) {
@@ -2485,7 +2738,11 @@ function getFaceOverlayKey(detection: Detection, trackKey?: string) {
   return `face-track:${trackKey ?? detection.groupKey ?? detection.id}`;
 }
 
-function chooseCurrentFaceOverlay(existing: DetectionOverlay, candidate: DetectionOverlay, currentTime: number): DetectionOverlay {
+function chooseCurrentFaceOverlay(
+  existing: DetectionOverlay,
+  candidate: DetectionOverlay,
+  currentTime: number,
+): DetectionOverlay {
   const existingDelta = Math.abs((existing.observedAtSec ?? currentTime) - currentTime);
   const candidateDelta = Math.abs((candidate.observedAtSec ?? currentTime) - currentTime);
   if (candidateDelta < existingDelta - 0.001) {
@@ -2528,7 +2785,7 @@ function interpolateDetection(detections: Detection[], currentTime: number): Det
 
     const span = Math.max(nextTime - previousTime, 0.001);
     const ratio = Math.min(1, Math.max(0, (currentTime - previousTime) / span));
-    const lerp = (left: number, right: number) => left + ((right - left) * ratio);
+    const lerp = (left: number, right: number) => left + (right - left) * ratio;
     return {
       ...previous,
       observedAtSec: currentTime,
@@ -2545,15 +2802,11 @@ function interpolateDetection(detections: Detection[], currentTime: number): Det
 
 function formatDetectionBadge(detection: Detection, faceLabelsById?: Map<number, FaceOverlayInfo>) {
   const confidence = Math.round(detection.score * 100);
-  const face = detection.refId != null && isFaceDetection(detection)
-    ? faceLabelsById?.get(detection.refId)
-    : undefined;
+  const face = detection.refId != null && isFaceDetection(detection) ? faceLabelsById?.get(detection.refId) : undefined;
   if (face?.performerName?.trim()) {
     return `${detection.class} ${confidence}% · ${face.performerName.trim()}`;
   }
 
-  const refText = detection.refKind && detection.refId != null
-    ? ` · ${detection.refKind} #${detection.refId}`
-    : "";
+  const refText = detection.refKind && detection.refId != null ? ` · ${detection.refKind} #${detection.refId}` : "";
   return `${detection.class} ${confidence}%${refText}`;
 }

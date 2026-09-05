@@ -27,23 +27,30 @@ export function executableExtensionFilterKey(contribution: ExtensionListFilterCo
 }
 
 function toUiModifier(value: string) {
-  return value.replace(/([a-z])([A-Z])/g, "$1_$2").replaceAll("-", "_").toUpperCase();
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .replaceAll("-", "_")
+    .toUpperCase();
 }
 
 function toApiModifier(value: unknown) {
-  return String(value ?? "equals").toLowerCase().replaceAll("_", "");
+  return String(value ?? "equals")
+    .toLowerCase()
+    .replaceAll("_", "");
 }
 
 function isExtensionCriterion(value: unknown): value is ExtensionFilterCriterion {
   if (!value || typeof value !== "object") return false;
   const criterion = value as Record<string, unknown>;
-  return typeof criterion.extensionId === "string"
-    && criterion.extensionId.trim().length > 0
-    && typeof criterion.filterId === "string"
-    && criterion.filterId.trim().length > 0
-    && typeof criterion.modifier === "string"
-    && criterion.modifier.trim().length > 0
-    && Object.hasOwn(criterion, "value");
+  return (
+    typeof criterion.extensionId === "string" &&
+    criterion.extensionId.trim().length > 0 &&
+    typeof criterion.filterId === "string" &&
+    criterion.filterId.trim().length > 0 &&
+    typeof criterion.modifier === "string" &&
+    criterion.modifier.trim().length > 0 &&
+    Object.hasOwn(criterion, "value")
+  );
 }
 
 function malformedExtensionCriteria(filter: Record<string, unknown>) {
@@ -102,9 +109,9 @@ export function unavailableExtensionCriterionDefinitions(
   filter: Record<string, unknown>,
   contributions: ExtensionListFilterContribution[],
 ): CriterionDefinition[] {
-  const declared = new Set(contributions
-    .map(executableExtensionFilterKey)
-    .filter((key): key is string => key !== null));
+  const declared = new Set(
+    contributions.map(executableExtensionFilterKey).filter((key): key is string => key !== null),
+  );
   const criteria = Array.isArray(filter.extensionCriteria) ? filter.extensionCriteria.filter(isExtensionCriterion) : [];
   return criteria
     .filter((criterion) => !declared.has(extensionFilterKey(criterion.extensionId, criterion.filterId)))

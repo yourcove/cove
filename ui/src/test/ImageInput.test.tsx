@@ -47,7 +47,12 @@ describe("ImageInput", () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     let finishUpload: (() => void) | undefined;
-    const onUpload = vi.fn(() => new Promise<void>((resolve) => { finishUpload = resolve; }));
+    const onUpload = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishUpload = resolve;
+        }),
+    );
     const { container } = renderInput({ onUpload });
     const dropTarget = container.querySelector(".border-dashed") as HTMLElement;
     const file = new File(["image"], "cover.png", { type: "image/png" });
@@ -60,10 +65,15 @@ describe("ImageInput", () => {
   });
 
   it("disables other inputs while loading an image URL", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => undefined)),
+    );
     renderInput();
     fireEvent.click(screen.getByRole("button", { name: "URL" }));
-    fireEvent.change(screen.getByPlaceholderText("https://..."), { target: { value: "https://example.invalid/cover.jpg" } });
+    fireEvent.change(screen.getByPlaceholderText("https://..."), {
+      target: { value: "https://example.invalid/cover.jpg" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Load" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "File" })).toBeDisabled());
@@ -72,13 +82,19 @@ describe("ImageInput", () => {
 
   it.each([
     ["a failed response", new Response(null, { status: 404 }), "Image request failed (404)."],
-    ["non-image content", new Response("not an image", { status: 200, headers: { "Content-Type": "text/plain" } }), "The URL did not return an image."],
+    [
+      "non-image content",
+      new Response("not an image", { status: 200, headers: { "Content-Type": "text/plain" } }),
+      "The URL did not return an image.",
+    ],
   ])("rejects %s without uploading", async (_case, response, expectedError) => {
     const onUpload = vi.fn();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
     renderInput({ onUpload });
     fireEvent.click(screen.getByRole("button", { name: "URL" }));
-    fireEvent.change(screen.getByPlaceholderText("https://..."), { target: { value: "https://example.invalid/cover" } });
+    fireEvent.change(screen.getByPlaceholderText("https://..."), {
+      target: { value: "https://example.invalid/cover" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Load" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(expectedError);

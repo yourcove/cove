@@ -6,10 +6,7 @@ import { useKeySequence } from "../hooks/useKeySequence";
 import type { Route } from "../router/location";
 import { useExtensions } from "./ExtensionLoader";
 
-export function extensionKeyboardScopeMatches(
-  scope: ExtensionKeyboardAction["scopes"][number],
-  route: Route,
-) {
+export function extensionKeyboardScopeMatches(scope: ExtensionKeyboardAction["scopes"][number], route: Route) {
   if (scope.page && scope.page !== route.page) return false;
   if (scope.tab) return false; // Tab-scoped actions must register from their mounted tab component.
   if (scope.entityType) {
@@ -22,22 +19,28 @@ export function extensionKeyboardScopeMatches(
 export function ExtensionKeyboardActions({ route }: { route: Route }) {
   const { manifest, resolveActionHandler } = useExtensions();
   const { hasPermission } = useAuth();
-  const bindings = useMemo(() => (manifest?.keyboardActions ?? []).flatMap((action) => {
-    if (action.requiredPermission && !hasPermission(action.requiredPermission)) return [];
-    const scope = (action.scopes ?? []).find((candidate) => extensionKeyboardScopeMatches(candidate, route));
-    if (!scope || (!action.handlerName && !action.apiEndpoint)) return [];
-    return [{
-      id: action.id,
-      keys: action.defaultBindings?.[0] ?? "",
-      surface: scope.surface,
-      action: () => {
-        const payload = buildInvocationPayload(action, route, scope.surface);
-        void invokeExtensionKeyboardAction(action, payload, resolveActionHandler).catch((error) => {
-          window.alert(error instanceof Error ? error.message : "Failed to run the extension keyboard action.");
-        });
-      },
-    }];
-  }), [hasPermission, manifest?.keyboardActions, resolveActionHandler, route]);
+  const bindings = useMemo(
+    () =>
+      (manifest?.keyboardActions ?? []).flatMap((action) => {
+        if (action.requiredPermission && !hasPermission(action.requiredPermission)) return [];
+        const scope = (action.scopes ?? []).find((candidate) => extensionKeyboardScopeMatches(candidate, route));
+        if (!scope || (!action.handlerName && !action.apiEndpoint)) return [];
+        return [
+          {
+            id: action.id,
+            keys: action.defaultBindings?.[0] ?? "",
+            surface: scope.surface,
+            action: () => {
+              const payload = buildInvocationPayload(action, route, scope.surface);
+              void invokeExtensionKeyboardAction(action, payload, resolveActionHandler).catch((error) => {
+                window.alert(error instanceof Error ? error.message : "Failed to run the extension keyboard action.");
+              });
+            },
+          },
+        ];
+      }),
+    [hasPermission, manifest?.keyboardActions, resolveActionHandler, route],
+  );
   useKeySequence(bindings);
   return null;
 }

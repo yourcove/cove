@@ -16,7 +16,10 @@ export function useDetailListSelection<TItem extends { id: string | number }>({
   fetchAllIds,
   resetKeyParts = [],
 }: UseDetailListSelectionOptions<TItem>) {
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, parts: resetKeyParts }), [infiniteFilterKey, resetKeyParts]);
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: infiniteFilterKey, parts: resetKeyParts }),
+    [infiniteFilterKey, resetKeyParts],
+  );
   const selection = useMultiSelect(items, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
   const [selectAllPending, setSelectAllPending] = useState(false);
 

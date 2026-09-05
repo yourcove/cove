@@ -36,7 +36,11 @@ export function WallSizeControl({ sizeLevel, onChange }: WallSizeControlProps) {
         step={1}
         value={effectiveSizeLevel}
         onChange={(event) => onChange(clampWallSizeLevel(Number(event.target.value)))}
-        style={{ "--range-fill": `${((effectiveSizeLevel - MIN_WALL_SIZE_LEVEL) / (MAX_WALL_SIZE_LEVEL - MIN_WALL_SIZE_LEVEL)) * 100}%` } as CSSProperties}
+        style={
+          {
+            "--range-fill": `${((effectiveSizeLevel - MIN_WALL_SIZE_LEVEL) / (MAX_WALL_SIZE_LEVEL - MIN_WALL_SIZE_LEVEL)) * 100}%`,
+          } as CSSProperties
+        }
         className="themed-range-input h-1 w-16 cursor-pointer sm:w-20"
         aria-label="Wall card size"
         title={`Wall card size: ${effectiveSizeLevel}`}

@@ -2,20 +2,31 @@ import { ChevronDown, ChevronUp, Loader2, PlayCircle } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 const fieldDescriptionFallbacks: Record<string, string> = {
-  "Max parallel tasks (-1 = all CPU threads)": "Caps concurrent background work. Use -1 to let Cove scale to available CPU threads.",
+  "Max parallel tasks (-1 = all CPU threads)":
+    "Caps concurrent background work. Use -1 to let Cove scale to available CPU threads.",
   // Scan & generate task options (shared labels)
-  "Thumbnails / screenshots": "A still cover frame captured from the video, used as its poster image on cards, lists, and the detail page.",
-  "Video previews": "A short looping clip stitched from a few moments across the video, played when you hover a card so you can preview it without opening it.",
-  "Sprite sheets": "A grid of small thumbnails sampled across the timeline. Powers the scrubbing preview that appears when you hover the seek bar during playback.",
-  "Perceptual hashes (phash)": "A fingerprint of the video's visual content (not the exact bytes). Used to match it against entries on metadata servers and to find near-duplicate or re-encoded copies in your library.",
-  "MD5 checksums": "An exact fingerprint of the file's bytes. Used to match against metadata servers and to detect identical duplicate files in your library.",
+  "Thumbnails / screenshots":
+    "A still cover frame captured from the video, used as its poster image on cards, lists, and the detail page.",
+  "Video previews":
+    "A short looping clip stitched from a few moments across the video, played when you hover a card so you can preview it without opening it.",
+  "Sprite sheets":
+    "A grid of small thumbnails sampled across the timeline. Powers the scrubbing preview that appears when you hover the seek bar during playback.",
+  "Perceptual hashes (phash)":
+    "A fingerprint of the video's visual content (not the exact bytes). Used to match it against entries on metadata servers and to find near-duplicate or re-encoded copies in your library.",
+  "MD5 checksums":
+    "An exact fingerprint of the file's bytes. Used to match against metadata servers and to detect identical duplicate files in your library.",
   "Image thumbnails": "A smaller resized copy of each image for fast loading in grids and lists.",
-  "Image phashes": "A visual fingerprint of each image. Used to match against metadata servers and to find near-duplicate images in your library.",
+  "Image phashes":
+    "A visual fingerprint of each image. Used to match against metadata servers and to find near-duplicate images in your library.",
   "Gallery cover thumbnails": "A thumbnail of each gallery's cover image, shown on gallery cards and lists.",
-  "Audio perceptual hashes": "An acoustic fingerprint of each audio file. Used to match against metadata servers and to find duplicate or re-encoded audio in your library.",
-  "Text perceptual hashes": "A content fingerprint of each text document. Used to match against metadata servers and to find duplicate text in your library.",
-  "Overwrite existing generated files": "Regenerate and replace assets that already exist, instead of skipping files that are already done.",
-  "Force rescan (ignore mtime)": "Re-examine every file even if its modified time hasn't changed, instead of skipping files that look unchanged.",
+  "Audio perceptual hashes":
+    "An acoustic fingerprint of each audio file. Used to match against metadata servers and to find duplicate or re-encoded audio in your library.",
+  "Text perceptual hashes":
+    "A content fingerprint of each text document. Used to match against metadata servers and to find duplicate text in your library.",
+  "Overwrite existing generated files":
+    "Regenerate and replace assets that already exist, instead of skipping files that are already done.",
+  "Force rescan (ignore mtime)":
+    "Re-examine every file even if its modified time hasn't changed, instead of skipping files that look unchanged.",
   "Exclude videos": "Skip video files under this library path during scans.",
   "Exclude images": "Skip image files under this library path during scans.",
   "Exclude audio": "Skip audio files under this library path during scans.",
@@ -30,10 +41,14 @@ const fieldDescriptionFallbacks: Record<string, string> = {
   "Gallery extensions": "Archive or gallery file extensions discovered during scans.",
   "Audio extensions": "File extensions treated as audio during library scans.",
   "Text extensions": "File extensions treated as text documents during library scans.",
-  "Calculate MD5 checksums during scan": "Computes MD5 hashes while scanning so exact duplicate checks have stable file fingerprints.",
-  "Exclude patterns": "Path fragments or glob patterns ignored during library scans. Filename globs apply at any depth; use * within one folder, ** across folders, or ? for one character.",
-  "Excluded image patterns": "Image-specific path fragments or glob patterns. Filename globs apply at any depth; use * within one folder, ** across folders, or ? for one character.",
-  "Excluded gallery patterns": "Gallery-specific path fragments or glob patterns. Filename globs apply at any depth; use * within one folder, ** across folders, or ? for one character.",
+  "Calculate MD5 checksums during scan":
+    "Computes MD5 hashes while scanning so exact duplicate checks have stable file fingerprints.",
+  "Exclude patterns":
+    "Path fragments or glob patterns ignored during library scans. Filename globs apply at any depth; use * within one folder, ** across folders, or ? for one character.",
+  "Excluded image patterns":
+    "Image-specific path fragments or glob patterns. Filename globs apply at any depth; use * within one folder, ** across folders, or ? for one character.",
+  "Excluded gallery patterns":
+    "Gallery-specific path fragments or glob patterns. Filename globs apply at any depth; use * within one folder, ** across folders, or ? for one character.",
   "Create galleries from folders": "Treat image folders as gallery entities when scans discover grouped image sets.",
   "Write image thumbnails": "Generate thumbnail files for images while scanning or generating assets.",
   "Create image clips from videos": "Allow scans to create still-image clip records derived from video files.",
@@ -43,11 +58,13 @@ const fieldDescriptionFallbacks: Record<string, string> = {
   "Rating system": "Controls whether ratings are shown as stars or decimal values.",
   "Star precision": "Controls how finely star ratings can be adjusted.",
   "Default player start (%)": "Starts video playback at this percentage for long enough videos.",
-  "Use default start only for videos longer than (seconds)": "Keeps short videos starting from the beginning even when a start percentage is set.",
+  "Use default start only for videos longer than (seconds)":
+    "Keeps short videos starting from the beginning even when a start percentage is set.",
   "Wall show title": "Shows item titles on wall cards.",
   "Wall playback": "Controls how wall cards start or preview video playback.",
   "Playback source": "Chooses whether feed-style cards use generated previews or original video playback.",
-  "Play sound by default in Feed and Vertical Viewer": "Controls whether feed and vertical-viewer videos start muted or with audio.",
+  "Play sound by default in Feed and Vertical Viewer":
+    "Controls whether feed and vertical-viewer videos start muted or with audio.",
   "Full video start (%)": "Starts full-video feed playback at this percentage for long enough videos.",
   "Use start % only for videos longer than (seconds)": "Keeps shorter feed videos starting at the beginning.",
   "Slideshow delay (ms)": "Delay between images while slideshow mode advances automatically.",
@@ -57,18 +74,20 @@ const fieldDescriptionFallbacks: Record<string, string> = {
   "Custom JavaScript": "JavaScript injected into the app when JavaScript customization is enabled.",
   "Authentication required": "Requires users to sign in before accessing protected Cove APIs and pages.",
   "Allow anonymous share links": "Allows generated share links to grant anonymous read-only access when valid.",
-  "Name": "Friendly display name for this entry.",
-  "Endpoint": "Base URL used when Cove connects to this service.",
+  Name: "Friendly display name for this entry.",
+  Endpoint: "Base URL used when Cove connects to this service.",
   "Max req/min": "Per-minute request cap used to avoid overwhelming this metadata server.",
   "Existing linked entities": "Controls whether batch metadata operations keep or overwrite existing linked entities.",
-  "Max auto-apply duration difference (seconds)": "Maximum duration mismatch allowed when Identify auto-applies a match.",
+  "Max auto-apply duration difference (seconds)":
+    "Maximum duration mismatch allowed when Identify auto-applies a match.",
   "Max auto-apply pHash distance": "Maximum perceptual-hash distance allowed when Identify auto-applies a match.",
   "Allow Identify to create new performers": "Lets Identify create performer records when applying metadata.",
   "Allow Identify to create new studios": "Lets Identify create studio records when applying metadata.",
   "Allow Identify to create new tags": "Lets Identify create tag records when applying metadata.",
-  "Host": "Network interface the Cove API binds to after restart.",
-  "Port": "HTTP port the Cove API listens on after restart.",
-  "Enable hardware acceleration (FFmpeg in-process)": "Allows Cove's in-process FFmpeg work to use configured hardware acceleration when available.",
+  Host: "Network interface the Cove API binds to after restart.",
+  Port: "HTTP port the Cove API listens on after restart.",
+  "Enable hardware acceleration (FFmpeg in-process)":
+    "Allows Cove's in-process FFmpeg work to use configured hardware acceleration when available.",
   "FFmpeg path": "Optional absolute path to the FFmpeg executable.",
   "FFprobe path": "Optional absolute path to the FFprobe executable.",
   "Max transcode size": "Maximum output size used for generated transcodes.",
@@ -78,14 +97,17 @@ const fieldDescriptionFallbacks: Record<string, string> = {
   "Transcode output args": "Additional FFmpeg output arguments for generated transcodes.",
   "Live transcode input args": "Additional FFmpeg input arguments for live streaming transcodes.",
   "Live transcode output args": "Additional FFmpeg output arguments for live streaming transcodes.",
-  "Enable engagement history": "Records viewing and engagement events for history, activity, and derived recommendations.",
+  "Enable engagement history":
+    "Records viewing and engagement events for history, activity, and derived recommendations.",
   "Minimum video view seconds": "Minimum video watch time before Cove records a view.",
   "Video completion ratio": "Fraction of a video that must be watched before Cove records completion.",
   "Minimum image view seconds": "Minimum image detail-view time before Cove records a view.",
-  "Minimum session length for derived likes": "Minimum viewing-session duration before Cove derives engagement from it.",
+  "Minimum session length for derived likes":
+    "Minimum viewing-session duration before Cove derives engagement from it.",
   "Session idle timeout seconds": "Idle time after which Cove starts a new engagement session.",
   "Segment thumbnails": "A still frame captured at the start of each segment, used as that segment's thumbnail.",
-  "Animated segment previews": "A short looping clip for each segment, played on hover like video previews but scoped to the segment.",
+  "Animated segment previews":
+    "A short looping clip for each segment, played on hover like video previews but scoped to the segment.",
 };
 
 export function getSettingHelpText(label: string, description?: string) {
@@ -101,9 +123,18 @@ export interface SettingsSectionProps {
   headerClassName?: string;
 }
 
-export function SettingsSection({ title, description, children, actions, className = "", headerClassName = "" }: SettingsSectionProps) {
+export function SettingsSection({
+  title,
+  description,
+  children,
+  actions,
+  className = "",
+  headerClassName = "",
+}: SettingsSectionProps) {
   return (
-    <section className={`rounded-2xl border border-border bg-surface p-5 shadow-[0_12px_30px_-20px_rgba(0,0,0,0.7)] ${className}`.trim()}>
+    <section
+      className={`rounded-2xl border border-border bg-surface p-5 shadow-[0_12px_30px_-20px_rgba(0,0,0,0.7)] ${className}`.trim()}
+    >
       <header className={`mb-4 flex items-start justify-between gap-4 ${headerClassName}`.trim()}>
         <div>
           <h3 className="text-base font-semibold text-foreground">{title}</h3>
@@ -120,22 +151,52 @@ export function SectionCard(props: SettingsSectionProps) {
   return <SettingsSection {...props} />;
 }
 
-export function CollapsibleSection({ title, subtitle, expanded, onToggle, children }: { title: string; subtitle?: string; expanded: boolean; onToggle: () => void; children: ReactNode }) {
+export function CollapsibleSection({
+  title,
+  subtitle,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
   return (
     <div className="overflow-hidden rounded-xl border border-border">
-      <button type="button" onClick={onToggle} className="flex w-full items-center justify-between bg-card px-4 py-3 text-left transition-colors hover:bg-card-hover">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between bg-card px-4 py-3 text-left transition-colors hover:bg-card-hover"
+      >
         <div className="min-w-0">
           <span className="text-sm font-medium text-foreground">{title}</span>
           {subtitle ? <span className="ml-2 text-xs text-muted">({subtitle})</span> : null}
         </div>
-        {expanded ? <ChevronUp className="h-4 w-4 shrink-0 text-muted" /> : <ChevronDown className="h-4 w-4 shrink-0 text-muted" />}
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 shrink-0 text-muted" />
+        ) : (
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+        )}
       </button>
       {expanded ? <div className="border-t border-border px-4 py-3">{children}</div> : null}
     </div>
   );
 }
 
-export function SettingsField({ label, description, children, className = "" }: { label: string; description?: string; children: ReactNode; className?: string }) {
+export function SettingsField({
+  label,
+  description,
+  children,
+  className = "",
+}: {
+  label: string;
+  description?: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <label className={`block text-sm ${className}`.trim()} title={getSettingHelpText(label, description)}>
       <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">{label}</span>
@@ -271,7 +332,19 @@ export function SelectField({
   );
 }
 
-export function CheckboxLabel({ label, checked, onChange, description, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; description?: string; disabled?: boolean }) {
+export function CheckboxLabel({
+  label,
+  checked,
+  onChange,
+  description,
+  disabled = false,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  description?: string;
+  disabled?: boolean;
+}) {
   return (
     <label className="flex items-center gap-2 text-sm text-secondary" title={getSettingHelpText(label, description)}>
       <input
@@ -295,7 +368,15 @@ export function InfoPair({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function SettingsMetricCard({ label, value, valueClassName = "text-2xl" }: { label: string; value: ReactNode; valueClassName?: string }) {
+export function SettingsMetricCard({
+  label,
+  value,
+  valueClassName = "text-2xl",
+}: {
+  label: string;
+  value: ReactNode;
+  valueClassName?: string;
+}) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <div className="text-xs uppercase tracking-[0.16em] text-muted">{label}</div>
@@ -361,13 +442,18 @@ export function TaskCard({
   );
 }
 
-export function SettingsButton(props: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "danger" | "ghost" }) {
+export function SettingsButton(
+  props: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "danger" | "ghost" },
+) {
   const { variant = "ghost", className = "", type = "button", ...rest } = props;
-  const base = "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:py-1.5";
+  const base =
+    "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:py-1.5";
   const variantClass =
-    variant === "primary" ? "bg-accent text-white hover:bg-accent-hover" :
-    variant === "danger" ? "bg-red-600 text-white hover:bg-red-500" :
-    "border border-border bg-card text-secondary hover:border-accent/50 hover:bg-card-hover hover:text-foreground";
+    variant === "primary"
+      ? "bg-accent text-white hover:bg-accent-hover"
+      : variant === "danger"
+        ? "bg-red-600 text-white hover:bg-red-500"
+        : "border border-border bg-card text-secondary hover:border-accent/50 hover:bg-card-hover hover:text-foreground";
 
   return <button {...rest} type={type} className={`${base} ${variantClass} ${className}`} />;
 }

@@ -128,9 +128,7 @@ export function VirtualizedWallColumns<TItem>({
               isFetchingNextPage={Boolean(isFetchingNextPage)}
               loadMore={loadMore ?? noop}
               renderItem={({ item, index }) => (
-                <div style={{ paddingBottom: gap }}>
-                  {renderItem(item, index, columnIndex)}
-                </div>
+                <div style={{ paddingBottom: gap }}>{renderItem(item, index, columnIndex)}</div>
               )}
             />
           </div>

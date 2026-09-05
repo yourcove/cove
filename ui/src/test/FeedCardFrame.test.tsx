@@ -1,6 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { FeedActionPill, FeedCardFrame, FeedChipButton, FeedChipOverflowMenu, FeedIdentityBadge, FeedMetadataPill, FeedTagChips } from "../components/FeedCardFrame";
+import {
+  FeedActionPill,
+  FeedCardFrame,
+  FeedChipButton,
+  FeedChipOverflowMenu,
+  FeedIdentityBadge,
+  FeedMetadataPill,
+  FeedTagChips,
+} from "../components/FeedCardFrame";
 
 describe("FeedCardFrame", () => {
   it("renders a floating post layout with only media in the card-like frame", () => {
@@ -35,7 +43,10 @@ describe("FeedCardFrame", () => {
     expect(screen.getByText("12 votes")).toBeInTheDocument();
     expect(screen.getByText("1920x1080")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "#tag" })).toBeInTheDocument();
-    expect(screen.getByText("Studio One").compareDocumentPosition(screen.getByText("Today")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      screen.getByText("Studio One").compareDocumentPosition(screen.getByText("Today")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("renders a compact overflow menu for truncated feed chips", () => {
@@ -44,14 +55,14 @@ describe("FeedCardFrame", () => {
         header={<span>Today</span>}
         title={<button type="button">Post title</button>}
         media={<div>Media</div>}
-        chips={(
+        chips={
           <>
             <FeedChipButton onClick={vi.fn()}>#visible</FeedChipButton>
             <FeedChipOverflowMenu>
               <FeedChipButton onClick={vi.fn()}>#hidden</FeedChipButton>
             </FeedChipOverflowMenu>
           </>
-        )}
+        }
       />,
     );
 
@@ -70,7 +81,12 @@ describe("FeedCardFrame", () => {
         title={<span>Feed item</span>}
         media={<div>Media</div>}
         onClick={onCardClick}
-        chips={<FeedTagChips tags={[{ id: 7, name: "Preview Tag", imagePath: "/preview-tag.jpg" }]} onTagClick={onTagClick} />}
+        chips={
+          <FeedTagChips
+            tags={[{ id: 7, name: "Preview Tag", imagePath: "/preview-tag.jpg" }]}
+            onTagClick={onTagClick}
+          />
+        }
       />,
     );
 
@@ -81,7 +97,10 @@ describe("FeedCardFrame", () => {
     );
 
     fireEvent.click(chip);
-    expect(onTagClick).toHaveBeenCalledWith(expect.objectContaining({ id: 7, name: "Preview Tag" }), expect.objectContaining({ shiftKey: false }));
+    expect(onTagClick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 7, name: "Preview Tag" }),
+      expect.objectContaining({ shiftKey: false }),
+    );
     expect(onCardClick).not.toHaveBeenCalled();
   });
 

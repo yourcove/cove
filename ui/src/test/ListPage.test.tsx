@@ -42,49 +42,61 @@ beforeEach(() => {
 });
 
 describe("ListPage active filter chips", () => {
-  it.each(["pending", "error", "legacy loading"] as const)("ignores repeated pagination input during %s and resumes when results arrive", (state) => {
-    const queryClient = new QueryClient();
-    const onFilterChange = vi.fn();
-    const renderPage = (ready: boolean) => (
-      <QueryClientProvider client={queryClient}>
-        <RouteRegistryProvider>
-          <ListPage
-            title="Videos"
-            filter={{ page: 12, perPage: 40 }}
-            onFilterChange={onFilterChange}
-            totalCount={ready ? 800 : 0}
-            isLoading={!ready && state === "legacy loading"}
-            loadState={ready ? { status: "success", data: {} } : state === "legacy loading" ? undefined : state === "error" ? { status: "error", error: new Error("Request failed") } : { status: "pending" }}
-          >
-            <div>content</div>
-          </ListPage>
-        </RouteRegistryProvider>
-      </QueryClientProvider>
-    );
-    const { rerender } = render(renderPage(true));
-    fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 13, perPage: 40 });
-    onFilterChange.mockClear();
+  it.each(["pending", "error", "legacy loading"] as const)(
+    "ignores repeated pagination input during %s and resumes when results arrive",
+    (state) => {
+      const queryClient = new QueryClient();
+      const onFilterChange = vi.fn();
+      const renderPage = (ready: boolean) => (
+        <QueryClientProvider client={queryClient}>
+          <RouteRegistryProvider>
+            <ListPage
+              title="Videos"
+              filter={{ page: 12, perPage: 40 }}
+              onFilterChange={onFilterChange}
+              totalCount={ready ? 800 : 0}
+              isLoading={!ready && state === "legacy loading"}
+              loadState={
+                ready
+                  ? { status: "success", data: {} }
+                  : state === "legacy loading"
+                    ? undefined
+                    : state === "error"
+                      ? { status: "error", error: new Error("Request failed") }
+                      : { status: "pending" }
+              }
+            >
+              <div>content</div>
+            </ListPage>
+          </RouteRegistryProvider>
+        </QueryClientProvider>
+      );
+      const { rerender } = render(renderPage(true));
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+      expect(onFilterChange).toHaveBeenLastCalledWith({ page: 13, perPage: 40 });
+      onFilterChange.mockClear();
 
-    rerender(renderPage(false));
-    for (let i = 0; i < 5; i++) {
+      rerender(renderPage(false));
+      for (let i = 0; i < 5; i++) {
+        fireEvent.keyDown(window, { key: "ArrowRight", repeat: true });
+      }
+      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      expect(onFilterChange).not.toHaveBeenCalled();
+
+      rerender(renderPage(true));
       fireEvent.keyDown(window, { key: "ArrowRight", repeat: true });
-    }
-    fireEvent.keyDown(window, { key: "ArrowLeft" });
-    expect(onFilterChange).not.toHaveBeenCalled();
-
-    rerender(renderPage(true));
-    fireEvent.keyDown(window, { key: "ArrowRight", repeat: true });
-    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 13, perPage: 40 });
-    fireEvent.keyDown(window, { key: "ArrowLeft" });
-    expect(onFilterChange).toHaveBeenLastCalledWith({ page: 11, perPage: 40 });
-  });
+      expect(onFilterChange).toHaveBeenLastCalledWith({ page: 13, perPage: 40 });
+      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      expect(onFilterChange).toHaveBeenLastCalledWith({ page: 11, perPage: 40 });
+    },
+  );
 
   it("shows a flag and display name for a recognized country filter", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(["performer-country-options"], [
-      { value: "CZ", code: "CZ", name: "Czechia", performerCount: 1, isCustom: false },
-    ]);
+    queryClient.setQueryData(
+      ["performer-country-options"],
+      [{ value: "CZ", code: "CZ", name: "Czechia", performerCount: 1, isCustom: false }],
+    );
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -191,7 +203,7 @@ describe("ListPage active filter chips", () => {
             <div>empty collection content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByRole("status", { name: "Loading Videos" })).toBeInTheDocument();
@@ -289,15 +301,27 @@ describe("ListPage active filter chips", () => {
   });
 
   it.each([
-    ["configured service names", { value: "HTTPS://SERVICE.EXAMPLE/GRAPHQL", modifier: "EQUALS" }, [{ endpoint: "https://service.example/graphql", name: "Named Service" }], "Named Service = remote-123"],
+    [
+      "configured service names",
+      { value: "HTTPS://SERVICE.EXAMPLE/GRAPHQL", modifier: "EQUALS" },
+      [{ endpoint: "https://service.example/graphql", name: "Named Service" }],
+      "Named Service = remote-123",
+    ],
     ["any-service labels", undefined, [], "Any metadata service = remote-123"],
-    ["unconfigured endpoint fallbacks", { value: "https://retired.example/graphql", modifier: "EQUALS" }, [], "https://retired.example/graphql (unconfigured) = remote-123"],
+    [
+      "unconfigured endpoint fallbacks",
+      { value: "https://retired.example/graphql", modifier: "EQUALS" },
+      [],
+      "https://retired.example/graphql (unconfigured) = remote-123",
+    ],
   ] as const)("formats Remote ID with %s", (_caseName, endpointCriterion, metadataServers, expected) => {
-    expect(formatRemoteIdFilterChipValue(
-      { value: "remote-123", modifier: "EQUALS" },
-      endpointCriterion,
-      metadataServers.map((server) => ({ ...server, apiKey: "", maxRequestsPerMinute: 0 })),
-    )).toBe(expected);
+    expect(
+      formatRemoteIdFilterChipValue(
+        { value: "remote-123", modifier: "EQUALS" },
+        endpointCriterion,
+        metadataServers.map((server) => ({ ...server, apiKey: "", maxRequestsPerMinute: 0 })),
+      ),
+    ).toBe(expected);
   });
 
   it("groups Remote ID value and metadata service into one removable chip", async () => {
@@ -307,7 +331,9 @@ describe("ListPage active filter chips", () => {
       config: {
         ui: { ratingSystemOptions: { type: "stars", starPrecision: "full" } },
         scraping: {
-          metadataServers: [{ endpoint: "https://service.example/graphql", name: "Named Service", apiKey: "", maxRequestsPerMinute: 0 }],
+          metadataServers: [
+            { endpoint: "https://service.example/graphql", name: "Named Service", apiKey: "", maxRequestsPerMinute: 0 },
+          ],
         },
       },
     };
@@ -412,8 +438,34 @@ describe("ListPage active filter chips", () => {
               _filterExpression: {
                 operator: "AND",
                 children: [
-                  { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Male)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 20, value2: 30 } } } },
-                  { filter: { performerFilterCriterion: { objectFilter: { genderCriterion: { value: "^(?:Female)$", modifier: "MATCHES_REGEX", _selectedValues: ["Female"] } }, ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 } } } },
+                  {
+                    filter: {
+                      performerFilterCriterion: {
+                        objectFilter: {
+                          genderCriterion: {
+                            value: "^(?:Male)$",
+                            modifier: "MATCHES_REGEX",
+                            _selectedValues: ["Male"],
+                          },
+                        },
+                        ageAtHostDateCriterion: { modifier: "BETWEEN", value: 20, value2: 30 },
+                      },
+                    },
+                  },
+                  {
+                    filter: {
+                      performerFilterCriterion: {
+                        objectFilter: {
+                          genderCriterion: {
+                            value: "^(?:Female)$",
+                            modifier: "MATCHES_REGEX",
+                            _selectedValues: ["Female"],
+                          },
+                        },
+                        ageAtHostDateCriterion: { modifier: "BETWEEN", value: 30, value2: 40 },
+                      },
+                    },
+                  },
                   { filter: { performerCountCriterion: { modifier: "EQUALS", value: 2 } } },
                 ],
               },
@@ -435,7 +487,9 @@ describe("ListPage active filter chips", () => {
     expect(performerChips).toHaveLength(2);
     const ageChip = screen.getByRole("button", { name: "Edit performer filter: Age (then) Between 20 and 30" });
     expect(ageChip).toHaveClass("border");
-    const performerCountChip = screen.getByRole("button", { name: "Edit filter: Performer Count. Performer Count = 2" });
+    const performerCountChip = screen.getByRole("button", {
+      name: "Edit filter: Performer Count. Performer Count = 2",
+    });
     expect(performerCountChip).toHaveTextContent("Performer Count:= 2");
     expect(performerCountChip.textContent?.match(/Performer Count/g)).toHaveLength(1);
     fireEvent.click(ageChip);
@@ -446,9 +500,10 @@ describe("ListPage active filter chips", () => {
 
   it("shows a localized country in a related performer expression", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(["performer-country-options"], [
-      { value: "CZ", code: "CZ", name: "Czechia", performerCount: 1, isCustom: false },
-    ]);
+    queryClient.setQueryData(
+      ["performer-country-options"],
+      [{ value: "CZ", code: "CZ", name: "Czechia", performerCount: 1, isCustom: false }],
+    );
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -464,7 +519,13 @@ describe("ListPage active filter chips", () => {
               _filterExpression: {
                 operator: "OR",
                 children: [
-                  { filter: { performerFilterCriterion: { objectFilter: { countryCriterion: { value: "CZ", modifier: "EQUALS" } } } } },
+                  {
+                    filter: {
+                      performerFilterCriterion: {
+                        objectFilter: { countryCriterion: { value: "CZ", modifier: "EQUALS" } },
+                      },
+                    },
+                  },
                   { filter: { titleCriterion: { value: "example", modifier: "INCLUDES" } } },
                 ],
               },
@@ -539,16 +600,55 @@ describe("ListPage active filter chips", () => {
               _filterExpression: {
                 operator: "OR",
                 children: [
-                  { filter: { tagsCriterion: { modifier: "INCLUDES", value: [42], excludes: [43], _names: { "42": "Example Tag", "43": "Excluded Tag" } } } },
-                  { filter: { performersCriterion: { modifier: "INCLUDES", value: [1], excludes: [2], _names: { "1": "Included Performer", "2": "Excluded Performer" } } } },
-                  { filter: { performerFilterCriterion: { objectFilter: { tagsCriterion: { modifier: "INCLUDES", value: [3], excludes: [4], _names: { "3": "Included Performer Tag", "4": "Excluded Performer Tag" } } } } } },
-                  { group: { operator: "AND", children: [
-                    { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
-                    { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
-                  ] } },
-                  { group: { operator: "NOT", children: [
-                    { filter: { directorCriterion: { modifier: "INCLUDES", value: "blocked" } } },
-                  ] } },
+                  {
+                    filter: {
+                      tagsCriterion: {
+                        modifier: "INCLUDES",
+                        value: [42],
+                        excludes: [43],
+                        _names: { "42": "Example Tag", "43": "Excluded Tag" },
+                      },
+                    },
+                  },
+                  {
+                    filter: {
+                      performersCriterion: {
+                        modifier: "INCLUDES",
+                        value: [1],
+                        excludes: [2],
+                        _names: { "1": "Included Performer", "2": "Excluded Performer" },
+                      },
+                    },
+                  },
+                  {
+                    filter: {
+                      performerFilterCriterion: {
+                        objectFilter: {
+                          tagsCriterion: {
+                            modifier: "INCLUDES",
+                            value: [3],
+                            excludes: [4],
+                            _names: { "3": "Included Performer Tag", "4": "Excluded Performer Tag" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  {
+                    group: {
+                      operator: "AND",
+                      children: [
+                        { filter: { urlCriterion: { modifier: "INCLUDES", value: "foo" } } },
+                        { filter: { urlCriterion: { modifier: "EXCLUDES", value: "bar" } } },
+                      ],
+                    },
+                  },
+                  {
+                    group: {
+                      operator: "NOT",
+                      children: [{ filter: { directorCriterion: { modifier: "INCLUDES", value: "blocked" } } }],
+                    },
+                  },
                 ],
               },
             }}
@@ -576,7 +676,9 @@ describe("ListPage active filter chips", () => {
     const performersCondition = screen.getByRole("button", { name: /Edit filter: Performers Included Performer/ });
     expect(performersCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
     expect(performersCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
-    const relatedTagsCondition = screen.getByRole("button", { name: /Edit performer filter: Tags Included Performer Tag/ });
+    const relatedTagsCondition = screen.getByRole("button", {
+      name: /Edit performer filter: Tags Included Performer Tag/,
+    });
     expect(relatedTagsCondition.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
     expect(relatedTagsCondition.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
     const allGroup = screen.getByRole("button", { name: "Edit All group in Combine Filters" });
@@ -608,10 +710,22 @@ describe("ListPage active filter chips", () => {
             totalCount={0}
             isLoading={false}
             criteriaDefinitions={VIDEO_CRITERIA}
-            objectFilter={{ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
-              { filter: { titleCriterion: { modifier: "INCLUDES", value: "one" } } },
-              { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
-            ] } }] } }}
+            objectFilter={{
+              _filterExpression: {
+                operator: "NOT",
+                children: [
+                  {
+                    group: {
+                      operator: "OR",
+                      children: [
+                        { filter: { titleCriterion: { modifier: "INCLUDES", value: "one" } } },
+                        { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
+                      ],
+                    },
+                  },
+                ],
+              },
+            }}
             onObjectFilterChange={onObjectFilterChange}
           >
             <div>content</div>
@@ -622,9 +736,19 @@ describe("ListPage active filter chips", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Remove filter: Title Includes one" }));
 
-    expect(onObjectFilterChange).toHaveBeenCalledWith({ _filterExpression: { operator: "NOT", children: [{ group: { operator: "OR", children: [
-      { filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } },
-    ] } }] } });
+    expect(onObjectFilterChange).toHaveBeenCalledWith({
+      _filterExpression: {
+        operator: "NOT",
+        children: [
+          {
+            group: {
+              operator: "OR",
+              children: [{ filter: { titleCriterion: { modifier: "INCLUDES", value: "two" } } }],
+            },
+          },
+        ],
+      },
+    });
   });
 
   it("opens nested expression leaves in their standard filter editors", async () => {
@@ -640,13 +764,23 @@ describe("ListPage active filter chips", () => {
             totalCount={0}
             isLoading={false}
             criteriaDefinitions={VIDEO_CRITERIA}
-            objectFilter={{ _filterExpression: { operator: "AND", children: [
-              { group: { operator: "OR", children: [
-                { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
-                { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
-              ] } },
-              { filter: { performerTagsCriterion: { modifier: "INCLUDES_ALL", value: [42] } } },
-            ] } }}
+            objectFilter={{
+              _filterExpression: {
+                operator: "AND",
+                children: [
+                  {
+                    group: {
+                      operator: "OR",
+                      children: [
+                        { filter: { dateCriterion: { modifier: "GREATER_THAN", value: "2020-01-01" } } },
+                        { filter: { dateCriterion: { modifier: "LESS_THAN", value: "2000-01-01" } } },
+                      ],
+                    },
+                  },
+                  { filter: { performerTagsCriterion: { modifier: "INCLUDES_ALL", value: [42] } } },
+                ],
+              },
+            }}
             onObjectFilterChange={vi.fn()}
             supportsFilterExpressions
           >
@@ -708,7 +842,13 @@ describe("ListPage active filter chips", () => {
   it.each([
     [
       "hash algorithms",
-      { id: "hash", label: "Hash", type: "hash", filterKey: "fingerprintCriterion", options: [{ value: "phash", label: "pHash" }] },
+      {
+        id: "hash",
+        label: "Hash",
+        type: "hash",
+        filterKey: "fingerprintCriterion",
+        options: [{ value: "phash", label: "pHash" }],
+      },
       { type: "phash", value: "abc123", modifier: "EQUALS" },
       "pHash = abc123",
     ],
@@ -720,13 +860,29 @@ describe("ListPage active filter chips", () => {
     ],
     [
       "single enum labels",
-      { id: "orientation", label: "Orientation", type: "enum", filterKey: "orientationCriterion", options: [{ value: "landscape", label: "Landscape" }] },
+      {
+        id: "orientation",
+        label: "Orientation",
+        type: "enum",
+        filterKey: "orientationCriterion",
+        options: [{ value: "landscape", label: "Landscape" }],
+      },
       { value: "landscape", modifier: "EQUALS" },
       "= Landscape",
     ],
     [
       "multi-enum labels",
-      { id: "gender", label: "Gender", type: "enum", filterKey: "genderCriterion", multiSelectOptions: true, options: [{ value: "TransgenderMale", label: "Transgender Male" }, { value: "NonBinary", label: "Non-Binary" }] },
+      {
+        id: "gender",
+        label: "Gender",
+        type: "enum",
+        filterKey: "genderCriterion",
+        multiSelectOptions: true,
+        options: [
+          { value: "TransgenderMale", label: "Transgender Male" },
+          { value: "NonBinary", label: "Non-Binary" },
+        ],
+      },
       { value: "^(?:TransgenderMale|NonBinary)$", modifier: "MATCHES_REGEX" },
       "Transgender Male or Non-Binary",
     ],
@@ -741,31 +897,38 @@ describe("ListPage active filter chips", () => {
   });
 
   it("uses natural exclusion grammar for multi-enum labels", () => {
-    expect(formatFilterChipValue(
-      {
-        id: "gender",
-        label: "Gender",
-        type: "enum",
-        filterKey: "genderCriterion",
-        multiSelectOptions: true,
-        options: [{ value: "Male", label: "Male" }, { value: "Female", label: "Female" }],
-      },
-      { value: "^(?:Male|Female)$", modifier: "NOT_MATCHES_REGEX", _selectedValues: ["Male", "Female"] },
-    )).toBe("None of Male or Female");
+    expect(
+      formatFilterChipValue(
+        {
+          id: "gender",
+          label: "Gender",
+          type: "enum",
+          filterKey: "genderCriterion",
+          multiSelectOptions: true,
+          options: [
+            { value: "Male", label: "Male" },
+            { value: "Female", label: "Female" },
+          ],
+        },
+        { value: "^(?:Male|Female)$", modifier: "NOT_MATCHES_REGEX", _selectedValues: ["Male", "Female"] },
+      ),
+    ).toBe("None of Male or Female");
   });
 
   it("preserves removed multi-enum values in the summary", () => {
-    expect(formatFilterChipValue(
-      {
-        id: "gender",
-        label: "Gender",
-        type: "enum",
-        filterKey: "genderCriterion",
-        multiSelectOptions: true,
-        options: [{ value: "Male", label: "Male" }],
-      },
-      { value: "^(?:Male|RetiredValue)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male", "RetiredValue"] },
-    )).toBe("Male or RetiredValue");
+    expect(
+      formatFilterChipValue(
+        {
+          id: "gender",
+          label: "Gender",
+          type: "enum",
+          filterKey: "genderCriterion",
+          multiSelectOptions: true,
+          options: [{ value: "Male", label: "Male" }],
+        },
+        { value: "^(?:Male|RetiredValue)$", modifier: "MATCHES_REGEX", _selectedValues: ["Male", "RetiredValue"] },
+      ),
+    ).toBe("Male or RetiredValue");
   });
 
   it("opens and removes a legacy endpoint-only Remote ID filter", async () => {
@@ -810,15 +973,25 @@ describe("ListPage active filter chips", () => {
     ["single included value", { value: [1], modifier: "INCLUDES_ALL" }, "Tag One"],
     ["included alternatives", { value: [1, 2], modifier: "INCLUDES" }, "Tag One or Tag Two"],
     ["single excluded value", { value: [], excludes: [3], modifier: "INCLUDES_ALL" }, "not Tag Three"],
-    ["three excluded values", { value: [], excludes: [1, 2, 3], modifier: "INCLUDES_ALL" }, "none of Tag One, Tag Two, or Tag Three"],
+    [
+      "three excluded values",
+      { value: [], excludes: [1, 2, 3], modifier: "INCLUDES_ALL" },
+      "none of Tag One, Tag Two, or Tag Three",
+    ],
     ["legacy excluded values", { value: [1, 2], modifier: "EXCLUDES" }, "neither Tag One nor Tag Two"],
     ["legacy exclude-all values", { value: [1, 2], modifier: "EXCLUDES_ALL" }, "not all of Tag One and Tag Two"],
   ])("formats natural multi-value grammar for a %s", (_caseName, criterion, expected) => {
-    expect(formatFilterChipValue(
-      { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
-      criterion,
-      new Map([[1, "Tag One"], [2, "Tag Two"], [3, "Tag Three"]]),
-    )).toBe(expected);
+    expect(
+      formatFilterChipValue(
+        { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
+        criterion,
+        new Map([
+          [1, "Tag One"],
+          [2, "Tag Two"],
+          [3, "Tag Three"],
+        ]),
+      ),
+    ).toBe(expected);
   });
 
   it("shows a load error instead of interpreting it as an empty collection", async () => {
@@ -839,7 +1012,7 @@ describe("ListPage active filter chips", () => {
             <div>empty collection content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByText("Could not load Videos")).toBeInTheDocument();
@@ -863,18 +1036,24 @@ describe("ListPage active filter chips", () => {
         },
       },
     });
-    queryClient.setQueryData(["tags", "all"], [
-      { id: 1, name: "Tag One" },
-      { id: 2, name: "Tag Two" },
-      { id: 3, name: "Tag Three" },
-      { id: 8, name: "Excluded One" },
-      { id: 9, name: "Excluded Two" },
-    ]);
-    queryClient.setQueryData(["performers", "all"], [
-      { id: 4, name: "Performer One" },
-      { id: 5, name: "Performer Two" },
-      { id: 6, name: "Performer Three" },
-    ]);
+    queryClient.setQueryData(
+      ["tags", "all"],
+      [
+        { id: 1, name: "Tag One" },
+        { id: 2, name: "Tag Two" },
+        { id: 3, name: "Tag Three" },
+        { id: 8, name: "Excluded One" },
+        { id: 9, name: "Excluded Two" },
+      ],
+    );
+    queryClient.setQueryData(
+      ["performers", "all"],
+      [
+        { id: 4, name: "Performer One" },
+        { id: 5, name: "Performer Two" },
+        { id: 6, name: "Performer Three" },
+      ],
+    );
     queryClient.setQueryData(["studios", "all"], [{ id: 7, name: "Studio One" }]);
 
     render(
@@ -899,7 +1078,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     const ratingChip = screen.getByRole("button", { name: "Edit filter: Rating" });
@@ -909,18 +1088,33 @@ describe("ListPage active filter chips", () => {
 
     const tagsChip = screen.getByRole("button", { name: "Edit filter: Tags" });
     expect(tagsChip).toHaveTextContent("Tags:");
-    expect(tagsChip).toHaveTextContent("Tag One, Tag Two, and Tag Three but neither Excluded One nor Excluded Two with sub-tags");
-    expect(tagsChip).toHaveAttribute("title", "Tags: Tag One, Tag Two, and Tag Three but neither Excluded One nor Excluded Two with sub-tags");
+    expect(tagsChip).toHaveTextContent(
+      "Tag One, Tag Two, and Tag Three but neither Excluded One nor Excluded Two with sub-tags",
+    );
+    expect(tagsChip).toHaveAttribute(
+      "title",
+      "Tags: Tag One, Tag Two, and Tag Three but neither Excluded One nor Excluded Two with sub-tags",
+    );
     expect(tagsChip.querySelectorAll('[data-filter-value-kind="included"]')).toHaveLength(3);
     expect(tagsChip.querySelectorAll('[data-filter-value-kind="excluded"]')).toHaveLength(2);
     expect(tagsChip.querySelector('[data-filter-value-kind="included"]')).toHaveClass("text-green-300");
     expect(tagsChip.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
-    expect(tagsChip.querySelector('[data-filter-value-kind="included"]')).not.toHaveClass("border", "rounded", "bg-green-900/40");
-    expect(tagsChip.querySelector('[data-filter-value-kind="excluded"]')).not.toHaveClass("border", "rounded", "bg-red-900/40");
+    expect(tagsChip.querySelector('[data-filter-value-kind="included"]')).not.toHaveClass(
+      "border",
+      "rounded",
+      "bg-green-900/40",
+    );
+    expect(tagsChip.querySelector('[data-filter-value-kind="excluded"]')).not.toHaveClass(
+      "border",
+      "rounded",
+      "bg-red-900/40",
+    );
     expect(tagsChip.textContent).toContain("Tag Two,\u00a0and Tag Three");
     expect(tagsChip.textContent).toContain("Excluded One\u00a0nor Excluded Two");
-    expect(tagsChip.querySelector('[data-filter-excluded-prefix]')?.textContent).toBe("neither ");
-    expect(screen.getByRole("button", { name: "Edit filter: Performers" })).toHaveTextContent("Performer One, Performer Two, or Performer Three");
+    expect(tagsChip.querySelector("[data-filter-excluded-prefix]")?.textContent).toBe("neither ");
+    expect(screen.getByRole("button", { name: "Edit filter: Performers" })).toHaveTextContent(
+      "Performer One, Performer Two, or Performer Three",
+    );
     const studiosChip = screen.getByRole("button", { name: "Edit filter: Studios" });
     expect(studiosChip).toHaveTextContent("Studios:not Studio One");
     expect(studiosChip.querySelector('[data-filter-value-kind="excluded"]')).toHaveClass("text-red-300");
@@ -983,7 +1177,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Edit filter: Title" }));
@@ -1057,7 +1251,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     const chip = screen.getByRole("button", { name: "Edit filter: Count videos from child tags" });
@@ -1075,9 +1269,7 @@ describe("ListPage active filter chips", () => {
         },
       },
     });
-    queryClient.setQueryData(["tags", "all"], [
-      { id: 1, name: "Tag One" },
-    ]);
+    queryClient.setQueryData(["tags", "all"], [{ id: 1, name: "Tag One" }]);
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -1097,7 +1289,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByRole("button", { name: "Edit filter: Tag Duration" })).toHaveTextContent("Tag Duration:");
@@ -1132,7 +1324,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     const [sortSelect] = screen.getAllByRole("combobox");
@@ -1169,7 +1361,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => {
@@ -1180,10 +1372,13 @@ describe("ListPage active filter chips", () => {
   });
 
   it("applies saved-filter display and zoom options from the page default", async () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 40 },
-      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40 },
+        uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const onDisplayModeChange = vi.fn();
 
@@ -1205,7 +1400,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("5.25"));
@@ -1214,14 +1409,20 @@ describe("ListPage active filter chips", () => {
   });
 
   it("applies each saved default zoom when a reused page changes filter modes", async () => {
-    localStorage.setItem("cove-default-filter-segments", JSON.stringify({
-      findFilter: { page: 1, perPage: 40 },
-      uiOptions: { zoomLevel: 2.75 },
-    }));
-    localStorage.setItem("cove-default-filter-rawsegments", JSON.stringify({
-      findFilter: { page: 1, perPage: 40 },
-      uiOptions: { zoomLevel: 8 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-segments",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40 },
+        uiOptions: { zoomLevel: 2.75 },
+      }),
+    );
+    localStorage.setItem(
+      "cove-default-filter-rawsegments",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40 },
+        uiOptions: { zoomLevel: 8 },
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const commonProps = {
       title: "Segments",
@@ -1236,7 +1437,9 @@ describe("ListPage active filter chips", () => {
     const { rerender } = render(
       <QueryClientProvider client={queryClient}>
         <RouteRegistryProvider>
-          <ListPage {...commonProps} filterMode="segments"><div>content</div></ListPage>
+          <ListPage {...commonProps} filterMode="segments">
+            <div>content</div>
+          </ListPage>
         </RouteRegistryProvider>
       </QueryClientProvider>,
     );
@@ -1246,7 +1449,9 @@ describe("ListPage active filter chips", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <RouteRegistryProvider>
-          <ListPage {...commonProps} filterMode="rawsegments"><div>content</div></ListPage>
+          <ListPage {...commonProps} filterMode="rawsegments">
+            <div>content</div>
+          </ListPage>
         </RouteRegistryProvider>
       </QueryClientProvider>,
     );
@@ -1256,10 +1461,13 @@ describe("ListPage active filter chips", () => {
   });
 
   it("supports an extension saved-filter scope independently from entity filtering and card sizing", async () => {
-    localStorage.setItem("cove-default-filter-ext:com.example.tools:missing-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 40 },
-      uiOptions: { zoomLevel: 2.5 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-ext:com.example.tools:missing-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40 },
+        uiOptions: { zoomLevel: 2.5 },
+      }),
+    );
 
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -1288,10 +1496,13 @@ describe("ListPage active filter chips", () => {
 
   it("ignores invalid saved-filter UI options", async () => {
     localStorage.setItem("cove.cardSize.video", "2");
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 40 },
-      uiOptions: { displayMode: "vertical", zoomLevel: "large" },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40 },
+        uiOptions: { displayMode: "vertical", zoomLevel: "large" },
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const onDisplayModeChange = vi.fn();
 
@@ -1313,7 +1524,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("2"));
@@ -1322,10 +1533,13 @@ describe("ListPage active filter chips", () => {
   });
 
   it("clamps a saved-filter zoom level to the entity card-size range", async () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 40 },
-      uiOptions: { zoomLevel: 99 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40 },
+        uiOptions: { zoomLevel: 99 },
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
@@ -1344,7 +1558,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("8"));
@@ -1353,10 +1567,13 @@ describe("ListPage active filter chips", () => {
 
   it("keeps an explicit URL display mode while applying the default zoom", async () => {
     window.history.replaceState(null, "", "/videos?view=grid");
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { page: 1, perPage: 40 },
-      uiOptions: { displayMode: "list", zoomLevel: 5.25 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { page: 1, perPage: 40 },
+        uiOptions: { displayMode: "list", zoomLevel: 5.25 },
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const onDisplayModeChange = vi.fn();
 
@@ -1378,7 +1595,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => expect(screen.getByRole("slider")).toHaveValue("5.25"));
@@ -1410,7 +1627,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByRole("slider")).toHaveAttribute("max", "8");
@@ -1441,7 +1658,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByRole("slider")).toHaveAttribute("max", "8");
@@ -1483,7 +1700,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     const directionButton = screen.getByRole("button", { name: "Sort descending" });
@@ -1492,14 +1709,22 @@ describe("ListPage active filter chips", () => {
 
     await user.click(directionButton);
 
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: "random", direction: "asc", seed: 12345 }));
+    expect(onFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: "random", direction: "asc", seed: 12345 }),
+    );
   });
 
   it("uses relevance for a new search and restores the previous sort when cleared", async () => {
     vi.useFakeTimers();
     const queryClient = new QueryClient();
     const onFilterChange = vi.fn();
-    const renderPage = (filter: { page: number; perPage: number; sort: string; direction: "asc" | "desc"; q?: string }) => (
+    const renderPage = (filter: {
+      page: number;
+      perPage: number;
+      sort: string;
+      direction: "asc" | "desc";
+      q?: string;
+    }) => (
       <QueryClientProvider client={queryClient}>
         <RouteRegistryProvider>
           <ListPage
@@ -1522,14 +1747,18 @@ describe("ListPage active filter chips", () => {
     await vi.advanceTimersByTimeAsync(350);
 
     const searchedFilter = onFilterChange.mock.lastCall?.[0];
-    expect(searchedFilter).toEqual(expect.objectContaining({ q: "needle", page: 1, sort: "relevance", direction: "desc" }));
+    expect(searchedFilter).toEqual(
+      expect.objectContaining({ q: "needle", page: 1, sort: "relevance", direction: "desc" }),
+    );
 
     rerender(renderPage(searchedFilter));
     expect(screen.getByRole("combobox", { name: "Primary sort" })).toHaveValue("relevance");
     expect(screen.queryByRole("button", { name: /Sort (ascending|descending)/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
 
-    expect(onFilterChange.mock.lastCall?.[0]).toEqual(expect.objectContaining({ q: undefined, page: 1, sort: "date", direction: "desc" }));
+    expect(onFilterChange.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ q: undefined, page: 1, sort: "date", direction: "desc" }),
+    );
     vi.useRealTimers();
   });
 
@@ -1551,12 +1780,14 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
 
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ q: undefined, sort: "date", direction: "desc" }));
+    expect(onFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({ q: undefined, sort: "date", direction: "desc" }),
+    );
   });
 
   it("keeps one sort compact and progressively reveals ordered additional sorts", async () => {
@@ -1589,13 +1820,15 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.queryByRole("dialog", { name: "Sort order" })).not.toBeInTheDocument();
     const primaryDirectionButton = screen.getByRole("button", { name: "Sort ascending" });
     const addSortButton = screen.getByRole("button", { name: "Add another sort" });
-    expect(primaryDirectionButton.compareDocumentPosition(addSortButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(primaryDirectionButton.compareDocumentPosition(addSortButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0,
+    );
 
     await user.click(addSortButton);
     expect(screen.getByRole("dialog", { name: "Sort order" })).toBeInTheDocument();
@@ -1608,15 +1841,17 @@ describe("ListPage active filter chips", () => {
 
     await user.click(screen.getByRole("button", { name: "Add sort" }));
 
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      page: 1,
-      sort: "studio",
-      direction: "asc",
-      sorts: [
-        { key: "studio", direction: "asc" },
-        { key: "date", direction: "desc" },
-      ],
-    }));
+    expect(onFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 1,
+        sort: "studio",
+        direction: "asc",
+        sorts: [
+          { key: "studio", direction: "asc" },
+          { key: "date", direction: "desc" },
+        ],
+      }),
+    );
   });
 
   it("lets compact sort editors change a clause's priority directly", async () => {
@@ -1659,7 +1894,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.queryByRole("combobox", { name: "Primary sort" })).not.toBeInTheDocument();
@@ -1675,15 +1910,17 @@ describe("ListPage active filter chips", () => {
     await user.click(summaryButton);
     await user.selectOptions(screen.getByRole("combobox", { name: "Priority for Date" }), "0");
 
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      sort: "date",
-      direction: "desc",
-      sorts: [
-        { key: "date", direction: "desc" },
-        { key: "studio", direction: "asc" },
-        { key: "title", direction: "asc" },
-      ],
-    }));
+    expect(onFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sort: "date",
+        direction: "desc",
+        sorts: [
+          { key: "date", direction: "desc" },
+          { key: "studio", direction: "asc" },
+          { key: "title", direction: "asc" },
+        ],
+      }),
+    );
   });
 
   it("shows the scalar sort when compound sorting is unavailable", () => {
@@ -1722,7 +1959,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByRole("combobox", { name: "Primary sort" })).toHaveValue("visual_match");
@@ -1755,7 +1992,7 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await user.click(screen.getByTitle("Shuffle"));
@@ -1806,19 +2043,22 @@ describe("ListPage active filter chips", () => {
             <div>content</div>
           </ListPage>
         </RouteRegistryProvider>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Filters" }));
-    const dialogShell = Array.from(container.querySelectorAll("div"))
-      .find((element) => element.className.includes("md:w-[min(94vw,72rem)]"));
+    const dialogShell = Array.from(container.querySelectorAll("div")).find((element) =>
+      element.className.includes("md:w-[min(94vw,72rem)]"),
+    );
     expect(dialogShell).toBeTruthy();
 
     await user.click(screen.getAllByText("Custom Fields").at(-1)!);
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
 
     expect(screen.getByPlaceholderText("Search tags...").closest("label")?.className).toContain("min-w-0");
-    expect(container.querySelector('[aria-label="Remove custom field filter"]')?.parentElement?.className).toContain("xl:grid-cols");
+    expect(container.querySelector('[aria-label="Remove custom field filter"]')?.parentElement?.className).toContain(
+      "xl:grid-cols",
+    );
   });
 
   it("expands configured JSON paths into typed filter and sort targets", async () => {
@@ -1945,40 +2185,44 @@ describe("ListPage active filter chips", () => {
     await user.type(screen.getByRole("textbox", { name: "Value" }), "ready");
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
-    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      customFieldCriteria: [
-        expect.objectContaining({
-          key: "structured_metadata",
-          jsonPath: "/profile/score",
-          type: "number",
-          value: "15",
-        }),
-        expect.objectContaining({
-          key: "structured_metadata",
-          jsonPath: "/profile/filter-only",
-          type: "text",
-          value: "ready",
-        }),
-      ],
-    }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customFieldCriteria: [
+          expect.objectContaining({
+            key: "structured_metadata",
+            jsonPath: "/profile/score",
+            type: "number",
+            value: "15",
+          }),
+          expect.objectContaining({
+            key: "structured_metadata",
+            jsonPath: "/profile/filter-only",
+            type: "text",
+            value: "ready",
+          }),
+        ],
+      }),
+    );
   });
 
   it("filters for JSON custom field presence without configured paths", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [{
-      id: 2,
-      key: "structured_metadata",
-      label: "Structured Metadata",
-      type: "json",
-      entityTypes: ["video"],
-      options: [],
-      filterable: false,
-      sortable: false,
-      isMultiValue: false,
-      jsonPaths: [],
-      displayOrder: 0,
-    }]);
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [
+      {
+        id: 2,
+        key: "structured_metadata",
+        label: "Structured Metadata",
+        type: "json",
+        entityTypes: ["video"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [],
+        displayOrder: 0,
+      },
+    ]);
     const onObjectFilterChange = vi.fn();
 
     render(
@@ -2010,32 +2254,38 @@ describe("ListPage active filter chips", () => {
     expect(screen.queryByRole("option", { name: "Equals" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
-    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      customFieldCriteria: [expect.objectContaining({
-        key: "structured_metadata",
-        type: "json",
-        modifier: "NOT_NULL",
-        jsonPath: undefined,
-      })],
-    }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customFieldCriteria: [
+          expect.objectContaining({
+            key: "structured_metadata",
+            type: "json",
+            modifier: "NOT_NULL",
+            jsonPath: undefined,
+          }),
+        ],
+      }),
+    );
   });
 
   it("filters for long-text custom field presence without exposing content comparisons", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [{
-      id: 3,
-      key: "notes",
-      label: "Notes",
-      type: "longText",
-      entityTypes: ["video"],
-      options: [],
-      filterable: false,
-      sortable: false,
-      isMultiValue: false,
-      jsonPaths: [],
-      displayOrder: 0,
-    }]);
+    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), [
+      {
+        id: 3,
+        key: "notes",
+        label: "Notes",
+        type: "longText",
+        entityTypes: ["video"],
+        options: [],
+        filterable: false,
+        sortable: false,
+        isMultiValue: false,
+        jsonPaths: [],
+        displayOrder: 0,
+      },
+    ]);
     const onObjectFilterChange = vi.fn();
 
     render(
@@ -2068,31 +2318,39 @@ describe("ListPage active filter chips", () => {
     expect(screen.queryByRole("option", { name: "Equals" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
-    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      customFieldCriteria: [expect.objectContaining({
-        key: "notes",
-        type: "longText",
-        modifier: "NOT_NULL",
-      })],
-    }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customFieldCriteria: [
+          expect.objectContaining({
+            key: "notes",
+            type: "longText",
+            modifier: "NOT_NULL",
+          }),
+        ],
+      }),
+    );
   });
 
   it.each([
     {
       state: "revoked paths",
-      definitions: [{
-        id: 2,
-        key: "structured_metadata",
-        label: "Structured Metadata",
-        type: "json" as const,
-        entityTypes: ["video" as const],
-        options: [],
-        filterable: false,
-        sortable: false,
-        isMultiValue: false,
-        jsonPaths: [{ path: "/profile/score", label: "Score", type: "number" as const, filterable: false, sortable: false }],
-        displayOrder: 0,
-      }],
+      definitions: [
+        {
+          id: 2,
+          key: "structured_metadata",
+          label: "Structured Metadata",
+          type: "json" as const,
+          entityTypes: ["video" as const],
+          options: [],
+          filterable: false,
+          sortable: false,
+          isMultiValue: false,
+          jsonPaths: [
+            { path: "/profile/score", label: "Score", type: "number" as const, filterable: false, sortable: false },
+          ],
+          displayOrder: 0,
+        },
+      ],
       fieldDisabled: false,
       addDisabled: false,
     },
@@ -2102,53 +2360,62 @@ describe("ListPage active filter chips", () => {
       fieldDisabled: true,
       addDisabled: true,
     },
-  ])("keeps JSON filter and sort targets visible as unavailable for $state", async ({ definitions, fieldDisabled, addDisabled }) => {
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), definitions);
-    const staleSort = "custom-json:number:structured_metadata:%2Fprofile%2Fscore";
+  ])(
+    "keeps JSON filter and sort targets visible as unavailable for $state",
+    async ({ definitions, fieldDisabled, addDisabled }) => {
+      const user = userEvent.setup();
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      queryClient.setQueryData(customFieldDefinitionsQueryKey("video"), definitions);
+      const staleSort = "custom-json:number:structured_metadata:%2Fprofile%2Fscore";
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <RouteRegistryProvider>
-          <ListPage
-            title="Videos"
-            filter={{ page: 1, perPage: 40, sort: staleSort, direction: "asc" }}
-            onFilterChange={vi.fn()}
-            totalCount={0}
-            isLoading={false}
-            filterMode="videos"
-            criteriaDefinitions={VIDEO_CRITERIA}
-            objectFilter={{
-              customFieldCriteria: [{
-                key: "structured_metadata",
-                jsonPath: "/profile/score",
-                type: "number",
-                modifier: "GREATER_THAN",
-                value: "10",
-              }],
-            }}
-            onObjectFilterChange={vi.fn()}
-            sortOptions={[{ value: "updated_at", label: "Updated" }]}
-          >
-            <div>content</div>
-          </ListPage>
-        </RouteRegistryProvider>
-      </QueryClientProvider>,
-    );
+      render(
+        <QueryClientProvider client={queryClient}>
+          <RouteRegistryProvider>
+            <ListPage
+              title="Videos"
+              filter={{ page: 1, perPage: 40, sort: staleSort, direction: "asc" }}
+              onFilterChange={vi.fn()}
+              totalCount={0}
+              isLoading={false}
+              filterMode="videos"
+              criteriaDefinitions={VIDEO_CRITERIA}
+              objectFilter={{
+                customFieldCriteria: [
+                  {
+                    key: "structured_metadata",
+                    jsonPath: "/profile/score",
+                    type: "number",
+                    modifier: "GREATER_THAN",
+                    value: "10",
+                  },
+                ],
+              }}
+              onObjectFilterChange={vi.fn()}
+              sortOptions={[{ value: "updated_at", label: "Updated" }]}
+            >
+              <div>content</div>
+            </ListPage>
+          </RouteRegistryProvider>
+        </QueryClientProvider>,
+      );
 
-    expect(screen.getByRole("combobox", { name: "Primary sort" })).toHaveValue(staleSort);
-    expect(screen.getByRole("option", { name: "Unavailable custom sort: structured_metadata › /profile/score" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Primary sort" })).toHaveValue(staleSort);
+      expect(
+        screen.getByRole("option", { name: "Unavailable custom sort: structured_metadata › /profile/score" }),
+      ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Filters/ }));
-    await user.click(screen.getAllByText("Custom Fields").at(-1)!);
+      await user.click(screen.getByRole("button", { name: /Filters/ }));
+      await user.click(screen.getAllByText("Custom Fields").at(-1)!);
 
-    expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
-    expect(screen.getByRole("option", { name: fieldDisabled ? "structured_metadata" : "Structured Metadata" })).toHaveProperty("disabled", fieldDisabled);
-    expect(screen.getByRole("combobox", { name: "Target" })).toHaveValue("structured_metadata:%2Fprofile%2Fscore");
-    expect(screen.getByRole("option", { name: "/profile/score (Unavailable)" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /add custom field filter/i })).toHaveProperty("disabled", addDisabled);
-  });
+      expect(screen.getByRole("combobox", { name: "Field" })).toHaveValue("structured_metadata");
+      expect(
+        screen.getByRole("option", { name: fieldDisabled ? "structured_metadata" : "Structured Metadata" }),
+      ).toHaveProperty("disabled", fieldDisabled);
+      expect(screen.getByRole("combobox", { name: "Target" })).toHaveValue("structured_metadata:%2Fprofile%2Fscore");
+      expect(screen.getByRole("option", { name: "/profile/score (Unavailable)" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /add custom field filter/i })).toHaveProperty("disabled", addDisabled);
+    },
+  );
 
   it("applies the visible default when a boolean JSON filter is added", async () => {
     const user = userEvent.setup();
@@ -2191,21 +2458,22 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByRole("button", { name: "Filters" }));
     await user.click(screen.getByText("Custom Fields"));
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Target" }),
-      "structured_metadata:%2Freviewed",
-    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target" }), "structured_metadata:%2Freviewed");
     expect(screen.getByRole("combobox", { name: "Value" })).toHaveValue("true");
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
-    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      customFieldCriteria: [expect.objectContaining({
-        key: "structured_metadata",
-        jsonPath: "/reviewed",
-        type: "boolean",
-        value: "true",
-      })],
-    }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customFieldCriteria: [
+          expect.objectContaining({
+            key: "structured_metadata",
+            jsonPath: "/reviewed",
+            type: "boolean",
+            value: "true",
+          }),
+        ],
+      }),
+    );
   });
 
   it.each([
@@ -2252,20 +2520,21 @@ describe("ListPage active filter chips", () => {
     await user.click(screen.getByRole("button", { name: "Filters" }));
     await user.click(screen.getByText("Custom Fields"));
     await user.click(screen.getByRole("button", { name: /add custom field filter/i }));
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Target" }),
-      "structured_metadata:%2Flabel",
-    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target" }), "structured_metadata:%2Flabel");
     if (value) await user.type(screen.getByRole("textbox", { name: "Value" }), value);
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
-    expect(onObjectFilterChange).toHaveBeenCalledWith(expect.objectContaining({
-      customFieldCriteria: [expect.objectContaining({
-        key: "structured_metadata",
-        jsonPath: "/label",
-        type: "text",
-        value,
-      })],
-    }));
+    expect(onObjectFilterChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customFieldCriteria: [
+          expect.objectContaining({
+            key: "structured_metadata",
+            jsonPath: "/label",
+            type: "text",
+            value,
+          }),
+        ],
+      }),
+    );
   });
 });

@@ -51,17 +51,13 @@ export function DetailMergeDialog({
     enabled: open,
   });
 
-  const candidates = useMemo(
-    () => (data ?? []).filter((item) => item.id !== targetItem.id),
-    [data, targetItem.id],
-  );
+  const candidates = useMemo(() => (data ?? []).filter((item) => item.id !== targetItem.id), [data, targetItem.id]);
 
   const mergeMut = useMutation({
     // intoCurrent: keep this entry, fold the selected entries into it.
     // intoOther:   keep the single selected entry, fold this entry into it.
-    mutationFn: () => direction === "intoCurrent"
-      ? onMerge(targetItem.id, selectedIds)
-      : onMerge(selectedIds[0], [targetItem.id]),
+    mutationFn: () =>
+      direction === "intoCurrent" ? onMerge(targetItem.id, selectedIds) : onMerge(selectedIds[0], [targetItem.id]),
     onSuccess: async () => {
       for (const key of invalidateQueryKeys) {
         await queryClient.invalidateQueries({ queryKey: typeof key === "string" ? [key] : key });
@@ -91,9 +87,11 @@ export function DetailMergeDialog({
             <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
               <GitMerge className="h-5 w-5" /> Merge {entityType.charAt(0).toUpperCase() + entityType.slice(1)}s
             </h2>
-            <p className="mt-1 text-sm text-secondary">{intoOther
-              ? `Merge this ${entityType} into another one. This ${entityType} is removed; the selected one is kept.`
-              : `Keep the current ${entityType} and merge other matching entries into it.`}</p>
+            <p className="mt-1 text-sm text-secondary">
+              {intoOther
+                ? `Merge this ${entityType} into another one. This ${entityType} is removed; the selected one is kept.`
+                : `Keep the current ${entityType} and merge other matching entries into it.`}
+            </p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-secondary hover:bg-surface hover:text-foreground">
             <X className="h-5 w-5" />
@@ -104,21 +102,29 @@ export function DetailMergeDialog({
           <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs font-medium">
             <button
               type="button"
-              onClick={() => { setDirection("intoCurrent"); setSelectedIds([]); }}
+              onClick={() => {
+                setDirection("intoCurrent");
+                setSelectedIds([]);
+              }}
               className={`rounded-md px-3 py-1.5 transition-colors ${!intoOther ? "bg-accent text-white" : "text-secondary hover:text-foreground"}`}
             >
               Merge others into this
             </button>
             <button
               type="button"
-              onClick={() => { setDirection("intoOther"); setSelectedIds([]); }}
+              onClick={() => {
+                setDirection("intoOther");
+                setSelectedIds([]);
+              }}
               className={`rounded-md px-3 py-1.5 transition-colors ${intoOther ? "bg-accent text-white" : "text-secondary hover:text-foreground"}`}
             >
               Merge this into another
             </button>
           </div>
 
-          <div className={`rounded-lg border p-3 ${intoOther ? "border-red-600/30 bg-red-600/10" : "border-green-600/30 bg-green-600/10"}`}>
+          <div
+            className={`rounded-lg border p-3 ${intoOther ? "border-red-600/30 bg-red-600/10" : "border-green-600/30 bg-green-600/10"}`}
+          >
             <div className={`text-xs uppercase tracking-wide ${intoOther ? "text-red-300" : "text-green-300"}`}>
               {intoOther ? `This ${entityType} (will be merged away)` : "Merge target (kept)"}
             </div>
@@ -150,44 +156,52 @@ export function DetailMergeDialog({
               </div>
             )}
 
-            {!isLoading && candidates.map((candidate) => {
-              const selected = selectedIds.includes(candidate.id);
-              return (
-                <button
-                  key={candidate.id}
-                  onClick={() => toggleSelection(candidate.id)}
-                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
-                    selected
-                      ? "border-accent bg-accent/10"
-                      : "border-border bg-card hover:border-accent/50 hover:bg-surface"
-                  }`}
-                >
-                  <div className={`flex h-4 w-4 items-center justify-center rounded border ${selected ? "border-accent bg-accent" : "border-border bg-surface"}`}>
-                    {selected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-                  </div>
-                  {candidate.imagePath ? (
-                    <img src={candidate.imagePath} alt="" className="h-10 w-10 rounded object-cover" />
-                  ) : (
-                    <div className="h-10 w-10 rounded bg-surface" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-foreground">{candidate.name}</div>
-                    {candidate.subtitle && <div className="truncate text-xs text-muted">{candidate.subtitle}</div>}
-                  </div>
-                </button>
-              );
-            })}
+            {!isLoading &&
+              candidates.map((candidate) => {
+                const selected = selectedIds.includes(candidate.id);
+                return (
+                  <button
+                    key={candidate.id}
+                    onClick={() => toggleSelection(candidate.id)}
+                    className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                      selected
+                        ? "border-accent bg-accent/10"
+                        : "border-border bg-card hover:border-accent/50 hover:bg-surface"
+                    }`}
+                  >
+                    <div
+                      className={`flex h-4 w-4 items-center justify-center rounded border ${selected ? "border-accent bg-accent" : "border-border bg-surface"}`}
+                    >
+                      {selected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </div>
+                    {candidate.imagePath ? (
+                      <img src={candidate.imagePath} alt="" className="h-10 w-10 rounded object-cover" />
+                    ) : (
+                      <div className="h-10 w-10 rounded bg-surface" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-foreground">{candidate.name}</div>
+                      {candidate.subtitle && <div className="truncate text-xs text-muted">{candidate.subtitle}</div>}
+                    </div>
+                  </button>
+                );
+              })}
           </div>
         </div>
 
         <div className="flex items-center justify-between border-t border-border px-5 py-4">
           <div className="text-sm text-secondary">
             {intoOther
-              ? (selectedIds.length === 0 ? "Select a destination" : "1 destination selected")
+              ? selectedIds.length === 0
+                ? "Select a destination"
+                : "1 destination selected"
               : `${selectedIds.length} selected for merge`}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm text-secondary hover:text-foreground">
+            <button
+              onClick={onClose}
+              className="rounded border border-border px-3 py-1.5 text-sm text-secondary hover:text-foreground"
+            >
               Cancel
             </button>
             <button

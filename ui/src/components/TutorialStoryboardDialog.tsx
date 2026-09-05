@@ -1,5 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Check, ChevronLeft, ChevronRight, Database, ExternalLink, FolderOpen, HelpCircle, ImageIcon, LayoutGrid, Play, RefreshCw, Search, Settings, Tag, X } from "lucide-react";
+import {
+  BookOpen,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Database,
+  ExternalLink,
+  FolderOpen,
+  HelpCircle,
+  ImageIcon,
+  LayoutGrid,
+  Play,
+  RefreshCw,
+  Search,
+  Settings,
+  Tag,
+  X,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { ExtensionTutorialTopic } from "../api/types";
 import { normalizeManualContext, uniqueManualContexts, type TutorialOpenRequest } from "./ManualContext";
@@ -7,7 +24,8 @@ import { normalizeManualContext, uniqueManualContexts, type TutorialOpenRequest 
 export const TUTORIAL_STORYBOARD_STORAGE_KEY = "cove-tutorial-storyboard-complete";
 export const TUTORIAL_STORYBOARD_EVENT = "cove:tutorial-storyboard-open";
 
-export type TutorialSlideMockKind = "tasks" | "feed" | "metadata" | "settings" | "videoPlayer" | "tagging" | "images" | "extension";
+export type TutorialSlideMockKind =
+  "tasks" | "feed" | "metadata" | "settings" | "videoPlayer" | "tagging" | "images" | "extension";
 type ManualBoxTone = "green" | "blue" | "purple" | "orange" | "pink" | "teal";
 type ManualBoxPointContent = {
   tone?: ManualBoxTone;
@@ -59,7 +77,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "welcome",
         title: "Welcome to Cove",
-        caption: "Cove organizes your media into videos, images, performers, tags, and more so you can browse and find things fast.",
+        caption:
+          "Cove organizes your media into videos, images, performers, tags, and more so you can browse and find things fast.",
         imageSrc: "/manual/screenshots/nav-bar.png",
         imageAlt: "Cove top navigation bar with content type links",
         points: [
@@ -75,7 +94,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "library-paths",
         title: "Point Cove at your folders",
-        caption: "In Settings, open Library → Paths & Storage and use + Add path to add each folder you keep media in. These are the roots the scanner will read.",
+        caption:
+          "In Settings, open Library → Paths & Storage and use + Add path to add each folder you keep media in. These are the roots the scanner will read.",
         imageSrc: "/manual/screenshots/library-paths.png",
         imageAlt: "The Library Paths settings with the Add path button",
         points: [
@@ -87,7 +107,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "scan-generate",
         title: "Run Scan, then Generate",
-        caption: "Scan finds your files and adds them to the library. Generate creates the previews, thumbnails, and sprites that make browsing smooth.",
+        caption:
+          "Scan finds your files and adds them to the library. Generate creates the previews, thumbnails, and sprites that make browsing smooth.",
         imageSrc: "/manual/screenshots/settings-scan-generate.png",
         imageAlt: "Scan and Generate controls in Settings",
         points: [
@@ -99,7 +120,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "viewing-content",
         title: "Where your content lives",
-        caption: "Each content type has its own page in the top navigation bar. Videos, images, performers, studios, tags, and groups all have a home there.",
+        caption:
+          "Each content type has its own page in the top navigation bar. Videos, images, performers, studios, tags, and groups all have a home there.",
         imageSrc: "/manual/screenshots/nav-bar.png",
         imageAlt: "Cove top navigation bar with content type links",
         points: [
@@ -107,9 +129,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
           "Each page opens a list you can sort, filter, and switch views on",
           "Click any item to open its detail page with playback and metadata",
         ],
-        topicLinks: [
-          { label: "How list pages work", topicId: "list-pages" },
-        ],
+        topicLinks: [{ label: "How list pages work", topicId: "list-pages" }],
       },
       {
         id: "whats-next",
@@ -140,7 +160,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "anatomy",
         title: "One list page, learned everywhere",
-        caption: "Every content page works the same way. Once you know one, you know them all. The toolbar above the results holds every control you need.",
+        caption:
+          "Every content page works the same way. Once you know one, you know them all. The toolbar above the results holds every control you need.",
         imageSrc: "/manual/screenshots/list-page-anatomy.png",
         imageAlt: "A content list page with the toolbar controls highlighted",
         points: [
@@ -219,16 +240,15 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "downloaders-install",
         title: "Install a downloader",
-        caption: "Downloaders come from the same place as other extensions. Find the one you want in Discover and install it.",
+        caption:
+          "Downloaders come from the same place as other extensions. Find the one you want in Discover and install it.",
         imageSrc: "/manual/screenshots/downloaders-discover.png",
         imageAlt: "Discover page with a downloader extension and its install button",
         points: [
           "[green] browse Discover for the downloader you want",
           "[blue] install it with a click, just like any extension",
         ],
-        topicLinks: [
-          { label: "Browsing and installing extensions", topicId: "extensions" },
-        ],
+        topicLinks: [{ label: "Browsing and installing extensions", topicId: "extensions" }],
       },
       {
         id: "downloaders-use",
@@ -244,7 +264,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "downloaders-new-url",
         title: "Add an item from a URL",
-        caption: "You can also create an item straight from a URL. In the New dialog, switch to URL and paste a link — Cove hands it to a matching downloader, which fetches the media into your library.",
+        caption:
+          "You can also create an item straight from a URL. In the New dialog, switch to URL and paste a link — Cove hands it to a matching downloader, which fetches the media into your library.",
         imageSrc: "/manual/screenshots/new-from-url.png",
         imageAlt: "The New item dialog with the URL option selected and a link pasted",
         points: [
@@ -263,7 +284,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "metadata-overview",
         title: "Let Cove fill in the details",
-        caption: "Metadata collection pulls in titles, performers, studios, tags, and images so you spend less time typing and more time browsing.",
+        caption:
+          "Metadata collection pulls in titles, performers, studios, tags, and images so you spend less time typing and more time browsing.",
         imageSrc: "/manual/screenshots/tagger-view.png",
         imageAlt: "Metadata collection tools reviewing item details",
         points: [
@@ -290,7 +312,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "scrapers-run",
         title: "Scrape one item first",
-        caption: "Scrapers read an item's details from a source so you can review and apply them. Start with one item before doing many.",
+        caption:
+          "Scrapers read an item's details from a source so you can review and apply them. Start with one item before doing many.",
         imageSrc: "/manual/screenshots/scraper-run.png",
         imageAlt: "A scrape result with fields ready to review",
         points: [
@@ -311,7 +334,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "servers-overview",
         title: "Enrich at scale",
-        caption: "A metadata server can identify items and return rich details across your library, which is handy once a single scrape looks good.",
+        caption:
+          "A metadata server can identify items and return rich details across your library, which is handy once a single scrape looks good.",
         imageSrc: "/manual/screenshots/tagger-view.png",
         imageAlt: "Reviewing enriched metadata across many items",
         points: [
@@ -321,11 +345,12 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
           "Check Cove's metadata servers page to see which servers you can connect to",
         ],
         links: [
-          { label: "Metadata servers list", url: "https://yourcove.net/docs/user/metadata/providers-scrapers-downloaders/" },
+          {
+            label: "Metadata servers list",
+            url: "https://yourcove.net/docs/user/metadata/providers-scrapers-downloaders/",
+          },
         ],
-        topicLinks: [
-          { label: "Scrapers", topicId: "metadata-scrapers" },
-        ],
+        topicLinks: [{ label: "Scrapers", topicId: "metadata-scrapers" }],
       },
     ],
   },
@@ -381,7 +406,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "tagging-basics",
         title: "Tags describe what something is",
-        caption: "Tags are reusable labels. Add them to videos, images, galleries, performers, groups, and other content so related things stay easy to find.",
+        caption:
+          "Tags are reusable labels. Add them to videos, images, galleries, performers, groups, and other content so related things stay easy to find.",
         imageSrc: "/manual/screenshots/tagging-basics.png",
         imageAlt: "A tag detail page showing aliases and related content types",
         points: [
@@ -397,7 +423,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "occurrence-tagging",
         title: "Tag when something appears",
-        caption: "Some tags are about a whole item. Others are about where a performer, face, tag, or other thing appears inside a video.",
+        caption:
+          "Some tags are about a whole item. Others are about where a performer, face, tag, or other thing appears inside a video.",
         imageSrc: "/manual/screenshots/occurrence-tagging.png",
         imageAlt: "A video edit page showing whole-video tags, performer occurrence tags, and the timeline overlay",
         points: [
@@ -422,7 +449,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "segments-overview",
         title: "Video moments become reusable",
-        caption: "Segments are time ranges inside a video. They let Cove show when tags, performers, faces, and other entities are present, then reuse those ranges in playback and organization.",
+        caption:
+          "Segments are time ranges inside a video. They let Cove show when tags, performers, faces, and other entities are present, then reuse those ranges in playback and organization.",
         imageSrc: "/manual/screenshots/segments-derived.png",
         imageAlt: "Segments marked along a video timeline",
         points: [
@@ -448,7 +476,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "raw-derived",
         title: "Raw and derived segments",
-        caption: "Raw segments are the marks recorded directly on a video. Derived segments are Cove's calculated results from raw marks, tags, performers, faces, and display settings.",
+        caption:
+          "Raw segments are the marks recorded directly on a video. Derived segments are Cove's calculated results from raw marks, tags, performers, faces, and display settings.",
         imageSrc: "/manual/screenshots/segments-derived.png",
         imageAlt: "A video timeline showing raw and derived segments",
         points: [
@@ -469,7 +498,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "display-profiles",
         title: "Shape your results with profiles",
-        caption: "A display profile is a saved set of rules for turning raw segments into the derived ones you see. Switch profiles to get different views of the same videos.",
+        caption:
+          "A display profile is a saved set of rules for turning raw segments into the derived ones you see. Switch profiles to get different views of the same videos.",
         imageSrc: "/manual/screenshots/display-profiles.png",
         imageAlt: "Display profile selector with derived results",
         points: [
@@ -490,7 +520,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "compilations",
         title: "Build a compilation from a group",
-        caption: "A compilation plays grouped content back to back. Segments are especially powerful here, but compilations can include any supported content type.",
+        caption:
+          "A compilation plays grouped content back to back. Segments are especially powerful here, but compilations can include any supported content type.",
         imageSrc: "/manual/screenshots/compilation-play.png",
         imageAlt: "A compilation playing content from a group",
         points: [
@@ -498,9 +529,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
           "[blue] the compilation player moving from one item to the next",
           "Use segments for precise video excerpts, or mix in other content when the group calls for it",
         ],
-        topicLinks: [
-          { label: "Groups and dynamic groups", topicId: "groups" },
-        ],
+        topicLinks: [{ label: "Groups and dynamic groups", topicId: "groups" }],
       },
     ],
   },
@@ -558,7 +587,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "dynamic-builtin",
         title: "Dynamic and built-in groups",
-        caption: "Some groups fill themselves based on a filter, and Cove ships with a few that track your activity automatically.",
+        caption:
+          "Some groups fill themselves based on a filter, and Cove ships with a few that track your activity automatically.",
         imageSrc: "/manual/screenshots/dynamic-groups.png",
         imageAlt: "Dynamic groups including the built-in ones",
         points: [
@@ -566,9 +596,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
           "[blue] the built-in Watch History, Continue Watching, and Save for Later",
           "The built-in groups are managed by Cove and cannot be deleted",
         ],
-        topicLinks: [
-          { label: "Building compilations", topicId: "segments-compilations" },
-        ],
+        topicLinks: [{ label: "Building compilations", topicId: "segments-compilations" }],
       },
     ],
   },
@@ -606,7 +634,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "tags-graph",
         title: "The tag graph",
-        caption: "The tag graph shows how your tags relate to each other, which helps you understand and tidy up your labels.",
+        caption:
+          "The tag graph shows how your tags relate to each other, which helps you understand and tidy up your labels.",
         imageSrc: "/manual/screenshots/tags-graph.png",
         imageAlt: "The tag graph view",
         points: [
@@ -627,7 +656,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "security-overview",
         title: "Control access deliberately",
-        caption: "Security settings decide who can sign in, what actions they can take, what content they can see, and what can be shared outside an account.",
+        caption:
+          "Security settings decide who can sign in, what actions they can take, what content they can see, and what can be shared outside an account.",
         imageSrc: "/manual/screenshots/security-overview.png",
         imageAlt: "Security settings with the Security and Access menu expanded and the users page visible",
         points: [
@@ -655,7 +685,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "users",
         title: "Give each person an account",
-        caption: "User accounts let people sign in separately, keep their own activity, and receive the role that fits how they should use Cove.",
+        caption:
+          "User accounts let people sign in separately, keep their own activity, and receive the role that fits how they should use Cove.",
         imageSrc: "/manual/screenshots/users-admin.png",
         imageAlt: "User management with accounts and roles",
         points: [
@@ -663,9 +694,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
           "Create accounts for people who should sign in directly",
           "Change a user's role when their access needs to change",
         ],
-        topicLinks: [
-          { label: "Roles and permissions", topicId: "security-roles-permissions" },
-        ],
+        topicLinks: [{ label: "Roles and permissions", topicId: "security-roles-permissions" }],
       },
     ],
   },
@@ -679,7 +708,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "roles-permissions",
         title: "Roles bundle permissions",
-        caption: "A role is the set of permissions a user receives. Use roles to separate everyday browsing from administrative actions.",
+        caption:
+          "A role is the set of permissions a user receives. Use roles to separate everyday browsing from administrative actions.",
         imageSrc: "/manual/screenshots/roles-permissions.png",
         imageAlt: "Roles list with a role permission panel open",
         points: [
@@ -688,9 +718,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
           "Give users the smallest role that still lets them do their work",
           "Pair roles with content rules when users should only see part of the library",
         ],
-        topicLinks: [
-          { label: "Content rules", topicId: "security-content-rules" },
-        ],
+        topicLinks: [{ label: "Content rules", topicId: "security-content-rules" }],
       },
     ],
   },
@@ -704,7 +732,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "content-rules",
         title: "Rules shape visibility",
-        caption: "Content rules decide which items are visible to a role. They are useful when an account should browse only a specific part of the library.",
+        caption:
+          "Content rules decide which items are visible to a role. They are useful when an account should browse only a specific part of the library.",
         imageSrc: "/manual/screenshots/content-rules.png",
         imageAlt: "Content rules settings with the create rule panel open",
         points: [
@@ -750,7 +779,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "color-palette",
         title: "Choose a color palette",
-        caption: "Color palettes set Cove's core colors, including the background, surfaces, accent color, text, borders, and navigation.",
+        caption:
+          "Color palettes set Cove's core colors, including the background, surfaces, accent color, text, borders, and navigation.",
         imageSrc: "/manual/screenshots/theme-picker.png",
         imageAlt: "Appearance settings showing the color palette controls",
         points: [
@@ -762,7 +792,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "style-layout",
         title: "Choose style and layout",
-        caption: "Style options change the feel of surfaces and controls. Layout options change how pages are arranged for browsing.",
+        caption:
+          "Style options change the feel of surfaces and controls. Layout options change how pages are arranged for browsing.",
         imageSrc: "/manual/screenshots/style-layout-options.png",
         imageAlt: "Appearance settings showing style and layout options",
         points: [
@@ -783,7 +814,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "discover-install",
         title: "Discover and install extensions",
-        caption: "Extensions add new abilities to Cove, from downloaders to scrapers to whole new panels. You browse and install them from Discover.",
+        caption:
+          "Extensions add new abilities to Cove, from downloaders to scrapers to whole new panels. You browse and install them from Discover.",
         imageSrc: "/manual/screenshots/extensions-discover.png",
         imageAlt: "The Discover page listing available extensions",
         points: [
@@ -809,7 +841,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "performer-page",
         title: "Performers",
-        caption: "Performers are the people in your media. A performer page gathers everything they appear in, split by content type, plus who they appear with and similar performers.",
+        caption:
+          "Performers are the people in your media. A performer page gathers everything they appear in, split by content type, plus who they appear with and similar performers.",
         imageSrc: "/manual/screenshots/performer-page.png",
         imageAlt: "A performer detail page with content tabs",
         points: [
@@ -831,7 +864,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "studio-page",
         title: "A studio's page",
-        caption: "Studios are the sources your media came from. A studio page works like a performer's, with one extra: Sub-studios, since studios can be nested under a parent.",
+        caption:
+          "Studios are the sources your media came from. A studio page works like a performer's, with one extra: Sub-studios, since studios can be nested under a parent.",
         imageSrc: "/manual/screenshots/studio-page.png",
         imageAlt: "A studio detail page showing the Sub-studios tab",
         points: [
@@ -852,16 +886,15 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "images-view",
         title: "Images",
-        caption: "Images are single pictures. Open one to view it full size, with zoom and quick next/previous between shots.",
+        caption:
+          "Images are single pictures. Open one to view it full size, with zoom and quick next/previous between shots.",
         imageSrc: "/manual/screenshots/images-view.png",
         imageAlt: "An image detail page with the picture displayed",
         points: [
           "[green] open an image to view it full size",
           "Zoom in and step through images without leaving the viewer",
         ],
-        topicLinks: [
-          { label: "Galleries", topicId: "content-galleries" },
-        ],
+        topicLinks: [{ label: "Galleries", topicId: "content-galleries" }],
       },
     ],
   },
@@ -876,16 +909,12 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "galleries-view",
         title: "Galleries",
-        caption: "A gallery groups related images together. Its Images tab shows the whole set as a grid, and you can open any one full size.",
+        caption:
+          "A gallery groups related images together. Its Images tab shows the whole set as a grid, and you can open any one full size.",
         imageSrc: "/manual/screenshots/galleries-view.png",
         imageAlt: "A gallery detail page showing its images grid",
-        points: [
-          "[green] a gallery's images, shown together as a grid",
-          "Open any image to view it full size",
-        ],
-        topicLinks: [
-          { label: "Images", topicId: "content-images" },
-        ],
+        points: ["[green] a gallery's images, shown together as a grid", "Open any image to view it full size"],
+        topicLinks: [{ label: "Images", topicId: "content-images" }],
       },
     ],
   },
@@ -900,7 +929,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "audio-view",
         title: "Audio",
-        caption: "Audio files open in a player with a scrubber and volume. The page lists everything Cove knows about the track alongside it.",
+        caption:
+          "Audio files open in a player with a scrubber and volume. The page lists everything Cove knows about the track alongside it.",
         imageSrc: "/manual/screenshots/audios-view.png",
         imageAlt: "An audio detail page with the player",
         points: [
@@ -941,7 +971,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "scene-anatomy",
         title: "Anatomy of a video page",
-        caption: "A video page puts the player up top and everything Cove knows about the video below, split into tabs: Details, Segments, Similar, Audio Similar, Filters, File Info, History, and Edit.",
+        caption:
+          "A video page puts the player up top and everything Cove knows about the video below, split into tabs: Details, Segments, Similar, Audio Similar, Filters, File Info, History, and Edit.",
         imageSrc: "/manual/screenshots/video-detail.png",
         imageAlt: "A video detail page showing the player and the row of tabs",
         points: [
@@ -957,7 +988,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "ratings-actions",
         title: "Rate, favorite, and organize",
-        caption: "Alongside the video you can set a star rating, mark it a favorite, and flag it Organized once you've finished tidying its metadata. Cove also tracks likes and how often you've opened it.",
+        caption:
+          "Alongside the video you can set a star rating, mark it a favorite, and flag it Organized once you've finished tidying its metadata. Cove also tracks likes and how often you've opened it.",
         imageSrc: "/manual/screenshots/video-detail-actions.png",
         imageAlt: "The rating, favorite, and organized controls on a video page",
         points: [
@@ -969,16 +1001,15 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "edit-metadata",
         title: "Edit the details",
-        caption: "The Edit tab turns the metadata into a form so you can fix titles, dates, and descriptions or adjust tags, performers, and groups by hand.",
+        caption:
+          "The Edit tab turns the metadata into a form so you can fix titles, dates, and descriptions or adjust tags, performers, and groups by hand.",
         imageSrc: "/manual/screenshots/video-edit.png",
         imageAlt: "The Edit tab of a video showing the metadata form",
         points: [
           "Editing needs write permission on that content type",
           "Manual edits are recorded in provenance, so you can always see what you changed",
         ],
-        topicLinks: [
-          { label: "Field provenance", topicId: "metadata-provenance" },
-        ],
+        topicLinks: [{ label: "Field provenance", topicId: "metadata-provenance" }],
       },
     ],
   },
@@ -993,7 +1024,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "player-controls",
         title: "The player and timeline",
-        caption: "Play, scrub, change speed, loop a section, and go fullscreen. The scrubber isn't just a progress bar — it shows swimlanes for segments, detections, and faces so you can see what's where and jump to it.",
+        caption:
+          "Play, scrub, change speed, loop a section, and go fullscreen. The scrubber isn't just a progress bar — it shows swimlanes for segments, detections, and faces so you can see what's where and jump to it.",
         imageSrc: "/manual/screenshots/video-scrubber.png",
         imageAlt: "The video player scrubber showing segment and face swimlanes",
         points: [
@@ -1001,9 +1033,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
           "[blue] speed and loop controls",
           "Click a swimlane segment to jump straight to that moment",
         ],
-        topicLinks: [
-          { label: "How segments work", topicId: "segments" },
-        ],
+        topicLinks: [{ label: "How segments work", topicId: "segments" }],
       },
     ],
   },
@@ -1018,7 +1048,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "backups",
         title: "Back up your library",
-        caption: "In Settings, open Operations → Backup & Restore. Create a database backup before big changes, and you can restore from one if something goes wrong. You can also export and import metadata here.",
+        caption:
+          "In Settings, open Operations → Backup & Restore. Create a database backup before big changes, and you can restore from one if something goes wrong. You can also export and import metadata here.",
         imageSrc: "/manual/screenshots/backup-restore.png",
         imageAlt: "The Backup & Restore settings with create and restore controls",
         points: [
@@ -1030,7 +1061,8 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
       {
         id: "upgrades",
         title: "When Cove needs to update",
-        caption: "After an update, Cove may need to apply database changes before the library opens. You'll see a Database Update Required screen — it makes a backup first, then you click Run Migration.",
+        caption:
+          "After an update, Cove may need to apply database changes before the library opens. You'll see a Database Update Required screen — it makes a backup first, then you click Run Migration.",
         imageSrc: "/manual/screenshots/backup-restore-plain.png",
         imageAlt: "The Backup & Restore settings, where backups are created before updates",
         points: [
@@ -1060,7 +1092,14 @@ interface Props {
   onTopicChange?: (topicId: string, slideId?: string) => void;
 }
 
-export function TutorialStoryboardDialog({ open, onClose, request, currentPage, extensionTopics = [], onTopicChange }: Props) {
+export function TutorialStoryboardDialog({
+  open,
+  onClose,
+  request,
+  currentPage,
+  extensionTopics = [],
+  onTopicChange,
+}: Props) {
   const topics = useMemo(() => mergeTutorialTopics(extensionTopics), [extensionTopics]);
   const topicEntries = useMemo(() => buildTopicEntries(topics), [topics]);
   const orderedTopicIds = useMemo(() => topicEntries.map((entry) => entry.topic.id), [topicEntries]);
@@ -1099,13 +1138,20 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
   const trimmedSearch = search.trim();
   const visibleEntries = trimmedSearch
     ? topicEntries.filter(({ topic }) => matchesTopicSearch(topic, trimmedSearch))
-    : topicEntries.filter(({ topic }) => ancestorsOf(topic.id, parentByChild).every((ancestorId) => isTopicOpen(ancestorId)));
+    : topicEntries.filter(({ topic }) =>
+        ancestorsOf(topic.id, parentByChild).every((ancestorId) => isTopicOpen(ancestorId)),
+      );
 
   useEffect(() => {
     if (!open) return;
     const nextTopicId = pickInitialTopicId(topics, request, currentPage);
     const nextTopic = topics.find((topic) => topic.id === nextTopicId) ?? topics[0];
-    const nextSlideIndex = request?.slideId ? Math.max(0, nextTopic.slides.findIndex((item) => item.id === request.slideId)) : 0;
+    const nextSlideIndex = request?.slideId
+      ? Math.max(
+          0,
+          nextTopic.slides.findIndex((item) => item.id === request.slideId),
+        )
+      : 0;
     setSelectedTopicId(nextTopic.id);
     setIndex(nextSlideIndex);
     setSearch("");
@@ -1115,7 +1161,8 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT"))
+        return;
       if (event.key === "Escape") {
         markCompleteAndClose();
       } else if (event.key === "ArrowRight") {
@@ -1138,7 +1185,13 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
 
   function chooseTopic(topicId: string, slideId?: string) {
     const target = topics.find((topic) => topic.id === topicId);
-    const slideIndex = slideId && target ? Math.max(0, target.slides.findIndex((item) => item.id === slideId)) : 0;
+    const slideIndex =
+      slideId && target
+        ? Math.max(
+            0,
+            target.slides.findIndex((item) => item.id === slideId),
+          )
+        : 0;
     setSelectedTopicId(topicId);
     setIndex(slideIndex);
     if (parentIdsWithChildren.has(topicId)) {
@@ -1182,7 +1235,12 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-3 py-4" role="dialog" aria-modal="true" aria-labelledby="tutorial-storyboard-title">
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-3 py-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tutorial-storyboard-title"
+    >
       <div className="flex h-[90vh] max-h-[92vh] w-[96vw] max-w-[96rem] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -1191,10 +1249,17 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
             </div>
             <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted">Cove manual</div>
-              <h2 id="tutorial-storyboard-title" className="truncate text-base font-semibold text-foreground">{selectedTopic.title}</h2>
+              <h2 id="tutorial-storyboard-title" className="truncate text-base font-semibold text-foreground">
+                {selectedTopic.title}
+              </h2>
             </div>
           </div>
-          <button type="button" onClick={markCompleteAndClose} className="rounded p-2 text-muted transition-colors hover:bg-surface hover:text-foreground" title="Close manual">
+          <button
+            type="button"
+            onClick={markCompleteAndClose}
+            className="rounded p-2 text-muted transition-colors hover:bg-surface hover:text-foreground"
+            title="Close manual"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -1222,7 +1287,11 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
                   const expanded = isTopicOpen(topic.id);
                   const showToggle = hasChildren && !trimmedSearch;
                   return (
-                    <div key={topic.id} className="flex items-stretch gap-1" style={{ paddingLeft: `${depth * 1.1}rem` }}>
+                    <div
+                      key={topic.id}
+                      className="flex items-stretch gap-1"
+                      style={{ paddingLeft: `${depth * 1.1}rem` }}
+                    >
                       {showToggle ? (
                         <button
                           type="button"
@@ -1243,8 +1312,12 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
                         className={`min-w-0 flex-1 rounded-lg px-3 py-2 text-left transition-colors ${topic.id === selectedTopic.id ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"}`}
                       >
                         <span className="block truncate text-sm font-medium">{topic.title}</span>
-                        {topic.description ? <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{topic.description}</span> : null}
-                        {topic.extensionId ? <span className="mt-1 block text-[11px] text-muted">Extension</span> : null}
+                        {topic.description ? (
+                          <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{topic.description}</span>
+                        ) : null}
+                        {topic.extensionId ? (
+                          <span className="mt-1 block text-[11px] text-muted">Extension</span>
+                        ) : null}
                       </button>
                     </div>
                   );
@@ -1261,7 +1334,9 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
                 className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground"
                 aria-label="Tutorial topic"
               >
-                {topicEntries.map(({ topic, depth }) => <option key={topic.id} value={topic.id}>{`${"  ".repeat(depth)}${topic.title}`}</option>)}
+                {topicEntries.map(({ topic, depth }) => (
+                  <option key={topic.id} value={topic.id}>{`${"  ".repeat(depth)}${topic.title}`}</option>
+                ))}
               </select>
             </div>
             <StoryboardPreview slide={slide} />
@@ -1297,7 +1372,9 @@ export function TutorialStoryboardDialog({ open, onClose, request, currentPage, 
             ) : null}
 
             {(() => {
-              const topicLinks = (slide.topicLinks ?? []).filter((link) => topics.some((topic) => topic.id === link.topicId));
+              const topicLinks = (slide.topicLinks ?? []).filter((link) =>
+                topics.some((topic) => topic.id === link.topicId),
+              );
               if (topicLinks.length === 0) return null;
               return (
                 <div className="mt-5 space-y-2">
@@ -1382,7 +1459,9 @@ function mergeTutorialTopics(extensionTopics: ExtensionTutorialTopic[]): Tutoria
       })),
     }));
 
-  return [...builtinTutorialTopics, ...normalizedExtensionTopics].sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
+  return [...builtinTutorialTopics, ...normalizedExtensionTopics].sort(
+    (left, right) => left.order - right.order || left.title.localeCompare(right.title),
+  );
 }
 
 function buildTopicEntries(topics: TutorialStoryboardTopic[]): TutorialTopicEntry[] {
@@ -1547,10 +1626,18 @@ function ManualMarkdown({ markdown }: { markdown: string }) {
           ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>,
           li: ({ children }) => <li>{children}</li>,
           strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-          code: ({ children }) => <code className="rounded bg-card px-1 py-0.5 text-xs text-foreground">{children}</code>,
+          code: ({ children }) => (
+            <code className="rounded bg-card px-1 py-0.5 text-xs text-foreground">{children}</code>
+          ),
           a: ({ href, children }) => {
             const safeHref = normalizeManualLinkUrl(href);
-            return safeHref ? <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">{children}</a> : <span>{children}</span>;
+            return safeHref ? (
+              <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                {children}
+              </a>
+            ) : (
+              <span>{children}</span>
+            );
           },
         }}
       >
@@ -1561,8 +1648,17 @@ function ManualMarkdown({ markdown }: { markdown: string }) {
 }
 
 function normalizeMockKind(value?: string): TutorialSlideMockKind | undefined {
-  const knownKinds = new Set<TutorialSlideMockKind>(["tasks", "feed", "metadata", "settings", "videoPlayer", "tagging", "images", "extension"]);
-  return knownKinds.has(value as TutorialSlideMockKind) ? value as TutorialSlideMockKind : undefined;
+  const knownKinds = new Set<TutorialSlideMockKind>([
+    "tasks",
+    "feed",
+    "metadata",
+    "settings",
+    "videoPlayer",
+    "tagging",
+    "images",
+    "extension",
+  ]);
+  return knownKinds.has(value as TutorialSlideMockKind) ? (value as TutorialSlideMockKind) : undefined;
 }
 
 function normalizeManualContexts(contexts?: string[]) {
@@ -1588,7 +1684,11 @@ function pickInitialTopicId(topics: TutorialStoryboardTopic[], request?: Tutoria
   return topics.find((topic) => topic.id === "getting-started")?.id ?? topics[0]?.id ?? "getting-started";
 }
 
-function pickTopicIdForContexts(topics: TutorialStoryboardTopic[], request?: TutorialOpenRequest, currentPage?: string) {
+function pickTopicIdForContexts(
+  topics: TutorialStoryboardTopic[],
+  request?: TutorialOpenRequest,
+  currentPage?: string,
+) {
   const contexts = uniqueManualContexts([
     request?.context,
     ...(request?.contexts ?? []),
@@ -1610,7 +1710,12 @@ function pickTopicIdForContexts(topics: TutorialStoryboardTopic[], request?: Tut
   return bestMatch?.topicId;
 }
 
-function scoreTopicContextMatch(topic: TutorialStoryboardTopic, context: string, contextIndex: number, topicIndex: number) {
+function scoreTopicContextMatch(
+  topic: TutorialStoryboardTopic,
+  context: string,
+  contextIndex: number,
+  topicIndex: number,
+) {
   const normalizedContext = normalizeManualContext(context);
   if (!normalizedContext) return undefined;
 
@@ -1650,7 +1755,12 @@ function SlideImage({ src, alt }: { src: string; alt: string }) {
 
   return (
     <div className="flex h-full min-h-[34rem] items-center justify-center overflow-hidden rounded-lg border border-border bg-card shadow-xl">
-      <img src={src} alt={alt} onError={() => setFailed(true)} className="block max-h-full w-full object-contain bg-black" />
+      <img
+        src={src}
+        alt={alt}
+        onError={() => setFailed(true)}
+        className="block max-h-full w-full object-contain bg-black"
+      />
     </div>
   );
 }
@@ -1686,7 +1796,10 @@ function StoryboardPreview({ slide }: { slide: TutorialStoryboardSlide }) {
         <div className="border-r border-border bg-nav/90 p-3">
           <div className="mb-4 h-7 rounded bg-accent/25" />
           {["Videos", "Images", "Texts", "Settings"].map((item, index) => (
-            <div key={item} className={`mb-2 flex items-center gap-2 rounded px-2 py-2 text-xs ${index === 0 ? "bg-accent/20 text-accent" : "text-secondary"}`}>
+            <div
+              key={item}
+              className={`mb-2 flex items-center gap-2 rounded px-2 py-2 text-xs ${index === 0 ? "bg-accent/20 text-accent" : "text-secondary"}`}
+            >
               <div className="h-3 w-3 rounded bg-current opacity-60" />
               <span>{item}</span>
             </div>
@@ -1740,7 +1853,12 @@ function FeedMock() {
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 text-xs">
         {["Grid", "Feed", "Wall", "Infinite"].map((label, index) => (
-          <div key={label} className={`rounded px-2.5 py-1 ${index === 1 || index === 3 ? "bg-accent text-white" : "bg-card text-secondary"}`}>{label}</div>
+          <div
+            key={label}
+            className={`rounded px-2.5 py-1 ${index === 1 || index === 3 ? "bg-accent text-white" : "bg-card text-secondary"}`}
+          >
+            {label}
+          </div>
         ))}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -1772,9 +1890,16 @@ function MetadataMock() {
         </div>
       </div>
       <div className="rounded-lg border border-border bg-card p-3">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground"><Database className="h-4 w-4 text-accent" /> Metadata</div>
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Database className="h-4 w-4 text-accent" /> Metadata
+        </div>
         {["Scrape", "Identify", "Apply fields"].map((label, index) => (
-          <div key={label} className={`mb-2 rounded px-3 py-2 text-sm ${index === 0 ? "bg-accent text-white" : "bg-background text-secondary"}`}>{label}</div>
+          <div
+            key={label}
+            className={`mb-2 rounded px-3 py-2 text-sm ${index === 0 ? "bg-accent text-white" : "bg-background text-secondary"}`}
+          >
+            {label}
+          </div>
         ))}
       </div>
     </div>
@@ -1784,7 +1909,9 @@ function MetadataMock() {
 function SettingsMock() {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-lg font-semibold text-foreground"><Settings className="h-5 w-5 text-accent" /> Settings</div>
+      <div className="flex items-center gap-2 text-lg font-semibold text-foreground">
+        <Settings className="h-5 w-5 text-accent" /> Settings
+      </div>
       <div className="grid gap-3 md:grid-cols-2">
         {["Navigation", "Video Player", "Feed & Viewer", "Extensions"].map((label, index) => (
           <div key={label} className="rounded-lg border border-border bg-card p-3">
@@ -1812,11 +1939,18 @@ function VideoPlayerMock() {
         </div>
         <div className="space-y-2 p-3">
           <div className="h-2 rounded bg-accent" />
-          <div className="flex justify-between text-xs text-muted"><span>04:12</span><span>38:20</span></div>
+          <div className="flex justify-between text-xs text-muted">
+            <span>04:12</span>
+            <span>38:20</span>
+          </div>
         </div>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
-        {["Resume", "Segments", "Details"].map((label) => <div key={label} className="rounded-lg border border-border bg-card p-3 text-sm text-secondary">{label}</div>)}
+        {["Resume", "Segments", "Details"].map((label) => (
+          <div key={label} className="rounded-lg border border-border bg-card p-3 text-sm text-secondary">
+            {label}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1825,7 +1959,9 @@ function VideoPlayerMock() {
 function TaggingMock() {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-lg font-semibold text-foreground"><Tag className="h-5 w-5 text-accent" /> Tagger</div>
+      <div className="flex items-center gap-2 text-lg font-semibold text-foreground">
+        <Tag className="h-5 w-5 text-accent" /> Tagger
+      </div>
       <div className="grid gap-2 md:grid-cols-3">
         {Array.from({ length: 9 }, (_, index) => (
           <div key={index} className="rounded-lg border border-border bg-card p-3">
@@ -1841,11 +1977,16 @@ function TaggingMock() {
 function ImagesMock() {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-lg font-semibold text-foreground"><ImageIcon className="h-5 w-5 text-accent" /> Images</div>
+      <div className="flex items-center gap-2 text-lg font-semibold text-foreground">
+        <ImageIcon className="h-5 w-5 text-accent" /> Images
+      </div>
       <div className="columns-3 gap-2">
         {[1.1, 0.75, 1.35, 0.9, 1.25, 0.8, 1.45, 1].map((ratio, index) => (
           <div key={index} className="mb-2 break-inside-avoid overflow-hidden rounded-lg border border-border bg-card">
-            <div style={{ aspectRatio: `1 / ${ratio}` }} className="bg-gradient-to-br from-emerald-500/40 via-sky-400/25 to-rose-400/35" />
+            <div
+              style={{ aspectRatio: `1 / ${ratio}` }}
+              className="bg-gradient-to-br from-emerald-500/40 via-sky-400/25 to-rose-400/35"
+            />
           </div>
         ))}
       </div>
@@ -1858,8 +1999,9 @@ function ExtensionMock() {
     <div className="flex h-full min-h-[28rem] flex-col items-center justify-center rounded-lg border border-border bg-card p-6 text-center">
       <HelpCircle className="mb-4 h-12 w-12 text-accent" />
       <div className="text-lg font-semibold text-foreground">Extension Topic</div>
-      <div className="mt-2 max-w-md text-sm leading-6 text-secondary">This slide can be supplied by a Cove extension with its own screenshots, points, and page targeting.</div>
+      <div className="mt-2 max-w-md text-sm leading-6 text-secondary">
+        This slide can be supplied by a Cove extension with its own screenshots, points, and page targeting.
+      </div>
     </div>
   );
 }
-

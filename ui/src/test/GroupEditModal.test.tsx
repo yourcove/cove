@@ -65,7 +65,11 @@ describe("GroupEditModal", () => {
 
   it("preserves form edits when dynamic sources finish loading", async () => {
     let resolveSources!: (sources: Array<{ key: string; displayName: string }>) => void;
-    mockGroups.dynamicSources.mockReturnValue(new Promise((resolve) => { resolveSources = resolve; }));
+    mockGroups.dynamicSources.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSources = resolve;
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(

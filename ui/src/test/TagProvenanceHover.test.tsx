@@ -21,7 +21,11 @@ describe("TagProvenanceHover", () => {
   const popupCount = () => screen.queryAllByText("Tag Sources").filter((el) => !el.closest(".sr-only")).length;
 
   it("opens only after the hover-intent delay", () => {
-    render(<TagProvenanceHover provenance={provenance}><span>Chip</span></TagProvenanceHover>);
+    render(
+      <TagProvenanceHover provenance={provenance}>
+        <span>Chip</span>
+      </TagProvenanceHover>,
+    );
 
     fireEvent.mouseEnter(screen.getByText("Chip").parentElement!);
     expect(popupCount()).toBe(0);
@@ -31,7 +35,11 @@ describe("TagProvenanceHover", () => {
   });
 
   it("does not open when the cursor sweeps through quickly", () => {
-    render(<TagProvenanceHover provenance={provenance}><span>Chip</span></TagProvenanceHover>);
+    render(
+      <TagProvenanceHover provenance={provenance}>
+        <span>Chip</span>
+      </TagProvenanceHover>,
+    );
     const wrapper = screen.getByText("Chip").parentElement!;
 
     fireEvent.mouseEnter(wrapper);
@@ -45,8 +53,12 @@ describe("TagProvenanceHover", () => {
   it("shows at most one popup at a time across chips", () => {
     render(
       <>
-        <TagProvenanceHover provenance={provenance}><span>First</span></TagProvenanceHover>
-        <TagProvenanceHover provenance={provenance}><span>Second</span></TagProvenanceHover>
+        <TagProvenanceHover provenance={provenance}>
+          <span>First</span>
+        </TagProvenanceHover>
+        <TagProvenanceHover provenance={provenance}>
+          <span>Second</span>
+        </TagProvenanceHover>
       </>,
     );
 
@@ -60,7 +72,11 @@ describe("TagProvenanceHover", () => {
   });
 
   it("dismisses the popup on mousedown so click-opened menus are not covered", () => {
-    render(<TagProvenanceHover provenance={provenance}><span>Chip</span></TagProvenanceHover>);
+    render(
+      <TagProvenanceHover provenance={provenance}>
+        <span>Chip</span>
+      </TagProvenanceHover>,
+    );
     const wrapper = screen.getByText("Chip").parentElement!;
 
     fireEvent.mouseEnter(wrapper);
@@ -97,7 +113,11 @@ describe("TagProvenanceHover", () => {
   });
 
   it("stays open when the popup itself is pressed (scrollbar drags)", () => {
-    render(<TagProvenanceHover provenance={provenance}><span>Chip</span></TagProvenanceHover>);
+    render(
+      <TagProvenanceHover provenance={provenance}>
+        <span>Chip</span>
+      </TagProvenanceHover>,
+    );
     const wrapper = screen.getByText("Chip").parentElement!;
 
     fireEvent.mouseEnter(wrapper);
@@ -110,7 +130,11 @@ describe("TagProvenanceHover", () => {
   });
 
   it("stays open when a click originates inside the portalled popup", () => {
-    render(<TagProvenanceHover provenance={provenance}><span>Chip</span></TagProvenanceHover>);
+    render(
+      <TagProvenanceHover provenance={provenance}>
+        <span>Chip</span>
+      </TagProvenanceHover>,
+    );
     const wrapper = screen.getByText("Chip").parentElement!;
 
     fireEvent.mouseEnter(wrapper);
@@ -127,14 +151,38 @@ describe("TagProvenanceHover", () => {
     vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains("cursor-help")) {
-        return { x: 400, y: 550, left: 400, top: 550, right: 500, bottom: 580, width: 100, height: 30, toJSON: () => ({}) } as DOMRect;
+        return {
+          x: 400,
+          y: 550,
+          left: 400,
+          top: 550,
+          right: 500,
+          bottom: 580,
+          width: 100,
+          height: 30,
+          toJSON: () => ({}),
+        } as DOMRect;
       }
       if (this.classList.contains("fixed") && this.textContent?.includes("Tag Sources")) {
-        return { x: 212, y: 0, left: 212, top: 0, right: 500, bottom: 300, width: 288, height: 300, toJSON: () => ({}) } as DOMRect;
+        return {
+          x: 212,
+          y: 0,
+          left: 212,
+          top: 0,
+          right: 500,
+          bottom: 300,
+          width: 288,
+          height: 300,
+          toJSON: () => ({}),
+        } as DOMRect;
       }
       return { x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) } as DOMRect;
     });
-    render(<TagProvenanceHover provenance={provenance}><span>Chip</span></TagProvenanceHover>);
+    render(
+      <TagProvenanceHover provenance={provenance}>
+        <span>Chip</span>
+      </TagProvenanceHover>,
+    );
 
     fireEvent.focus(screen.getByText("Chip").parentElement!);
 

@@ -3,7 +3,11 @@ import { VirtualizedEntityGrid } from "../../components/VirtualizedEntityLayouts
 import { SegmentTile } from "../../components/EntityCards";
 import type { DisplayMode } from "../../components/ListPage";
 import { CardSelectionToggle, RouteCardLinkOverlay } from "../../components/RouteCardLinkOverlay";
-import { toggleOptionsFromEvent, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../../hooks/useMultiSelect";
+import {
+  toggleOptionsFromEvent,
+  type BoundMultiSelectToggleHandler,
+  type MultiSelectToggleHandler,
+} from "../../hooks/useMultiSelect";
 import {
   buildRawSegmentTitle,
   formatDate,
@@ -62,11 +66,13 @@ export function RawSegmentResults({
             segment={item}
             label={`Open raw segment ${buildRawSegmentTitle(item)}`}
             eyebrow={formatSegmentCardEyebrow(item.startSec, item.endSec)}
-            onClick={(toggleOptions) => (selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id }))}
+            onClick={(toggleOptions) =>
+              selecting ? onToggle(item.id, toggleOptions) : onNavigate({ page: "segment", id: item.id })
+            }
             selected={selectedIds.has(item.id)}
             onSelect={(toggleOptions) => onToggle(item.id, toggleOptions)}
             selecting={selecting}
-            footer={(
+            footer={
               <div className="flex items-center justify-between gap-2">
                 <span>Updated {formatDate(item.updatedAt)}</span>
                 {canReadVideos ? (
@@ -84,7 +90,7 @@ export function RawSegmentResults({
                   </button>
                 ) : null}
               </div>
-            )}
+            }
           />
         )}
       />
@@ -138,15 +144,37 @@ function RawSegmentListRow({
   const title = buildRawSegmentTitle(item);
 
   return (
-    <div onClick={selecting ? (event) => onToggle(toggleOptionsFromEvent(event)) : undefined} className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}>
-      <RouteCardLinkOverlay route={{ page: "segment", id: item.id }} onClick={() => onNavigate({ page: "segment", id: item.id })} label={`Open raw segment ${title}`} disabled={selecting} selectionSafeZone />
+    <div
+      onClick={selecting ? (event) => onToggle(toggleOptionsFromEvent(event)) : undefined}
+      className={`video-card group relative cursor-pointer px-4 ${density.rowPaddingClassName} transition-colors ${selected ? "bg-accent/10" : "hover:bg-surface/40"}`}
+    >
+      <RouteCardLinkOverlay
+        route={{ page: "segment", id: item.id }}
+        onClick={() => onNavigate({ page: "segment", id: item.id })}
+        label={`Open raw segment ${title}`}
+        disabled={selecting}
+        selectionSafeZone
+      />
       <div className="flex items-start gap-3 lg:grid lg:grid-cols-[minmax(0,1.3fr)_140px_minmax(0,1fr)_120px_120px] lg:items-center">
         <div className="relative min-w-0 pl-8">
           <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onToggle} />
           <div className="flex items-start gap-3">
-            {density.showPreview ? <div className="hidden shrink-0 overflow-hidden rounded-lg bg-surface sm:block" style={{ height: density.previewHeight, width: density.previewWidth }}>
-              <SegmentVideoPreview hostId={item.hostId} segmentId={item.id} updatedAt={item.updatedAt} startSec={item.startSec} endSec={item.endSec} title={title} imgClassName="h-full w-full object-cover" />
-            </div> : null}
+            {density.showPreview ? (
+              <div
+                className="hidden shrink-0 overflow-hidden rounded-lg bg-surface sm:block"
+                style={{ height: density.previewHeight, width: density.previewWidth }}
+              >
+                <SegmentVideoPreview
+                  hostId={item.hostId}
+                  segmentId={item.id}
+                  updatedAt={item.updatedAt}
+                  startSec={item.startSec}
+                  endSec={item.endSec}
+                  title={title}
+                  imgClassName="h-full w-full object-cover"
+                />
+              </div>
+            ) : null}
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{title}</div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-secondary">

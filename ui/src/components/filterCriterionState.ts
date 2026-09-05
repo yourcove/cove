@@ -9,10 +9,7 @@ import type {
   TagDurationClause,
   TagDurationCriterion,
 } from "../api/types";
-import {
-  FILTER_EXPRESSION_STATE_KEY,
-  type EditableFilterExpression,
-} from "../utils/filterExpressionTree";
+import { FILTER_EXPRESSION_STATE_KEY, type EditableFilterExpression } from "../utils/filterExpressionTree";
 import { getRelatedCriteria } from "./filterCriteriaCatalogs";
 import { MAX_DISTINCT_RELATED_CONDITIONS, type CriterionDefinition } from "./filterCriteriaTypes";
 
@@ -110,18 +107,16 @@ export function isCriterionValueValid(value: unknown, criterion: CriterionDefini
     case "timestamp":
     case "enum":
       return criterion.type === "remoteId"
-        ? Boolean((value as { _legacyEndpointCriterion?: StringCriterion })._legacyEndpointCriterion
-          ? (
-            (value as { endpoint?: string }).endpoint?.trim()
-            || NULL_VALUE_MODIFIERS.has((value as StringCriterion).modifier ?? "EQUALS")
+        ? Boolean(
+            (value as { _legacyEndpointCriterion?: StringCriterion })._legacyEndpointCriterion
+              ? (value as { endpoint?: string }).endpoint?.trim() ||
+                  NULL_VALUE_MODIFIERS.has((value as StringCriterion).modifier ?? "EQUALS")
+              : NULL_VALUE_MODIFIERS.has((value as StringCriterion).modifier ?? "EQUALS") ||
+                  (value as StringCriterion).value?.trim(),
           )
-          : (
-            NULL_VALUE_MODIFIERS.has((value as StringCriterion).modifier ?? "EQUALS")
-            || (value as StringCriterion).value?.trim()
-          ))
         : criterion.type === "hash"
-        ? hasFingerprintCriterionValue(value as { modifier?: CriterionModifier; value?: string; type?: string })
-        : hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
+          ? hasFingerprintCriterionValue(value as { modifier?: CriterionModifier; value?: string; type?: string })
+          : hasStringCriterionValue(value as { modifier?: CriterionModifier; value?: string; value2?: string });
     case "number":
     case "duration":
     case "careerLength":
@@ -135,7 +130,9 @@ export function isCriterionValueValid(value: unknown, criterion: CriterionDefini
 
 function getCustomFieldCriteria(filter: Record<string, unknown>) {
   return Array.isArray(filter.customFieldCriteria)
-    ? filter.customFieldCriteria.filter((item): item is CustomFieldCriterion => Boolean(item && typeof item === "object"))
+    ? filter.customFieldCriteria.filter((item): item is CustomFieldCriterion =>
+        Boolean(item && typeof item === "object"),
+      )
     : [];
 }
 
@@ -180,10 +177,15 @@ export function getCriterionFilterValue(filter: Record<string, unknown>, criteri
       _legacyEndpointCriterion: valueCriterion ? undefined : endpointCriterion,
     };
   }
-  return criterion.customFieldKey ? coerceCustomFieldCriterionForEditor(findCustomFieldCriterion(filter, criterion), criterion) : filter[criterion.filterKey];
+  return criterion.customFieldKey
+    ? coerceCustomFieldCriterionForEditor(findCustomFieldCriterion(filter, criterion), criterion)
+    : filter[criterion.filterKey];
 }
 
-function normalizeCustomFieldCriterion(value: unknown, criterion: CriterionDefinition): CustomFieldCriterion | undefined {
+function normalizeCustomFieldCriterion(
+  value: unknown,
+  criterion: CriterionDefinition,
+): CustomFieldCriterion | undefined {
   if (!criterion.customFieldKey || !value || typeof value !== "object") return undefined;
 
   const raw = value as Record<string, unknown>;
@@ -221,7 +223,11 @@ export function removeCriterionFilterValue(filter: Record<string, unknown>, crit
   return next;
 }
 
-export function setCriterionFilterValue(filter: Record<string, unknown>, criterion: CriterionDefinition, value: unknown) {
+export function setCriterionFilterValue(
+  filter: Record<string, unknown>,
+  criterion: CriterionDefinition,
+  value: unknown,
+) {
   if (value === undefined) {
     return removeCriterionFilterValue(filter, criterion);
   }
@@ -237,7 +243,7 @@ export function setCriterionFilterValue(filter: Record<string, unknown>, criteri
   if (criterion.type === "remoteId" && criterion.secondaryFilterKey) {
     const raw = value as StringCriterion & { endpoint?: string; _legacyEndpointCriterion?: StringCriterion };
     const next = removeCriterionFilterValue(filter, criterion);
-    if (raw._legacyEndpointCriterion && !(raw.value?.trim())) {
+    if (raw._legacyEndpointCriterion && !raw.value?.trim()) {
       next[criterion.secondaryFilterKey] = raw._legacyEndpointCriterion;
       return next;
     }
@@ -252,7 +258,11 @@ export function setCriterionFilterValue(filter: Record<string, unknown>, criteri
   return { ...filter, [criterion.filterKey]: value };
 }
 
-export function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria: CriterionDefinition[], baseFilter: Record<string, unknown> = {}) {
+export function sanitizeFilterCriteria(
+  filter: Record<string, unknown>,
+  criteria: CriterionDefinition[],
+  baseFilter: Record<string, unknown> = {},
+) {
   let sanitized: Record<string, unknown> = { ...baseFilter };
 
   for (const criterion of criteria) {
@@ -278,7 +288,10 @@ export function sanitizeFilterCriteria(filter: Record<string, unknown>, criteria
   return sanitized;
 }
 
-export function sanitizeFilterExpression(expression: EditableFilterExpression | undefined, criteria: CriterionDefinition[]): FilterExpression<Record<string, unknown>> | undefined {
+export function sanitizeFilterExpression(
+  expression: EditableFilterExpression | undefined,
+  criteria: CriterionDefinition[],
+): FilterExpression<Record<string, unknown>> | undefined {
   if (!expression) return undefined;
   const children: FilterExpression<Record<string, unknown>>["children"] = [];
   for (const child of expression.children) {
@@ -298,37 +311,58 @@ export function sanitizeFilterExpression(expression: EditableFilterExpression | 
       children: children.length === 1 ? children : [{ group: { operator: "OR", children } }],
     };
   }
-  const operator = expression.operator === "OR" || expression.operator === "JUST_ONE" ? expression.operator : expression.operator === "NOT" ? "NOT" : "AND";
+  const operator =
+    expression.operator === "OR" || expression.operator === "JUST_ONE"
+      ? expression.operator
+      : expression.operator === "NOT"
+        ? "NOT"
+        : "AND";
   if (operator === "NOT" && children.length !== 1) return undefined;
   const scopedCriterion = expression.relatedScope
-    ? criteria.find((criterion) => criterion.type === "related"
-      && criterion.filterKey === expression.relatedScope?.filterKey
-      && criterion.supportsDistinctSiblingMatches)
+    ? criteria.find(
+        (criterion) =>
+          criterion.type === "related" &&
+          criterion.filterKey === expression.relatedScope?.filterKey &&
+          criterion.supportsDistinctSiblingMatches,
+      )
     : undefined;
-  const scopedConditions = scopedCriterion ? children.filter((child) => {
-    const related = child.filter?.[scopedCriterion.filterKey];
-    if (!related || typeof related !== "object") return false;
-    const value = related as { mode?: string; exclude?: boolean };
-    return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
-  }).length : 0;
-  const keepRelatedScope = operator === "AND"
-    && scopedCriterion
-    && scopedConditions === children.length
-    && scopedConditions >= 2
-    && (expression.relatedScope?.matchMode !== "distinct" || scopedConditions <= MAX_DISTINCT_RELATED_CONDITIONS);
-  const keepLegacyDistinct = operator === "AND" && expression.distinctRelatedMatches === true && !expression.relatedScope;
-  return children.length > 0 ? {
-    operator,
-    ...(keepLegacyDistinct ? { distinctRelatedMatches: true } : {}),
-    ...(keepRelatedScope ? { relatedScope: {
-      filterKey: scopedCriterion.filterKey,
-      matchMode: expression.relatedScope?.matchMode === "distinct" ? "distinct" : "reuse",
-    } } : {}),
-    children,
-  } : undefined;
+  const scopedConditions = scopedCriterion
+    ? children.filter((child) => {
+        const related = child.filter?.[scopedCriterion.filterKey];
+        if (!related || typeof related !== "object") return false;
+        const value = related as { mode?: string; exclude?: boolean };
+        return value.exclude !== true && (value.mode === undefined || value.mode === "atLeastOne");
+      }).length
+    : 0;
+  const keepRelatedScope =
+    operator === "AND" &&
+    scopedCriterion &&
+    scopedConditions === children.length &&
+    scopedConditions >= 2 &&
+    (expression.relatedScope?.matchMode !== "distinct" || scopedConditions <= MAX_DISTINCT_RELATED_CONDITIONS);
+  const keepLegacyDistinct =
+    operator === "AND" && expression.distinctRelatedMatches === true && !expression.relatedScope;
+  return children.length > 0
+    ? {
+        operator,
+        ...(keepLegacyDistinct ? { distinctRelatedMatches: true } : {}),
+        ...(keepRelatedScope
+          ? {
+              relatedScope: {
+                filterKey: scopedCriterion.filterKey,
+                matchMode: expression.relatedScope?.matchMode === "distinct" ? "distinct" : "reuse",
+              },
+            }
+          : {}),
+        children,
+      }
+    : undefined;
 }
 
-export function filterToExpression(filter: Record<string, unknown>, criteria: CriterionDefinition[]): FilterExpression<Record<string, unknown>> {
+export function filterToExpression(
+  filter: Record<string, unknown>,
+  criteria: CriterionDefinition[],
+): FilterExpression<Record<string, unknown>> {
   const children: FilterExpression<Record<string, unknown>>["children"] = [];
   const consumed = new Set<string>([FILTER_EXPRESSION_STATE_KEY]);
   for (const criterion of criteria) {
@@ -336,7 +370,8 @@ export function filterToExpression(filter: Record<string, unknown>, criteria: Cr
     const value = getCriterionFilterValue(filter, criterion);
     if (!isCriterionValueValid(value, criterion)) continue;
     const leaf = setCriterionFilterValue({}, criterion, value);
-    if (criterion.auxiliaryToggleKey && typeof filter[criterion.auxiliaryToggleKey] === "boolean") leaf[criterion.auxiliaryToggleKey] = filter[criterion.auxiliaryToggleKey];
+    if (criterion.auxiliaryToggleKey && typeof filter[criterion.auxiliaryToggleKey] === "boolean")
+      leaf[criterion.auxiliaryToggleKey] = filter[criterion.auxiliaryToggleKey];
     children.push({ filter: leaf });
     consumed.add(criterion.filterKey);
     if (criterion.secondaryFilterKey) consumed.add(criterion.secondaryFilterKey);
@@ -346,8 +381,18 @@ export function filterToExpression(filter: Record<string, unknown>, criteria: Cr
 }
 
 export function expressionPassthroughFilter(filter: Record<string, unknown>, criteria: CriterionDefinition[]) {
-  const expressionKeys = new Set(criteria.filter((criterion) => criterion.expressionSupported !== false).flatMap((criterion) => [criterion.filterKey, criterion.secondaryFilterKey, criterion.auxiliaryToggleKey].filter((key): key is string => Boolean(key))));
-  return Object.fromEntries(Object.entries(filter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY && !expressionKeys.has(key)));
+  const expressionKeys = new Set(
+    criteria
+      .filter((criterion) => criterion.expressionSupported !== false)
+      .flatMap((criterion) =>
+        [criterion.filterKey, criterion.secondaryFilterKey, criterion.auxiliaryToggleKey].filter((key): key is string =>
+          Boolean(key),
+        ),
+      ),
+  );
+  return Object.fromEntries(
+    Object.entries(filter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY && !expressionKeys.has(key)),
+  );
 }
 
 export function countValidFilterExpressionConditions(
@@ -355,9 +400,16 @@ export function countValidFilterExpressionConditions(
   criteria: CriterionDefinition[],
 ): number {
   if (!expression) return 0;
-  return expression.children.reduce((count, child) => count + (child.group
-    ? countValidFilterExpressionConditions(child.group, criteria)
-    : child.filter && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0 ? 1 : 0), 0);
+  return expression.children.reduce(
+    (count, child) =>
+      count +
+      (child.group
+        ? countValidFilterExpressionConditions(child.group, criteria)
+        : child.filter && Object.keys(sanitizeFilterCriteria(child.filter, criteria)).length > 0
+          ? 1
+          : 0),
+    0,
+  );
 }
 
 export function mergeFilterExpressionWithSimpleCriteria(
@@ -378,8 +430,9 @@ export function getExpressionConditionCriterion(
   criteria: CriterionDefinition[],
 ): CriterionDefinition | undefined {
   const selectedId = typeof filter._criterionId === "string" ? filter._criterionId : undefined;
-  return criteria.find((criterion) => criterion.id === selectedId
-    || getCriterionFilterValue(filter, criterion) !== undefined);
+  return criteria.find(
+    (criterion) => criterion.id === selectedId || getCriterionFilterValue(filter, criterion) !== undefined,
+  );
 }
 
 export interface FilterExpressionCriterionInstance {
@@ -408,11 +461,14 @@ export function expressionHasActiveCriterion(
   expression: FilterExpression<Record<string, unknown>> | undefined,
   criterion: CriterionDefinition,
 ): boolean {
-  return expression?.children.some((child) => child.filter
-    ? isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)
-    : expressionHasActiveCriterion(child.group, criterion)) ?? false;
+  return (
+    expression?.children.some((child) =>
+      child.filter
+        ? isCriterionValueValid(getCriterionFilterValue(child.filter, criterion), criterion)
+        : expressionHasActiveCriterion(child.group, criterion),
+    ) ?? false
+  );
 }
-
 
 function hasMeaningfulRelatedValue(value: unknown): boolean {
   if (value == null || value === "") return false;
@@ -421,32 +477,46 @@ function hasMeaningfulRelatedValue(value: unknown): boolean {
   return true;
 }
 
-function sanitizeRelatedFilterCriterion(value: unknown, criterion: CriterionDefinition): RelatedFilterCriterion | undefined {
+function sanitizeRelatedFilterCriterion(
+  value: unknown,
+  criterion: CriterionDefinition,
+): RelatedFilterCriterion | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as RelatedFilterCriterion;
   const nestedCriteria = getRelatedCriteria(criterion.entityType);
-  const rawObjectFilter = raw.objectFilter && typeof raw.objectFilter === "object"
-    ? raw.objectFilter as Record<string, unknown>
-    : {};
-  const knownKeys = new Set(nestedCriteria.flatMap((item) => [item.filterKey, item.secondaryFilterKey, item.auxiliaryToggleKey].filter(Boolean) as string[]));
-  const unknownValues = Object.fromEntries(Object.entries(rawObjectFilter).filter(([key, item]) =>
-    !knownKeys.has(key)
-    && key !== "performerFilterCriterion"
-    && key !== "videoFilterCriterion"
-    && key !== "audioFilterCriterion"
-    && !key.startsWith("_")
-    && hasMeaningfulRelatedValue(item)));
+  const rawObjectFilter =
+    raw.objectFilter && typeof raw.objectFilter === "object" ? (raw.objectFilter as Record<string, unknown>) : {};
+  const knownKeys = new Set(
+    nestedCriteria.flatMap(
+      (item) => [item.filterKey, item.secondaryFilterKey, item.auxiliaryToggleKey].filter(Boolean) as string[],
+    ),
+  );
+  const unknownValues = Object.fromEntries(
+    Object.entries(rawObjectFilter).filter(
+      ([key, item]) =>
+        !knownKeys.has(key) &&
+        key !== "performerFilterCriterion" &&
+        key !== "videoFilterCriterion" &&
+        key !== "audioFilterCriterion" &&
+        !key.startsWith("_") &&
+        hasMeaningfulRelatedValue(item),
+    ),
+  );
   const objectFilter = sanitizeFilterCriteria(rawObjectFilter, nestedCriteria, unknownValues);
   const q = raw.findFilter?.q?.trim();
   const matchAll = raw._matchAll === true;
   const mode = raw.mode === "every" || raw.mode === "none" ? raw.mode : undefined;
   const conditionOperator = raw.conditionOperator === "or" ? "or" : undefined;
-  const contextValues = (criterion.relatedContextCriteria ?? []).reduce<Record<string, unknown>>((result, contextCriterion) => {
-    const contextValue = (raw as Record<string, unknown>)[contextCriterion.filterKey];
-    if (isCriterionValueValid(contextValue, contextCriterion)) result[contextCriterion.filterKey] = contextValue;
-    return result;
-  }, {});
-  if (!q && Object.keys(objectFilter).length === 0 && !matchAll && Object.keys(contextValues).length === 0) return undefined;
+  const contextValues = (criterion.relatedContextCriteria ?? []).reduce<Record<string, unknown>>(
+    (result, contextCriterion) => {
+      const contextValue = (raw as Record<string, unknown>)[contextCriterion.filterKey];
+      if (isCriterionValueValid(contextValue, contextCriterion)) result[contextCriterion.filterKey] = contextValue;
+      return result;
+    },
+    {},
+  );
+  if (!q && Object.keys(objectFilter).length === 0 && !matchAll && Object.keys(contextValues).length === 0)
+    return undefined;
 
   return {
     ...(q ? { findFilter: { q } } : {}),
@@ -466,7 +536,12 @@ export function migrateLegacyPerformerFavoriteCriterion(
 ): Record<string, unknown> {
   const supportsRelatedPerformers = criteria.some((criterion) => criterion.filterKey === "performerFilterCriterion");
   const legacy = filter.performerFavoriteCriterion;
-  if (!supportsRelatedPerformers || !legacy || typeof legacy !== "object" || typeof (legacy as { value?: unknown }).value !== "boolean") {
+  if (
+    !supportsRelatedPerformers ||
+    !legacy ||
+    typeof legacy !== "object" ||
+    typeof (legacy as { value?: unknown }).value !== "boolean"
+  ) {
     return filter;
   }
 

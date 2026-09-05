@@ -93,11 +93,7 @@ describe("LoginPage external authentication", () => {
   });
 
   it("redeems a fragment-carried external login code once and removes it without losing redirect", async () => {
-    window.history.replaceState(
-      {},
-      "",
-      "/login?redirect=%2Fsettings#external_login_code=one-time-code",
-    );
+    window.history.replaceState({}, "", "/login?redirect=%2Fsettings#external_login_code=one-time-code");
 
     renderPage();
 
@@ -117,9 +113,7 @@ describe("LoginPage external authentication", () => {
 
     renderPage();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "External sign-in expired or was already used.",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("External sign-in expired or was already used.");
     expect(mocks.externalLoginRedeem).not.toHaveBeenCalled();
     expect(window.location.search).toBe("");
   });
@@ -136,17 +130,11 @@ describe("LoginPage external authentication", () => {
   });
 
   it("shows a generic error and scrubs provider error details from the URL", async () => {
-    window.history.replaceState(
-      {},
-      "",
-      "/login#external_login_error=provider-returned-sensitive-detail",
-    );
+    window.history.replaceState({}, "", "/login#external_login_error=provider-returned-sensitive-detail");
 
     renderPage();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "External sign-in failed. Please try again.",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("External sign-in failed. Please try again.");
     expect(window.location.hash).toBe("");
     expect(mocks.externalLoginRedeem).not.toHaveBeenCalled();
   });
@@ -160,23 +148,15 @@ describe("LoginPage external authentication", () => {
 
     renderPage();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "External sign-in expired or was already used.",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("External sign-in expired or was already used.");
   });
 
   it("rejects ambiguous code markers without redeeming either value", async () => {
-    window.history.replaceState(
-      {},
-      "",
-      "/login?external_login_code=first#external_login_code=second",
-    );
+    window.history.replaceState({}, "", "/login?external_login_code=first#external_login_code=second");
 
     renderPage();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "External sign-in expired or was already used.",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("External sign-in expired or was already used.");
     expect(mocks.externalLoginRedeem).not.toHaveBeenCalled();
     expect(window.location.search).toBe("");
     expect(window.location.hash).toBe("");

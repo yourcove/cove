@@ -1,8 +1,56 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, galleries, groups, images, performers, videos, studios, texts, entityImages } from "../api/client";
-import type { Audio, AudioFilterCriteria, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, MetadataServer, MetadataServerStudioMatch, Performer, PerformerFilterCriteria, Video, VideoFilterCriteria, Studio, StudioFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
-import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { ChevronDown, Building2, CloudDownload, CloudUpload, FileText, Film, FolderOpen, GitMerge, Headphones, ImageIcon, Layers, Link as LinkIcon, Loader2, MoreVertical, Music, Pencil, Search, Trash2, UserRound } from "lucide-react";
+import type {
+  Audio,
+  AudioFilterCriteria,
+  FindFilter,
+  Gallery,
+  GalleryFilterCriteria,
+  Group,
+  GroupFilterCriteria,
+  Image,
+  ImageFilterCriteria,
+  MetadataServer,
+  MetadataServerStudioMatch,
+  Performer,
+  PerformerFilterCriteria,
+  Video,
+  VideoFilterCriteria,
+  Studio,
+  StudioFilterCriteria,
+  TextDocument,
+  TextFilterCriteria,
+} from "../api/types";
+import {
+  formatDate,
+  formatDuration,
+  getResolutionLabel,
+  TagBadge,
+  CustomFieldsDisplay,
+  FieldProvenanceHover,
+  resolveTagProvenance,
+} from "../components/shared";
+import {
+  ChevronDown,
+  Building2,
+  CloudDownload,
+  CloudUpload,
+  FileText,
+  Film,
+  FolderOpen,
+  GitMerge,
+  Headphones,
+  ImageIcon,
+  Layers,
+  Link as LinkIcon,
+  Loader2,
+  MoreVertical,
+  Music,
+  Pencil,
+  Search,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StudioEditModal } from "./StudioEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -17,14 +65,27 @@ import { ListLoadError } from "../components/ListLoadError";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { EntityDetailTabs } from "../components/EntityDetailTabs";
-import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
+import {
+  EntityHeroLayout,
+  HERO_ACTION_BUTTON_CLASS,
+  HERO_PRIMARY_ACTION_BUTTON_CLASS,
+} from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { StudioMetadataTaggerDialog } from "../components/MetadataTaggerDialog";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { ContextualImageListView, ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
-import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, PERFORMER_CRITERIA, VIDEO_CRITERIA, STUDIO_CRITERIA, TEXT_CRITERIA } from "../components/filterCriteriaCatalogs";
+import {
+  AUDIO_CRITERIA,
+  GALLERY_CRITERIA,
+  GROUP_CRITERIA,
+  IMAGE_CRITERIA,
+  PERFORMER_CRITERIA,
+  VIDEO_CRITERIA,
+  STUDIO_CRITERIA,
+  TEXT_CRITERIA,
+} from "../components/filterCriteriaCatalogs";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { useKeySequence } from "../hooks/useKeySequence";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
@@ -43,7 +104,11 @@ import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission } from "../auth/visibility";
 import { withRequiredMultiId, withRequiredSingleId } from "../utils/detailRelationFilters";
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
-import { useDetailBooleanUrlState, useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
+import {
+  useDetailBooleanUrlState,
+  useDetailTabUrlState,
+  useRelatedDetailListUrlState,
+} from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
@@ -68,13 +133,19 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "videos" | "performers" | "galleries" | "images" | "audios" | "texts" | "studios" | "groups" | (string & {});
+type TabKey =
+  "videos" | "performers" | "galleries" | "images" | "audios" | "texts" | "studios" | "groups" | (string & {});
 
 export function StudioDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const metadataServers = config?.scraping?.metadataServers ?? [];
-  const { data: studio, isLoading, error: studioError, refetch: retryStudio } = useQuery({
+  const {
+    data: studio,
+    isLoading,
+    error: studioError,
+    refetch: retryStudio,
+  } = useQuery({
     queryKey: ["studio", id],
     queryFn: () => studios.get(id),
   });
@@ -93,16 +164,35 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     queryFn: () => studios.get(id, -1),
     enabled: includeSubStudios,
   });
-  const { allTabs: studioTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("studio", orderDetailTabsByMenuItems([
-    { key: "videos", label: "Videos", count: includeSubStudios ? recursiveStudio?.videoCount : studio?.videoCount },
-    { key: "performers", label: "Performers", count: includeSubStudios ? recursiveStudio?.performerCount : studio?.performerCount },
-    { key: "galleries", label: "Galleries", count: includeSubStudios ? recursiveStudio?.galleryCount : studio?.galleryCount },
-    { key: "images", label: "Images", count: includeSubStudios ? recursiveStudio?.imageCount : studio?.imageCount },
-    { key: "audios", label: "Audios", count: includeSubStudios ? recursiveStudio?.audioCount : studio?.audioCount },
-    { key: "texts", label: "Texts", count: includeSubStudios ? recursiveStudio?.textCount : studio?.textCount },
-    { key: "studios", label: "Sub-studios", count: studio?.childStudioCount },
-    { key: "groups", label: "Groups", count: includeSubStudios ? recursiveStudio?.groupCount : studio?.groupCount },
-  ], config?.interface?.menuItems), id);
+  const {
+    allTabs: studioTabs,
+    renderExtensionTab,
+    extensionCounts,
+  } = useExtensionTabs(
+    "studio",
+    orderDetailTabsByMenuItems(
+      [
+        { key: "videos", label: "Videos", count: includeSubStudios ? recursiveStudio?.videoCount : studio?.videoCount },
+        {
+          key: "performers",
+          label: "Performers",
+          count: includeSubStudios ? recursiveStudio?.performerCount : studio?.performerCount,
+        },
+        {
+          key: "galleries",
+          label: "Galleries",
+          count: includeSubStudios ? recursiveStudio?.galleryCount : studio?.galleryCount,
+        },
+        { key: "images", label: "Images", count: includeSubStudios ? recursiveStudio?.imageCount : studio?.imageCount },
+        { key: "audios", label: "Audios", count: includeSubStudios ? recursiveStudio?.audioCount : studio?.audioCount },
+        { key: "texts", label: "Texts", count: includeSubStudios ? recursiveStudio?.textCount : studio?.textCount },
+        { key: "studios", label: "Sub-studios", count: studio?.childStudioCount },
+        { key: "groups", label: "Groups", count: includeSubStudios ? recursiveStudio?.groupCount : studio?.groupCount },
+      ],
+      config?.interface?.menuItems,
+    ),
+    id,
+  );
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "studios" }, onNavigate);
   const canWriteStudio = canWriteEntity("studio", hasPermission);
@@ -110,16 +200,20 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const canDeleteStudio = canDeleteEntity("studio", hasPermission);
   const canReadTags = canReadEntity("tag", hasPermission);
   const showStudioOpsMenu = canWriteStudio || canDeleteStudio;
-  const visibleStudioTabs = filterItemsByPermission(studioTabs, {
-    videos: "videos.read",
-    performers: "performers.read",
-    galleries: "galleries.read",
-    images: "images.read",
-    audios: "audios.read",
-    texts: "texts.read",
-    studios: "studios.read",
-    groups: "groups.read",
-  }, hasPermission);
+  const visibleStudioTabs = filterItemsByPermission(
+    studioTabs,
+    {
+      videos: "videos.read",
+      performers: "performers.read",
+      galleries: "galleries.read",
+      images: "images.read",
+      audios: "audios.read",
+      texts: "texts.read",
+      studios: "studios.read",
+      groups: "groups.read",
+    },
+    hasPermission,
+  );
 
   const {
     favorite: studioFavorite,
@@ -144,10 +238,29 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     return () => document.removeEventListener("mousedown", handler);
   }, [showOpsMenu]);
 
-  useKeySequence(useMemo(() => [
-    { id: "detail.edit", keys: "e", surface: "detail" as const, action: () => { if (canWriteStudio) setEditing((value) => !value); } },
-    { id: "detail.favorite", keys: "o", surface: "detail" as const, action: () => { if (studio && canEngageStudio) setStudioFavorite(!studioFavorite); } },
-  ], [canEngageStudio, canWriteStudio, studio, studioFavorite, setStudioFavorite]));
+  useKeySequence(
+    useMemo(
+      () => [
+        {
+          id: "detail.edit",
+          keys: "e",
+          surface: "detail" as const,
+          action: () => {
+            if (canWriteStudio) setEditing((value) => !value);
+          },
+        },
+        {
+          id: "detail.favorite",
+          keys: "o",
+          surface: "detail" as const,
+          action: () => {
+            if (studio && canEngageStudio) setStudioFavorite(!studioFavorite);
+          },
+        },
+      ],
+      [canEngageStudio, canWriteStudio, studio, studioFavorite, setStudioFavorite],
+    ),
+  );
 
   useEffect(() => {
     if (visibleStudioTabs.length > 0 && !visibleStudioTabs.some((tab) => tab.key === activeTab)) {
@@ -169,7 +282,9 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
       if (data.organized === undefined) return undefined;
       await queryClient.cancelQueries({ queryKey: ["studio", id] });
       const previous = queryClient.getQueryData<Studio>(["studio", id]);
-      queryClient.setQueryData<Studio>(["studio", id], (current) => current ? { ...current, organized: data.organized! } : current);
+      queryClient.setQueryData<Studio>(["studio", id], (current) =>
+        current ? { ...current, organized: data.organized! } : current,
+      );
       return { previous };
     },
     onError: (_error, _data, context) => {
@@ -194,7 +309,16 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   }
 
   if (studioLoadError) {
-    return <ListLoadError error={studioLoadError} onRetry={() => { void retryStudio(); }} title="Could not load studio" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={studioLoadError}
+        onRetry={() => {
+          void retryStudio();
+        }}
+        title="Could not load studio"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!studio) {
@@ -221,17 +345,36 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         imageClassName="h-full w-full object-contain p-3"
         onImageClick={canWriteStudio ? () => setCoverOpen(true) : undefined}
         imageFallback={<Building2 className="h-14 w-14 text-accent" />}
-        title={<FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="name">{studio.name}</FieldProvenanceHover>}
-        subtitle={studio.parentName && studio.parentId ? (
-          canReadEntity("studio", hasPermission) ? (
-            <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="parent">
-              <button onClick={() => onNavigate({ page: "studio", id: studio.parentId })} className="text-accent hover:underline">
-                Part of {studio.parentName}
-              </button>
+        title={
+          <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="name">
+            {studio.name}
+          </FieldProvenanceHover>
+        }
+        subtitle={
+          studio.parentName && studio.parentId ? (
+            canReadEntity("studio", hasPermission) ? (
+              <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="parent">
+                <button
+                  onClick={() => onNavigate({ page: "studio", id: studio.parentId })}
+                  className="text-accent hover:underline"
+                >
+                  Part of {studio.parentName}
+                </button>
+              </FieldProvenanceHover>
+            ) : (
+              <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="parent">
+                <span>Part of {studio.parentName}</span>
+              </FieldProvenanceHover>
+            )
+          ) : undefined
+        }
+        aliases={
+          studio.aliases.length > 0 ? (
+            <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="aliases">
+              {studio.aliases.join(", ")}
             </FieldProvenanceHover>
-          ) : <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="parent"><span>Part of {studio.parentName}</span></FieldProvenanceHover>
-        ) : undefined}
-        aliases={studio.aliases.length > 0 ? <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="aliases">{studio.aliases.join(", ")}</FieldProvenanceHover> : undefined}
+          ) : undefined
+        }
         favorite={studioFavorite}
         onFavoriteToggle={canEngageStudio ? () => setStudioFavorite(!studioFavorite) : undefined}
         organized={studio.organized}
@@ -239,12 +382,27 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         onOrganizedToggle={canWriteStudio ? (organized) => updateMut.mutate({ organized }) : undefined}
         counts={[
           { key: "videos", label: "Videos", value: studio.videoCount, icon: <Film className="h-4 w-4" /> },
-          { key: "performers", label: "Performers", value: studio.performerCount, icon: <UserRound className="h-4 w-4" /> },
+          {
+            key: "performers",
+            label: "Performers",
+            value: studio.performerCount,
+            icon: <UserRound className="h-4 w-4" />,
+          },
           { key: "images", label: "Images", value: studio.imageCount, icon: <ImageIcon className="h-4 w-4" /> },
-          { key: "galleries", label: "Galleries", value: studio.galleryCount, icon: <FolderOpen className="h-4 w-4" /> },
+          {
+            key: "galleries",
+            label: "Galleries",
+            value: studio.galleryCount,
+            icon: <FolderOpen className="h-4 w-4" />,
+          },
           { key: "audios", label: "Audios", value: studio.audioCount, icon: <Headphones className="h-4 w-4" /> },
           { key: "texts", label: "Texts", value: studio.textCount, icon: <FileText className="h-4 w-4" /> },
-          { key: "studios", label: "Sub-studios", value: studio.childStudioCount, icon: <Building2 className="h-4 w-4" /> },
+          {
+            key: "studios",
+            label: "Sub-studios",
+            value: studio.childStudioCount,
+            icon: <Building2 className="h-4 w-4" />,
+          },
           { key: "groups", label: "Groups", value: studio.groupCount, icon: <Layers className="h-4 w-4" /> },
           ...extensionCounts.map((ec) => ({
             key: ec.key,
@@ -253,32 +411,58 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
             icon: ec.icon === "music" ? <Music className="h-4 w-4" /> : undefined,
           })),
         ]}
-        metaRow={(
+        metaRow={
           <>
             <span title={`Created ${formatDate(studio.createdAt)}`}>Updated {formatDate(studio.updatedAt)}</span>
           </>
-        )}
-        heroContent={(
+        }
+        heroContent={
           <>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <div className="shrink-0">
-                <InteractiveRating value={studioRating} onChange={(value) => setStudioRating(value)} readOnly={!canEngageStudio} />
+                <InteractiveRating
+                  value={studioRating}
+                  onChange={(value) => setStudioRating(value)}
+                  readOnly={!canEngageStudio}
+                />
               </div>
             </div>
-            {studio.details ? <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="details" block><NarrativeText className="mt-3 max-w-4xl text-sm leading-6 text-secondary">{studio.details}</NarrativeText></FieldProvenanceHover> : null}
+            {studio.details ? (
+              <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="details" block>
+                <NarrativeText className="mt-3 max-w-4xl text-sm leading-6 text-secondary">
+                  {studio.details}
+                </NarrativeText>
+              </FieldProvenanceHover>
+            ) : null}
             {canReadTags && studio.tags.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {studio.tags.map((tag) => (
-                  <TagBadge key={tag.id} name={tag.name} tag={tag} provenance={resolveTagProvenance(tag, studio.fieldProvenance)} onClick={() => onNavigate({ page: "tag", id: tag.id })} />
+                  <TagBadge
+                    key={tag.id}
+                    name={tag.name}
+                    tag={tag}
+                    provenance={resolveTagProvenance(tag, studio.fieldProvenance)}
+                    onClick={() => onNavigate({ page: "tag", id: tag.id })}
+                  />
                 ))}
               </div>
             ) : null}
-            {(studio.urls.length > 0 || studio.remoteIds.length > 0) ? (
+            {studio.urls.length > 0 || studio.remoteIds.length > 0 ? (
               <FieldProvenanceHover fieldProvenance={studio.fieldProvenance} fieldKey="urls" block className="mt-3">
                 <div className="flex flex-wrap gap-2">
-                  <MetadataServerLinks remoteIds={studio.remoteIds} entityType="studios" metadataServers={metadataServers} />
+                  <MetadataServerLinks
+                    remoteIds={studio.remoteIds}
+                    entityType="studios"
+                    metadataServers={metadataServers}
+                  />
                   {studio.urls.map((url, index) => (
-                    <a key={index} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-xs items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover">
+                    <a
+                      key={index}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex max-w-xs items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover"
+                    >
                       <LinkIcon className="h-3 w-3 flex-shrink-0" />
                       <span className="truncate">{formatUrlHost(url)}</span>
                     </a>
@@ -289,8 +473,8 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
             <CustomFieldsDisplay customFields={studio.customFields} entityType="studio" />
             <StudioMetadataServerPanel studio={studio} metadataServers={metadataServers} onNavigate={onNavigate} />
           </>
-        )}
-        actions={(
+        }
+        actions={
           <>
             <ExtensionSlot slot="studio-detail-actions" context={{ studio, onNavigate }} />
             {canWriteStudio ? (
@@ -312,24 +496,68 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
                 >
                   <MoreVertical className="h-4 w-4" />
                 </button>
-                <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[160px] py-1">
-                  {canWriteStudio ? <button onClick={() => { setMetadataTaggerOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><Search className="h-3.5 w-3.5" /> Metadata...</button> : null}
-                    {canWriteStudio ? <button onClick={() => { setMergeOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><GitMerge className="h-3.5 w-3.5" /> Merge...</button> : null}
-                    {canDeleteStudio ? <div className="my-1 border-t border-border" /> : null}
-                    {canDeleteStudio ? <button onClick={() => { setConfirmDelete(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-surface"><Trash2 className="h-3.5 w-3.5" /> Delete</button> : null}
+                <FloatingActionMenu
+                  open={showOpsMenu}
+                  anchorRef={opsMenuRef}
+                  onClose={() => setShowOpsMenu(false)}
+                  className="min-w-[160px] py-1"
+                >
+                  {canWriteStudio ? (
+                    <button
+                      onClick={() => {
+                        setMetadataTaggerOpen(true);
+                        setShowOpsMenu(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"
+                    >
+                      <Search className="h-3.5 w-3.5" /> Metadata...
+                    </button>
+                  ) : null}
+                  {canWriteStudio ? (
+                    <button
+                      onClick={() => {
+                        setMergeOpen(true);
+                        setShowOpsMenu(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"
+                    >
+                      <GitMerge className="h-3.5 w-3.5" /> Merge...
+                    </button>
+                  ) : null}
+                  {canDeleteStudio ? <div className="my-1 border-t border-border" /> : null}
+                  {canDeleteStudio ? (
+                    <button
+                      onClick={() => {
+                        setConfirmDelete(true);
+                        setShowOpsMenu(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-surface"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </button>
+                  ) : null}
                 </FloatingActionMenu>
               </div>
             ) : null}
           </>
-        )}
+        }
         heroRowClassName="flex flex-col gap-6 md:flex-row md:items-start"
       >
         <ExtensionSlot slot="studio-detail-sidebar-bottom" context={{ studio, onNavigate }} />
 
-        <EntityDetailTabs tabs={visibleStudioTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-6" />
+        <EntityDetailTabs
+          tabs={visibleStudioTabs}
+          activeTab={activeTab}
+          onTabChange={(key) => setActiveTab(key as TabKey)}
+          className="mt-6"
+        />
         {activeTab !== "studios" && (
           <div className="mx-auto mt-4 max-w-7xl px-4">
-            <HierarchyContentToggle checked={includeSubStudios} label="Include sub-studio content" onChange={setIncludeSubStudios} />
+            <HierarchyContentToggle
+              checked={includeSubStudios}
+              label="Include sub-studio content"
+              onChange={setIncludeSubStudios}
+            />
           </div>
         )}
 
@@ -352,9 +580,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
           {activeTab === "texts" && (
             <StudioTextsPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
-          {activeTab === "studios" && (
-            <ChildStudiosPanel studioId={id} onNavigate={onNavigate} />
-          )}
+          {activeTab === "studios" && <ChildStudiosPanel studioId={id} onNavigate={onNavigate} />}
           {activeTab === "groups" && (
             <StudioGroupsPanel studioId={id} includeSubStudios={includeSubStudios} onNavigate={onNavigate} />
           )}
@@ -392,7 +618,13 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         entityType="studio"
         targetItem={{ id: studio.id, name: studio.name, imagePath: studioImageUrl, subtitle: studio.parentName }}
         searchItems={async (term) => {
-          const response = await studios.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: term || undefined });
+          const response = await studios.find({
+            page: 1,
+            perPage: 20,
+            sort: "name",
+            direction: "asc",
+            q: term || undefined,
+          });
           return response.items.map((item) => ({
             id: item.id,
             name: item.name,
@@ -403,13 +635,24 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
         onMerge={(targetId, sourceIds) => studios.merge(targetId, sourceIds)}
         invalidateQueryKeys={[["studio", id], ["studios"]]}
       />
-      <StudioMetadataTaggerDialog open={metadataTaggerOpen} onClose={() => setMetadataTaggerOpen(false)} studio={studio} />
-
+      <StudioMetadataTaggerDialog
+        open={metadataTaggerOpen}
+        onClose={() => setMetadataTaggerOpen(false)}
+        studio={studio}
+      />
     </>
   );
 }
 
-function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { studio: Studio; metadataServers: MetadataServer[]; onNavigate: (r: any) => void }) {
+function StudioMetadataServerPanel({
+  studio,
+  metadataServers,
+  onNavigate,
+}: {
+  studio: Studio;
+  metadataServers: MetadataServer[];
+  onNavigate: (r: any) => void;
+}) {
   const queryClient = useQueryClient();
   const [term, setTerm] = useState(studio.name);
   const [selectedEndpoint, setSelectedEndpoint] = useState("");
@@ -427,7 +670,8 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
 
   const searchMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: (variables: { term?: string; endpoint?: string }) => studios.searchMetadataServer(studio.id, variables.term, variables.endpoint),
+    mutationFn: (variables: { term?: string; endpoint?: string }) =>
+      studios.searchMetadataServer(studio.id, variables.term, variables.endpoint),
   });
 
   const submitEndpoint = selectedEndpoint || (metadataServers.length === 1 ? metadataServers[0].endpoint : "");
@@ -460,7 +704,10 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
           {metadataServers.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border p-4 text-sm text-secondary">
               No MetadataServer endpoints are configured yet. Use Settings and open Metadata Providers to add one.
-              <button onClick={() => onNavigate({ page: "settings" })} className="ml-2 text-accent hover:text-accent-hover">
+              <button
+                onClick={() => onNavigate({ page: "settings" })}
+                className="ml-2 text-accent hover:text-accent-hover"
+              >
                 Open settings
               </button>
             </div>
@@ -493,20 +740,34 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
                 </label>
                 <div className="flex flex-wrap items-end gap-2">
                   <button
-                    onClick={() => searchMutation.mutate({ term: term.trim() || undefined, endpoint: selectedEndpoint || undefined })}
+                    onClick={() =>
+                      searchMutation.mutate({ term: term.trim() || undefined, endpoint: selectedEndpoint || undefined })
+                    }
                     disabled={searchMutation.isPending}
                     className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
                   >
-                    {searchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    {searchMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
                     Search MetadataServer
                   </button>
                   <button
                     onClick={() => submitMutation.mutate(submitEndpoint)}
                     disabled={submitMutation.isPending || !submitEndpoint}
-                    title={!submitEndpoint ? "Choose a single MetadataServer endpoint before submitting a draft" : "Submit this studio as a MetadataServer draft"}
+                    title={
+                      !submitEndpoint
+                        ? "Choose a single MetadataServer endpoint before submitting a draft"
+                        : "Submit this studio as a MetadataServer draft"
+                    }
                     className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
                   >
-                    {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+                    {submitMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CloudUpload className="h-4 w-4" />
+                    )}
                     Submit Draft
                   </button>
                 </div>
@@ -514,8 +775,12 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
 
               {searchMutation.error && <p className="mt-3 text-sm text-red-300">{searchMutation.error.message}</p>}
               {submitMutation.error && <p className="mt-3 text-sm text-red-300">{submitMutation.error.message}</p>}
-              {importMutation.isSuccess && <p className="mt-3 text-sm text-emerald-300">Studio metadata imported from MetadataServer.</p>}
-              {submitMutation.isSuccess && <p className="mt-3 text-sm text-emerald-300">Studio draft submitted to MetadataServer.</p>}
+              {importMutation.isSuccess && (
+                <p className="mt-3 text-sm text-emerald-300">Studio metadata imported from MetadataServer.</p>
+              )}
+              {submitMutation.isSuccess && (
+                <p className="mt-3 text-sm text-emerald-300">Studio draft submitted to MetadataServer.</p>
+              )}
 
               {searchMutation.data && (
                 <div className="mt-4 space-y-3">
@@ -544,19 +809,29 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-base font-semibold text-foreground">{match.name}</span>
-                            <span className="rounded-full border border-border px-2 py-0.5 text-xs text-secondary">{match.serverName}</span>
+                            <span className="rounded-full border border-border px-2 py-0.5 text-xs text-secondary">
+                              {match.serverName}
+                            </span>
                           </div>
-                          {match.parentName && <p className="mt-1 text-sm text-secondary">Parent: {match.parentName}</p>}
+                          {match.parentName && (
+                            <p className="mt-1 text-sm text-secondary">Parent: {match.parentName}</p>
+                          )}
                           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
                             <span>ID {match.id}</span>
                             {match.urls[0] && <span className="truncate">{match.urls[0]}</span>}
                           </div>
-                          {match.aliases.length > 0 && <p className="mt-2 text-xs text-secondary">Aliases: {match.aliases.join(", ")}</p>}
+                          {match.aliases.length > 0 && (
+                            <p className="mt-2 text-xs text-secondary">Aliases: {match.aliases.join(", ")}</p>
+                          )}
                         </div>
 
                         <div className="flex items-end">
                           <span className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white">
-                            {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
+                            {importMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <CloudDownload className="h-4 w-4" />
+                            )}
                             Import
                           </span>
                         </div>
@@ -573,42 +848,147 @@ function StudioMetadataServerPanel({ studio, metadataServers, onNavigate }: { st
   );
 }
 
-function StudioVideosPanel({ studioId, includeSubStudios, onNavigate }: {
+function StudioVideosPanel({
+  studioId,
+  includeSubStudios,
+  onNavigate,
+}: {
   studioId: number;
   includeSubStudios: boolean;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "studio-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: "videos" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "videos",
+      resetKey: "studio-videos",
+      entityType: "videos",
+      builtInFilter: { page: 1, perPage: 24, direction: "desc" },
+      defaultFilterKey: "videos",
+    });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter || includeSubStudios
-    ? videos.findFiltered({
-        findFilter: nextFilter,
-        objectFilter: withRequiredSingleId(objectFilter as VideoFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
-      })
-    : videos.find(nextFilter, { studioId: String(studioId) }), [hasObjectFilter, includeSubStudios, objectFilter, studioId]);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
+  const queryPage = useCallback(
+    (nextFilter: FindFilter) =>
+      hasObjectFilter || includeSubStudios
+        ? videos.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredSingleId(
+              objectFilter as VideoFilterCriteria,
+              "studiosCriterion",
+              studioId,
+              includeSubStudios ? -1 : undefined,
+            ),
+          })
+        : videos.find(nextFilter, { studioId: String(studioId) }),
+    [hasObjectFilter, includeSubStudios, objectFilter, studioId],
+  );
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Video>({
     queryKey: ["studio-videos", studioId, includeSubStudios, objectFilter],
     filter,
     queryFn: queryPage,
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={VIDEO_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "studio", id: studioId }} />} criteriaDefinitions={VIDEO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="videos" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={VIDEO_SORT_OPTIONS}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="videos"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          videoItems={items}
+          onNavigate={onNavigate}
+          removeFromParent={{ type: "studio", id: studioId }}
+        />
+      }
+      criteriaDefinitions={VIDEO_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="videos"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos from this studio" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos from this studio" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <ContextualVideoListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <ContextualVideoListView
+        items={items}
+        filter={filter}
+        totalCount={data.totalCount}
+        queryPage={queryPage}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        onVideoQuickView={setQuickViewId}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -616,80 +996,284 @@ function StudioVideosPanel({ studioId, includeSubStudios, onNavigate }: {
   );
 }
 
-function StudioGalleriesPanel({ studioId, includeSubStudios, onNavigate }: {
+function StudioGalleriesPanel({
+  studioId,
+  includeSubStudios,
+  onNavigate,
+}: {
   studioId: number;
   includeSubStudios: boolean;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "studio-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "galleries" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "galleries",
+      resetKey: "studio-galleries",
+      entityType: "galleries",
+      builtInFilter: { page: 1, perPage: 18, direction: "desc" },
+      defaultFilterKey: "galleries",
+    });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Gallery>({
     queryKey: ["studio-galleries", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
-      ? galleries.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredSingleId(objectFilter as GalleryFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
-        })
-      : galleries.find(nextFilter, { studioId: String(studioId) }),
+    queryFn: (nextFilter) =>
+      hasObjectFilter || includeSubStudios
+        ? galleries.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredSingleId(
+              objectFilter as GalleryFilterCriteria,
+              "studiosCriterion",
+              studioId,
+              includeSubStudios ? -1 : undefined,
+            ),
+          })
+        : galleries.find(nextFilter, { studioId: String(studioId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "studio", id: studioId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="galleries" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={GALLERY_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="galleries"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          downloadItems={items}
+          removeFromParent={{ type: "studio", id: studioId }}
+        />
+      }
+      criteriaDefinitions={GALLERY_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="galleries"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<FolderOpen className="h-10 w-10" />} message="Loading galleries..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FolderOpen className="h-12 w-12" />} message="No galleries from this studio" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<FolderOpen className="h-12 w-12" />} message="No galleries from this studio" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="galleries" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="galleries"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function StudioImagesPanel({ studioId, includeSubStudios, onNavigate }: {
+function StudioImagesPanel({
+  studioId,
+  includeSubStudios,
+  onNavigate,
+}: {
   studioId: number;
   includeSubStudios: boolean;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "studio-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" }, defaultFilterKey: "images" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "images",
+      resetKey: "studio-images",
+      entityType: "images",
+      builtInFilter: { page: 1, perPage: 30, direction: "desc" },
+      defaultFilterKey: "images",
+    });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter || includeSubStudios
-    ? images.findFiltered({
-        findFilter: nextFilter,
-        objectFilter: withRequiredSingleId(objectFilter as ImageFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
-      })
-    : images.find(nextFilter, { studioId: String(studioId) }), [hasObjectFilter, includeSubStudios, objectFilter, studioId]);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
+  const queryPage = useCallback(
+    (nextFilter: FindFilter) =>
+      hasObjectFilter || includeSubStudios
+        ? images.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredSingleId(
+              objectFilter as ImageFilterCriteria,
+              "studiosCriterion",
+              studioId,
+              includeSubStudios ? -1 : undefined,
+            ),
+          })
+        : images.find(nextFilter, { studioId: String(studioId) }),
+    [hasObjectFilter, includeSubStudios, objectFilter, studioId],
+  );
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Image>({
     queryKey: ["studio-images", studioId, includeSubStudios, objectFilter],
     filter,
     queryFn: queryPage,
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "studio", id: studioId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="images" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={IMAGE_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="images"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          downloadItems={items}
+          removeFromParent={{ type: "studio", id: studioId }}
+        />
+      }
+      criteriaDefinitions={IMAGE_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="images"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<ImageIcon className="h-10 w-10" />} message="Loading images..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images from this studio" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images from this studio" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <ContextualImageListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} interactionSource="studioDetailPage" interactionMeta={{ studioId }} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <ContextualImageListView
+        items={items}
+        filter={filter}
+        totalCount={data.totalCount}
+        queryPage={queryPage}
+        interactionSource="studioDetailPage"
+        interactionMeta={{ studioId }}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        onImageQuickView={setQuickViewId}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
       {quickViewId !== null && (
         <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -697,185 +1281,656 @@ function StudioImagesPanel({ studioId, includeSubStudios, onNavigate }: {
   );
 }
 
-function StudioAudiosPanel({ studioId, includeSubStudios, onNavigate }: {
+function StudioAudiosPanel({
+  studioId,
+  includeSubStudios,
+  onNavigate,
+}: {
   studioId: number;
   includeSubStudios: boolean;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "studio-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "audios" });
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "audios",
+      resetKey: "studio-audios",
+      entityType: "audios",
+      builtInFilter: { page: 1, perPage: 18, direction: "desc" },
+      defaultFilterKey: "audios",
+    });
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Audio>({
     queryKey: ["studio-audios", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => audios.findFiltered({
-      findFilter: nextFilter,
-      objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
-    }),
+    queryFn: (nextFilter) =>
+      audios.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(
+          objectFilter as AudioFilterCriteria,
+          "studiosCriterion",
+          studioId,
+          includeSubStudios ? -1 : undefined,
+        ),
+      }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "studio", id: studioId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="audios" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={AUDIO_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="audios"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          audioItems={items}
+          downloadItems={items}
+          onNavigate={onNavigate}
+          removeFromParent={{ type: "studio", id: studioId }}
+        />
+      }
+      criteriaDefinitions={AUDIO_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="audios"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Headphones className="h-10 w-10" />} message="Loading audios..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Headphones className="h-12 w-12" />} message="No audios from this studio" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Headphones className="h-12 w-12" />} message="No audios from this studio" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="audios" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="audios"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function StudioTextsPanel({ studioId, includeSubStudios, onNavigate }: {
+function StudioTextsPanel({
+  studioId,
+  includeSubStudios,
+  onNavigate,
+}: {
   studioId: number;
   includeSubStudios: boolean;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "studio-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "texts" });
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "texts",
+      resetKey: "studio-texts",
+      entityType: "texts",
+      builtInFilter: { page: 1, perPage: 18, direction: "desc" },
+      defaultFilterKey: "texts",
+    });
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<TextDocument>({
     queryKey: ["studio-texts", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => texts.findFiltered({
-      findFilter: nextFilter,
-      objectFilter: withRequiredMultiId(objectFilter as TextFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
-    }),
+    queryFn: (nextFilter) =>
+      texts.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(
+          objectFilter as TextFilterCriteria,
+          "studiosCriterion",
+          studioId,
+          includeSubStudios ? -1 : undefined,
+        ),
+      }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "studio", id: studioId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="texts" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={TEXT_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="texts"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          textItems={items}
+          downloadItems={items}
+          removeFromParent={{ type: "studio", id: studioId }}
+        />
+      }
+      criteriaDefinitions={TEXT_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="texts"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<FileText className="h-10 w-10" />} message="Loading texts..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FileText className="h-12 w-12" />} message="No texts from this studio" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<FileText className="h-12 w-12" />} message="No texts from this studio" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="texts" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="texts"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function ChildStudiosPanel({ studioId, onNavigate }: {
-  studioId: number;
-  onNavigate: (r: any) => void;
-}) {
+function ChildStudiosPanel({ studioId, onNavigate }: { studioId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "studios", resetKey: "studio-children", entityType: "studios", builtInFilter: { page: 1, perPage: 18, direction: "asc" }, defaultFilterKey: "studios" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "studios",
+      resetKey: "studio-children",
+      entityType: "studios",
+      builtInFilter: { page: 1, perPage: 18, direction: "asc" },
+      defaultFilterKey: "studios",
+    });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Studio>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Studio>({
     queryKey: ["child-studios", studioId, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
-      ? studios.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredSingleId(objectFilter as StudioFilterCriteria, "parentsCriterion", studioId),
-        })
-      : studios.find(nextFilter, { parentId: String(studioId) }),
+    queryFn: (nextFilter) =>
+      hasObjectFilter
+        ? studios.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredSingleId(objectFilter as StudioFilterCriteria, "parentsCriterion", studioId),
+          })
+        : studios.find(nextFilter, { parentId: String(studioId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={STUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="studios" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "studio", id: studioId }} />} criteriaDefinitions={STUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="studios" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={STUDIO_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="studios"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          removeFromParent={{ type: "studio", id: studioId }}
+        />
+      }
+      criteriaDefinitions={STUDIO_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="studios"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Building2 className="h-10 w-10" />} message="Loading sub-studios..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Building2 className="h-12 w-12" />} message="No sub-studios" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Building2 className="h-12 w-12" />} message="No sub-studios" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="studios" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="studios"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function StudioPerformersPanel({ studioId, includeSubStudios, onNavigate }: {
+function StudioPerformersPanel({
+  studioId,
+  includeSubStudios,
+  onNavigate,
+}: {
   studioId: number;
   includeSubStudios: boolean;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "performers", resetKey: "studio-performers", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" }, defaultFilterKey: "performers" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "performers",
+      resetKey: "studio-performers",
+      entityType: "performers",
+      builtInFilter: { page: 1, perPage: 18, direction: "asc" },
+      defaultFilterKey: "performers",
+    });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Performer>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Performer>({
     queryKey: ["studio-performers", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
-      ? performers.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as PerformerFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
-        })
-      : performers.find(nextFilter, { studioId: String(studioId) }),
+    queryFn: (nextFilter) =>
+      hasObjectFilter || includeSubStudios
+        ? performers.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredMultiId(
+              objectFilter as PerformerFilterCriteria,
+              "studiosCriterion",
+              studioId,
+              includeSubStudios ? -1 : undefined,
+            ),
+          })
+        : performers.find(nextFilter, { studioId: String(studioId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={PERFORMER_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />} criteriaDefinitions={PERFORMER_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="performers" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={PERFORMER_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />}
+      criteriaDefinitions={PERFORMER_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="performers"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<UserRound className="h-10 w-10" />} message="Loading performers..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<UserRound className="h-12 w-12" />} message="No performers from this studio" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<UserRound className="h-12 w-12" />} message="No performers from this studio" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="performers" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="performers"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function StudioGroupsPanel({ studioId, includeSubStudios, onNavigate }: {
+function StudioGroupsPanel({
+  studioId,
+  includeSubStudios,
+  onNavigate,
+}: {
   studioId: number;
   includeSubStudios: boolean;
   onNavigate: (r: any) => void;
 }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "studio-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" }, defaultFilterKey: "groups" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "groups",
+      resetKey: "studio-groups",
+      entityType: "groups",
+      builtInFilter: { page: 1, perPage: 18, direction: "asc" },
+      defaultFilterKey: "groups",
+    });
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Group>({
     queryKey: ["studio-groups", studioId, includeSubStudios, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter || includeSubStudios
-      ? groups.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredSingleId(objectFilter as GroupFilterCriteria, "studiosCriterion", studioId, includeSubStudios ? -1 : undefined),
-        })
-      : groups.find(nextFilter, { studioId: String(studioId) }),
+    queryFn: (nextFilter) =>
+      hasObjectFilter || includeSubStudios
+        ? groups.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredSingleId(
+              objectFilter as GroupFilterCriteria,
+              "studiosCriterion",
+              studioId,
+              includeSubStudios ? -1 : undefined,
+            ),
+          })
+        : groups.find(nextFilter, { studioId: String(studioId) }),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} removeFromParent={{ type: "studio", id: studioId }} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="groups" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={GROUP_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="groups"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          removeFromParent={{ type: "studio", id: studioId }}
+        />
+      }
+      criteriaDefinitions={GROUP_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="groups"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading groups..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Layers className="h-12 w-12" />} message="No groups from this studio" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Layers className="h-12 w-12" />} message="No groups from this studio" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="groups" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="groups"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }

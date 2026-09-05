@@ -13,13 +13,29 @@ function getEditableTagDurationClauses(value?: TagDurationCriterion): TagDuratio
   }
 
   if (value && (value.tagId || value.value != null || value.value2 != null)) {
-    return [{ tagId: value.tagId, value: value.value, value2: value.value2, modifier: value.modifier ?? "GREATER_THAN", unit: value.unit ?? "seconds" }];
+    return [
+      {
+        tagId: value.tagId,
+        value: value.value,
+        value2: value.value2,
+        modifier: value.modifier ?? "GREATER_THAN",
+        unit: value.unit ?? "seconds",
+      },
+    ];
   }
 
   return [createDraftTagDurationClause()];
 }
 
-export function TagDurationEditor({ value, onChange, modifiers }: { value?: TagDurationCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+export function TagDurationEditor({
+  value,
+  onChange,
+  modifiers,
+}: {
+  value?: TagDurationCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+}) {
   const clauses = getEditableTagDurationClauses(value);
   const existingNames: Record<string, string> = value?._names ?? {};
 
@@ -40,7 +56,10 @@ export function TagDurationEditor({ value, onChange, modifiers }: { value?: TagD
 
   const updateClause = (index: number, patch: Partial<TagDurationClause>, namesPatch?: Record<string, string>) => {
     const nextNames = namesPatch ? { ...existingNames, ...namesPatch } : existingNames;
-    commit(clauses.map((clause, clauseIndex) => clauseIndex === index ? { ...clause, ...patch } : clause), nextNames);
+    commit(
+      clauses.map((clause, clauseIndex) => (clauseIndex === index ? { ...clause, ...patch } : clause)),
+      nextNames,
+    );
   };
 
   const removeClause = (index: number) => {
@@ -53,7 +72,9 @@ export function TagDurationEditor({ value, onChange, modifiers }: { value?: TagD
     commit(nextClauses);
   };
 
-  const selectedTagIds = clauses.map((clause) => clause.tagId).filter((tagId): tagId is number => typeof tagId === "number" && tagId > 0);
+  const selectedTagIds = clauses
+    .map((clause) => clause.tagId)
+    .filter((tagId): tagId is number => typeof tagId === "number" && tagId > 0);
 
   return (
     <div className="space-y-2">
@@ -123,7 +144,9 @@ function TagDurationClauseEditor({
           <EntityReferenceSelector
             entityType="tag"
             value={clause.tagId}
-            onChange={(tagId, option) => update({ tagId }, tagId && option ? { [String(tagId)]: option.label } : undefined)}
+            onChange={(tagId, option) =>
+              update({ tagId }, tagId && option ? { [String(tagId)]: option.label } : undefined)
+            }
             placeholder="Search tags"
             inputClassName="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground outline-none focus:border-accent md:text-sm"
             excludeIds={excludedTagIds}

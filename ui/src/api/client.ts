@@ -1,21 +1,60 @@
 import type {
   MeResponse,
   GlobalSearchResponse,
-  Video, VideoCreate, VideoUpdate, VideoListEntry,
-  Performer, PerformerCreate, PerformerUpdate, PerformerCountryOption,
-  Tag, TagDetail, TagCreate, TagUpdate, TagSegmentWall,
-  TagApplication, TagApplicationCreate, TagGroup, TagGroupCreate, TagGroupUpdate,
-  TagGraphNode, TagGraphResponse,
-  Studio, StudioCreate, StudioUpdate,
-  Gallery, GalleryCreate, GalleryUpdate, GalleryChapter, GalleryChapterCreate, GalleryChapterUpdate,
-  Image, ImageCreate, ImageUpdate,
-  Audio, AudioCreate, AudioUpdate,
-  TextDocument, TextCreate, TextUpdate, TextContent,
-  Group, GroupCreate, GroupUpdate,
+  Video,
+  VideoCreate,
+  VideoUpdate,
+  VideoListEntry,
+  Performer,
+  PerformerCreate,
+  PerformerUpdate,
+  PerformerCountryOption,
+  Tag,
+  TagDetail,
+  TagCreate,
+  TagUpdate,
+  TagSegmentWall,
+  TagApplication,
+  TagApplicationCreate,
+  TagGroup,
+  TagGroupCreate,
+  TagGroupUpdate,
+  TagGraphNode,
+  TagGraphResponse,
+  Studio,
+  StudioCreate,
+  StudioUpdate,
+  Gallery,
+  GalleryCreate,
+  GalleryUpdate,
+  GalleryChapter,
+  GalleryChapterCreate,
+  GalleryChapterUpdate,
+  Image,
+  ImageCreate,
+  ImageUpdate,
+  Audio,
+  AudioCreate,
+  AudioUpdate,
+  TextDocument,
+  TextCreate,
+  TextUpdate,
+  TextContent,
+  Group,
+  GroupCreate,
+  GroupUpdate,
   GroupReorder,
-  GroupItem, GroupItemCreate, GroupItemsFromSpans, GroupItemsRemoveHosts, GroupItemsReorder, GroupItemUpdate,
+  GroupItem,
+  GroupItemCreate,
+  GroupItemsFromSpans,
+  GroupItemsRemoveHosts,
+  GroupItemsReorder,
+  GroupItemUpdate,
   GroupPlaybackManifest,
-  BookmarkDto, BookmarkToggle, BookmarkState, BookmarkBatchRequest,
+  BookmarkDto,
+  BookmarkToggle,
+  BookmarkState,
+  BookmarkBatchRequest,
   DynamicGroupSource,
   AiDataPurgeRequest,
   AiDataPurgeResult,
@@ -25,17 +64,59 @@ import type {
   VisualSimilarImage,
   VisualSimilarVideo,
   AffinityHostType,
-  Segment, SegmentCreate, SegmentRecord, SegmentUpdate,
-  ResolvedSpanDetail, ResolvedSpanList, VideoResolvedSpans, SegmentDisplayProfile,
-  SegmentDisplayProfileCreate, SegmentDisplayProfileUpdate,
-  SegmentDisplayRule, SegmentDisplayRuleCreate, SegmentDisplayRuleUpdate,
-  SegmentSpanQueryRequest, SegmentSpanSearchRequest, SegmentSpanSearchResponse, SegmentSpanCountResponse,
-  Detection, DetectionCreate, DetectionUpdate,
-  Face, FaceAppearance, FaceAppearancesResponse, FaceCreate, FaceUpdate, FaceLink, FaceBatchLinkTopSuggestionRequest, FaceBatchDeleteRequest, FaceBatchOperationResult, FaceCreatePerformer, FaceCapabilities, FaceHostFace, FaceHostTrack, FaceMerge, FaceIgnore, FaceDeleteImpact, FaceNotPresentResult, FaceSimilar, FaceSplitResult, FaceSuggestion,
-  EntityEngagement, EntityFavorite, EntityEngagementBatchRequest, EntityRatings,
-  EngagementInteraction, EngagementInteractionWrite,
+  Segment,
+  SegmentCreate,
+  SegmentRecord,
+  SegmentUpdate,
+  ResolvedSpanDetail,
+  ResolvedSpanList,
+  VideoResolvedSpans,
+  SegmentDisplayProfile,
+  SegmentDisplayProfileCreate,
+  SegmentDisplayProfileUpdate,
+  SegmentDisplayRule,
+  SegmentDisplayRuleCreate,
+  SegmentDisplayRuleUpdate,
+  SegmentSpanQueryRequest,
+  SegmentSpanSearchRequest,
+  SegmentSpanSearchResponse,
+  SegmentSpanCountResponse,
+  Detection,
+  DetectionCreate,
+  DetectionUpdate,
+  Face,
+  FaceAppearance,
+  FaceAppearancesResponse,
+  FaceCreate,
+  FaceUpdate,
+  FaceLink,
+  FaceBatchLinkTopSuggestionRequest,
+  FaceBatchDeleteRequest,
+  FaceBatchOperationResult,
+  FaceCreatePerformer,
+  FaceCapabilities,
+  FaceHostFace,
+  FaceHostTrack,
+  FaceMerge,
+  FaceIgnore,
+  FaceDeleteImpact,
+  FaceNotPresentResult,
+  FaceSimilar,
+  FaceSplitResult,
+  FaceSuggestion,
+  EntityEngagement,
+  EntityFavorite,
+  EntityEngagementBatchRequest,
+  EntityRatings,
+  EngagementInteraction,
+  EngagementInteractionWrite,
   VideoHistory,
-  PaginatedResponse, Stats, SystemStatus, CoveConfig, FfmpegCapabilities, JobInfo,
+  PaginatedResponse,
+  Stats,
+  SystemStatus,
+  CoveConfig,
+  FfmpegCapabilities,
+  JobInfo,
   DatabaseMigrationResult,
   ScraperSummary,
   DownloaderDescriptor,
@@ -66,7 +147,10 @@ import type {
   DuplicateSearchStart,
   DuplicateSearchInfo,
   DuplicateSearchGroupPage,
-  CustomFieldDefinition, CustomFieldDefinitionCreate, CustomFieldDefinitionUpdate, CustomFieldCriterion,
+  CustomFieldDefinition,
+  CustomFieldDefinitionCreate,
+  CustomFieldDefinitionUpdate,
+  CustomFieldCriterion,
   SavedFilter,
   SavedFilterCreate,
   SavedFilterUpdate,
@@ -148,7 +232,7 @@ async function waitForRefreshTokenChange(staleRefreshToken: string): Promise<boo
   if (refreshTokenChanged(staleRefreshToken)) return true;
   if (typeof window === "undefined") return false;
 
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     let settled = false;
     const finish = (changed: boolean) => {
       if (settled) return;
@@ -163,10 +247,7 @@ async function waitForRefreshTokenChange(staleRefreshToken: string): Promise<boo
     };
     const onStorage = () => check();
     const intervalId = window.setInterval(check, 25);
-    const timeoutId = window.setTimeout(
-      () => finish(refreshTokenChanged(staleRefreshToken)),
-      REFRESH_SYNC_WAIT_MS,
-    );
+    const timeoutId = window.setTimeout(() => finish(refreshTokenChanged(staleRefreshToken)), REFRESH_SYNC_WAIT_MS);
     window.addEventListener("storage", onStorage);
     check();
   });
@@ -187,7 +268,7 @@ async function refreshIfCurrent(rejectedAccessToken: string): Promise<boolean> {
       body: JSON.stringify({ refreshToken: refresh }),
     });
     if (res.status === 409) {
-      const body = await res.json().catch(() => null) as { code?: string } | null;
+      const body = (await res.json().catch(() => null)) as { code?: string } | null;
       if (body?.code === "REFRESH_TOKEN_ROTATED") {
         if (await waitForRefreshTokenChange(refresh)) return true;
         authStore.clear();
@@ -198,7 +279,7 @@ async function refreshIfCurrent(rejectedAccessToken: string): Promise<boolean> {
       authStore.clear();
       return false;
     }
-    const body = await res.json() as { token?: string; refreshToken?: string };
+    const body = (await res.json()) as { token?: string; refreshToken?: string };
     if (!body.token) return false;
     authStore.setTokens(body.token, body.refreshToken ?? refresh);
     return true;
@@ -212,10 +293,7 @@ async function coordinatedRefresh(rejectedAccessToken: string): Promise<boolean>
     // Web Locks serialize refresh-token rotation across same-origin pages. The
     // callback re-checks storage because another page may have refreshed first.
     try {
-      return await navigator.locks.request(
-        REFRESH_LOCK_NAME,
-        () => refreshIfCurrent(rejectedAccessToken),
-      );
+      return await navigator.locks.request(REFRESH_LOCK_NAME, () => refreshIfCurrent(rejectedAccessToken));
     } catch {
       // Treat a browser lock failure like an unsupported lock implementation.
     }
@@ -226,8 +304,11 @@ async function coordinatedRefresh(rejectedAccessToken: string): Promise<boolean>
 async function tryRefresh(rejectedAccessToken: string): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = coordinatedRefresh(rejectedAccessToken);
-  try { return await refreshInFlight; }
-  finally { refreshInFlight = null; }
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
 }
 
 export async function authedFetch(input: string, init?: ServerAwareFetchOptions): Promise<Response> {
@@ -445,25 +526,38 @@ export const videos = {
   findWithCompilations: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<VideoListEntry>>(`/videos/with-compilations${buildQuery(filter, extra)}`),
   findFiltered: (req: VideoFilteredQueryRequest) =>
-    request<PaginatedResponse<Video>>("/videos/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Video>>("/videos/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   aggregate: (req: VideoFilteredQueryRequest) =>
-    request<VideoAggregate>("/videos/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<VideoAggregate>("/videos/aggregate", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number) => request<Video>(`/videos/${id}`),
   create: (data: VideoCreate) => request<Video>("/videos", { method: "POST", body: JSON.stringify(data) }),
-  createFromFile: (data: FileBackedCreate) => request<Video>("/videos/from-file", { method: "POST", body: JSON.stringify(data) }),
+  createFromFile: (data: FileBackedCreate) =>
+    request<Video>("/videos/from-file", { method: "POST", body: JSON.stringify(data) }),
   createSubVideo: (parentVideoId: number, data: VideoCreate) =>
     request<Video>("/videos", { method: "POST", body: JSON.stringify({ ...data, parentVideoId }) }),
-  update: (id: number, data: VideoUpdate) => request<Video>(`/videos/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  update: (id: number, data: VideoUpdate) =>
+    request<Video>(`/videos/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkVideoUpdate) => request<void>("/videos/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number, options?: boolean | DeleteEntityOptions) => {
     const deleteFile = typeof options === "boolean" ? options : options?.deleteFile;
     const deleteGenerated = typeof options === "boolean" ? undefined : options?.deleteGenerated;
-    return request<void>(`/videos/${id}${buildQuery(undefined, { deleteFile, deleteGenerated })}`, { method: "DELETE" });
+    return request<void>(`/videos/${id}${buildQuery(undefined, { deleteFile, deleteGenerated })}`, {
+      method: "DELETE",
+    });
   },
   bulkDelete: (ids: number[], options?: boolean | DeleteEntityOptions) => {
-    const deleteFiles = typeof options === "boolean" ? options : options?.deleteFile ?? false;
-    const deleteGenerated = typeof options === "boolean" ? false : options?.deleteGenerated ?? false;
-    return request<BulkDeletionJobStart>("/videos/destroy", { method: "POST", body: JSON.stringify({ ids, deleteFiles, deleteGenerated }) });
+    const deleteFiles = typeof options === "boolean" ? options : (options?.deleteFile ?? false);
+    const deleteGenerated = typeof options === "boolean" ? false : (options?.deleteGenerated ?? false);
+    return request<BulkDeletionJobStart>("/videos/destroy", {
+      method: "POST",
+      body: JSON.stringify({ ids, deleteFiles, deleteGenerated }),
+    });
   },
   merge: (targetId: number, sourceIds: number[]) =>
     request<Video>("/videos/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
@@ -471,7 +565,8 @@ export const videos = {
   incrementLike: (id: number) => request<number>(`/videos/${id}/like`, { method: "POST" }),
   addHistoricalLike: (id: number, at: string) =>
     request<number>(`/videos/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
-  deleteLikeFromHistory: (id: number, at: string) => request<void>(`/videos/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
+  deleteLikeFromHistory: (id: number, at: string) =>
+    request<void>(`/videos/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
   decrementLike: (id: number) => request<void>(`/videos/${id}/like`, { method: "DELETE" }),
   resetLike: (id: number) => request<void>(`/videos/${id}/like/reset`, { method: "POST" }),
   deletePlay: (id: number) => request<void>(`/videos/${id}/play`, { method: "DELETE" }),
@@ -479,30 +574,53 @@ export const videos = {
   resetActivity: (id: number) => request<void>(`/videos/${id}/activity/reset`, { method: "POST" }),
   getHistory: (id: number) => request<VideoHistory>(`/videos/${id}/history`),
   searchMetadataServer: (id: number, term?: string, endpoint?: string, strategy?: string) =>
-    request<MetadataServerVideoMatch[]>(`/videos/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint, strategy })}`),
+    request<MetadataServerVideoMatch[]>(
+      `/videos/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint, strategy })}`,
+    ),
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
-    request<MetadataServerVideoMatch[]>("/videos/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
+    request<MetadataServerVideoMatch[]>("/videos/metadata-server/find-by-ids", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   importFromMetadataServer: (id: number, data: MetadataServerVideoImportRequest) =>
-    request<Video>(`/videos/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<Video>(`/videos/${id}/metadata-server/import`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
-    request<{ draftId: string | null }>(`/videos/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
+    request<{ draftId: string | null }>(`/videos/${id}/metadata-server/submit-draft`, {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
   submitFingerprints: (id: number, endpoint: string) =>
-    request<void>(`/videos/${id}/metadata-server/submit-fingerprints`, { method: "POST", body: JSON.stringify({ endpoint }) }),
+    request<void>(`/videos/${id}/metadata-server/submit-fingerprints`, {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
   generateScreenshot: (id: number, atSeconds?: number) =>
-    request<{ success: boolean }>(`/videos/${id}/generate-screenshot`, { method: "POST", body: JSON.stringify({ atSeconds }) }),
+    request<{ success: boolean }>(`/videos/${id}/generate-screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ atSeconds }),
+    }),
   setCoverFromFrame: (id: number, atSeconds?: number) =>
-    request<{ success: boolean }>(`/videos/${id}/cover/from-frame`, { method: "POST", body: JSON.stringify({ atSeconds }) }),
-  rescan: (id: number) =>
-    request<{ jobId: string }>(`/videos/${id}/rescan`, { method: "POST" }),
+    request<{ success: boolean }>(`/videos/${id}/cover/from-frame`, {
+      method: "POST",
+      body: JSON.stringify({ atSeconds }),
+    }),
+  rescan: (id: number) => request<{ jobId: string }>(`/videos/${id}/rescan`, { method: "POST" }),
   assignFile: (id: number, fileId: number) =>
     request<void>(`/videos/${id}/assign-file`, { method: "POST", body: JSON.stringify({ fileId }) }),
   streamUrl: (id: number) => buildMediaUrl(`/stream/video/${id}`),
-  screenshotUrl: (id: number, version?: string, seconds?: number) => buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, { seconds }),
-  segmentPreviewUrl: (id: number, seconds: number, version?: string) => buildMediaUrl(`/stream/video/${id}/segment-preview`, version, undefined, { seconds }),
+  screenshotUrl: (id: number, version?: string, seconds?: number) =>
+    buildMediaUrl(`/stream/video/${id}/screenshot`, version, undefined, { seconds }),
+  segmentPreviewUrl: (id: number, seconds: number, version?: string) =>
+    buildMediaUrl(`/stream/video/${id}/segment-preview`, version, undefined, { seconds }),
   previewUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview`),
   previewStatusUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/preview/status`),
   captionUrl: (videoId: number, captionId: number) => buildMediaUrl(`/stream/video/${videoId}/caption/${captionId}`),
-  transcodeUrl: (id: number, resolution?: string, start?: number) => buildMediaUrl(`/stream/video/${id}/transcode`, undefined, undefined, { resolution, start }),
+  transcodeUrl: (id: number, resolution?: string, start?: number) =>
+    buildMediaUrl(`/stream/video/${id}/transcode`, undefined, undefined, { resolution, start }),
   hlsMasterUrl: (id: number) => buildMediaUrl(`/stream/video/${id}/hls/master.m3u8`),
   getResolutions: (id: number) => request<string[]>(`/stream/video/${id}/resolutions`),
   segments: {
@@ -511,14 +629,18 @@ export const videos = {
       request<Segment>(`/videos/${videoId}/segments`, { method: "POST", body: JSON.stringify(data) }),
     update: (videoId: number, id: number, data: SegmentUpdate) =>
       request<Segment>(`/videos/${videoId}/segments/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    delete: (videoId: number, id: number) =>
-      request<void>(`/videos/${videoId}/segments/${id}`, { method: "DELETE" }),
+    delete: (videoId: number, id: number) => request<void>(`/videos/${videoId}/segments/${id}`, { method: "DELETE" }),
     spans: (videoId: number, profile?: number) =>
       request<VideoResolvedSpans>(`/videos/${videoId}/segments/spans${buildQuery(undefined, { profile })}`),
     querySpans: (videoId: number, data: SegmentSpanQueryRequest) =>
-      request<ResolvedSpanList>(`/videos/${videoId}/segments/spans/query`, { method: "POST", body: JSON.stringify(data) }),
+      request<ResolvedSpanList>(`/videos/${videoId}/segments/spans/query`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     spanDetail: (videoId: number, spanKey: string, profile?: number) =>
-      request<ResolvedSpanDetail>(`/videos/${videoId}/spans/${encodeURIComponent(spanKey)}${buildQuery(undefined, { profile })}`),
+      request<ResolvedSpanDetail>(
+        `/videos/${videoId}/spans/${encodeURIComponent(spanKey)}${buildQuery(undefined, { profile })}`,
+      ),
   },
 
   detections: {
@@ -527,15 +649,16 @@ export const videos = {
       request<Detection>(`/videos/${videoId}/detections`, { method: "POST", body: JSON.stringify(data) }),
     update: (videoId: number, id: number, data: DetectionUpdate) =>
       request<Detection>(`/videos/${videoId}/detections/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    delete: (videoId: number, id: number) =>
-      request<void>(`/videos/${videoId}/detections/${id}`, { method: "DELETE" }),
+    delete: (videoId: number, id: number) => request<void>(`/videos/${videoId}/detections/${id}`, { method: "DELETE" }),
   },
   startDuplicateSearch: (options: DuplicateSearchRequest) =>
     request<DuplicateSearchStart>("/videos/duplicate-searches", { method: "POST", body: JSON.stringify(options) }),
   getDuplicateSearch: (searchId: string) =>
     request<DuplicateSearchInfo>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}`),
   getDuplicateSearchGroups: (searchId: string, page: number, perPage: number) =>
-    request<DuplicateSearchGroupPage>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, { page, perPage })}`),
+    request<DuplicateSearchGroupPage>(
+      `/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, { page, perPage })}`,
+    ),
   updateDuplicateSearchDecision: (searchId: string, groupId: number, keepVideoIds: number[]) =>
     request<void>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups/${groupId}`, {
       method: "PATCH",
@@ -615,8 +738,7 @@ export const segmentLibrary = {
     updatedAt2?: string;
     updatedAtModifier?: string;
     includeAggregate?: boolean;
-  }) =>
-    request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`),
+  }) => request<PaginatedResponse<SegmentRecord>>(`/segments${buildQuery(undefined, opts)}`),
   get: (id: number) => requestOptional<SegmentRecord>(`/segments/${id}`),
   removeTag: (data: { tagId: number; ids: number[] }) =>
     request<{ count: number }>("/segments/bulk/remove-tag", { method: "POST", body: JSON.stringify(data) }),
@@ -625,12 +747,54 @@ export const segmentLibrary = {
 };
 
 // ===== Faces =====
-type FaceListOptions = { q?: string; performerId?: number; performerIds?: string; linked?: boolean; ignored?: boolean; merged?: boolean; mergedIntoFaceId?: number; label?: string; labelModifier?: string; primarySourceKey?: string; primarySourceKeyModifier?: string; hasCover?: boolean; detectionCount?: number; detectionCount2?: number; detectionCountModifier?: string; appearanceCount?: number; appearanceCount2?: number; appearanceCountModifier?: string; frameSampleCount?: number; frameSampleCount2?: number; frameSampleCountModifier?: string; videoCount?: number; videoCount2?: number; videoCountModifier?: string; imageCount?: number; imageCount2?: number; imageCountModifier?: string; minSuggestionConfidence?: number; suggestionConfidence?: number; suggestionConfidence2?: number; suggestionConfidenceModifier?: string; topSuggestionPerformerIds?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; customFieldCriteria?: CustomFieldCriterion[]; page?: number; perPage?: number };
+type FaceListOptions = {
+  q?: string;
+  performerId?: number;
+  performerIds?: string;
+  linked?: boolean;
+  ignored?: boolean;
+  merged?: boolean;
+  mergedIntoFaceId?: number;
+  label?: string;
+  labelModifier?: string;
+  primarySourceKey?: string;
+  primarySourceKeyModifier?: string;
+  hasCover?: boolean;
+  detectionCount?: number;
+  detectionCount2?: number;
+  detectionCountModifier?: string;
+  appearanceCount?: number;
+  appearanceCount2?: number;
+  appearanceCountModifier?: string;
+  frameSampleCount?: number;
+  frameSampleCount2?: number;
+  frameSampleCountModifier?: string;
+  videoCount?: number;
+  videoCount2?: number;
+  videoCountModifier?: string;
+  imageCount?: number;
+  imageCount2?: number;
+  imageCountModifier?: string;
+  minSuggestionConfidence?: number;
+  suggestionConfidence?: number;
+  suggestionConfidence2?: number;
+  suggestionConfidenceModifier?: string;
+  topSuggestionPerformerIds?: string;
+  sort?: string;
+  direction?: "asc" | "desc";
+  seed?: number;
+  customFieldCriteria?: CustomFieldCriterion[];
+  page?: number;
+  perPage?: number;
+};
 
 export const faces: {
   list: (opts?: FaceListOptions) => Promise<PaginatedResponse<Face>>;
   get: (id: number) => Promise<Face>;
-  appearances: (id: number, opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceAppearance>>;
+  appearances: (
+    id: number,
+    opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number },
+  ) => Promise<PaginatedResponse<FaceAppearance>>;
   videoFaces: (videoId: number) => Promise<FaceHostFace[]>;
   imageFaces: (imageId: number) => Promise<FaceHostFace[]>;
   performerFaces: (performerId: number) => Promise<Face[]>;
@@ -648,61 +812,102 @@ export const faces: {
   link: (id: number, data: FaceLink) => Promise<Face>;
   mergeInto: (id: number, data: FaceMerge) => Promise<Face>;
   setIgnored: (id: number, data: FaceIgnore) => Promise<Face>;
-  similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) => Promise<PaginatedResponse<FaceSimilar>>;
+  similar: (
+    id: number,
+    opts?: {
+      kindFamily?: string;
+      k?: number;
+      q?: string;
+      sort?: string;
+      direction?: "asc" | "desc";
+      seed?: number;
+      page?: number;
+      perPage?: number;
+    },
+  ) => Promise<PaginatedResponse<FaceSimilar>>;
   suggestions: (id: number, maxResults?: number) => Promise<FaceSuggestion[]>;
-  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) => Promise<Face>;
+  recordSuggestionDecision: (
+    id: number,
+    data: {
+      performerId: number;
+      decision: "accept" | "reject" | "merge";
+      setPerformerImage?: boolean;
+      secondaryPerformerIds?: number[];
+      referenceEndpoint?: string;
+      referenceExternalId?: string;
+      referenceUpdateMetadata?: boolean;
+    },
+  ) => Promise<Face>;
   markNotPresent: (id: number, data: { hostType: "video" | "image"; hostId: number }) => Promise<FaceNotPresentResult>;
   hostTracks: (id: number, opts: { hostType: "video" | "image"; hostId: number }) => Promise<FaceHostTrack[]>;
-  split: (id: number, data: { hostType: "video" | "image"; hostId: number; groupKeys: string[] }) => Promise<FaceSplitResult>;
+  split: (
+    id: number,
+    data: { hostType: "video" | "image"; hostId: number; groupKeys: string[] },
+  ) => Promise<FaceSplitResult>;
   capabilities: () => Promise<FaceCapabilities>;
 } = {
   list: (opts?: FaceListOptions) =>
-    request<PaginatedResponse<Face>>(`/faces${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q }, {
-      performerId: opts?.performerId,
-      performerIds: opts?.performerIds,
-      linked: opts?.linked,
-      ignored: opts?.ignored,
-      merged: opts?.merged,
-      mergedIntoFaceId: opts?.mergedIntoFaceId,
-      label: opts?.label,
-      labelModifier: opts?.labelModifier,
-      primarySourceKey: opts?.primarySourceKey,
-      primarySourceKeyModifier: opts?.primarySourceKeyModifier,
-      hasCover: opts?.hasCover,
-      detectionCount: opts?.detectionCount,
-      detectionCount2: opts?.detectionCount2,
-      detectionCountModifier: opts?.detectionCountModifier,
-      appearanceCount: opts?.appearanceCount,
-      appearanceCount2: opts?.appearanceCount2,
-      appearanceCountModifier: opts?.appearanceCountModifier,
-      frameSampleCount: opts?.frameSampleCount,
-      frameSampleCount2: opts?.frameSampleCount2,
-      frameSampleCountModifier: opts?.frameSampleCountModifier,
-      videoCount: opts?.videoCount,
-      videoCount2: opts?.videoCount2,
-      videoCountModifier: opts?.videoCountModifier,
-      imageCount: opts?.imageCount,
-      imageCount2: opts?.imageCount2,
-      imageCountModifier: opts?.imageCountModifier,
-      minSuggestionConfidence: opts?.minSuggestionConfidence,
-      suggestionConfidence: opts?.suggestionConfidence,
-      suggestionConfidence2: opts?.suggestionConfidence2,
-      suggestionConfidenceModifier: opts?.suggestionConfidenceModifier,
-      topSuggestionPerformerIds: opts?.topSuggestionPerformerIds,
-      sort: opts?.sort,
-      direction: opts?.direction,
-      seed: opts?.seed,
-      customFieldCriteria: opts?.customFieldCriteria && opts.customFieldCriteria.length > 0 ? JSON.stringify(opts.customFieldCriteria) : undefined,
-    })}`),
+    request<PaginatedResponse<Face>>(
+      `/faces${buildQuery(
+        { page: opts?.page, perPage: opts?.perPage, q: opts?.q },
+        {
+          performerId: opts?.performerId,
+          performerIds: opts?.performerIds,
+          linked: opts?.linked,
+          ignored: opts?.ignored,
+          merged: opts?.merged,
+          mergedIntoFaceId: opts?.mergedIntoFaceId,
+          label: opts?.label,
+          labelModifier: opts?.labelModifier,
+          primarySourceKey: opts?.primarySourceKey,
+          primarySourceKeyModifier: opts?.primarySourceKeyModifier,
+          hasCover: opts?.hasCover,
+          detectionCount: opts?.detectionCount,
+          detectionCount2: opts?.detectionCount2,
+          detectionCountModifier: opts?.detectionCountModifier,
+          appearanceCount: opts?.appearanceCount,
+          appearanceCount2: opts?.appearanceCount2,
+          appearanceCountModifier: opts?.appearanceCountModifier,
+          frameSampleCount: opts?.frameSampleCount,
+          frameSampleCount2: opts?.frameSampleCount2,
+          frameSampleCountModifier: opts?.frameSampleCountModifier,
+          videoCount: opts?.videoCount,
+          videoCount2: opts?.videoCount2,
+          videoCountModifier: opts?.videoCountModifier,
+          imageCount: opts?.imageCount,
+          imageCount2: opts?.imageCount2,
+          imageCountModifier: opts?.imageCountModifier,
+          minSuggestionConfidence: opts?.minSuggestionConfidence,
+          suggestionConfidence: opts?.suggestionConfidence,
+          suggestionConfidence2: opts?.suggestionConfidence2,
+          suggestionConfidenceModifier: opts?.suggestionConfidenceModifier,
+          topSuggestionPerformerIds: opts?.topSuggestionPerformerIds,
+          sort: opts?.sort,
+          direction: opts?.direction,
+          seed: opts?.seed,
+          customFieldCriteria:
+            opts?.customFieldCriteria && opts.customFieldCriteria.length > 0
+              ? JSON.stringify(opts.customFieldCriteria)
+              : undefined,
+        },
+      )}`,
+    ),
   get: (id: number) => request<Face>(`/faces/${id}`),
-  appearances: (id: number, opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) =>
-    request<PaginatedResponse<FaceAppearance>>(`/faces/${id}/appearances${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed }, { sort: opts?.sort, direction: opts?.direction })}`),
+  appearances: (
+    id: number,
+    opts?: { q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number },
+  ) =>
+    request<PaginatedResponse<FaceAppearance>>(
+      `/faces/${id}/appearances${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed }, { sort: opts?.sort, direction: opts?.direction })}`,
+    ),
   videoFaces: (videoId: number) => request<FaceHostFace[]>(`/videos/${videoId}/faces`),
   imageFaces: (imageId: number) => request<FaceHostFace[]>(`/images/${imageId}/faces`),
   performerFaces: (performerId: number) => request<Face[]>(`/performers/${performerId}/faces`),
   reviewUnlinked: (take?: number) => request<Face[]>(`/faces/review/unlinked${buildQuery(undefined, { take })}`),
   reviewAiRun: (opts: { startedAt: string; completedAt: string; take?: number }) =>
-    request<Face[]>(`/faces/review/ai-run${buildQuery(undefined, { startedAt: opts.startedAt, completedAt: opts.completedAt, take: opts.take })}`),
+    request<Face[]>(
+      `/faces/review/ai-run${buildQuery(undefined, { startedAt: opts.startedAt, completedAt: opts.completedAt, take: opts.take })}`,
+    ),
   detections: (id: number) => request<Detection[]>(`/faces/${id}/detections`),
   // `context` scales how much frame surrounds the detection box (server default 1.8, a portrait
   // crop). Pass a value near 1 when the point is to tell adjacent detections apart.
@@ -710,22 +915,54 @@ export const faces: {
     buildMediaUrl(`/stream/detection/${detectionId}/crop`, undefined, max, { context }),
   deleteImpact: (id: number) => request<FaceDeleteImpact>(`/faces/${id}/delete-impact`),
   create: (data: FaceCreate) => request<Face>("/faces", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: FaceUpdate) => request<Face>(`/faces/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  update: (id: number, data: FaceUpdate) =>
+    request<Face>(`/faces/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/faces/${id}`, { method: "DELETE" }),
   batchLinkTopSuggestion: (data: FaceBatchLinkTopSuggestionRequest) =>
-    request<FaceBatchOperationResult>("/faces/batch/link-top-suggestion", { method: "POST", body: JSON.stringify(data) }),
+    request<FaceBatchOperationResult>("/faces/batch/link-top-suggestion", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   batchDelete: (data: FaceBatchDeleteRequest) =>
     request<BulkDeletionJobStart>("/faces/batch/delete", { method: "POST", body: JSON.stringify(data) }),
-  createPerformer: (id: number, data: FaceCreatePerformer) => request<Face>(`/faces/${id}/create-performer`, { method: "POST", body: JSON.stringify(data) }),
-  link: (id: number, data: FaceLink) => request<Face>(`/faces/${id}/link`, { method: "POST", body: JSON.stringify(data) }),
-  mergeInto: (id: number, data: FaceMerge) => request<Face>(`/faces/${id}/merge-into`, { method: "POST", body: JSON.stringify(data) }),
-  setIgnored: (id: number, data: FaceIgnore) => request<Face>(`/faces/${id}/ignore`, { method: "POST", body: JSON.stringify(data) }),
-  similar: (id: number, opts?: { kindFamily?: string; k?: number; q?: string; sort?: string; direction?: "asc" | "desc"; seed?: number; page?: number; perPage?: number }) =>
-    request<PaginatedResponse<FaceSimilar>>(`/faces/${id}/similar${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed }, { kindFamily: opts?.kindFamily, k: opts?.k, sort: opts?.sort, direction: opts?.direction })}`),
+  createPerformer: (id: number, data: FaceCreatePerformer) =>
+    request<Face>(`/faces/${id}/create-performer`, { method: "POST", body: JSON.stringify(data) }),
+  link: (id: number, data: FaceLink) =>
+    request<Face>(`/faces/${id}/link`, { method: "POST", body: JSON.stringify(data) }),
+  mergeInto: (id: number, data: FaceMerge) =>
+    request<Face>(`/faces/${id}/merge-into`, { method: "POST", body: JSON.stringify(data) }),
+  setIgnored: (id: number, data: FaceIgnore) =>
+    request<Face>(`/faces/${id}/ignore`, { method: "POST", body: JSON.stringify(data) }),
+  similar: (
+    id: number,
+    opts?: {
+      kindFamily?: string;
+      k?: number;
+      q?: string;
+      sort?: string;
+      direction?: "asc" | "desc";
+      seed?: number;
+      page?: number;
+      perPage?: number;
+    },
+  ) =>
+    request<PaginatedResponse<FaceSimilar>>(
+      `/faces/${id}/similar${buildQuery({ page: opts?.page, perPage: opts?.perPage, q: opts?.q, seed: opts?.seed }, { kindFamily: opts?.kindFamily, k: opts?.k, sort: opts?.sort, direction: opts?.direction })}`,
+    ),
   suggestions: (id: number, maxResults?: number) =>
     request<FaceSuggestion[]>(`/faces/${id}/suggestions${buildQuery(undefined, { maxResults })}`),
-  recordSuggestionDecision: (id: number, data: { performerId: number; decision: "accept" | "reject" | "merge"; setPerformerImage?: boolean; secondaryPerformerIds?: number[]; referenceEndpoint?: string; referenceExternalId?: string; referenceUpdateMetadata?: boolean }) =>
-    request<Face>(`/faces/${id}/suggestions/decision`, { method: "POST", body: JSON.stringify(data) }),
+  recordSuggestionDecision: (
+    id: number,
+    data: {
+      performerId: number;
+      decision: "accept" | "reject" | "merge";
+      setPerformerImage?: boolean;
+      secondaryPerformerIds?: number[];
+      referenceEndpoint?: string;
+      referenceExternalId?: string;
+      referenceUpdateMetadata?: boolean;
+    },
+  ) => request<Face>(`/faces/${id}/suggestions/decision`, { method: "POST", body: JSON.stringify(data) }),
   // Handled by the AI.Faces extension (ext endpoint), which owns the face-embedding split logic.
   // Occurrence editing is served by Cove itself and fulfilled by whichever extension registers an
   // IFaceOccurrenceEditor, so these are plain host routes — no extension id appears here. When nothing
@@ -736,21 +973,31 @@ export const faces: {
   // markNotPresent: it moves only the named appearances, so two performers tangled inside one video can
   // be pulled apart without rejecting the face from the whole video.
   hostTracks: (id: number, opts: { hostType: "video" | "image"; hostId: number }) =>
-    request<FaceHostTrack[]>(`/faces/${id}/host-tracks${buildQuery(undefined, { hostType: opts.hostType, hostId: opts.hostId })}`),
+    request<FaceHostTrack[]>(
+      `/faces/${id}/host-tracks${buildQuery(undefined, { hostType: opts.hostType, hostId: opts.hostId })}`,
+    ),
   split: (id: number, data: { hostType: "video" | "image"; hostId: number; groupKeys: string[] }) =>
     request<FaceSplitResult>(`/faces/${id}/split`, { method: "POST", body: JSON.stringify(data) }),
   capabilities: () => request<FaceCapabilities>("/faces/capabilities"),
 };
 
 export const entityEngagement = {
-  get: (hostType: AffinityHostType, hostId: number) => requestOptional<EntityEngagement>(`/engagement/${hostType}/${hostId}`),
-  getRatings: (hostType: AffinityHostType, hostId: number) => request<EntityRatings>(`/engagement/${hostType}/${hostId}/ratings`),
+  get: (hostType: AffinityHostType, hostId: number) =>
+    requestOptional<EntityEngagement>(`/engagement/${hostType}/${hostId}`),
+  getRatings: (hostType: AffinityHostType, hostId: number) =>
+    request<EntityRatings>(`/engagement/${hostType}/${hostId}/ratings`),
   batch: (data: EntityEngagementBatchRequest) =>
     request<EntityEngagement[]>("/engagement/batch", { method: "POST", body: JSON.stringify(data) }),
   setFavorite: (hostType: AffinityHostType, hostId: number, data: EntityFavorite) =>
-    request<EntityEngagement>(`/engagement/${hostType}/${hostId}/favorite`, { method: "PUT", body: JSON.stringify(data) }),
+    request<EntityEngagement>(`/engagement/${hostType}/${hostId}/favorite`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
   setRating: (hostType: AffinityHostType, hostId: number, data: { value: number | null; aspect?: string }) =>
-    request<EntityEngagement>(`/engagement/${hostType}/${hostId}/rating`, { method: "PUT", body: JSON.stringify(data) }),
+    request<EntityEngagement>(`/engagement/${hostType}/${hostId}/rating`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
   recordInteraction: (data: EngagementInteractionWrite) =>
     request<void>("/engagement/interactions", { method: "POST", body: JSON.stringify(data) }),
   getInteractions: (options?: { hostType?: string; hostId?: number; limit?: number }) =>
@@ -764,7 +1011,10 @@ export const performers = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Performer>>(`/performers${buildQuery(filter, extra)}`),
   findFiltered: (req: PerformerFilteredQueryRequest) =>
-    request<PaginatedResponse<Performer>>("/performers/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Performer>>("/performers/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number) => request<Performer>(`/performers/${id}`),
   countries: () => request<PerformerCountryOption[]>("/performers/countries"),
   groups: (id: number, filter?: FindFilter) =>
@@ -772,27 +1022,72 @@ export const performers = {
   appearsWith: (id: number, filter?: FindFilter) =>
     request<PaginatedResponse<Performer>>(`/performers/${id}/appears-with${buildQuery(filter)}`),
   create: (data: PerformerCreate) => request<Performer>("/performers", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: PerformerUpdate) => request<Performer>(`/performers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  scrape: (id: number, data: PerformerScrapeRequest) => request<Performer>(`/performers/${id}/scrape`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+  update: (id: number, data: PerformerUpdate) =>
+    request<Performer>(`/performers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  scrape: (id: number, data: PerformerScrapeRequest) =>
+    request<Performer>(`/performers/${id}/scrape`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   scrapeUrl: (id: number, data?: { url?: string; createMissingTags?: boolean }) =>
-    request<Performer>(`/performers/${id}/scrape-url`, { method: "POST", body: JSON.stringify(data ?? {}), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
-  previewScrape: (id: number, data: PerformerScrapeRequest) => request<import("./types").PerformerScrapePreview>(`/performers/${id}/scrape-preview`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
-  applyScraped: (id: number, data: { scraped: import("./types").ScrapedPerformer; createMissingTags?: boolean; replaceFields?: string[]; collectionModes?: Record<string, string> }) => request<Performer>(`/performers/${id}/apply-scraped`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
-  bulkUpdate: (data: BulkPerformerUpdate) => request<void>("/performers/bulk", { method: "POST", body: JSON.stringify(data) }),
+    request<Performer>(`/performers/${id}/scrape-url`, {
+      method: "POST",
+      body: JSON.stringify(data ?? {}),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
+  previewScrape: (id: number, data: PerformerScrapeRequest) =>
+    request<import("./types").PerformerScrapePreview>(`/performers/${id}/scrape-preview`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
+  applyScraped: (
+    id: number,
+    data: {
+      scraped: import("./types").ScrapedPerformer;
+      createMissingTags?: boolean;
+      replaceFields?: string[];
+      collectionModes?: Record<string, string>;
+    },
+  ) =>
+    request<Performer>(`/performers/${id}/apply-scraped`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
+  bulkUpdate: (data: BulkPerformerUpdate) =>
+    request<void>("/performers/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/performers/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/performers/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) =>
+    request<BulkDeletionJobStart>("/performers/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
     request<Performer>("/performers/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
-    request<MetadataServerPerformerMatch[]>(`/performers/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`),
+    request<MetadataServerPerformerMatch[]>(
+      `/performers/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`,
+    ),
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
-    request<MetadataServerPerformerMatch[]>("/performers/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
+    request<MetadataServerPerformerMatch[]>("/performers/metadata-server/find-by-ids", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   importFromMetadataServer: (id: number, data: MetadataServerPerformerImportRequest) =>
-    request<Performer>(`/performers/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<Performer>(`/performers/${id}/metadata-server/import`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
-    request<{ draftId: string | null }>(`/performers/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
+    request<{ draftId: string | null }>(`/performers/${id}/metadata-server/submit-draft`, {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
   batchTagMetadataServer: (data: MetadataServerPerformerBatchTagRequest) =>
-    request<{ jobId: string; itemCount: number }>("/performers/metadata-server/batch-tag", { method: "POST", body: JSON.stringify(data) }),
+    request<{ jobId: string; itemCount: number }>("/performers/metadata-server/batch-tag", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // ===== Tags =====
@@ -800,42 +1095,63 @@ export const tags = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Tag>>(`/tags${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<TagFilterCriteria>) =>
-    request<PaginatedResponse<Tag>>("/tags/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Tag>>("/tags/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   graph: (req: FilteredQueryRequest<TagFilterCriteria>) =>
     request<TagGraphResponse>("/tags/graph", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
   get: (id: number, depth?: number) => request<TagDetail>(`/tags/${id}${buildQuery(undefined, { depth })}`),
-  segments: (id: number, count = 100) => request<TagSegmentWall[]>(`/tags/${id}/segments${buildQuery(undefined, { count })}`),
+  segments: (id: number, count = 100) =>
+    request<TagSegmentWall[]>(`/tags/${id}/segments${buildQuery(undefined, { count })}`),
   create: (data: TagCreate) => request<TagDetail>("/tags", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: TagUpdate) => request<TagDetail>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  update: (id: number, data: TagUpdate) =>
+    request<TagDetail>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkTagUpdate) => request<void>("/tags/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/tags/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/tags/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) =>
+    request<BulkDeletionJobStart>("/tags/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
     request<TagDetail>("/tags/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) =>
     request<MetadataServerTagMatch[]>(`/tags/${id}/metadata-server/search${buildQuery(undefined, { term, endpoint })}`),
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
-    request<MetadataServerTagMatch[]>("/tags/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
+    request<MetadataServerTagMatch[]>("/tags/metadata-server/find-by-ids", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   importFromMetadataServer: (id: number, data: MetadataServerTagImportRequest) =>
-    request<TagDetail>(`/tags/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<TagDetail>(`/tags/${id}/metadata-server/import`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
-    request<{ draftId: string | null }>(`/tags/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
+    request<{ draftId: string | null }>(`/tags/${id}/metadata-server/submit-draft`, {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
   batchTagMetadataServer: (data: MetadataServerTagBatchTagRequest) =>
-    request<{ jobId: string; itemCount: number }>("/tags/metadata-server/batch-tag", { method: "POST", body: JSON.stringify(data) }),
+    request<{ jobId: string; itemCount: number }>("/tags/metadata-server/batch-tag", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 export const tagGroups = {
   list: () => request<TagGroup[]>("/taggroups"),
   get: (id: number) => request<TagGroup>(`/taggroups/${id}`),
   create: (data: TagGroupCreate) => request<TagGroup>("/taggroups", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: TagGroupUpdate) => request<TagGroup>(`/taggroups/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  update: (id: number, data: TagGroupUpdate) =>
+    request<TagGroup>(`/taggroups/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/taggroups/${id}`, { method: "DELETE" }),
 };
 
 export const tagApplications = {
   list: (params?: { hostType?: string; hostId?: number; contextType?: string; contextId?: number }) =>
     request<TagApplication[]>(`/tagapplications${buildQuery(undefined, params)}`),
-  create: (data: TagApplicationCreate) => request<TagApplication>("/tagapplications", { method: "POST", body: JSON.stringify(data) }),
+  create: (data: TagApplicationCreate) =>
+    request<TagApplication>("/tagapplications", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/tagapplications/${id}`, { method: "DELETE" }),
   // "Report incorrect detection": drop the AI's host-level applications for one (host, tag) so a
   // wrongly-derived tag falls off this host. Does not touch the tag's global threshold or segments.
@@ -845,7 +1161,8 @@ export const tagApplications = {
 
 export const aiData = {
   summary: (selector?: AiDataSelector) => request<AiDataSummary>(`/ai-data/summary${buildAiDataQuery(selector)}`),
-  purge: (request_: AiDataPurgeRequest) => request<AiDataPurgeResult>("/ai-data/purge", { method: "POST", body: JSON.stringify(request_) }),
+  purge: (request_: AiDataPurgeRequest) =>
+    request<AiDataPurgeResult>("/ai-data/purge", { method: "POST", body: JSON.stringify(request_) }),
 };
 
 function normalizeExtensionApiBasePath(apiBasePath: string): string {
@@ -858,19 +1175,39 @@ export function createVisualSimilarityClient(apiBasePath: string) {
 
   return {
     searchVideos: (req: VideoFilteredQueryRequest) =>
-      request<PaginatedResponse<Video>>(`${normalizedBasePath}/videos/search`, { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+      request<PaginatedResponse<Video>>(`${normalizedBasePath}/videos/search`, {
+        method: "POST",
+        body: JSON.stringify(normalizeCriterionPayload(req)),
+      }),
     searchImages: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
-      request<PaginatedResponse<Image>>(`${normalizedBasePath}/images/search`, { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+      request<PaginatedResponse<Image>>(`${normalizedBasePath}/images/search`, {
+        method: "POST",
+        body: JSON.stringify(normalizeCriterionPayload(req)),
+      }),
     similarVideosForVideo: (videoId: number, params?: { perPage?: number }) =>
-      request<{ items: VisualSimilarVideo[] }>(`${normalizedBasePath}/videos/${videoId}/similar-videos${buildQuery(params)}`),
+      request<{ items: VisualSimilarVideo[] }>(
+        `${normalizedBasePath}/videos/${videoId}/similar-videos${buildQuery(params)}`,
+      ),
     similarImagesForVideo: (videoId: number, params?: { perPage?: number }) =>
-      request<{ items: VisualSimilarImage[] }>(`${normalizedBasePath}/videos/${videoId}/similar-images${buildQuery(params)}`),
+      request<{ items: VisualSimilarImage[] }>(
+        `${normalizedBasePath}/videos/${videoId}/similar-images${buildQuery(params)}`,
+      ),
     similarVideosForImage: (imageId: number, params?: { perPage?: number }) =>
-      request<{ items: VisualSimilarVideo[] }>(`${normalizedBasePath}/images/${imageId}/similar-videos${buildQuery(params)}`),
+      request<{ items: VisualSimilarVideo[] }>(
+        `${normalizedBasePath}/images/${imageId}/similar-videos${buildQuery(params)}`,
+      ),
     similarImagesForImage: (imageId: number, params?: { perPage?: number }) =>
-      request<{ items: VisualSimilarImage[] }>(`${normalizedBasePath}/images/${imageId}/similar-images${buildQuery(params)}`),
-    similarVideosForVideoSegment: (videoId: number, data: { intervals: Array<{ startSec: number; endSec?: number }>; perPage?: number }) =>
-      request<{ items: VisualSimilarVideo[] }>(`${normalizedBasePath}/videos/${videoId}/similar-videos/segment`, { method: "POST", body: JSON.stringify(data) }),
+      request<{ items: VisualSimilarImage[] }>(
+        `${normalizedBasePath}/images/${imageId}/similar-images${buildQuery(params)}`,
+      ),
+    similarVideosForVideoSegment: (
+      videoId: number,
+      data: { intervals: Array<{ startSec: number; endSec?: number }>; perPage?: number },
+    ) =>
+      request<{ items: VisualSimilarVideo[] }>(`${normalizedBasePath}/videos/${videoId}/similar-videos/segment`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     videoHasEmbeddings: (videoId: number) =>
       request<{ hasEmbeddings: boolean }>(`${normalizedBasePath}/videos/${videoId}/has-embeddings`),
     imageHasEmbeddings: (imageId: number) =>
@@ -883,7 +1220,9 @@ export function createAudioSimilarityClient(apiBasePath: string) {
 
   return {
     similarVideosForVideo: (videoId: number, params?: { perPage?: number }) =>
-      request<{ items: AudioSimilarVideo[] }>(`${normalizedBasePath}/videos/${videoId}/similar-videos${buildQuery(params)}`),
+      request<{ items: AudioSimilarVideo[] }>(
+        `${normalizedBasePath}/videos/${videoId}/similar-videos${buildQuery(params)}`,
+      ),
     videoHasEmbeddings: (videoId: number) =>
       request<{ hasEmbeddings: boolean }>(`${normalizedBasePath}/videos/${videoId}/has-embeddings`),
   };
@@ -894,13 +1233,19 @@ export const studios = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Studio>>(`/studios${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<StudioFilterCriteria>) =>
-    request<PaginatedResponse<Studio>>("/studios/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Studio>>("/studios/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number, depth?: number) => request<Studio>(`/studios/${id}${buildQuery(undefined, { depth })}`),
   create: (data: StudioCreate) => request<Studio>("/studios", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: StudioUpdate) => request<Studio>(`/studios/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  bulkUpdate: (data: BulkStudioUpdate) => request<void>("/studios/bulk", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: StudioUpdate) =>
+    request<Studio>(`/studios/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  bulkUpdate: (data: BulkStudioUpdate) =>
+    request<void>("/studios/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/studios/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/studios/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) =>
+    request<BulkDeletionJobStart>("/studios/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   merge: (targetId: number, sourceIds: number[]) =>
     request<Studio>("/studios/merge", { method: "POST", body: JSON.stringify({ targetId, sourceIds }) }),
   searchMetadataServer: (id: number, term?: string, endpoint?: string) => {
@@ -911,13 +1256,26 @@ export const studios = {
     return request<MetadataServerStudioMatch[]>(`/studios/${id}/metadata-server/search${qs ? `?${qs}` : ""}`);
   },
   findMetadataServerByIds: (data: MetadataServerFindByIdsRequest) =>
-    request<MetadataServerStudioMatch[]>("/studios/metadata-server/find-by-ids", { method: "POST", body: JSON.stringify(data) }),
+    request<MetadataServerStudioMatch[]>("/studios/metadata-server/find-by-ids", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   importFromMetadataServer: (id: number, data: MetadataServerStudioImportRequest) =>
-    request<Studio>(`/studios/${id}/metadata-server/import`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<Studio>(`/studios/${id}/metadata-server/import`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   submitMetadataServerDraft: (id: number, endpoint: string) =>
-    request<{ draftId: string | null }>(`/studios/${id}/metadata-server/submit-draft`, { method: "POST", body: JSON.stringify({ endpoint }) }),
+    request<{ draftId: string | null }>(`/studios/${id}/metadata-server/submit-draft`, {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
   batchTagMetadataServer: (data: MetadataServerStudioBatchTagRequest) =>
-    request<{ jobId: string; itemCount: number }>("/studios/metadata-server/batch-tag", { method: "POST", body: JSON.stringify(data) }),
+    request<{ jobId: string; itemCount: number }>("/studios/metadata-server/batch-tag", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // ===== Galleries =====
@@ -925,22 +1283,34 @@ export const galleries = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Gallery>>(`/galleries${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<GalleryFilterCriteria>) =>
-    request<PaginatedResponse<Gallery>>("/galleries/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Gallery>>("/galleries/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   aggregate: (req: FilteredQueryRequest<GalleryFilterCriteria>) =>
-    request<GalleryAggregate>("/galleries/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<GalleryAggregate>("/galleries/aggregate", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number) => request<Gallery>(`/galleries/${id}`),
   getLikeCount: (id: number) => request<number>(`/galleries/${id}/like-count`),
   create: (data: GalleryCreate) => request<Gallery>("/galleries", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: GalleryUpdate) => request<Gallery>(`/galleries/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  bulkUpdate: (data: BulkGalleryUpdate) => request<void>("/galleries/bulk", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: GalleryUpdate) =>
+    request<Gallery>(`/galleries/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  bulkUpdate: (data: BulkGalleryUpdate) =>
+    request<void>("/galleries/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/galleries/${id}`, { method: "DELETE" }),
   rescan: (id: number) => request<{ jobId: string }>(`/galleries/${id}/rescan`, { method: "POST" }),
-  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/galleries/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) =>
+    request<BulkDeletionJobStart>("/galleries/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   chapters: (id: number) => request<GalleryChapter[]>(`/galleries/${id}/chapters`),
   createChapter: (id: number, data: GalleryChapterCreate) =>
     request<GalleryChapter>(`/galleries/${id}/chapters`, { method: "POST", body: JSON.stringify(data) }),
   updateChapter: (galleryId: number, chapterId: number, data: GalleryChapterUpdate) =>
-    request<GalleryChapter>(`/galleries/${galleryId}/chapters/${chapterId}`, { method: "PUT", body: JSON.stringify(data) }),
+    request<GalleryChapter>(`/galleries/${galleryId}/chapters/${chapterId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
   deleteChapter: (galleryId: number, chapterId: number) =>
     request<void>(`/galleries/${galleryId}/chapters/${chapterId}`, { method: "DELETE" }),
   addImages: (id: number, imageIds: number[]) =>
@@ -950,7 +1320,11 @@ export const galleries = {
   uploadCoverImage: (id: number, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return request<void>(`/galleries/${id}/image`, { method: "POST", body: formData, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
+    return request<void>(`/galleries/${id}/image`, {
+      method: "POST",
+      body: formData,
+      timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
+    });
   },
   coverUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/galleries/${id}/cover`, version, max),
   getCoverImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/galleries/${id}/image`, version, max),
@@ -965,28 +1339,43 @@ export const images = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Image>>(`/images${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
-    request<PaginatedResponse<Image>>("/images/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Image>>("/images/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   aggregate: (req: FilteredQueryRequest<ImageFilterCriteria>) =>
-    request<ImageAggregate>("/images/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<ImageAggregate>("/images/aggregate", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number) => request<Image>(`/images/${id}`),
   create: (data: ImageCreate) => request<Image>("/images", { method: "POST", body: JSON.stringify(data) }),
-  createFromFile: (data: FileBackedCreate) => request<Image>("/images/from-file", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: ImageUpdate) => request<Image>(`/images/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  createFromFile: (data: FileBackedCreate) =>
+    request<Image>("/images/from-file", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: ImageUpdate) =>
+    request<Image>(`/images/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   rescan: (id: number) => request<{ jobId: string }>(`/images/${id}/rescan`, { method: "POST" }),
   bulkUpdate: (data: BulkImageUpdate) => request<void>("/images/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number, options?: boolean | DeleteEntityOptions) => {
     const deleteFile = typeof options === "boolean" ? options : options?.deleteFile;
     const deleteGenerated = typeof options === "boolean" ? undefined : options?.deleteGenerated;
-    return request<void>(`/images/${id}${buildQuery(undefined, { deleteFile, deleteGenerated })}`, { method: "DELETE" });
+    return request<void>(`/images/${id}${buildQuery(undefined, { deleteFile, deleteGenerated })}`, {
+      method: "DELETE",
+    });
   },
   bulkDelete: (ids: number[], options?: boolean | DeleteEntityOptions) => {
-    const deleteFiles = typeof options === "boolean" ? options : options?.deleteFile ?? false;
-    const deleteGenerated = typeof options === "boolean" ? false : options?.deleteGenerated ?? false;
-    return request<BulkDeletionJobStart>("/images/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles, deleteGenerated }) });
+    const deleteFiles = typeof options === "boolean" ? options : (options?.deleteFile ?? false);
+    const deleteGenerated = typeof options === "boolean" ? false : (options?.deleteGenerated ?? false);
+    return request<BulkDeletionJobStart>("/images/bulk", {
+      method: "DELETE",
+      body: JSON.stringify({ ids, deleteFiles, deleteGenerated }),
+    });
   },
   incrementLike: (id: number) => request<number>(`/images/${id}/like`, { method: "POST" }),
-  addHistoricalLike: (id: number, at: string) => request<number>(`/images/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
-  deleteLikeFromHistory: (id: number, at: string) => request<void>(`/images/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
+  addHistoricalLike: (id: number, at: string) =>
+    request<number>(`/images/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
+  deleteLikeFromHistory: (id: number, at: string) =>
+    request<void>(`/images/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
   decrementLike: (id: number) => request<number>(`/images/${id}/like`, { method: "DELETE" }),
   resetLike: (id: number) => request<number>(`/images/${id}/like/reset`, { method: "POST" }),
   getHistory: (id: number) => request<VideoHistory>(`/images/${id}/history`),
@@ -996,8 +1385,7 @@ export const images = {
       request<Detection>(`/images/${imageId}/detections`, { method: "POST", body: JSON.stringify(data) }),
     update: (imageId: number, id: number, data: DetectionUpdate) =>
       request<Detection>(`/images/${imageId}/detections/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    delete: (imageId: number, id: number) =>
-      request<void>(`/images/${imageId}/detections/${id}`, { method: "DELETE" }),
+    delete: (imageId: number, id: number) => request<void>(`/images/${imageId}/detections/${id}`, { method: "DELETE" }),
   },
   imageUrl: (id: number) => buildMediaUrl(`/stream/image/${id}`),
   thumbnailUrl: (id: number, max?: number) => buildMediaUrl(`/stream/image/${id}/thumbnail`, undefined, max),
@@ -1008,23 +1396,43 @@ export const audios = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Audio>>(`/audios${buildQuery(filter, extra)}`),
   findFiltered: (req: AudioFilteredQueryRequest) =>
-    request<PaginatedResponse<Audio>>("/audios/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Audio>>("/audios/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   aggregate: (req: AudioFilteredQueryRequest) =>
-    request<AudioAggregate>("/audios/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<AudioAggregate>("/audios/aggregate", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number) => request<Audio>(`/audios/${id}`),
   create: (data: AudioCreate) => request<Audio>("/audios", { method: "POST", body: JSON.stringify(data) }),
-  createFromFile: (data: FileBackedCreate) => request<Audio>("/audios/from-file", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: AudioUpdate) => request<Audio>(`/audios/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  createFromFile: (data: FileBackedCreate) =>
+    request<Audio>("/audios/from-file", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: AudioUpdate) =>
+    request<Audio>(`/audios/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   rescan: (id: number) => request<{ jobId: string }>(`/audios/${id}/rescan`, { method: "POST" }),
   bulkUpdate: (data: BulkAudioUpdate) => request<void>("/audios/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number, options?: DeleteEntityOptions) =>
-    request<void>(`/audios/${id}${buildQuery(undefined, { deleteFile: options?.deleteFile, deleteGenerated: options?.deleteGenerated })}`, { method: "DELETE" }),
+    request<void>(
+      `/audios/${id}${buildQuery(undefined, { deleteFile: options?.deleteFile, deleteGenerated: options?.deleteGenerated })}`,
+      { method: "DELETE" },
+    ),
   bulkDelete: (ids: number[], options?: DeleteEntityOptions) =>
-    request<BulkDeletionJobStart>("/audios/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
+    request<BulkDeletionJobStart>("/audios/bulk", {
+      method: "DELETE",
+      body: JSON.stringify({
+        ids,
+        deleteFiles: options?.deleteFile ?? false,
+        deleteGenerated: options?.deleteGenerated ?? false,
+      }),
+    }),
   getHistory: (id: number) => request<VideoHistory>(`/audios/${id}/history`),
   incrementLike: (id: number) => request<number>(`/audios/${id}/like`, { method: "POST" }),
-  addHistoricalLike: (id: number, at: string) => request<number>(`/audios/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
-  deleteLikeFromHistory: (id: number, at: string) => request<void>(`/audios/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
+  addHistoricalLike: (id: number, at: string) =>
+    request<number>(`/audios/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
+  deleteLikeFromHistory: (id: number, at: string) =>
+    request<void>(`/audios/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
   decrementLike: (id: number) => request<number>(`/audios/${id}/like`, { method: "DELETE" }),
   resetLike: (id: number) => request<number>(`/audios/${id}/like/reset`, { method: "POST" }),
   resetActivity: (id: number) => request<void>(`/audios/${id}/activity/reset`, { method: "POST" }),
@@ -1036,24 +1444,44 @@ export const texts = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<TextDocument>>(`/texts${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<TextFilterCriteria>) =>
-    request<PaginatedResponse<TextDocument>>("/texts/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<TextDocument>>("/texts/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   aggregate: (req: FilteredQueryRequest<TextFilterCriteria>) =>
-    request<TextAggregate>("/texts/aggregate", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<TextAggregate>("/texts/aggregate", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number) => request<TextDocument>(`/texts/${id}`),
   content: (id: number) => request<TextContent>(`/texts/${id}/content`),
   create: (data: TextCreate) => request<TextDocument>("/texts", { method: "POST", body: JSON.stringify(data) }),
-  createFromFile: (data: FileBackedCreate) => request<TextDocument>("/texts/from-file", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: TextUpdate) => request<TextDocument>(`/texts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  createFromFile: (data: FileBackedCreate) =>
+    request<TextDocument>("/texts/from-file", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: TextUpdate) =>
+    request<TextDocument>(`/texts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   rescan: (id: number) => request<{ jobId: string }>(`/texts/${id}/rescan`, { method: "POST" }),
   bulkUpdate: (data: BulkTextUpdate) => request<void>("/texts/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number, options?: DeleteEntityOptions) =>
-    request<void>(`/texts/${id}${buildQuery(undefined, { deleteFile: options?.deleteFile, deleteGenerated: options?.deleteGenerated })}`, { method: "DELETE" }),
+    request<void>(
+      `/texts/${id}${buildQuery(undefined, { deleteFile: options?.deleteFile, deleteGenerated: options?.deleteGenerated })}`,
+      { method: "DELETE" },
+    ),
   bulkDelete: (ids: number[], options?: DeleteEntityOptions) =>
-    request<BulkDeletionJobStart>("/texts/bulk", { method: "DELETE", body: JSON.stringify({ ids, deleteFiles: options?.deleteFile ?? false, deleteGenerated: options?.deleteGenerated ?? false }) }),
+    request<BulkDeletionJobStart>("/texts/bulk", {
+      method: "DELETE",
+      body: JSON.stringify({
+        ids,
+        deleteFiles: options?.deleteFile ?? false,
+        deleteGenerated: options?.deleteGenerated ?? false,
+      }),
+    }),
   getHistory: (id: number) => request<VideoHistory>(`/texts/${id}/history`),
   incrementLike: (id: number) => request<number>(`/texts/${id}/like`, { method: "POST" }),
-  addHistoricalLike: (id: number, at: string) => request<number>(`/texts/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
-  deleteLikeFromHistory: (id: number, at: string) => request<void>(`/texts/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
+  addHistoricalLike: (id: number, at: string) =>
+    request<number>(`/texts/${id}/like/historical`, { method: "POST", body: JSON.stringify({ at }) }),
+  deleteLikeFromHistory: (id: number, at: string) =>
+    request<void>(`/texts/${id}/like/history?at=${encodeURIComponent(at)}`, { method: "DELETE" }),
   decrementLike: (id: number) => request<number>(`/texts/${id}/like`, { method: "DELETE" }),
   resetLike: (id: number) => request<number>(`/texts/${id}/like/reset`, { method: "POST" }),
   fileUrl: (id: number) => buildMediaUrl(`/texts/${id}/file`),
@@ -1064,13 +1492,18 @@ export const groups = {
   find: (filter?: FindFilter, extra?: Record<string, string | number | boolean | undefined>) =>
     request<PaginatedResponse<Group>>(`/groups${buildQuery(filter, extra)}`),
   findFiltered: (req: FilteredQueryRequest<GroupFilterCriteria>) =>
-    request<PaginatedResponse<Group>>("/groups/find", { method: "POST", body: JSON.stringify(normalizeCriterionPayload(req)) }),
+    request<PaginatedResponse<Group>>("/groups/find", {
+      method: "POST",
+      body: JSON.stringify(normalizeCriterionPayload(req)),
+    }),
   get: (id: number) => request<Group>(`/groups/${id}`),
   create: (data: GroupCreate) => request<Group>("/groups", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: GroupUpdate) => request<Group>(`/groups/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  update: (id: number, data: GroupUpdate) =>
+    request<Group>(`/groups/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   bulkUpdate: (data: BulkGroupUpdate) => request<void>("/groups/bulk", { method: "POST", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/groups/${id}`, { method: "DELETE" }),
-  bulkDelete: (ids: number[]) => request<BulkDeletionJobStart>("/groups/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  bulkDelete: (ids: number[]) =>
+    request<BulkDeletionJobStart>("/groups/bulk", { method: "DELETE", body: JSON.stringify({ ids }) }),
   reorder: (data: GroupReorder) => request<void>("/groups/reorder", { method: "PUT", body: JSON.stringify(data) }),
   dynamicSources: () => request<DynamicGroupSource[]>("/groups/dynamic-sources"),
   subGroups: (id: number) => request<Group[]>(`/groups/${id}/subgroups`),
@@ -1083,7 +1516,8 @@ export const groups = {
     request<void>(`/groups/${id}/subgroups/reorder`, { method: "PUT", body: JSON.stringify({ subGroupIds }) }),
   items: {
     list: (groupId: number) => request<GroupItem[]>(`/groups/${groupId}/items`),
-    page: (groupId: number, filter?: FindFilter) => request<PaginatedResponse<GroupItem>>(`/groups/${groupId}/items/page${buildQuery(filter)}`),
+    page: (groupId: number, filter?: FindFilter) =>
+      request<PaginatedResponse<GroupItem>>(`/groups/${groupId}/items/page${buildQuery(filter)}`),
     create: (groupId: number, data: GroupItemCreate) =>
       request<GroupItem>(`/groups/${groupId}/items`, { method: "POST", body: JSON.stringify(data) }),
     update: (groupId: number, itemId: number, data: GroupItemUpdate) =>
@@ -1096,8 +1530,7 @@ export const groups = {
       request<void>(`/groups/${groupId}/items/reorder`, { method: "PUT", body: JSON.stringify(data) }),
     fromSpans: (groupId: number, data: GroupItemsFromSpans) =>
       request<GroupItem[]>(`/groups/${groupId}/items/from-spans`, { method: "POST", body: JSON.stringify(data) }),
-    playbackManifest: (groupId: number) =>
-      request<GroupPlaybackManifest>(`/groups/${groupId}/playback-manifest`),
+    playbackManifest: (groupId: number) => request<GroupPlaybackManifest>(`/groups/${groupId}/playback-manifest`),
   },
 };
 
@@ -1109,15 +1542,25 @@ export const segmentDisplayProfiles = {
   update: (id: number, data: SegmentDisplayProfileUpdate) =>
     request<SegmentDisplayProfile>(`/segment-display-profiles/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/segment-display-profiles/${id}`, { method: "DELETE" }),
-  setDefault: (id: number) => request<SegmentDisplayProfile>(`/segment-display-profiles/${id}/default`, { method: "PUT" }),
+  setDefault: (id: number) =>
+    request<SegmentDisplayProfile>(`/segment-display-profiles/${id}/default`, { method: "PUT" }),
   preview: (data: import("./types").SegmentDisplayProfilePreviewRequest) =>
-    request<import("./types").ResolvedSpanList>("/segment-display-profiles/preview", { method: "POST", body: JSON.stringify(data) }),
+    request<import("./types").ResolvedSpanList>("/segment-display-profiles/preview", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   rules: {
     list: (profileId: number) => request<SegmentDisplayRule[]>(`/segment-display-profiles/${profileId}/rules`),
     create: (profileId: number, data: SegmentDisplayRuleCreate) =>
-      request<SegmentDisplayRule>(`/segment-display-profiles/${profileId}/rules`, { method: "POST", body: JSON.stringify(data) }),
+      request<SegmentDisplayRule>(`/segment-display-profiles/${profileId}/rules`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     update: (profileId: number, ruleId: number, data: SegmentDisplayRuleUpdate) =>
-      request<SegmentDisplayRule>(`/segment-display-profiles/${profileId}/rules/${ruleId}`, { method: "PUT", body: JSON.stringify(data) }),
+      request<SegmentDisplayRule>(`/segment-display-profiles/${profileId}/rules/${ruleId}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
     delete: (profileId: number, ruleId: number) =>
       request<void>(`/segment-display-profiles/${profileId}/rules/${ruleId}`, { method: "DELETE" }),
   },
@@ -1135,7 +1578,11 @@ export const segmentSpans = {
 async function uploadImage(path: string, file: File): Promise<{ blobId: string }> {
   const formData = new FormData();
   formData.append("file", file);
-  const res = await authedFetch(`${API_BASE}${path}`, { method: "POST", body: formData, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
+  const res = await authedFetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: formData,
+    timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
+  });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   return res.json();
 }
@@ -1154,9 +1601,13 @@ export const entityImages = {
   uploadSegmentCoverImage: (id: number, file: File) => uploadImage(`/segments/${id}/image`, file),
   deleteSegmentCoverImage: (id: number) => deleteImage(`/segments/${id}/image`),
   setSegmentCoverFromFrame: (id: number, atSeconds?: number) =>
-    request<{ success: boolean }>(`/segments/${id}/image/from-frame`, { method: "POST", body: JSON.stringify({ atSeconds }) }),
+    request<{ success: boolean }>(`/segments/${id}/image/from-frame`, {
+      method: "POST",
+      body: JSON.stringify({ atSeconds }),
+    }),
 
-  performerImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/performers/${id}/image`, version, max),
+  performerImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/performers/${id}/image`, version, max),
   uploadPerformerImage: (id: number, file: File) => uploadImage(`/performers/${id}/image`, file),
   deletePerformerImage: (id: number) => deleteImage(`/performers/${id}/image`),
   setPerformerImageFromSource: (id: number, source: { imageId?: number; videoId?: number }) =>
@@ -1182,13 +1633,15 @@ export const entityImages = {
   setTagImageFromSource: (id: number, source: { imageId?: number; videoId?: number }) =>
     request<void>(`/tags/${id}/image/source`, { method: "PUT", body: JSON.stringify(source) }),
 
-  groupFrontImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/groups/${id}/image/front`, version, max),
+  groupFrontImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/groups/${id}/image/front`, version, max),
   uploadGroupFrontImage: (id: number, file: File) => uploadImage(`/groups/${id}/image/front`, file),
   deleteGroupFrontImage: (id: number) => deleteImage(`/groups/${id}/image/front`),
   setGroupFrontImageFromSource: (id: number, source: { imageId?: number; videoId?: number }) =>
     request<void>(`/groups/${id}/image/front/source`, { method: "PUT", body: JSON.stringify(source) }),
 
-  groupBackImageUrl: (id: number, version?: string, max = 640) => buildMediaUrl(`/groups/${id}/image/back`, version, max),
+  groupBackImageUrl: (id: number, version?: string, max = 640) =>
+    buildMediaUrl(`/groups/${id}/image/back`, version, max),
   uploadGroupBackImage: (id: number, file: File) => uploadImage(`/groups/${id}/image/back`, file),
   deleteGroupBackImage: (id: number) => deleteImage(`/groups/${id}/image/back`),
 
@@ -1212,7 +1665,11 @@ export const system = {
   uploadFavicon: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const res = await authedFetch(`${API_BASE}/system/ui/favicon`, { method: "POST", body: form, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
+    const res = await authedFetch(`${API_BASE}/system/ui/favicon`, {
+      method: "POST",
+      body: form,
+      timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
+    });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API Error ${res.status}: ${text}`);
@@ -1222,7 +1679,11 @@ export const system = {
   uploadLogo: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const res = await authedFetch(`${API_BASE}/system/ui/logo`, { method: "POST", body: form, timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS });
+    const res = await authedFetch(`${API_BASE}/system/ui/logo`, {
+      method: "POST",
+      body: form,
+      timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
+    });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API Error ${res.status}: ${text}`);
@@ -1232,22 +1693,50 @@ export const system = {
   listScrapers: () => request<ScraperSummary[]>("/system/scrapers"),
   reloadScrapers: () => request<ScraperSummary[]>("/system/scrapers/reload", { method: "POST" }),
   scrapeUrl: (scraperId: string, entityType: string, url: string) =>
-    request<Record<string, unknown>>("/system/scrapers/scrape-url", { method: "POST", body: JSON.stringify({ scraperId, entityType, url }), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<Record<string, unknown>>("/system/scrapers/scrape-url", {
+      method: "POST",
+      body: JSON.stringify({ scraperId, entityType, url }),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   scrapeName: (scraperId: string, entityType: string, name: string) =>
-    request<Record<string, unknown>[]>("/system/scrapers/scrape-name", { method: "POST", body: JSON.stringify({ scraperId, entityType, name }), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<Record<string, unknown>[]>("/system/scrapers/scrape-name", {
+      method: "POST",
+      body: JSON.stringify({ scraperId, entityType, name }),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   scrapeFragment: (scraperId: string, entityType: string, fragment: Record<string, unknown>) =>
-    request<Record<string, unknown>>("/system/scrapers/scrape-fragment", { method: "POST", body: JSON.stringify({ scraperId, entityType, fragment }), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<Record<string, unknown>>("/system/scrapers/scrape-fragment", {
+      method: "POST",
+      body: JSON.stringify({ scraperId, entityType, fragment }),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   listDownloaders: () => request<DownloaderDescriptor[]>("/system/downloaders"),
-  matchDownloaders: (data: DownloaderMatchRequest) => request<DownloaderMatch[]>("/system/downloaders/match", { method: "POST", body: JSON.stringify(data) }),
-  startDownload: (data: DownloaderStartRequest) => request<{ jobId: string }>("/system/downloaders/download", { method: "POST", body: JSON.stringify(data) }),
-  startBatchDownload: (data: DownloaderBatchStartRequest) => request<DownloaderBatchStartResponse>("/system/downloaders/download-batch", { method: "POST", body: JSON.stringify(data) }),
-  preflightDownload: (data: DownloaderPreflightRequest) => request<DownloaderPreflightResponse>("/system/downloaders/preflight", { method: "POST", body: JSON.stringify(data) }),
+  matchDownloaders: (data: DownloaderMatchRequest) =>
+    request<DownloaderMatch[]>("/system/downloaders/match", { method: "POST", body: JSON.stringify(data) }),
+  startDownload: (data: DownloaderStartRequest) =>
+    request<{ jobId: string }>("/system/downloaders/download", { method: "POST", body: JSON.stringify(data) }),
+  startBatchDownload: (data: DownloaderBatchStartRequest) =>
+    request<DownloaderBatchStartResponse>("/system/downloaders/download-batch", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  preflightDownload: (data: DownloaderPreflightRequest) =>
+    request<DownloaderPreflightResponse>("/system/downloaders/preflight", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   validateMetadataServer: (metadataServer: MetadataServer) =>
-    request<MetadataServerValidationResult>("/system/metadata-servers/validate", { method: "POST", body: JSON.stringify(metadataServer) }),
+    request<MetadataServerValidationResult>("/system/metadata-servers/validate", {
+      method: "POST",
+      body: JSON.stringify(metadataServer),
+    }),
   configureUI: (input: Record<string, unknown>) =>
     request<{ success: boolean }>("/system/config/ui", { method: "POST", body: JSON.stringify(input) }),
   configureUISetting: (key: string, value: unknown) =>
-    request<{ key: string; value: unknown; success: boolean }>(`/system/config/ui/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(value) }),
+    request<{ key: string; value: unknown; success: boolean }>(`/system/config/ui/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify(value),
+    }),
 };
 
 export const scrapeAttempts = {
@@ -1261,26 +1750,48 @@ export const scrapeAttempts = {
   },
   get: (id: string) => request<ScrapeAttempt>(`/scrape-attempts/${id}`),
   create: (data: CreateScrapeAttemptRequest) =>
-    request<ScrapeAttempt>("/scrape-attempts", { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<ScrapeAttempt>("/scrape-attempts", {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   apply: (id: string, data: ApplyVideoScrapeAttemptRequest) =>
-    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   resolveRelations: (data: ResolveScrapeRelationsRequest) =>
-    request<ResolveScrapeRelationsResult>("/scrape-attempts/resolve-relations", { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<ResolveScrapeRelationsResult>("/scrape-attempts/resolve-relations", {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
   applyVideo: (id: string, data: ApplyVideoScrapeAttemptRequest) =>
-    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, { method: "POST", body: JSON.stringify(data), timeoutMs: LONG_API_REQUEST_TIMEOUT_MS }),
+    request<ScrapeAttempt>(`/scrape-attempts/${id}/apply`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeoutMs: LONG_API_REQUEST_TIMEOUT_MS,
+    }),
 };
 
 export const bookmarks = {
   list: () => request<BookmarkDto[]>("/me/bookmarks"),
-  batch: (data: BookmarkBatchRequest) => request<BookmarkState[]>("/me/bookmarks/batch", { method: "POST", body: JSON.stringify(data) }),
-  toggle: (data: BookmarkToggle) => request<BookmarkState>("/me/bookmarks", { method: "POST", body: JSON.stringify(data) }),
+  batch: (data: BookmarkBatchRequest) =>
+    request<BookmarkState[]>("/me/bookmarks/batch", { method: "POST", body: JSON.stringify(data) }),
+  toggle: (data: BookmarkToggle) =>
+    request<BookmarkState>("/me/bookmarks", { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const customFields = {
-  list: (entityType?: string) => request<CustomFieldDefinition[]>(`/custom-fields${buildQuery(undefined, { entityType })}`),
-  create: (data: CustomFieldDefinitionCreate) => request<CustomFieldDefinition>("/custom-fields", { method: "POST", body: JSON.stringify(data) }),
-  replaceAll: (data: CustomFieldDefinition[]) => request<CustomFieldDefinition[]>("/custom-fields", { method: "PUT", body: JSON.stringify(data) }),
-  update: (id: number, data: CustomFieldDefinitionUpdate) => request<CustomFieldDefinition>(`/custom-fields/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: (entityType?: string) =>
+    request<CustomFieldDefinition[]>(`/custom-fields${buildQuery(undefined, { entityType })}`),
+  create: (data: CustomFieldDefinitionCreate) =>
+    request<CustomFieldDefinition>("/custom-fields", { method: "POST", body: JSON.stringify(data) }),
+  replaceAll: (data: CustomFieldDefinition[]) =>
+    request<CustomFieldDefinition[]>("/custom-fields", { method: "PUT", body: JSON.stringify(data) }),
+  update: (id: number, data: CustomFieldDefinitionUpdate) =>
+    request<CustomFieldDefinition>(`/custom-fields/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/custom-fields/${id}`, { method: "DELETE" }),
 };
 
@@ -1394,15 +1905,18 @@ export const metadata = {
     skipSingleNamePerformers?: boolean;
     fieldStrategies?: Record<string, "ignore" | "merge" | "overwrite">;
     performerGenders?: string[];
-  }) =>
-    request<{ jobId: string }>("/metadata/identify", { method: "POST", body: JSON.stringify(opts ?? {}) }),
+  }) => request<{ jobId: string }>("/metadata/identify", { method: "POST", body: JSON.stringify(opts ?? {}) }),
   import: (opts?: { filePath: string; duplicateHandling?: boolean }) =>
     request<{ jobId: string }>("/metadata/import", { method: "POST", body: JSON.stringify(opts ?? {}) }),
 };
 
 // ===== Database =====
 export const database = {
-  backup: () => request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/backup", { method: "POST", timeoutMs: null }),
+  backup: () =>
+    request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/backup", {
+      method: "POST",
+      timeoutMs: null,
+    }),
   restore: (backupPath: string) =>
     request<{ message: string; backupPath: string; preRestoreBackupPath: string | null }>("/database/restore", {
       method: "POST",
@@ -1421,7 +1935,10 @@ export const database = {
       { method: "POST", timeoutMs: null },
     ),
   backupConfig: () =>
-    request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/config/backup", { method: "POST", timeoutMs: null }),
+    request<{ backupPath: string; sizeBytes: number; timestamp: string }>("/database/config/backup", {
+      method: "POST",
+      timeoutMs: null,
+    }),
   restoreConfig: (backupPath: string) =>
     request<{ message: string; backupPath: string }>("/database/config/restore", {
       method: "POST",
@@ -1519,8 +2036,10 @@ export const logs = {
 export const savedFilters = {
   list: (mode?: string) => request<SavedFilter[]>(`/savedfilters${mode ? `?mode=${mode}` : ""}`),
   get: (id: number) => request<SavedFilter>(`/savedfilters/${id}`),
-  create: (data: SavedFilterCreate) => request<SavedFilter>("/savedfilters", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: SavedFilterUpdate) => request<SavedFilter>(`/savedfilters/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  create: (data: SavedFilterCreate) =>
+    request<SavedFilter>("/savedfilters", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: SavedFilterUpdate) =>
+    request<SavedFilter>(`/savedfilters/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/savedfilters/${id}`, { method: "DELETE" }),
 };
 
@@ -1543,8 +2062,10 @@ export const dashboards = {
 export const plugins = {
   list: () => request<Plugin[]>("/plugins"),
   getTasks: () => request<PluginTask[]>("/plugins/tasks"),
-  runTask: (data: RunPluginTaskRequest) => request<{ jobId: string }>("/plugins/run-task", { method: "POST", body: JSON.stringify(data) }),
-  saveSettings: (data: PluginSettings) => request<void>("/plugins/settings", { method: "POST", body: JSON.stringify(data) }),
+  runTask: (data: RunPluginTaskRequest) =>
+    request<{ jobId: string }>("/plugins/run-task", { method: "POST", body: JSON.stringify(data) }),
+  saveSettings: (data: PluginSettings) =>
+    request<void>("/plugins/settings", { method: "POST", body: JSON.stringify(data) }),
   reload: () => request<{ message: string }>("/plugins/reload", { method: "POST" }),
   getConfig: (pluginId: string) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(pluginId)}/config`),
   setConfig: (pluginId: string, values: Record<string, unknown>) =>
@@ -1574,7 +2095,8 @@ export const extensions = {
       method: "POST",
       body: JSON.stringify(parameters ?? null),
     }),
-  assetUrl: (extensionId: string, path: string) => `${API_BASE}/extensions/assets/${encodeURIComponent(extensionId)}/${path}`,
+  assetUrl: (extensionId: string, path: string) =>
+    `${API_BASE}/extensions/assets/${encodeURIComponent(extensionId)}/${path}`,
   /** Get all available extension categories. */
   getCategories: () => request<string[]>("/extensions/categories"),
   /** Validate all extension dependencies. */
@@ -1583,7 +2105,14 @@ export const extensions = {
   getMissingDependencies: (id: string) =>
     request<string[]>(`/extensions/${encodeURIComponent(id)}/dependencies/missing`),
   /** Registry: search for extensions. */
-  registrySearch: (params: { q?: string; category?: string; type?: string; sort?: string; page?: number; pageSize?: number }) => {
+  registrySearch: (params: {
+    q?: string;
+    category?: string;
+    type?: string;
+    sort?: string;
+    page?: number;
+    pageSize?: number;
+  }) => {
     const qs = new URLSearchParams();
     if (params.q) qs.set("q", params.q);
     if (params.category) qs.set("category", params.category);
@@ -1619,11 +2148,14 @@ export const extensions = {
     const body = new FormData();
     body.append("file", file);
     body.append("trustUnverified", String(trustUnverified));
-    return request<{ message: string; extensionId: string; version: string; path: string }>("/extensions/install-from-zip", {
-      method: "POST",
-      body,
-      timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
-    });
+    return request<{ message: string; extensionId: string; version: string; path: string }>(
+      "/extensions/install-from-zip",
+      {
+        method: "POST",
+        body,
+        timeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
+      },
+    );
   },
   /** Registry: resolve dependencies for an extension. */
   registryResolveDependencies: (extensionId: string) =>
@@ -1804,18 +2336,21 @@ export const auth = {
   externalProviders: () => request<ExternalLoginMethodRow[]>("/auth/external/providers"),
   externalLinks: () => request<ExternalIdentityLinkRow[]>("/auth/external/links"),
   startExternalLink: (path: string) => request<ExternalLinkStartRow>(normalizeApiPath(path), { method: "POST" }),
-  previewExternalLink: (code: string) => request<PendingExternalIdentityLinkRow>("/auth/external/links/preview", {
-    method: "POST",
-    body: JSON.stringify({ code }),
-  }),
-  confirmExternalLink: (code: string) => request<ExternalIdentityLinkRow>("/auth/external/links/confirm", {
-    method: "POST",
-    body: JSON.stringify({ code }),
-  }),
-  cancelExternalLink: (code: string) => request<void>("/auth/external/links/cancel", {
-    method: "POST",
-    body: JSON.stringify({ code }),
-  }),
+  previewExternalLink: (code: string) =>
+    request<PendingExternalIdentityLinkRow>("/auth/external/links/preview", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  confirmExternalLink: (code: string) =>
+    request<ExternalIdentityLinkRow>("/auth/external/links/confirm", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  cancelExternalLink: (code: string) =>
+    request<void>("/auth/external/links/cancel", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
   removeExternalLink: (linkId: number) => request<void>(`/auth/external/links/${linkId}`, { method: "DELETE" }),
   bootstrapOwner: (username: string, password: string) =>
     request<AuthLoginResponse>("/auth/bootstrap-owner", {
@@ -1856,12 +2391,20 @@ export const auth = {
 export const usersApi = {
   list: () => request<UserRow[]>("/users"),
   get: (id: number) => request<UserRow>(`/users/${id}`),
-  create: (req: { username: string; password: string; displayName?: string; email?: string; roles?: string[]; mustChangePassword?: boolean }) =>
-    request<UserRow>("/users", { method: "POST", body: JSON.stringify(req) }),
+  create: (req: {
+    username: string;
+    password: string;
+    displayName?: string;
+    email?: string;
+    roles?: string[];
+    mustChangePassword?: boolean;
+  }) => request<UserRow>("/users", { method: "POST", body: JSON.stringify(req) }),
   createInvite: (req: { username?: string; displayName?: string; email?: string; roles?: string[] }) =>
     request<InviteTokenRow>("/users/invite", { method: "POST", body: JSON.stringify(req) }),
-  update: (id: number, req: { displayName?: string; email?: string; isActive?: boolean; mustChangePassword?: boolean }) =>
-    request<UserRow>(`/users/${id}`, { method: "PUT", body: JSON.stringify(req) }),
+  update: (
+    id: number,
+    req: { displayName?: string; email?: string; isActive?: boolean; mustChangePassword?: boolean },
+  ) => request<UserRow>(`/users/${id}`, { method: "PUT", body: JSON.stringify(req) }),
   remove: (id: number) => request<void>(`/users/${id}`, { method: "DELETE" }),
   setRoles: (id: number, roles: string[]) =>
     request<UserRow>(`/users/${id}/roles`, { method: "POST", body: JSON.stringify({ roles }) }),
@@ -1895,7 +2438,7 @@ export const auditApi = {
     if (opts?.perPage) params.set("perPage", String(opts.perPage));
     const qs = params.toString();
     return request<{ items: AuditEventRow[]; totalCount: number; page: number; perPage: number }>(
-      `/audit${qs ? "?" + qs : ""}`
+      `/audit${qs ? "?" + qs : ""}`,
     );
   },
 };
@@ -1905,8 +2448,14 @@ export const contentRulesApi = {
     const qs = roleId ? `?roleId=${roleId}` : "";
     return request<ContentRuleRow[]>(`/content-rules${qs}`);
   },
-  create: (req: { roleId: number; entityKind: string; effect: string; scopeKind: string; scopeValue: string; appliesTo: string }) =>
-    request<ContentRuleRow>("/content-rules", { method: "POST", body: JSON.stringify(req) }),
+  create: (req: {
+    roleId: number;
+    entityKind: string;
+    effect: string;
+    scopeKind: string;
+    scopeValue: string;
+    appliesTo: string;
+  }) => request<ContentRuleRow>("/content-rules", { method: "POST", body: JSON.stringify(req) }),
   update: (id: number, req: Partial<Pick<ContentRuleRow, "effect" | "scopeKind" | "scopeValue" | "appliesTo">>) =>
     request<ContentRuleRow>(`/content-rules/${id}`, { method: "PUT", body: JSON.stringify(req) }),
   remove: (id: number) => request<void>(`/content-rules/${id}`, { method: "DELETE" }),

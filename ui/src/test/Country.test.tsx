@@ -29,7 +29,11 @@ describe("Country", () => {
     await waitFor(() => expect(screen.getByText("United States")).toBeVisible());
     expect(screen.getByText(countryFlag("US"))).toBeVisible();
 
-    rerender(<QueryClientProvider client={new QueryClient()}><CountryLabel value="Atlantis" /></QueryClientProvider>);
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <CountryLabel value="Atlantis" />
+      </QueryClientProvider>,
+    );
     expect(screen.getByText("Atlantis")).toBeVisible();
     expect(screen.queryByText(countryFlag("AT"))).not.toBeInTheDocument();
   });

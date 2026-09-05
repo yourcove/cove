@@ -4,11 +4,7 @@ import { getEditableTagIds, getLockedTagIds, mergeTagIds } from "../utils/tags";
 
 describe("tag edit helpers", () => {
   it("separates removable tags from derived locked tags", () => {
-    const tags = [
-      { id: 1, canRemove: true },
-      { id: 2, canRemove: false },
-      { id: 3 },
-    ];
+    const tags = [{ id: 1, canRemove: true }, { id: 2, canRemove: false }, { id: 3 }];
 
     expect(getEditableTagIds(tags)).toEqual([1, 3]);
     expect(getLockedTagIds(tags)).toEqual([2]);

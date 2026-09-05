@@ -31,10 +31,14 @@ export function TagEditModal({ tag, open, onClose }: Props) {
   const [color, setColor] = useState(tag.color ?? "");
   const [tagGroupId, setTagGroupId] = useState<number | undefined>(tag.tagGroupId ?? undefined);
   const [minOccurrenceSec, setMinOccurrenceSec] = useState<number | undefined>(tag.minOccurrenceSec ?? undefined);
-  const [minOccurrencePercent, setMinOccurrencePercent] = useState<number | undefined>(tag.minOccurrencePercent ?? undefined);
+  const [minOccurrencePercent, setMinOccurrencePercent] = useState<number | undefined>(
+    tag.minOccurrencePercent ?? undefined,
+  );
   const [playerBarMode, setPlayerBarMode] = useState<PlayerBarMode>(() => readPlayerBarMode(tag.showAsSegment));
   const [segmentColorOverride, setSegmentColorOverride] = useState(tag.segmentColorOverride ?? "");
-  const [segmentLaneOverride, setSegmentLaneOverride] = useState<number | undefined>(tag.segmentLaneOverride ?? undefined);
+  const [segmentLaneOverride, setSegmentLaneOverride] = useState<number | undefined>(
+    tag.segmentLaneOverride ?? undefined,
+  );
   const [aliases, setAliases] = useState(tag.aliases);
   const [selectedParentIds, setSelectedParentIds] = useState<number[]>(tag.parents.map((t) => t.id));
   const [selectedChildIds, setSelectedChildIds] = useState<number[]>(tag.children.map((t) => t.id));
@@ -86,10 +90,9 @@ export function TagEditModal({ tag, open, onClose }: Props) {
 
   const handleSave = () => {
     const aliasList = aliases.map((alias) => alias.trim()).filter(Boolean);
-    const clearFields = [
-      !sortName && "sortName",
-      !description && "description",
-    ].filter((field): field is string => Boolean(field));
+    const clearFields = [!sortName && "sortName", !description && "description"].filter((field): field is string =>
+      Boolean(field),
+    );
     mutation.mutate({
       name,
       sortName: sortName || undefined,
@@ -99,7 +102,7 @@ export function TagEditModal({ tag, open, onClose }: Props) {
       minOccurrenceSec: minOccurrenceSec ?? null,
       minOccurrencePercent: clampOptionalPercent(minOccurrencePercent) ?? null,
       showAsSegment: playerBarMode === "default" ? null : playerBarMode === "always",
-      segmentColorOverride: playerBarMode === "always" ? (segmentColorOverride.trim() || null) : null,
+      segmentColorOverride: playerBarMode === "always" ? segmentColorOverride.trim() || null : null,
       segmentLaneOverride: playerBarMode === "always" ? (segmentLaneOverride ?? null) : null,
       aliases: aliasList,
       parentIds: selectedParentIds,
@@ -150,19 +153,18 @@ export function TagEditModal({ tag, open, onClose }: Props) {
           <NumberInput value={minOccurrenceSec} onChange={setMinOccurrenceSec} min={0} />
         </Field>
         <Field label="Min Percent" fieldProvenance={tag.fieldProvenance} fieldKey="minOccurrencePercent">
-          <NumberInput value={minOccurrencePercent} onChange={(value) => setMinOccurrencePercent(clampOptionalPercent(value))} min={0} max={100} />
+          <NumberInput
+            value={minOccurrencePercent}
+            onChange={(value) => setMinOccurrencePercent(clampOptionalPercent(value))}
+            min={0}
+            max={100}
+          />
         </Field>
       </div>
 
       <Field label="Aliases" fieldProvenance={tag.fieldProvenance} fieldKey="aliases">
-        <StringListEditor
-          values={aliases}
-          onChange={setAliases}
-          placeholder="Alternate name"
-          addLabel="Add Alias"
-        />
+        <StringListEditor values={aliases} onChange={setAliases} placeholder="Alternate name" addLabel="Add Alias" />
       </Field>
-
 
       <Field label="Player Bar" fieldProvenance={tag.fieldProvenance} fieldKey="showAsSegment">
         <div className="space-y-3 rounded-xl border border-border bg-surface/40 p-3">
@@ -195,12 +197,26 @@ export function TagEditModal({ tag, open, onClose }: Props) {
 
       {/* Parent Tags */}
       <Field label="Parent Tags" fieldProvenance={tag.fieldProvenance} fieldKey="parents">
-        <EntityReferenceMultiSelector entityType="tag" values={selectedParentIds} onChange={setSelectedParentIds} placeholder="Search parent tags..." excludeIds={[tag.id, ...selectedChildIds]} selectedProvenanceById={parentTagProvenanceById} />
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={selectedParentIds}
+          onChange={setSelectedParentIds}
+          placeholder="Search parent tags..."
+          excludeIds={[tag.id, ...selectedChildIds]}
+          selectedProvenanceById={parentTagProvenanceById}
+        />
       </Field>
 
       {/* Child Tags */}
       <Field label="Child Tags" fieldProvenance={tag.fieldProvenance} fieldKey="children">
-        <EntityReferenceMultiSelector entityType="tag" values={selectedChildIds} onChange={setSelectedChildIds} placeholder="Search child tags..." excludeIds={[tag.id, ...selectedParentIds]} selectedProvenanceById={childTagProvenanceById} />
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={selectedChildIds}
+          onChange={setSelectedChildIds}
+          placeholder="Search child tags..."
+          excludeIds={[tag.id, ...selectedParentIds]}
+          selectedProvenanceById={childTagProvenanceById}
+        />
       </Field>
 
       <Field label="Remote IDs" fieldProvenance={tag.fieldProvenance} fieldKey="remoteIds">
@@ -208,7 +224,12 @@ export function TagEditModal({ tag, open, onClose }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={tag.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="tag" />
+        <CustomFieldsEditor
+          value={customFields}
+          onChange={setCustomFields}
+          onValidityChange={setCustomFieldsValid}
+          entityType="tag"
+        />
       </Field>
 
       {mutation.error ? (
@@ -218,7 +239,9 @@ export function TagEditModal({ tag, open, onClose }: Props) {
       ) : null}
 
       <div className="flex justify-end gap-3 mt-4">
-        <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
+        <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">
+          Cancel
+        </button>
         <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>

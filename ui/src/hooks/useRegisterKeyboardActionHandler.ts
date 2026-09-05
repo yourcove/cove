@@ -45,9 +45,11 @@ export function selectExtensionKeyboardBindings(
   effectiveBindings: Record<string, string[]>,
 ): Readonly<Record<string, readonly string[]>> {
   const prefix = `extension:${requireIdentifier(extensionId, "Extension id")}:`;
-  return Object.fromEntries(Object.entries(effectiveBindings)
-    .filter(([actionId]) => actionId.startsWith(prefix))
-    .map(([actionId, bindings]) => [actionId.slice(prefix.length), [...bindings]]));
+  return Object.fromEntries(
+    Object.entries(effectiveBindings)
+      .filter(([actionId]) => actionId.startsWith(prefix))
+      .map(([actionId, bindings]) => [actionId.slice(prefix.length), [...bindings]]),
+  );
 }
 
 /**
@@ -59,12 +61,17 @@ export function useRegisterKeyboardActionHandler(
   handler: (context: KeyboardActionInvocation) => void,
   options: { enabled?: boolean; surface?: KeyboardShortcutSurface } = {},
 ) {
-  const registrations = useMemo(() => [{
-    id: actionId,
-    enabled: options.enabled ?? true,
-    surface: options.surface ?? "local" as const,
-    action: handler,
-  }], [actionId, handler, options.enabled, options.surface]);
+  const registrations = useMemo(
+    () => [
+      {
+        id: actionId,
+        enabled: options.enabled ?? true,
+        surface: options.surface ?? ("local" as const),
+        action: handler,
+      },
+    ],
+    [actionId, handler, options.enabled, options.surface],
+  );
   useRegisterKeyboardActions(registrations);
 }
 

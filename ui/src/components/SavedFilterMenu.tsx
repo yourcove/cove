@@ -45,7 +45,12 @@ export function useDefaultSavedFilterOnMount(
 }
 
 /** Set the default filter for a mode (account-backed when signed in, plus a browser-local fallback). */
-function setDefaultFilter(mode: string, findFilter: FindFilter, objectFilter?: Record<string, unknown>, uiOptions?: SavedFilterUIOptions) {
+function setDefaultFilter(
+  mode: string,
+  findFilter: FindFilter,
+  objectFilter?: Record<string, unknown>,
+  uiOptions?: SavedFilterUIOptions,
+) {
   const json = JSON.stringify({ findFilter: stripRandomSeed(findFilter), objectFilter, uiOptions });
   const key = mode.trim().toLowerCase();
   localStorage.setItem(`cove-default-filter-${mode}`, json);
@@ -112,9 +117,12 @@ function SavedFilterName({ name, onClick }: { name: string; onClick: () => void 
     hideTimerRef.current = window.setTimeout(() => setTooltip(null), 100);
   };
 
-  useEffect(() => () => {
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    },
+    [],
+  );
 
   return (
     <>
@@ -130,21 +138,22 @@ function SavedFilterName({ name, onClick }: { name: string; onClick: () => void 
       >
         {name}
       </button>
-      {tooltip && createPortal(
-        <div
-          id={tooltipId}
-          role="tooltip"
-          onPointerEnter={() => {
-            if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-          }}
-          onPointerLeave={hideTooltip}
-          className="fixed z-[100] rounded border border-border bg-card px-2 py-1 text-xs text-foreground shadow-lg"
-          style={{ top: tooltip.top, left: tooltip.left, maxWidth: tooltip.maxWidth, overflowWrap: "anywhere" }}
-        >
-          {name}
-        </div>,
-        document.body,
-      )}
+      {tooltip &&
+        createPortal(
+          <div
+            id={tooltipId}
+            role="tooltip"
+            onPointerEnter={() => {
+              if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+            }}
+            onPointerLeave={hideTooltip}
+            className="fixed z-[100] rounded border border-border bg-card px-2 py-1 text-xs text-foreground shadow-lg"
+            style={{ top: tooltip.top, left: tooltip.left, maxWidth: tooltip.maxWidth, overflowWrap: "anywhere" }}
+          >
+            {name}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
@@ -224,20 +233,22 @@ export function SavedFilterMenu({
       panel.style.minWidth = `${Math.min(224, maxWidth)}px`;
       const triggerRect = trigger.getBoundingClientRect();
       const panelRect = panel.getBoundingClientRect();
-      const editingInsidePanel = document.activeElement instanceof HTMLInputElement
-        && panel.contains(document.activeElement)
-        && document.activeElement.placeholder === "Filter name...";
+      const editingInsidePanel =
+        document.activeElement instanceof HTMLInputElement &&
+        panel.contains(document.activeElement) &&
+        document.activeElement.placeholder === "Filter name...";
       if ((triggerRect.bottom < viewportTop || triggerRect.top > viewportBottom) && !editingInsidePanel) {
         setOpen(false);
         return;
       }
       const below = triggerRect.bottom + 4;
       const above = triggerRect.top - panelRect.height - 4;
-      const preferredTop = below + panelRect.height <= viewportBottom - viewportPadding
-        ? below
-        : above >= viewportTop + viewportPadding
-          ? above
-          : viewportTop + viewportPadding;
+      const preferredTop =
+        below + panelRect.height <= viewportBottom - viewportPadding
+          ? below
+          : above >= viewportTop + viewportPadding
+            ? above
+            : viewportTop + viewportPadding;
       const top = Math.min(
         Math.max(preferredTop, viewportTop + viewportPadding),
         Math.max(viewportTop + viewportPadding, viewportBottom - panelRect.height - viewportPadding),
@@ -277,8 +288,12 @@ export function SavedFilterMenu({
         mode,
         name: saveName,
         findFilter: JSON.stringify(stripRandomSeed(currentFilter)),
-        objectFilter: currentObjectFilter && Object.keys(currentObjectFilter).length > 0 ? JSON.stringify(currentObjectFilter) : undefined,
-        uiOptions: currentUIOptions && Object.keys(currentUIOptions).length > 0 ? JSON.stringify(currentUIOptions) : undefined,
+        objectFilter:
+          currentObjectFilter && Object.keys(currentObjectFilter).length > 0
+            ? JSON.stringify(currentObjectFilter)
+            : undefined,
+        uiOptions:
+          currentUIOptions && Object.keys(currentUIOptions).length > 0 ? JSON.stringify(currentUIOptions) : undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["saved-filters", mode] });
@@ -320,7 +335,7 @@ export function SavedFilterMenu({
 
     if (onApplyObjectFilter) {
       try {
-        onApplyObjectFilter(objectFilterJson ? JSON.parse(objectFilterJson) as Record<string, unknown> : {});
+        onApplyObjectFilter(objectFilterJson ? (JSON.parse(objectFilterJson) as Record<string, unknown>) : {});
       } catch {
         onApplyObjectFilter({});
       }
@@ -337,8 +352,8 @@ export function SavedFilterMenu({
     setOpen(false);
   };
   const normalizedSaveName = saveName.trim().toLocaleLowerCase();
-  const hasDuplicateName = !!normalizedSaveName
-    && !!filters?.some((filter) => filter.name.trim().toLocaleLowerCase() === normalizedSaveName);
+  const hasDuplicateName =
+    !!normalizedSaveName && !!filters?.some((filter) => filter.name.trim().toLocaleLowerCase() === normalizedSaveName);
 
   return (
     <div ref={menuRef} className="relative">
@@ -371,25 +386,15 @@ export function SavedFilterMenu({
           }}
         >
           <div className="p-2 border-b border-border">
-            <p className="text-[10px] text-muted uppercase tracking-wider font-medium">
-              Saved Filters
-            </p>
+            <p className="text-[10px] text-muted uppercase tracking-wider font-medium">Saved Filters</p>
           </div>
 
           {/* Existing filters */}
           <div className="max-h-48 overflow-y-auto">
-            {(!filters || filters.length === 0) && (
-              <p className="px-3 py-2 text-xs text-muted">No saved filters</p>
-            )}
+            {(!filters || filters.length === 0) && <p className="px-3 py-2 text-xs text-muted">No saved filters</p>}
             {filters?.map((f) => (
-              <div
-                key={f.id}
-                className="group flex items-center px-3 py-1.5 hover:bg-card/80"
-              >
-                <SavedFilterName
-                  name={f.name}
-                  onClick={() => applyFilter(f.findFilter, f.objectFilter, f.uiOptions)}
-                />
+              <div key={f.id} className="group flex items-center px-3 py-1.5 hover:bg-card/80">
+                <SavedFilterName name={f.name} onClick={() => applyFilter(f.findFilter, f.objectFilter, f.uiOptions)} />
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -401,9 +406,11 @@ export function SavedFilterMenu({
                   title="Update with current filter"
                   className="shrink-0 p-1 text-muted hover:text-accent transition-colors disabled:opacity-50"
                 >
-                  {updateMut.isPending && updateMut.variables === f.id
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : <Save className="w-3 h-3" />}
+                  {updateMut.isPending && updateMut.variables === f.id ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Save className="w-3 h-3" />
+                  )}
                 </button>
                 <button
                   onClick={(e) => {
@@ -429,7 +436,10 @@ export function SavedFilterMenu({
           <div className="border-t border-border p-2 space-y-1.5">
             {/* Set/clear default filter */}
             <button
-              onClick={() => { setDefaultFilter(defaultKey, currentFilter, currentObjectFilter, currentUIOptions); setOpen(false); }}
+              onClick={() => {
+                setDefaultFilter(defaultKey, currentFilter, currentObjectFilter, currentUIOptions);
+                setOpen(false);
+              }}
               className="flex items-center gap-1.5 text-xs text-secondary hover:text-yellow-400 w-full"
               title="Apply the current filter state automatically when opening this page"
             >
@@ -438,7 +448,10 @@ export function SavedFilterMenu({
             </button>
             {hasDefault && (
               <button
-                onClick={() => { clearDefaultFilter(defaultKey); setOpen(false); }}
+                onClick={() => {
+                  clearDefaultFilter(defaultKey);
+                  setOpen(false);
+                }}
                 className="flex items-center gap-1.5 text-xs text-muted hover:text-red-400 w-full"
               >
                 <Star className="w-3 h-3" />
@@ -451,8 +464,13 @@ export function SavedFilterMenu({
                   <input
                     type="text"
                     value={saveName}
-                    onChange={(e) => { setSaveName(e.target.value); createMut.reset(); }}
-                    onKeyDown={(e) => e.key === "Enter" && normalizedSaveName && !hasDuplicateName && createMut.mutate()}
+                    onChange={(e) => {
+                      setSaveName(e.target.value);
+                      createMut.reset();
+                    }}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && normalizedSaveName && !hasDuplicateName && createMut.mutate()
+                    }
                     placeholder="Filter name..."
                     className="flex-1 rounded border border-border bg-card/70 px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent placeholder:text-muted"
                     autoFocus

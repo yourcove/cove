@@ -12,11 +12,21 @@ export interface MultiSelectToggleOptions<TId extends string | number = number> 
   orderedIds?: readonly TId[];
 }
 
-export type MultiSelectToggleHandler<TId extends string | number = number> = (id: TId, options?: MultiSelectToggleOptions<TId>) => void;
-export type BoundMultiSelectToggleHandler<TId extends string | number = number> = (options?: MultiSelectToggleOptions<TId>) => void;
+export type MultiSelectToggleHandler<TId extends string | number = number> = (
+  id: TId,
+  options?: MultiSelectToggleOptions<TId>,
+) => void;
+export type BoundMultiSelectToggleHandler<TId extends string | number = number> = (
+  options?: MultiSelectToggleOptions<TId>,
+) => void;
 
-export function toggleOptionsFromEvent<TId extends string | number = never>(event: { shiftKey: boolean }): MultiSelectToggleOptions<TId>;
-export function toggleOptionsFromEvent<TId extends string | number>(event: { shiftKey: boolean }, orderedIds: readonly TId[]): MultiSelectToggleOptions<TId>;
+export function toggleOptionsFromEvent<TId extends string | number = never>(event: {
+  shiftKey: boolean;
+}): MultiSelectToggleOptions<TId>;
+export function toggleOptionsFromEvent<TId extends string | number>(
+  event: { shiftKey: boolean },
+  orderedIds: readonly TId[],
+): MultiSelectToggleOptions<TId>;
 export function toggleOptionsFromEvent<TId extends string | number>(
   event: { shiftKey: boolean },
   orderedIds?: readonly TId[],
@@ -72,69 +82,84 @@ export function useMultiSelect<T extends { id: string | number }>(items: T[], op
     }
   }, [itemIdsKey, preserveOnItemsChange, resetKey]);
 
-  const isSelectableItem = useCallback((item: T) => isSelectableId(item.id) && isSelectable(item), [isSelectable, isSelectableId]);
-  const isSelectableSelectionId = useCallback((id: T["id"], itemById: ReadonlyMap<T["id"], T>) => {
-    const item = itemById.get(id);
-    if (item) {
-      return isSelectableItem(item);
-    }
+  const isSelectableItem = useCallback(
+    (item: T) => isSelectableId(item.id) && isSelectable(item),
+    [isSelectable, isSelectableId],
+  );
+  const isSelectableSelectionId = useCallback(
+    (id: T["id"], itemById: ReadonlyMap<T["id"], T>) => {
+      const item = itemById.get(id);
+      if (item) {
+        return isSelectableItem(item);
+      }
 
-    return isSelectableId(id);
-  }, [isSelectableId, isSelectableItem]);
-  const isSelectableToggleId = useCallback((id: T["id"], itemById: ReadonlyMap<T["id"], T>) => {
-    const item = itemById.get(id);
-    if (item) {
-      return isSelectableItem(item);
-    }
+      return isSelectableId(id);
+    },
+    [isSelectableId, isSelectableItem],
+  );
+  const isSelectableToggleId = useCallback(
+    (id: T["id"], itemById: ReadonlyMap<T["id"], T>) => {
+      const item = itemById.get(id);
+      if (item) {
+        return isSelectableItem(item);
+      }
 
-    return canSelectUnloadedIds && isSelectableId(id);
-  }, [canSelectUnloadedIds, isSelectableId, isSelectableItem]);
+      return canSelectUnloadedIds && isSelectableId(id);
+    },
+    [canSelectUnloadedIds, isSelectableId, isSelectableItem],
+  );
 
-  const toggle = useCallback((id: T["id"], toggleOptions: MultiSelectToggleOptions<T["id"]> = {}) => {
-    const itemById = new Map(items.map((item) => [item.id, item]));
-    if (!isSelectableToggleId(id, itemById)) {
-      return;
-    }
+  const toggle = useCallback(
+    (id: T["id"], toggleOptions: MultiSelectToggleOptions<T["id"]> = {}) => {
+      const itemById = new Map(items.map((item) => [item.id, item]));
+      if (!isSelectableToggleId(id, itemById)) {
+        return;
+      }
 
-    const anchorId = lastToggledId.current;
-    const rangeIds = toggleOptions.orderedIds ?? items.map((item) => item.id);
-    const anchorIndex = anchorId == null ? -1 : rangeIds.findIndex((itemId) => itemId === anchorId);
-    const targetIndex = rangeIds.findIndex((itemId) => itemId === id);
-    setSelectedIds((prev) => {
-      if (toggleOptions.range && anchorIndex >= 0 && targetIndex >= 0) {
-        const next = new Set(prev);
-        const start = Math.min(anchorIndex, targetIndex);
-        const end = Math.max(anchorIndex, targetIndex);
-        for (const itemId of rangeIds.slice(start, end + 1)) {
-          if (!isSelectableToggleId(itemId, itemById)) {
-            continue;
+      const anchorId = lastToggledId.current;
+      const rangeIds = toggleOptions.orderedIds ?? items.map((item) => item.id);
+      const anchorIndex = anchorId == null ? -1 : rangeIds.findIndex((itemId) => itemId === anchorId);
+      const targetIndex = rangeIds.findIndex((itemId) => itemId === id);
+      setSelectedIds((prev) => {
+        if (toggleOptions.range && anchorIndex >= 0 && targetIndex >= 0) {
+          const next = new Set(prev);
+          const start = Math.min(anchorIndex, targetIndex);
+          const end = Math.max(anchorIndex, targetIndex);
+          for (const itemId of rangeIds.slice(start, end + 1)) {
+            if (!isSelectableToggleId(itemId, itemById)) {
+              continue;
+            }
+            next.add(itemId);
           }
-          next.add(itemId);
+          return next;
+        }
+
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
         }
         return next;
-      }
-
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-    lastToggledId.current = id;
-  }, [isSelectableToggleId, items]);
+      });
+      lastToggledId.current = id;
+    },
+    [isSelectableToggleId, items],
+  );
 
   const selectAll = useCallback(() => {
     lastToggledId.current = null;
     setSelectedIds(new Set(items.filter(isSelectableItem).map((i) => i.id)));
   }, [isSelectableItem, items]);
 
-  const selectIds = useCallback((ids: Array<T["id"]>) => {
-    lastToggledId.current = null;
-    const itemById = new Map(items.map((item) => [item.id, item]));
-    setSelectedIds(new Set(ids.filter((id) => isSelectableSelectionId(id, itemById))));
-  }, [isSelectableSelectionId, items]);
+  const selectIds = useCallback(
+    (ids: Array<T["id"]>) => {
+      lastToggledId.current = null;
+      const itemById = new Map(items.map((item) => [item.id, item]));
+      setSelectedIds(new Set(ids.filter((id) => isSelectableSelectionId(id, itemById))));
+    },
+    [isSelectableSelectionId, items],
+  );
 
   const selectNone = useCallback(() => {
     lastToggledId.current = null;

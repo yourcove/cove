@@ -71,13 +71,15 @@ describe("GlobalSearch", () => {
 
   it("navigates search results with the arrow keys and opens the active result", async () => {
     searchMock.mockResolvedValue({
-      groups: [{
-        type: "video",
-        items: [
-          { id: 42, title: "First match", subtitle: "Example studio" },
-          { id: 84, title: "Second match", subtitle: "Another studio" },
-        ],
-      }],
+      groups: [
+        {
+          type: "video",
+          items: [
+            { id: 42, title: "First match", subtitle: "Example studio" },
+            { id: 84, title: "Second match", subtitle: "Another studio" },
+          ],
+        },
+      ],
       failedTypes: [],
     });
     const { navigate } = renderSearch();
@@ -99,7 +101,10 @@ describe("GlobalSearch", () => {
     expect(firstMatch).toHaveAttribute("aria-selected", "true");
     expect(firstMatch).toHaveClass("bg-accent/15", "ring-accent");
     expect(input).toHaveAttribute("aria-activedescendant");
-    expect(document.getElementById(input.getAttribute("aria-activedescendant")!)).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById(input.getAttribute("aria-activedescendant")!)).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(screen.getAllByRole("option", { name: /Second match/ })[0]).toHaveAttribute("aria-selected", "true");

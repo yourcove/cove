@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Edit, Image as ImageIcon, Loader2, Trash2, Search, Play, Unlink } from "lucide-react";
-import { videos as videosApi, images, galleries, performers, groups, studios, tags, audios, texts, entityImages } from "../api/client";
+import {
+  videos as videosApi,
+  images,
+  galleries,
+  performers,
+  groups,
+  studios,
+  tags,
+  audios,
+  texts,
+  entityImages,
+} from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { canDeleteEntity, canWriteEntity } from "../auth/visibility";
 import type {
@@ -21,7 +32,19 @@ import type {
 } from "../api/types";
 import type { TextDocument } from "../api/types";
 import type { Route } from "../router/location";
-import { BulkEditDialog, VIDEO_BULK_FIELDS, IMAGE_BULK_FIELDS, GALLERY_BULK_FIELDS, PERFORMER_BULK_FIELDS, GROUP_BULK_FIELDS, STUDIO_BULK_FIELDS, TAG_BULK_FIELDS, AUDIO_BULK_FIELDS, TEXT_BULK_FIELDS, type BulkEditField } from "./BulkEditDialog";
+import {
+  BulkEditDialog,
+  VIDEO_BULK_FIELDS,
+  IMAGE_BULK_FIELDS,
+  GALLERY_BULK_FIELDS,
+  PERFORMER_BULK_FIELDS,
+  GROUP_BULK_FIELDS,
+  STUDIO_BULK_FIELDS,
+  TAG_BULK_FIELDS,
+  AUDIO_BULK_FIELDS,
+  TEXT_BULK_FIELDS,
+  type BulkEditField,
+} from "./BulkEditDialog";
 import { BatchDownloadOptionsDialog } from "./BatchDownloadOptionsDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IdentifyDialog } from "./IdentifyDialog";
@@ -83,15 +106,24 @@ type BulkUpdatePayload = BulkUpdatePayloadByEntity[BulkSelectionEntityType];
 
 function runBulkUpdate(entityType: BulkSelectionEntityType, payload: BulkUpdatePayload) {
   switch (entityType) {
-    case "videos": return videosApi.bulkUpdate(payload as BulkVideoUpdate);
-    case "images": return images.bulkUpdate(payload as BulkImageUpdate);
-    case "galleries": return galleries.bulkUpdate(payload as BulkGalleryUpdate);
-    case "performers": return performers.bulkUpdate(payload as BulkPerformerUpdate);
-    case "groups": return groups.bulkUpdate(payload as BulkGroupUpdate);
-    case "studios": return studios.bulkUpdate(payload as BulkStudioUpdate);
-    case "tags": return tags.bulkUpdate(payload as BulkTagUpdate);
-    case "audios": return audios.bulkUpdate(payload as BulkAudioUpdate);
-    case "texts": return texts.bulkUpdate(payload as BulkTextUpdate);
+    case "videos":
+      return videosApi.bulkUpdate(payload as BulkVideoUpdate);
+    case "images":
+      return images.bulkUpdate(payload as BulkImageUpdate);
+    case "galleries":
+      return galleries.bulkUpdate(payload as BulkGalleryUpdate);
+    case "performers":
+      return performers.bulkUpdate(payload as BulkPerformerUpdate);
+    case "groups":
+      return groups.bulkUpdate(payload as BulkGroupUpdate);
+    case "studios":
+      return studios.bulkUpdate(payload as BulkStudioUpdate);
+    case "tags":
+      return tags.bulkUpdate(payload as BulkTagUpdate);
+    case "audios":
+      return audios.bulkUpdate(payload as BulkAudioUpdate);
+    case "texts":
+      return texts.bulkUpdate(payload as BulkTextUpdate);
   }
 }
 
@@ -123,22 +155,34 @@ function getParentLabel(parent: NestedListParent) {
   return parent.label?.trim() || `this ${parent.type}`;
 }
 
-function getRemoveFromParentAction(entityType: BulkSelectionEntityType, parent?: NestedListParent): RemoveFromParentAction | null {
+function getRemoveFromParentAction(
+  entityType: BulkSelectionEntityType,
+  parent?: NestedListParent,
+): RemoveFromParentAction | null {
   if (!parent) return null;
   const parentLabel = getParentLabel(parent);
 
   if (parent.type === "tag") {
     const run = (ids: number[]) => {
       switch (entityType) {
-        case "videos": return videosApi.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        case "images": return images.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        case "galleries": return galleries.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        case "performers": return performers.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        case "groups": return groups.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        case "studios": return studios.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        case "audios": return audios.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        case "texts": return texts.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
-        default: return Promise.reject(new Error("This nested removal is not supported."));
+        case "videos":
+          return videosApi.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        case "images":
+          return images.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        case "galleries":
+          return galleries.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        case "performers":
+          return performers.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        case "groups":
+          return groups.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        case "studios":
+          return studios.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        case "audios":
+          return audios.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        case "texts":
+          return texts.bulkUpdate({ ids, tagIds: [parent.id], tagMode: "REMOVE" });
+        default:
+          return Promise.reject(new Error("This nested removal is not supported."));
       }
     };
     return { label: `Remove from ${parentLabel}`, parentLabel, permissionTarget: "child", run };
@@ -147,12 +191,18 @@ function getRemoveFromParentAction(entityType: BulkSelectionEntityType, parent?:
   if (parent.type === "performer") {
     const run = (ids: number[]) => {
       switch (entityType) {
-        case "videos": return videosApi.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
-        case "images": return images.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
-        case "galleries": return galleries.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
-        case "audios": return audios.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
-        case "texts": return texts.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
-        default: return Promise.reject(new Error("This nested removal is not supported."));
+        case "videos":
+          return videosApi.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
+        case "images":
+          return images.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
+        case "galleries":
+          return galleries.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
+        case "audios":
+          return audios.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
+        case "texts":
+          return texts.bulkUpdate({ ids, performerIds: [parent.id], performerMode: "REMOVE" });
+        default:
+          return Promise.reject(new Error("This nested removal is not supported."));
       }
     };
     return { label: `Remove from ${parentLabel}`, parentLabel, permissionTarget: "child", run };
@@ -161,14 +211,22 @@ function getRemoveFromParentAction(entityType: BulkSelectionEntityType, parent?:
   if (parent.type === "studio") {
     const run = (ids: number[]) => {
       switch (entityType) {
-        case "videos": return videosApi.bulkUpdate({ ids, clearFields: ["studioId"] });
-        case "images": return images.bulkUpdate({ ids, clearFields: ["studioId"] });
-        case "galleries": return galleries.bulkUpdate({ ids, clearFields: ["studioId"] });
-        case "groups": return groups.bulkUpdate({ ids, clearFields: ["studioId"] });
-        case "studios": return studios.bulkUpdate({ ids, clearFields: ["parentId"] });
-        case "audios": return audios.bulkUpdate({ ids, clearFields: ["studioId"] });
-        case "texts": return texts.bulkUpdate({ ids, clearFields: ["studioId"] });
-        default: return Promise.reject(new Error("This nested removal is not supported."));
+        case "videos":
+          return videosApi.bulkUpdate({ ids, clearFields: ["studioId"] });
+        case "images":
+          return images.bulkUpdate({ ids, clearFields: ["studioId"] });
+        case "galleries":
+          return galleries.bulkUpdate({ ids, clearFields: ["studioId"] });
+        case "groups":
+          return groups.bulkUpdate({ ids, clearFields: ["studioId"] });
+        case "studios":
+          return studios.bulkUpdate({ ids, clearFields: ["parentId"] });
+        case "audios":
+          return audios.bulkUpdate({ ids, clearFields: ["studioId"] });
+        case "texts":
+          return texts.bulkUpdate({ ids, clearFields: ["studioId"] });
+        default:
+          return Promise.reject(new Error("This nested removal is not supported."));
       }
     };
     return { label: `Remove from ${parentLabel}`, parentLabel, permissionTarget: "child", run };
@@ -177,47 +235,75 @@ function getRemoveFromParentAction(entityType: BulkSelectionEntityType, parent?:
   if (parent.type === "gallery") {
     const run = (ids: number[]) => {
       switch (entityType) {
-        case "images": return galleries.removeImages(parent.id, ids);
-        case "videos": return videosApi.bulkUpdate({ ids, galleryIds: [parent.id], galleryMode: "REMOVE" });
-        default: return Promise.reject(new Error("This nested removal is not supported."));
+        case "images":
+          return galleries.removeImages(parent.id, ids);
+        case "videos":
+          return videosApi.bulkUpdate({ ids, galleryIds: [parent.id], galleryMode: "REMOVE" });
+        default:
+          return Promise.reject(new Error("This nested removal is not supported."));
       }
     };
-    return { label: `Remove from ${parentLabel}`, parentLabel, permissionTarget: entityType === "images" ? "parent" : "child", run };
+    return {
+      label: `Remove from ${parentLabel}`,
+      parentLabel,
+      permissionTarget: entityType === "images" ? "parent" : "child",
+      run,
+    };
   }
 
   if (parent.type === "group") {
     const run = (ids: number[]) => {
       switch (entityType) {
-        case "videos": return videosApi.bulkUpdate({ ids, groupIds: [{ groupId: parent.id, videoIndex: 0 }], groupMode: "REMOVE" });
-        case "images": return groups.items.removeHosts(parent.id, { kind: "image", hostIds: ids });
-        case "galleries": return groups.items.removeHosts(parent.id, { kind: "gallery", hostIds: ids });
-        case "audios": return groups.items.removeHosts(parent.id, { kind: "audio", hostIds: ids });
-        case "texts": return groups.items.removeHosts(parent.id, { kind: "text", hostIds: ids });
-        case "groups": return Promise.all(ids.map((id) => groups.removeSubGroup(parent.id, id)));
-        default: return Promise.reject(new Error("This nested removal is not supported."));
+        case "videos":
+          return videosApi.bulkUpdate({ ids, groupIds: [{ groupId: parent.id, videoIndex: 0 }], groupMode: "REMOVE" });
+        case "images":
+          return groups.items.removeHosts(parent.id, { kind: "image", hostIds: ids });
+        case "galleries":
+          return groups.items.removeHosts(parent.id, { kind: "gallery", hostIds: ids });
+        case "audios":
+          return groups.items.removeHosts(parent.id, { kind: "audio", hostIds: ids });
+        case "texts":
+          return groups.items.removeHosts(parent.id, { kind: "text", hostIds: ids });
+        case "groups":
+          return Promise.all(ids.map((id) => groups.removeSubGroup(parent.id, id)));
+        default:
+          return Promise.reject(new Error("This nested removal is not supported."));
       }
     };
-    return { label: `Remove from ${parentLabel}`, parentLabel, permissionTarget: entityType === "videos" ? "child" : "parent", run };
+    return {
+      label: `Remove from ${parentLabel}`,
+      parentLabel,
+      permissionTarget: entityType === "videos" ? "child" : "parent",
+      run,
+    };
   }
 
   return null;
 }
 
-function getCoverFromSelectionAction(entityType: BulkSelectionEntityType, parent?: NestedListParent): CoverFromSelectionAction | null {
+function getCoverFromSelectionAction(
+  entityType: BulkSelectionEntityType,
+  parent?: NestedListParent,
+): CoverFromSelectionAction | null {
   if (!parent || (entityType !== "images" && entityType !== "videos")) return null;
-  if (parent.type !== "tag" && parent.type !== "performer" && parent.type !== "group" && parent.type !== "gallery") return null;
+  if (parent.type !== "tag" && parent.type !== "performer" && parent.type !== "group" && parent.type !== "gallery")
+    return null;
 
   const sourceLabel = entityType === "images" ? "Image" : "Video";
   const parentLabel = parent.type.charAt(0).toUpperCase() + parent.type.slice(1);
-  const sourceFor = (id: number) => entityType === "images" ? { imageId: id } : { videoId: id };
+  const sourceFor = (id: number) => (entityType === "images" ? { imageId: id } : { videoId: id });
   const run = (id: number) => {
     switch (parent.type) {
       case "gallery":
         return entityImages.setGalleryImageFromSource(parent.id, sourceFor(id));
-      case "performer": return entityImages.setPerformerImageFromSource(parent.id, sourceFor(id));
-      case "tag": return entityImages.setTagImageFromSource(parent.id, sourceFor(id));
-      case "group": return entityImages.setGroupFrontImageFromSource(parent.id, sourceFor(id));
-      default: return Promise.reject(new Error("This cover action is not supported."));
+      case "performer":
+        return entityImages.setPerformerImageFromSource(parent.id, sourceFor(id));
+      case "tag":
+        return entityImages.setTagImageFromSource(parent.id, sourceFor(id));
+      case "group":
+        return entityImages.setGroupFrontImageFromSource(parent.id, sourceFor(id));
+      default:
+        return Promise.reject(new Error("This cover action is not supported."));
     }
   };
 
@@ -242,7 +328,17 @@ interface Props {
   removeFromParent?: NestedListParent;
 }
 
-export function BulkSelectionActions({ entityType, selectedIds, onDone, videoItems, audioItems, textItems, downloadItems, onNavigate, removeFromParent }: Props) {
+export function BulkSelectionActions({
+  entityType,
+  selectedIds,
+  onDone,
+  videoItems,
+  audioItems,
+  textItems,
+  downloadItems,
+  onNavigate,
+  removeFromParent,
+}: Props) {
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [showIdentify, setShowIdentify] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
@@ -265,34 +361,45 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
     () => getCoverFromSelectionAction(entityType, removeFromParent),
     [entityType, removeFromParent?.id, removeFromParent?.label, removeFromParent?.type],
   );
-  const canRemoveFromParent = !!removeFromParentAction
-    && (removeFromParentAction.permissionTarget === "parent"
+  const canRemoveFromParent =
+    !!removeFromParentAction &&
+    (removeFromParentAction.permissionTarget === "parent"
       ? canWriteEntity(removeFromParent!.type, hasPermission)
       : canWrite);
   const selectedSourceId = selectedIds.size === 1 ? [...selectedIds][0] : undefined;
-  const canSetParentCover = !!coverFromSelectionAction
-    && selectedSourceId != null
-    && canWriteEntity(coverFromSelectionAction.parentType, hasPermission);
-  const supportsDeleteOptions = entityType === "videos" || entityType === "images" || entityType === "audios" || entityType === "texts";
-  const canDeleteFiles = entityType === "images"
-    ? hasPermission("images.delete.file")
-    : entityType === "videos"
-      ? hasPermission("videos.delete.file")
-      : entityType === "audios" || entityType === "texts"
-        ? hasPermission("files.delete")
-        : false;
+  const canSetParentCover =
+    !!coverFromSelectionAction &&
+    selectedSourceId != null &&
+    canWriteEntity(coverFromSelectionAction.parentType, hasPermission);
+  const supportsDeleteOptions =
+    entityType === "videos" || entityType === "images" || entityType === "audios" || entityType === "texts";
+  const canDeleteFiles =
+    entityType === "images"
+      ? hasPermission("images.delete.file")
+      : entityType === "videos"
+        ? hasPermission("videos.delete.file")
+        : entityType === "audios" || entityType === "texts"
+          ? hasPermission("files.delete")
+          : false;
 
   const bulkDeleteMut = useMutation<BulkDeletionJobStart, Error, DeleteEntityOptions | undefined>({
     meta: { suppressGlobalError: true },
     mutationFn: async (options) => api.bulkDelete([...selectedIds], options),
-    onSuccess: () => { setShowDeleteConfirm(false); onDone(); },
+    onSuccess: () => {
+      setShowDeleteConfirm(false);
+      onDone();
+    },
   });
 
   const bulkEditMut = useMutation<void, Error, Record<string, unknown>>({
     mutationFn: async (values) => {
       await runBulkUpdate(entityType, { ids: [...selectedIds], ...values } as BulkUpdatePayload);
     },
-    onSuccess: () => { queryClient.invalidateQueries(); setShowBulkEdit(false); onDone(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      setShowBulkEdit(false);
+      onDone();
+    },
   });
 
   const removeFromParentMut = useMutation<void, Error>({
@@ -323,19 +430,20 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
   const isAudios = entityType === "audios";
   const isTexts = entityType === "texts";
   const canIdentify = isVideos && hasPermission("library.identify") && canWrite;
-  const downloadEntity: DownloadSelectionEntity | null = entityType === "videos"
-    ? "Video"
-    : entityType === "images"
-      ? "Image"
-      : entityType === "galleries"
-        ? "Gallery"
-        : entityType === "audios"
-          ? "Audio"
-          : entityType === "texts"
-            ? "Text"
-            : null;
+  const downloadEntity: DownloadSelectionEntity | null =
+    entityType === "videos"
+      ? "Video"
+      : entityType === "images"
+        ? "Image"
+        : entityType === "galleries"
+          ? "Gallery"
+          : entityType === "audios"
+            ? "Audio"
+            : entityType === "texts"
+              ? "Text"
+              : null;
   const resolvedDownloadItems = useMemo(
-    () => downloadItems ?? (downloadEntity === "Video" ? videoItems ?? [] : []),
+    () => downloadItems ?? (downloadEntity === "Video" ? (videoItems ?? []) : []),
     [downloadEntity, downloadItems, videoItems],
   );
   const selectedDownloadItems = useMemo(
@@ -459,7 +567,11 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
           disabled={setParentCoverMut.isPending}
           className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10 disabled:opacity-60"
         >
-          {setParentCoverMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImageIcon className="w-3 h-3" />}
+          {setParentCoverMut.isPending ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <ImageIcon className="w-3 h-3" />
+          )}
           {coverFromSelectionAction.label}
         </button>
       )}
@@ -469,7 +581,11 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
           disabled={removeFromParentMut.isPending}
           className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 disabled:opacity-60"
         >
-          {removeFromParentMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlink className="w-3 h-3" />}
+          {removeFromParentMut.isPending ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Unlink className="w-3 h-3" />
+          )}
           {removeFromParentAction.label}
         </button>
       )}
@@ -500,12 +616,14 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
       )}
       {showQueue && isVideos && videoItems && onNavigate && (
         <VideoQueue
-          videos={videoItems.filter(s => selectedIds.has(s.id)).map(s => ({
-            id: s.id,
-            title: s.title || s.files[0]?.basename,
-            duration: s.files[0]?.duration,
-            screenshotUrl: videosApi.screenshotUrl(s.id, s.updatedAt),
-          }))}
+          videos={videoItems
+            .filter((s) => selectedIds.has(s.id))
+            .map((s) => ({
+              id: s.id,
+              title: s.title || s.files[0]?.basename,
+              duration: s.files[0]?.duration,
+              screenshotUrl: videosApi.screenshotUrl(s.id, s.updatedAt),
+            }))}
           onClose={() => setShowQueue(false)}
           onNavigate={onNavigate}
         />
@@ -542,7 +660,10 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
         message={`Remove ${selectedIds.size} selected ${getEntityLabel(entityType, selectedIds.size)} from ${removeFromParentAction?.parentLabel ?? "this parent"}?`}
         confirmLabel={removeFromParentMut.isPending ? "Removing..." : "Remove"}
         onConfirm={() => removeFromParentMut.mutate()}
-        onCancel={() => { removeFromParentMut.reset(); setShowRemoveFromParentConfirm(false); }}
+        onCancel={() => {
+          removeFromParentMut.reset();
+          setShowRemoveFromParentConfirm(false);
+        }}
         isPending={removeFromParentMut.isPending}
         errorMessage={getMutationErrorMessage(removeFromParentMut.error)}
       />
@@ -552,7 +673,10 @@ export function BulkSelectionActions({ entityType, selectedIds, onDone, videoIte
         message={`Delete ${selectedIds.size} selected ${resource}${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`}
         confirmLabel={bulkDeleteMut.isPending ? "Queueing..." : "Queue deletion"}
         onConfirm={(options) => bulkDeleteMut.mutate(supportsDeleteOptions ? options : undefined)}
-        onCancel={() => { bulkDeleteMut.reset(); setShowDeleteConfirm(false); }}
+        onCancel={() => {
+          bulkDeleteMut.reset();
+          setShowDeleteConfirm(false);
+        }}
         isPending={bulkDeleteMut.isPending}
         errorMessage={getMutationErrorMessage(bulkDeleteMut.error)}
         showDeleteFile={supportsDeleteOptions && canDeleteFiles}

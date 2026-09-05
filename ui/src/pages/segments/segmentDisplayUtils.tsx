@@ -6,11 +6,7 @@ import { formatOperatorLabel } from "./derivedQueryCriterion";
 import type { DerivedSpanItem, RawSegmentItem } from "./types";
 
 export function Pill({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-full bg-surface px-2 py-1 text-secondary">
-      {children}
-    </span>
-  );
+  return <span className="inline-flex items-center rounded-full bg-surface px-2 py-1 text-secondary">{children}</span>;
 }
 
 export function SegmentVideoPreview({
@@ -30,7 +26,17 @@ export function SegmentVideoPreview({
   imgClassName: string;
   segmentId?: number;
 }) {
-  return <SegmentPreviewMedia hostId={hostId} segmentId={segmentId} updatedAt={updatedAt} startSec={startSec} endSec={endSec} title={title} className={imgClassName} />;
+  return (
+    <SegmentPreviewMedia
+      hostId={hostId}
+      segmentId={segmentId}
+      updatedAt={updatedAt}
+      startSec={startSec}
+      endSec={endSec}
+      title={title}
+      className={imgClassName}
+    />
+  );
 }
 
 export function buildSpanTitle(span: ResolvedSpan, videoTitle?: string) {
@@ -38,7 +44,14 @@ export function buildSpanTitle(span: ResolvedSpan, videoTitle?: string) {
 }
 
 export function buildRawSegmentTitle(segment: RawSegmentItem) {
-  return segment.title?.trim() || segment.tagName || segment.performerName || segment.refLabel || segment.kind || formatSourceLabel(segment.sourceKey);
+  return (
+    segment.title?.trim() ||
+    segment.tagName ||
+    segment.performerName ||
+    segment.refLabel ||
+    segment.kind ||
+    formatSourceLabel(segment.sourceKey)
+  );
 }
 
 export function formatSourceLabel(sourceKey?: string) {
@@ -51,7 +64,12 @@ export function formatSourceLabel(sourceKey?: string) {
   }
 
   return sourceKey.startsWith("ext:")
-    ? sourceKey.slice(4).split(/[._-]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ")
+    ? sourceKey
+        .slice(4)
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")
     : sourceKey;
 }
 
@@ -135,9 +153,7 @@ export function formatSegmentTime(value: number) {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
 
-  const fractional = hundredths % 10 === 0
-    ? String(Math.floor(hundredths / 10))
-    : String(hundredths).padStart(2, "0");
+  const fractional = hundredths % 10 === 0 ? String(Math.floor(hundredths / 10)) : String(hundredths).padStart(2, "0");
 
   if (hours > 0) {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${fractional}`;

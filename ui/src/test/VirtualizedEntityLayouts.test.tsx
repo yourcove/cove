@@ -33,7 +33,7 @@ describe("VirtualizedEntityGrid", () => {
           isFetchingNextPage={false}
           loadMore={vi.fn()}
         />
-      </ListPageCardSizeContext.Provider>
+      </ListPageCardSizeContext.Provider>,
     );
 
     expect(screen.getByTestId("virtualized-grid")).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("VirtualizedEntityGrid", () => {
           isFetchingNextPage={false}
           loadMore={vi.fn()}
         />
-      </ListPageCardSizeContext.Provider>
+      </ListPageCardSizeContext.Provider>,
     );
 
     expect(virtualizedInfiniteListSpy).toHaveBeenCalledWith(expect.objectContaining({ minColumnWidth: 220 }));
@@ -70,7 +70,7 @@ describe("VirtualizedEntityGrid", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         loadMore={vi.fn()}
-      />
+      />,
     );
 
     expect(virtualizedInfiniteListSpy).toHaveBeenCalledWith(expect.objectContaining({ minColumnWidth: 320 }));
@@ -87,7 +87,7 @@ describe("VirtualizedEntityGrid", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         loadMore={vi.fn()}
-      />
+      />,
     );
 
     expect(virtualizedInfiniteListSpy).toHaveBeenCalledWith(expect.objectContaining({ minColumnWidth: 280 }));

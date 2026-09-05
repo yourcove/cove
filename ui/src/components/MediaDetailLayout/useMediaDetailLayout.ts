@@ -5,13 +5,13 @@ interface UseMediaDetailLayoutOptions {
   keyboardShortcuts?: MediaDetailKeyboardShortcut[];
 }
 
-export function useMediaDetailLayout({
-  keyboardShortcuts = [],
-}: UseMediaDetailLayoutOptions) {
-  useKeySequence(keyboardShortcuts.map((shortcut) => ({
-    id: shortcut.id,
-    keys: shortcut.key,
-    surface: "detail" as const,
-    action: shortcut.handler,
-  })));
+export function useMediaDetailLayout({ keyboardShortcuts = [] }: UseMediaDetailLayoutOptions) {
+  useKeySequence(
+    keyboardShortcuts.map((shortcut) => ({
+      id: shortcut.id,
+      keys: shortcut.key,
+      surface: "detail" as const,
+      action: shortcut.handler,
+    })),
+  );
 }

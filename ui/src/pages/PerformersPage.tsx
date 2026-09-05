@@ -1,12 +1,24 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { performers } from "../api/client";
-import type { EntityEngagement, FilterExpression, FindFilter, Performer, PerformerCreate, PerformerFilterCriteria } from "../api/types";
+import type {
+  EntityEngagement,
+  FilterExpression,
+  FindFilter,
+  Performer,
+  PerformerCreate,
+  PerformerFilterCriteria,
+} from "../api/types";
 import { ListPage, type DisplayMode } from "../components/ListPage";
 import { CreateModalActions, EditModal, Field, TextInput, TextArea } from "../components/EditModal";
 import { StringListEditor } from "../components/StringListEditor";
 import { GENDER_OPTIONS } from "./PerformerEditModal";
-import { toggleOptionsFromEvent, useMultiSelect, type BoundMultiSelectToggleHandler, type MultiSelectToggleHandler } from "../hooks/useMultiSelect";
+import {
+  toggleOptionsFromEvent,
+  useMultiSelect,
+  type BoundMultiSelectToggleHandler,
+  type MultiSelectToggleHandler,
+} from "../hooks/useMultiSelect";
 import { useEntityEngagementBatch } from "../hooks/useEntityEngagementBatch";
 import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { FILTER_EXPRESSION_STATE_KEY } from "../utils/filterExpressionTree";
@@ -45,7 +57,11 @@ export function PerformersPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "latest_video_date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "wall", "tagger"] as const, "grid") as DisplayMode,
+      displayMode: resolveSavedDisplayMode(
+        savedFilter?.uiOptions,
+        ["grid", "list", "wall", "tagger"] as const,
+        "grid",
+      ) as DisplayMode,
     };
   }, []);
   const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode } = useListUrlState({
@@ -63,10 +79,12 @@ export function PerformersPage({ onNavigate }: Props) {
   const { hasPermission } = useAuth();
   const canWritePerformer = canWriteEntity("performer", hasPermission);
 
-  const filterExpression = objectFilter[FILTER_EXPRESSION_STATE_KEY] as FilterExpression<PerformerFilterCriteria> | undefined;
-  const backendObjectFilter = useMemo(() => Object.fromEntries(
-    Object.entries(objectFilter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY),
-  ), [objectFilter]);
+  const filterExpression = objectFilter[FILTER_EXPRESSION_STATE_KEY] as
+    FilterExpression<PerformerFilterCriteria> | undefined;
+  const backendObjectFilter = useMemo(
+    () => Object.fromEntries(Object.entries(objectFilter).filter(([key]) => key !== FILTER_EXPRESSION_STATE_KEY)),
+    [objectFilter],
+  );
   const hasObjectFilter = Object.keys(backendObjectFilter).length > 0 || Boolean(filterExpression?.children.length);
   const listData = useInfiniteListData<Performer>({
     queryKey: ["performers", filter, backendObjectFilter, filterExpression],
@@ -74,7 +92,11 @@ export function PerformersPage({ onNavigate }: Props) {
     chunkSize: defaultState.filter.perPage ?? 40,
     queryPage: (nextFilter) =>
       hasObjectFilter
-        ? performers.findFiltered({ findFilter: nextFilter, objectFilter: backendObjectFilter as PerformerFilterCriteria, filterExpression })
+        ? performers.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: backendObjectFilter as PerformerFilterCriteria,
+            filterExpression,
+          })
         : performers.find(nextFilter),
   });
 
@@ -82,9 +104,18 @@ export function PerformersPage({ onNavigate }: Props) {
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
   const wallColumns = useWallColumns(items, wallColumnCount);
-  const { engagementById } = useEntityEngagementBatch("performer", items.map((item) => item.id));
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
+  const { engagementById } = useEntityEngagementBatch(
+    "performer",
+    items.map((item) => item.id),
+  );
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }),
+    [listData.infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, {
+    preserveOnItemsChange: listData.infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const handleSelectAllMatching = async () => {
     setSelectAllMatchingPending(true);
@@ -97,7 +128,11 @@ export function PerformersPage({ onNavigate }: Props) {
 
   return (
     <>
-      <PerformerCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "performer", id })} />
+      <PerformerCreateModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(id) => onNavigate({ page: "performer", id })}
+      />
       <ListPage
         title="Performers"
         pageKey="performers"
@@ -107,7 +142,9 @@ export function PerformersPage({ onNavigate }: Props) {
         totalCount={totalCount}
         isLoading={isLoading}
         error={listData.loadError}
-        onRetry={() => { void listData.refetch(); }}
+        onRetry={() => {
+          void listData.refetch();
+        }}
         sortOptions={SORT_OPTIONS}
         multiSortKeys={PERFORMER_MULTI_SORT_KEYS}
         displayMode={displayMode}
@@ -145,72 +182,99 @@ export function PerformersPage({ onNavigate }: Props) {
           </>
         }
       >
-      {displayMode === "tagger" ? (
-        <PerformerTagger performers={items} selectedIds={selectedIds} selecting={selecting} onSelect={toggle} onNavigate={(performerId) => onNavigate({ page: "performer", id: performerId })} />
-      ) : displayMode === "wall" ? (
-        <VirtualizedWallColumns
-          columns={wallColumns}
-          getItemKey={(performer) => performer.id}
-          infinitePageSize={listData.infinitePageSize}
-          hasNextPage={listData.infiniteQuery.hasNextPage}
-          isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
-          loadMore={listData.loadMore}
-          estimateItemHeight={280}
-          gap={4}
-          className="flex gap-1 px-2"
-          columnClassName="flex min-w-0 flex-1 flex-col gap-1"
-          renderItem={(performer) => (
-                <EntityWallCard
-                  title={performer.name}
-                  imageSrc={performer.imagePath}
-                  route={{ page: "performer", id: performer.id }}
-                  selected={selectedIds.has(performer.id)}
-                  selecting={selecting}
-                  onSelect={(toggleOptions) => toggle(performer.id, toggleOptions)}
-                  onClick={(toggleOptions) => selecting ? toggle(performer.id, toggleOptions) : onNavigate({ page: "performer", id: performer.id })}
-                />
-          )}
-        />
-      ) : displayMode === "grid" ? (
-        <VirtualizedEntityGrid
-          items={items}
-          getItemKey={(p) => p.id}
-          minCardWidth="var(--card-min-width, 160px)"
-          estimateRowHeight={340}
-          infinitePageSize={listData.infinitePageSize}
-          hasNextPage={listData.infiniteQuery.hasNextPage}
-          isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
-          loadMore={listData.loadMore}
-          renderItem={(p) => (
-            <PerformerTile
-              performer={p}
-              engagement={engagementById.get(p.id)}
-              onClick={(toggleOptions) => selecting ? toggle(p.id, toggleOptions) : onNavigate({ page: "performer", id: p.id })}
-              onNavigate={onNavigate}
-              selected={selectedIds.has(p.id)}
-              onSelect={(toggleOptions) => toggle(p.id, toggleOptions)}
-              selecting={selecting}
-            >
-              <CardExtensionSlot slot="performer-card-footer" context={{ performer: p, onNavigate }} />
-            </PerformerTile>
-          )}
-        />
-      ) : (
-        <RelatedEntityListView entityType="performers" items={items} displayMode="list" selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={listData.infinitePageSize} hasNextPage={listData.infiniteQuery.hasNextPage} isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage} loadMore={listData.loadMore} />
-      )}
-      {items.length === 0 && (
-        <div className="text-center text-secondary py-16">
-          <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-          <p>No performers found</p>
-        </div>
-      )}
+        {displayMode === "tagger" ? (
+          <PerformerTagger
+            performers={items}
+            selectedIds={selectedIds}
+            selecting={selecting}
+            onSelect={toggle}
+            onNavigate={(performerId) => onNavigate({ page: "performer", id: performerId })}
+          />
+        ) : displayMode === "wall" ? (
+          <VirtualizedWallColumns
+            columns={wallColumns}
+            getItemKey={(performer) => performer.id}
+            infinitePageSize={listData.infinitePageSize}
+            hasNextPage={listData.infiniteQuery.hasNextPage}
+            isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+            loadMore={listData.loadMore}
+            estimateItemHeight={280}
+            gap={4}
+            className="flex gap-1 px-2"
+            columnClassName="flex min-w-0 flex-1 flex-col gap-1"
+            renderItem={(performer) => (
+              <EntityWallCard
+                title={performer.name}
+                imageSrc={performer.imagePath}
+                route={{ page: "performer", id: performer.id }}
+                selected={selectedIds.has(performer.id)}
+                selecting={selecting}
+                onSelect={(toggleOptions) => toggle(performer.id, toggleOptions)}
+                onClick={(toggleOptions) =>
+                  selecting ? toggle(performer.id, toggleOptions) : onNavigate({ page: "performer", id: performer.id })
+                }
+              />
+            )}
+          />
+        ) : displayMode === "grid" ? (
+          <VirtualizedEntityGrid
+            items={items}
+            getItemKey={(p) => p.id}
+            minCardWidth="var(--card-min-width, 160px)"
+            estimateRowHeight={340}
+            infinitePageSize={listData.infinitePageSize}
+            hasNextPage={listData.infiniteQuery.hasNextPage}
+            isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+            loadMore={listData.loadMore}
+            renderItem={(p) => (
+              <PerformerTile
+                performer={p}
+                engagement={engagementById.get(p.id)}
+                onClick={(toggleOptions) =>
+                  selecting ? toggle(p.id, toggleOptions) : onNavigate({ page: "performer", id: p.id })
+                }
+                onNavigate={onNavigate}
+                selected={selectedIds.has(p.id)}
+                onSelect={(toggleOptions) => toggle(p.id, toggleOptions)}
+                selecting={selecting}
+              >
+                <CardExtensionSlot slot="performer-card-footer" context={{ performer: p, onNavigate }} />
+              </PerformerTile>
+            )}
+          />
+        ) : (
+          <RelatedEntityListView
+            entityType="performers"
+            items={items}
+            displayMode="list"
+            selectedIds={selectedIds}
+            selecting={selecting}
+            onToggle={toggle}
+            onNavigate={onNavigate}
+            infinitePageSize={listData.infinitePageSize}
+            hasNextPage={listData.infiniteQuery.hasNextPage}
+            isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+            loadMore={listData.loadMore}
+          />
+        )}
+        {items.length === 0 && (
+          <div className="text-center text-secondary py-16">
+            <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>No performers found</p>
+          </div>
+        )}
       </ListPage>
 
       <MergeDialog
         open={showMerge}
-        onClose={() => { setShowMerge(false); selectNone(); }}
+        onClose={() => {
+          setShowMerge(false);
+          selectNone();
+        }}
         entityType="performer"
-        items={items.filter((p) => selectedIds.has(p.id)).map((p) => ({ id: p.id, name: p.name, imagePath: p.imagePath }))}
+        items={items
+          .filter((p) => selectedIds.has(p.id))
+          .map((p) => ({ id: p.id, name: p.name, imagePath: p.imagePath }))}
         onMerge={performers.merge}
         queryKey="performers"
       />
@@ -218,10 +282,39 @@ export function PerformersPage({ onNavigate }: Props) {
   );
 }
 
-function EntityWallCard({ title, imageSrc, route, selected, selecting, onSelect, onClick }: { title: string; imageSrc?: string | null; route: any; selected: boolean; selecting: boolean; onSelect: BoundMultiSelectToggleHandler; onClick: BoundMultiSelectToggleHandler }) {
+function EntityWallCard({
+  title,
+  imageSrc,
+  route,
+  selected,
+  selecting,
+  onSelect,
+  onClick,
+}: {
+  title: string;
+  imageSrc?: string | null;
+  route: any;
+  selected: boolean;
+  selecting: boolean;
+  onSelect: BoundMultiSelectToggleHandler;
+  onClick: BoundMultiSelectToggleHandler;
+}) {
   return (
-    <WallMediaCard title={title} imageSrc={imageSrc} aspectRatio="2 / 3" onClick={(event) => onClick(toggleOptionsFromEvent(event))} className={selected ? "ring-2 ring-accent" : ""} fallback={<User className="h-12 w-12 text-muted" />}>
-      <RouteCardLinkOverlay route={route} onClick={onClick} label={`Open ${title}`} disabled={selecting} selectionSafeZone />
+    <WallMediaCard
+      title={title}
+      imageSrc={imageSrc}
+      aspectRatio="2 / 3"
+      onClick={(event) => onClick(toggleOptionsFromEvent(event))}
+      className={selected ? "ring-2 ring-accent" : ""}
+      fallback={<User className="h-12 w-12 text-muted" />}
+    >
+      <RouteCardLinkOverlay
+        route={route}
+        onClick={onClick}
+        label={`Open ${title}`}
+        disabled={selecting}
+        selectionSafeZone
+      />
       <CardSelectionToggle selected={selected} selecting={selecting} onToggle={onSelect} />
       <div className="selection-safe-zone absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2 text-xs font-medium text-white">
         {title}
@@ -230,7 +323,21 @@ function EntityWallCard({ title, imageSrc, route, selected, selecting, onSelect,
   );
 }
 
-function PerformerListTable({ performers: items, engagementById, onNavigate, selectedIds, onToggle, selecting }: { performers: Performer[]; engagementById: ReadonlyMap<number, EntityEngagement>; onNavigate: (r: any) => void; selectedIds?: Set<number>; onToggle?: MultiSelectToggleHandler; selecting?: boolean }) {
+function PerformerListTable({
+  performers: items,
+  engagementById,
+  onNavigate,
+  selectedIds,
+  onToggle,
+  selecting,
+}: {
+  performers: Performer[];
+  engagementById: ReadonlyMap<number, EntityEngagement>;
+  onNavigate: (r: any) => void;
+  selectedIds?: Set<number>;
+  onToggle?: MultiSelectToggleHandler;
+  selecting?: boolean;
+}) {
   return (
     <table className="w-full text-sm">
       <thead>
@@ -252,14 +359,27 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
           const favorite = engagement?.isFavorite ?? p.favorite;
           const rating = engagement?.rating;
           return (
-            <tr 
-              key={p.id} 
-              onClick={(event) => selecting ? onToggle?.(p.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "performer", id: p.id })}
+            <tr
+              key={p.id}
+              onClick={(event) =>
+                selecting
+                  ? onToggle?.(p.id, toggleOptionsFromEvent(event))
+                  : onNavigate({ page: "performer", id: p.id })
+              }
               className={`border-b border-border hover:bg-card cursor-pointer ${selectedIds?.has(p.id) ? "bg-accent/10" : ""}`}
             >
               {selectedIds && (
                 <td className="py-2 px-3">
-                  <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => {}} onClick={(event) => { event.stopPropagation(); onToggle?.(p.id, toggleOptionsFromEvent(event)); }} className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent" />
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(p.id)}
+                    onChange={() => {}}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggle?.(p.id, toggleOptionsFromEvent(event));
+                    }}
+                    className="w-3.5 h-3.5 rounded border-border cursor-pointer accent-accent"
+                  />
                 </td>
               )}
               <td className="py-2 px-3 text-foreground">
@@ -268,12 +388,12 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
               </td>
               <td className="py-2 px-3 text-secondary capitalize">{p.gender?.toLowerCase()}</td>
               <td className="py-2 px-3 text-secondary">{age ?? ""}</td>
-              <td className="py-2 px-3 text-secondary"><CountryLabel value={p.country} /></td>
+              <td className="py-2 px-3 text-secondary">
+                <CountryLabel value={p.country} />
+              </td>
               <td className="py-2 px-3 text-secondary text-right">{p.videoCount}</td>
               <td className="py-2 px-3 text-secondary text-right">{rating ?? ""}</td>
-              <td className="py-2 px-3">
-                {favorite && <Heart className="w-4 h-4 fill-red-500 text-red-500" />}
-              </td>
+              <td className="py-2 px-3">{favorite && <Heart className="w-4 h-4 fill-red-500 text-red-500" />}</td>
             </tr>
           );
         })}
@@ -283,9 +403,18 @@ function PerformerListTable({ performers: items, engagementById, onNavigate, sel
 }
 
 /* ── Performer Create Modal ── */
-const SELECT_CLASS = "w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
+const SELECT_CLASS =
+  "w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent";
 
-export function PerformerCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+export function PerformerCreateModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (id: number) => void;
+}) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [disambiguation, setDisambiguation] = useState("");
@@ -376,7 +505,9 @@ export function PerformerCreateModal({ open, onClose, onCreated }: { open: boole
             <select value={gender} onChange={(e) => setGender(e.target.value)} className={SELECT_CLASS}>
               <option value="">—</option>
               {GENDER_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
               ))}
             </select>
           </Field>
@@ -423,11 +554,26 @@ export function PerformerCreateModal({ open, onClose, onCreated }: { open: boole
         </Field>
 
         <Field label="Custom Fields">
-          <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="performer" />
+          <CustomFieldsEditor
+            value={customFields}
+            onChange={setCustomFields}
+            onValidityChange={setCustomFieldsValid}
+            entityType="performer"
+          />
         </Field>
-        {mutation.error ? <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">{getApiValidationFailureDetail(mutation.error)}</div> : null}
+        {mutation.error ? (
+          <div role="alert" className="rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">
+            {getApiValidationFailureDetail(mutation.error)}
+          </div>
+        ) : null}
       </div>
-      <CreateModalActions loading={mutation.isPending} disabled={!customFieldsValid} onSave={save} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
+      <CreateModalActions
+        loading={mutation.isPending}
+        disabled={!customFieldsValid}
+        onSave={save}
+        createAnother={createAnother}
+        onCreateAnotherChange={setCreateAnother}
+      />
     </EditModal>
   );
 }

@@ -1,8 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleries, images, videos, fileOps } from "../api/client";
 import type { FindFilter, Gallery, Image, ImageFilterCriteria, Video, VideoFilterCriteria } from "../api/types";
-import { formatDate, formatDuration, formatFileSize, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Film, FolderOpen, HardDrive, ImageIcon, Link as LinkIcon, Pencil, Plus, Trash2, Loader2, MoreVertical, RefreshCw, Star, ThumbsUp } from "lucide-react";
+import {
+  formatDate,
+  formatDuration,
+  formatFileSize,
+  getResolutionLabel,
+  TagBadge,
+  CustomFieldsDisplay,
+  FieldProvenanceHover,
+  resolveTagProvenance,
+} from "../components/shared";
+import {
+  Film,
+  FolderOpen,
+  HardDrive,
+  ImageIcon,
+  Link as LinkIcon,
+  Pencil,
+  Plus,
+  Trash2,
+  Loader2,
+  MoreVertical,
+  RefreshCw,
+  Star,
+  ThumbsUp,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GalleryEditModal } from "./GalleryEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -15,7 +38,11 @@ import { DetailListPagination, DetailListToolbar } from "../components/DetailLis
 import { ListLoadError } from "../components/ListLoadError";
 import { IMAGE_CRITERIA, VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import { PerformerTile } from "../components/EntityCards";
-import { EntityHeroLayout, HERO_PRIMARY_ACTION_BUTTON_CLASS, HERO_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
+import {
+  EntityHeroLayout,
+  HERO_PRIMARY_ACTION_BUTTON_CLASS,
+  HERO_ACTION_BUTTON_CLASS,
+} from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { EntityDetailTabs } from "../components/EntityDetailTabs";
@@ -62,9 +89,29 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("images");
-  const { filter: imageFilter, setFilter: setImageFilter, objectFilter: imageObjectFilter, setObjectFilter: setImageObjectFilter, displayMode: imageDisplayMode, setDisplayMode: setImageDisplayMode, availableDisplayModes: imageDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "gallery-images", entityType: "images", builtInFilter: { page: 1, perPage: 60, direction: "desc" }, defaultFilterKey: GALLERY_IMAGES_DEFAULT_FILTER_KEY, enabled: activeTab === "images" });
+  const {
+    filter: imageFilter,
+    setFilter: setImageFilter,
+    objectFilter: imageObjectFilter,
+    setObjectFilter: setImageObjectFilter,
+    displayMode: imageDisplayMode,
+    setDisplayMode: setImageDisplayMode,
+    availableDisplayModes: imageDisplayModes,
+  } = useRelatedDetailListUrlState({
+    stateKey: "images",
+    resetKey: "gallery-images",
+    entityType: "images",
+    builtInFilter: { page: 1, perPage: 60, direction: "desc" },
+    defaultFilterKey: GALLERY_IMAGES_DEFAULT_FILTER_KEY,
+    enabled: activeTab === "images",
+  });
   const hasImageObjectFilter = Object.keys(imageObjectFilter).length > 0;
-  const { data: gallery, isLoading, error: galleryError, refetch: retryGallery } = useQuery({
+  const {
+    data: gallery,
+    isLoading,
+    error: galleryError,
+    refetch: retryGallery,
+  } = useQuery({
     queryKey: ["gallery", id],
     queryFn: () => galleries.get(id),
   });
@@ -74,13 +121,26 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     enabled: !!gallery,
   });
   const galleryLoadError = getLoadError(gallery, galleryError);
-  const queryGalleryImages = useCallback((nextFilter: FindFilter) => hasImageObjectFilter
-    ? images.findFiltered({
-        findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(imageObjectFilter as ImageFilterCriteria, "galleriesCriterion", id),
-      })
-    : images.find(nextFilter, { galleryId: id }), [hasImageObjectFilter, id, imageObjectFilter]);
-  const { data: galleryImages, loadError: galleryImagesLoadError, retry: retryGalleryImages, infinitePageSize: imageInfinitePageSize, infiniteQuery: imageInfiniteQuery, infiniteFilterKey: imageInfiniteFilterKey, fetchAllIds: fetchAllImageIds, loadMore: loadMoreImages } = useDetailListQuery<Image>({
+  const queryGalleryImages = useCallback(
+    (nextFilter: FindFilter) =>
+      hasImageObjectFilter
+        ? images.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredMultiId(imageObjectFilter as ImageFilterCriteria, "galleriesCriterion", id),
+          })
+        : images.find(nextFilter, { galleryId: id }),
+    [hasImageObjectFilter, id, imageObjectFilter],
+  );
+  const {
+    data: galleryImages,
+    loadError: galleryImagesLoadError,
+    retry: retryGalleryImages,
+    infinitePageSize: imageInfinitePageSize,
+    infiniteQuery: imageInfiniteQuery,
+    infiniteFilterKey: imageInfiniteFilterKey,
+    fetchAllIds: fetchAllImageIds,
+    loadMore: loadMoreImages,
+  } = useDetailListQuery<Image>({
     queryKey: ["gallery-images", id, imageObjectFilter],
     filter: imageFilter,
     queryFn: queryGalleryImages,
@@ -89,11 +149,17 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const effectiveImageCount = galleryImages?.totalCount ?? gallery?.imageCount ?? 0;
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { allTabs: galleryTabs, renderExtensionTab } = useExtensionTabs("gallery", orderDetailTabsByMenuItems([
-    { key: "images", label: "Images", count: effectiveImageCount },
-    { key: "videos", label: "Videos", count: gallery?.videoCount ?? 0 },
-    { key: "fileinfo", label: "File Info" },
-  ], config?.interface?.menuItems));
+  const { allTabs: galleryTabs, renderExtensionTab } = useExtensionTabs(
+    "gallery",
+    orderDetailTabsByMenuItems(
+      [
+        { key: "images", label: "Images", count: effectiveImageCount },
+        { key: "videos", label: "Videos", count: gallery?.videoCount ?? 0 },
+        { key: "fileinfo", label: "File Info" },
+      ],
+      config?.interface?.menuItems,
+    ),
+  );
   const [imageZoom, setImageZoom] = useState(0);
   const [showAddImages, setShowAddImages] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -102,7 +168,8 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "galleries" }, onNavigate);
   const canWriteGallery = canWriteEntity("gallery", hasPermission);
-  const canEngageGallery = canReadEntity("gallery", hasPermission) && (user?.kind === "user" || user?.kind === "system");
+  const canEngageGallery =
+    canReadEntity("gallery", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeleteGallery = canDeleteEntity("gallery", hasPermission);
   const canReadGalleryImages = canReadEntity("image", hasPermission);
   const canWriteImages = canWriteEntity("image", hasPermission);
@@ -121,11 +188,15 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     enabled: !!gallery,
     fallbackRating: undefined,
   });
-  const visibleGalleryTabs = filterItemsByPermission(galleryTabs, {
-    images: "images.read",
-    videos: "videos.read",
-    fileinfo: "galleries.read",
-  }, hasPermission);
+  const visibleGalleryTabs = filterItemsByPermission(
+    galleryTabs,
+    {
+      images: "images.read",
+      videos: "videos.read",
+      fileinfo: "galleries.read",
+    },
+    hasPermission,
+  );
 
   useDocumentTitle(gallery ? getGalleryDisplayTitle(gallery) : null);
 
@@ -138,54 +209,59 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     return () => document.removeEventListener("mousedown", handler);
   }, [showOpsMenu]);
 
-  const galleryKeyboardShortcuts = useMemo(() => ([
-    {
-      id: "detail.edit",
-      key: "e",
-      keys: "e",
-      surface: "detail" as const,
-      description: "Edit gallery",
-      handler: () => {
-        if (canWriteGallery) {
-          setEditing(true);
-        }
+  const galleryKeyboardShortcuts = useMemo(
+    () => [
+      {
+        id: "detail.edit",
+        key: "e",
+        keys: "e",
+        surface: "detail" as const,
+        description: "Edit gallery",
+        handler: () => {
+          if (canWriteGallery) {
+            setEditing(true);
+          }
+        },
       },
-    },
-    {
-      id: "detail.gallery.images",
-      key: "a",
-      keys: "a",
-      surface: "detail" as const,
-      description: "Open images tab",
-      handler: () => {
-        if (canReadGalleryImages) {
-          setActiveTab("images");
-        }
+      {
+        id: "detail.gallery.images",
+        key: "a",
+        keys: "a",
+        surface: "detail" as const,
+        description: "Open images tab",
+        handler: () => {
+          if (canReadGalleryImages) {
+            setActiveTab("images");
+          }
+        },
       },
-    },
-    {
-      id: "detail.gallery.videos",
-      key: "s",
-      keys: "s",
-      surface: "detail" as const,
-      description: "Open videos tab",
-      handler: () => setActiveTab("videos"),
-    },
-    {
-      id: "detail.fileInfo",
-      key: "i",
-      keys: "i",
-      surface: "detail" as const,
-      description: "Open file info tab",
-      handler: () => setActiveTab("fileinfo"),
-    },
-  ]), [canReadGalleryImages, canWriteGallery]);
-  useKeySequence(galleryKeyboardShortcuts.map((shortcut) => ({
-    id: shortcut.id,
-    keys: shortcut.keys,
-    surface: shortcut.surface,
-    action: shortcut.handler,
-  })));
+      {
+        id: "detail.gallery.videos",
+        key: "s",
+        keys: "s",
+        surface: "detail" as const,
+        description: "Open videos tab",
+        handler: () => setActiveTab("videos"),
+      },
+      {
+        id: "detail.fileInfo",
+        key: "i",
+        keys: "i",
+        surface: "detail" as const,
+        description: "Open file info tab",
+        handler: () => setActiveTab("fileinfo"),
+      },
+    ],
+    [canReadGalleryImages, canWriteGallery],
+  );
+  useKeySequence(
+    galleryKeyboardShortcuts.map((shortcut) => ({
+      id: shortcut.id,
+      keys: shortcut.keys,
+      surface: shortcut.surface,
+      action: shortcut.handler,
+    })),
+  );
 
   useEffect(() => {
     if (visibleGalleryTabs.length > 0 && !visibleGalleryTabs.some((tab) => tab.key === activeTab)) {
@@ -209,7 +285,9 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
       if (data.organized === undefined) return undefined;
       await queryClient.cancelQueries({ queryKey: ["gallery", id] });
       const previous = queryClient.getQueryData<Gallery>(["gallery", id]);
-      queryClient.setQueryData<Gallery>(["gallery", id], (current) => current ? { ...current, organized: data.organized! } : current);
+      queryClient.setQueryData<Gallery>(["gallery", id], (current) =>
+        current ? { ...current, organized: data.organized! } : current,
+      );
       return { previous };
     },
     onError: (_error, _data, context) => {
@@ -231,13 +309,16 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  const toLightboxImage = useCallback((img: Image): LightboxImage => ({
+  const toLightboxImage = useCallback(
+    (img: Image): LightboxImage => ({
       id: img.id,
       src: images.imageUrl(img.id),
       title: img.title,
       interactionSource: "galleryDetailPage",
       interactionMeta: { galleryId: id },
-    }), [id]);
+    }),
+    [id],
+  );
   const galleryLightbox = usePaginatedImageLightbox({
     items: galleryImages?.items ?? [],
     filter: imageFilter,
@@ -260,7 +341,16 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   }
 
   if (galleryLoadError) {
-    return <ListLoadError error={galleryLoadError} onRetry={() => { void retryGallery(); }} title="Could not load gallery" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={galleryLoadError}
+        onRetry={() => {
+          void retryGallery();
+        }}
+        title="Could not load gallery"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!gallery) {
@@ -270,38 +360,40 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const galleryTitle = getGalleryDisplayTitle(gallery);
 
   const activeContent =
-    activeTab === "images"
-      ? (
-          <GalleryImagesPanel
-            galleryId={id}
-            filter={imageFilter}
-            setFilter={setImageFilter}
-            objectFilter={imageObjectFilter}
-            setObjectFilter={setImageObjectFilter}
-            displayMode={imageDisplayMode}
-            setDisplayMode={setImageDisplayMode}
-            availableDisplayModes={imageDisplayModes}
-            onNavigate={onNavigate}
-            galleryImages={galleryImages}
-            loadError={galleryImagesLoadError}
-            onRetry={() => { void retryGalleryImages(); }}
-              infinitePageSize={imageInfinitePageSize}
-              infiniteQuery={imageInfiniteQuery}
-              infiniteFilterKey={imageInfiniteFilterKey}
-              fetchAllIds={fetchAllImageIds}
-              loadMore={loadMoreImages}
-            onShowAddImages={() => setShowAddImages(true)}
-            onLightbox={galleryLightbox.openImage}
-            imageZoom={imageZoom}
-            setImageZoom={setImageZoom}
-            canWriteGallery={canWriteGallery}
-          />
-        )
-      : activeTab === "videos"
-        ? <GalleryVideosPanel galleryId={id} onNavigate={onNavigate} />
-        : activeTab === "fileinfo"
-          ? <GalleryFileInfo gallery={gallery} />
-          : renderExtensionTab(activeTab, id, onNavigate);
+    activeTab === "images" ? (
+      <GalleryImagesPanel
+        galleryId={id}
+        filter={imageFilter}
+        setFilter={setImageFilter}
+        objectFilter={imageObjectFilter}
+        setObjectFilter={setImageObjectFilter}
+        displayMode={imageDisplayMode}
+        setDisplayMode={setImageDisplayMode}
+        availableDisplayModes={imageDisplayModes}
+        onNavigate={onNavigate}
+        galleryImages={galleryImages}
+        loadError={galleryImagesLoadError}
+        onRetry={() => {
+          void retryGalleryImages();
+        }}
+        infinitePageSize={imageInfinitePageSize}
+        infiniteQuery={imageInfiniteQuery}
+        infiniteFilterKey={imageInfiniteFilterKey}
+        fetchAllIds={fetchAllImageIds}
+        loadMore={loadMoreImages}
+        onShowAddImages={() => setShowAddImages(true)}
+        onLightbox={galleryLightbox.openImage}
+        imageZoom={imageZoom}
+        setImageZoom={setImageZoom}
+        canWriteGallery={canWriteGallery}
+      />
+    ) : activeTab === "videos" ? (
+      <GalleryVideosPanel galleryId={id} onNavigate={onNavigate} />
+    ) : activeTab === "fileinfo" ? (
+      <GalleryFileInfo gallery={gallery} />
+    ) : (
+      renderExtensionTab(activeTab, id, onNavigate)
+    );
 
   return (
     <div className="min-h-screen">
@@ -343,21 +435,44 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         imageFallbackClassName="h-96 w-72 items-center justify-center bg-card text-muted md:h-[34rem] md:w-[25rem]"
         onImageClick={canWriteGallery ? () => setCoverOpen(true) : undefined}
         imageFallback={<ImageIcon className="h-14 w-14" />}
-        title={<FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="title">{galleryTitle}</FieldProvenanceHover>}
+        title={
+          <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="title">
+            {galleryTitle}
+          </FieldProvenanceHover>
+        }
         subtitle={
           <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
-            {gallery.date ? <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="date"><span>{formatDate(gallery.date)}</span></FieldProvenanceHover> : null}
+            {gallery.date ? (
+              <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="date">
+                <span>{formatDate(gallery.date)}</span>
+              </FieldProvenanceHover>
+            ) : null}
             {gallery.studioName && gallery.studioId ? (
               canReadStudios ? (
                 <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="studio">
-                  <button onClick={() => onNavigate({ page: "studio", id: gallery.studioId })} className="text-accent hover:underline">{gallery.studioName}</button>
+                  <button
+                    onClick={() => onNavigate({ page: "studio", id: gallery.studioId })}
+                    className="text-accent hover:underline"
+                  >
+                    {gallery.studioName}
+                  </button>
                 </FieldProvenanceHover>
               ) : (
-                <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="studio"><span>{gallery.studioName}</span></FieldProvenanceHover>
+                <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="studio">
+                  <span>{gallery.studioName}</span>
+                </FieldProvenanceHover>
               )
             ) : null}
-            {gallery.photographer ? <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="photographer"><span>Photographer: {gallery.photographer}</span></FieldProvenanceHover> : null}
-            {gallery.code ? <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="code"><span>Code: {gallery.code}</span></FieldProvenanceHover> : null}
+            {gallery.photographer ? (
+              <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="photographer">
+                <span>Photographer: {gallery.photographer}</span>
+              </FieldProvenanceHover>
+            ) : null}
+            {gallery.code ? (
+              <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="code">
+                <span>Code: {gallery.code}</span>
+              </FieldProvenanceHover>
+            ) : null}
           </span>
         }
         favorite={galleryFavorite}
@@ -366,7 +481,13 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         organized={gallery.organized}
         organizedPending={galleryUpdateMut.isPending}
         onOrganizedToggle={canWriteGallery ? (organized) => galleryUpdateMut.mutate({ organized }) : undefined}
-        description={gallery.details ? <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="details" block><NarrativeText>{gallery.details}</NarrativeText></FieldProvenanceHover> : undefined}
+        description={
+          gallery.details ? (
+            <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="details" block>
+              <NarrativeText>{gallery.details}</NarrativeText>
+            </FieldProvenanceHover>
+          ) : undefined
+        }
         counts={[
           { key: "images", label: "Images", value: effectiveImageCount, icon: <ImageIcon className="h-4 w-4" /> },
           { key: "videos", label: "Videos", value: gallery.videoCount, icon: <Film className="h-4 w-4" /> },
@@ -378,18 +499,30 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
             <span title={`Created ${formatDate(gallery.createdAt)}`}>Updated {formatDate(gallery.updatedAt)}</span>
           </>
         }
-        heroContent={(
+        heroContent={
           <>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <div className="shrink-0">
-                <InteractiveRating value={galleryRating} onChange={(value) => setGalleryRating(value)} readOnly={!canEngageGallery} />
+                <InteractiveRating
+                  value={galleryRating}
+                  onChange={(value) => setGalleryRating(value)}
+                  readOnly={!canEngageGallery}
+                />
               </div>
             </div>
 
             {canReadPerformers && gallery.performers.length > 0 ? (
-              <div className={`mt-4 grid gap-3 ${gallery.performers.length > 1 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4" : "max-w-[220px]"}`}>
+              <div
+                className={`mt-4 grid gap-3 ${gallery.performers.length > 1 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4" : "max-w-[220px]"}`}
+              >
                 {gallery.performers.map((performer) => (
-                  <PerformerTile key={performer.id} performer={performer} onClick={() => onNavigate({ page: "performer", id: performer.id })} onNavigate={onNavigate} referenceDate={gallery.date} />
+                  <PerformerTile
+                    key={performer.id}
+                    performer={performer}
+                    onClick={() => onNavigate({ page: "performer", id: performer.id })}
+                    onNavigate={onNavigate}
+                    referenceDate={gallery.date}
+                  />
                 ))}
               </div>
             ) : null}
@@ -398,9 +531,21 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
               <FieldProvenanceHover fieldProvenance={gallery.fieldProvenance} fieldKey="urls" block className="mt-4">
                 <div className="flex flex-wrap gap-2">
                   {gallery.urls.map((url, index) => (
-                    <a key={index} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover">
+                    <a
+                      key={index}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover"
+                    >
                       <LinkIcon className="h-3 w-3" />
-                      {(() => { try { return new URL(url).hostname.replace("www.", ""); } catch { return url; } })()}
+                      {(() => {
+                        try {
+                          return new URL(url).hostname.replace("www.", "");
+                        } catch {
+                          return url;
+                        }
+                      })()}
                     </a>
                   ))}
                 </div>
@@ -410,23 +555,25 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
             {canReadTags && gallery.tags.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {gallery.tags.map((tag) => (
-                  <TagBadge key={tag.id} name={tag.name} tag={tag} provenance={resolveTagProvenance(tag, gallery.fieldProvenance)} onClick={() => onNavigate({ page: "tag", id: tag.id })} />
+                  <TagBadge
+                    key={tag.id}
+                    name={tag.name}
+                    tag={tag}
+                    provenance={resolveTagProvenance(tag, gallery.fieldProvenance)}
+                    onClick={() => onNavigate({ page: "tag", id: tag.id })}
+                  />
                 ))}
               </div>
             ) : null}
 
             <CustomFieldsDisplay customFields={gallery.customFields} entityType="gallery" />
           </>
-        )}
+        }
         actions={
           <>
             <ExtensionSlot slot="gallery-detail-actions" context={{ gallery, onNavigate }} />
             {canWriteGallery ? (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className={HERO_PRIMARY_ACTION_BUTTON_CLASS}
-              >
+              <button type="button" onClick={() => setEditing(true)} className={HERO_PRIMARY_ACTION_BUTTON_CLASS}>
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </button>
             ) : null}
@@ -440,16 +587,46 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
-              <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[180px] py-1">
-                  {canLibraryScan ? <button onClick={() => { rescanMut.mutate(); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"><RefreshCw className="h-3.5 w-3.5" /> Rescan</button> : null}
-                  {canDeleteGallery ? <div className="my-1 border-t border-border" /> : null}
-                  {canDeleteGallery ? <button onClick={() => { setConfirmDelete(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-400 hover:bg-surface"><Trash2 className="h-3.5 w-3.5" /> Delete</button> : null}
+              <FloatingActionMenu
+                open={showOpsMenu}
+                anchorRef={opsMenuRef}
+                onClose={() => setShowOpsMenu(false)}
+                className="min-w-[180px] py-1"
+              >
+                {canLibraryScan ? (
+                  <button
+                    onClick={() => {
+                      rescanMut.mutate();
+                      setShowOpsMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" /> Rescan
+                  </button>
+                ) : null}
+                {canDeleteGallery ? <div className="my-1 border-t border-border" /> : null}
+                {canDeleteGallery ? (
+                  <button
+                    onClick={() => {
+                      setConfirmDelete(true);
+                      setShowOpsMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-400 hover:bg-surface"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </button>
+                ) : null}
               </FloatingActionMenu>
             </div>
           </>
         }
       >
-        <EntityDetailTabs tabs={visibleGalleryTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mb-4" />
+        <EntityDetailTabs
+          tabs={visibleGalleryTabs}
+          activeTab={activeTab}
+          onTabChange={(key) => setActiveTab(key as TabKey)}
+          className="mb-4"
+        />
 
         {activeContent}
         <ExtensionSlot slot="gallery-detail-main-bottom" context={{ gallery, onNavigate }} />
@@ -467,36 +644,56 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
         />
       )}
 
-      <Lightbox
-        {...galleryLightbox.lightboxProps}
-        canEngage={canEngageImages}
-        canLike={canWriteImages}
-      />
+      <Lightbox {...galleryLightbox.lightboxProps} canEngage={canEngageImages} canLike={canWriteImages} />
     </div>
   );
 }
 
-function GalleryVideosPanel({ galleryId, onNavigate }: {
-  galleryId: number;
-  onNavigate: (r: any) => void;
-}) {
+function GalleryVideosPanel({ galleryId, onNavigate }: { galleryId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "gallery-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: GALLERY_VIDEOS_DEFAULT_FILTER_KEY });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "videos",
+      resetKey: "gallery-videos",
+      entityType: "videos",
+      builtInFilter: { page: 1, perPage: 24, direction: "desc" },
+      defaultFilterKey: GALLERY_VIDEOS_DEFAULT_FILTER_KEY,
+    });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter
-    ? videos.findFiltered({
-        findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
-      })
-    : videos.find(nextFilter, { galleryId: String(galleryId) }), [galleryId, hasObjectFilter, objectFilter]);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
+  const queryPage = useCallback(
+    (nextFilter: FindFilter) =>
+      hasObjectFilter
+        ? videos.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "galleriesCriterion", galleryId),
+          })
+        : videos.find(nextFilter, { galleryId: String(galleryId) }),
+    [galleryId, hasObjectFilter, objectFilter],
+  );
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Video>({
     queryKey: ["gallery-videos", galleryId, objectFilter],
     filter,
     queryFn: queryPage,
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
     <DetailListToolbar
@@ -514,7 +711,16 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
       onSelectAllMatching={selectShown}
       selectAllMatchingLabel="Select shown"
       onSelectNone={selectNone}
-      selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "gallery", id: galleryId }} />}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="videos"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          videoItems={items}
+          onNavigate={onNavigate}
+          removeFromParent={{ type: "gallery", id: galleryId }}
+        />
+      }
       criteriaDefinitions={VIDEO_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
@@ -528,15 +734,51 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
     />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos for this gallery" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos for this gallery" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <ContextualVideoListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <ContextualVideoListView
+        items={items}
+        filter={filter}
+        totalCount={data.totalCount}
+        queryPage={queryPage}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        onVideoQuickView={setQuickViewId}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -544,7 +786,30 @@ function GalleryVideosPanel({ galleryId, onNavigate }: {
   );
 }
 
-function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes, onNavigate, galleryImages, loadError, onRetry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore, onShowAddImages, onLightbox, imageZoom, setImageZoom, canWriteGallery }: {
+function GalleryImagesPanel({
+  galleryId,
+  filter,
+  setFilter,
+  objectFilter,
+  setObjectFilter,
+  displayMode,
+  setDisplayMode,
+  availableDisplayModes,
+  onNavigate,
+  galleryImages,
+  loadError,
+  onRetry,
+  infinitePageSize,
+  infiniteQuery,
+  infiniteFilterKey,
+  fetchAllIds,
+  loadMore,
+  onShowAddImages,
+  onLightbox,
+  imageZoom,
+  setImageZoom,
+  canWriteGallery,
+}: {
   galleryId: number;
   filter: FindFilter;
   setFilter: (f: FindFilter) => void;
@@ -570,7 +835,13 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
 }) {
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const items = galleryImages?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
     <DetailListToolbar
@@ -598,34 +869,74 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
       displayMode={displayMode}
       onDisplayModeChange={setDisplayMode}
       availableDisplayModes={availableDisplayModes}
-      selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "gallery", id: galleryId }} />}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="images"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          downloadItems={items}
+          removeFromParent={{ type: "gallery", id: galleryId }}
+        />
+      }
     />
   );
 
   if (loadError) return <ListLoadError error={loadError} onRetry={onRetry} className="mt-3" />;
 
-  if (!galleryImages || items.length === 0) return (
-    <>
-      {toolbar}
-      {canWriteGallery ? <div className="flex justify-end mb-3">
-        <button onClick={onShowAddImages} className="flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10 border border-border">
-          <Plus className="w-3 h-3" /> Add Images
-        </button>
-      </div> : null}
-      <EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images in this gallery" />
-    </>
-  );
+  if (!galleryImages || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        {canWriteGallery ? (
+          <div className="flex justify-end mb-3">
+            <button
+              onClick={onShowAddImages}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10 border border-border"
+            >
+              <Plus className="w-3 h-3" /> Add Images
+            </button>
+          </div>
+        ) : null}
+        <EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images in this gallery" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      {canWriteGallery ? <div className="flex justify-end mb-2">
-        <button onClick={onShowAddImages} className="flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10 border border-border">
-          <Plus className="w-3 h-3" /> Add Images
-        </button>
-      </div> : null}
-      <RelatedEntityListView entityType="images" items={items} displayMode={displayMode} zoomLevel={imageZoom} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} onImagePreview={(image) => onLightbox(image.id)} onImageDetails={(image) => onNavigate({ page: "image", id: image.id })} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={galleryImages.totalCount} allowInfinitePageSize />
+      {canWriteGallery ? (
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={onShowAddImages}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10 border border-border"
+          >
+            <Plus className="w-3 h-3" /> Add Images
+          </button>
+        </div>
+      ) : null}
+      <RelatedEntityListView
+        entityType="images"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={imageZoom}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        onImageQuickView={setQuickViewId}
+        onImagePreview={(image) => onLightbox(image.id)}
+        onImageDetails={(image) => onNavigate({ page: "image", id: image.id })}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={galleryImages.totalCount}
+        allowInfinitePageSize
+      />
       {quickViewId !== null && (
         <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -633,7 +944,12 @@ function GalleryImagesPanel({ galleryId, filter, setFilter, objectFilter, setObj
   );
 }
 
-function AddImagesDialog({ existingImageIds, onAdd, onClose, isPending }: {
+function AddImagesDialog({
+  existingImageIds,
+  onAdd,
+  onClose,
+  isPending,
+}: {
   existingImageIds: Set<number>;
   onAdd: (ids: number[]) => void;
   onClose: () => void;
@@ -643,7 +959,10 @@ function AddImagesDialog({ existingImageIds, onAdd, onClose, isPending }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-      <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-lg font-semibold text-foreground">Add Images to Gallery</h2>
           <div className="flex items-center gap-3">
@@ -674,7 +993,9 @@ function AddImagesDialog({ existingImageIds, onAdd, onClose, isPending }: {
         </div>
 
         <div className="flex items-center justify-end px-5 py-3 border-t border-border">
-          <button onClick={onClose} className="px-3 py-1.5 rounded text-sm text-secondary hover:text-foreground">Cancel</button>
+          <button onClick={onClose} className="px-3 py-1.5 rounded text-sm text-secondary hover:text-foreground">
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -699,11 +1020,25 @@ function EmptyPanel({ icon, message }: { icon: React.ReactNode; message: string 
   );
 }
 
-function GalleryFileInfo({ gallery }: { gallery: { folderPath?: string; files: { id: number; path: string; size: number; modTime: string; fingerprints: { type: string; value: string }[] }[] } }) {
+function GalleryFileInfo({
+  gallery,
+}: {
+  gallery: {
+    folderPath?: string;
+    files: {
+      id: number;
+      path: string;
+      size: number;
+      modTime: string;
+      fingerprints: { type: string; value: string }[];
+    }[];
+  };
+}) {
   const hasFolder = !!gallery.folderPath;
   const hasFiles = gallery.files.length > 0;
   const revealMutation = useMutation({ mutationFn: (fileId: number) => fileOps.reveal(fileId) });
-  const canReveal = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  const canReveal =
+    typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
   if (!hasFolder && !hasFiles) {
     return <EmptyPanel icon={<HardDrive className="h-8 w-8" />} message="No file information available" />;

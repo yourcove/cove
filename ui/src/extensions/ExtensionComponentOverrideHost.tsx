@@ -19,9 +19,11 @@ interface ExtensionComponentOverrideHostProps<TProps extends object> {
 }
 
 function compareOverrides(a: ExtensionComponentOverride, b: ExtensionComponentOverride): number {
-  return b.priority - a.priority
-    || compareOrdinal(a.extensionId, b.extensionId)
-    || compareOrdinal(a.componentName, b.componentName);
+  return (
+    b.priority - a.priority ||
+    compareOrdinal(a.extensionId, b.extensionId) ||
+    compareOrdinal(a.componentName, b.componentName)
+  );
 }
 
 function compareOrdinal(a: string, b: string): number {

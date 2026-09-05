@@ -35,7 +35,8 @@ export function RemoteIdsEditor({ value, onChange, metadataServers }: RemoteIdsE
     }
     return Array.from(byEndpoint.values());
   }, [rows, serverOptions]);
-  const setRow = (index: number, next: RemoteIdValue) => onChange(rows.map((row, candidateIndex) => candidateIndex === index ? next : row));
+  const setRow = (index: number, next: RemoteIdValue) =>
+    onChange(rows.map((row, candidateIndex) => (candidateIndex === index ? next : row)));
   const removeRow = (index: number) => onChange(rows.filter((_, candidateIndex) => candidateIndex !== index));
   const addRow = () => onChange([...rows, { endpoint: endpointOptions[0]?.endpoint ?? "", remoteId: "" }]);
 
@@ -50,7 +51,9 @@ export function RemoteIdsEditor({ value, onChange, metadataServers }: RemoteIdsE
           >
             <option value="">Select metadata server</option>
             {endpointOptions.map((option) => (
-              <option key={option.endpoint} value={option.endpoint}>{option.label}</option>
+              <option key={option.endpoint} value={option.endpoint}>
+                {option.label}
+              </option>
             ))}
           </select>
           <input

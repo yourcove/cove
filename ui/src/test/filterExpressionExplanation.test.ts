@@ -12,9 +12,16 @@ describe("filter expression explanations", () => {
       filterKey: "titleCriterion",
     };
 
-    expect(describeFilterExpressionCondition({
-      titleCriterion: { value: "Alpha", modifier: "INCLUDES" },
-    }, [criterion], defaultRatingSystemOptions, [])).toBe("Title includes Alpha");
+    expect(
+      describeFilterExpressionCondition(
+        {
+          titleCriterion: { value: "Alpha", modifier: "INCLUDES" },
+        },
+        [criterion],
+        defaultRatingSystemOptions,
+        [],
+      ),
+    ).toBe("Title includes Alpha");
   });
 
   it("describes nested related criteria with their quantifier", () => {
@@ -33,13 +40,20 @@ describe("filter expression explanations", () => {
       relatedCriteria: () => [nestedCriterion],
     };
 
-    expect(describeFilterExpressionCondition({
-      performerFilterCriterion: {
-        mode: "every",
-        objectFilter: {
-          nameCriterion: { value: "Alpha", modifier: "EQUALS" },
+    expect(
+      describeFilterExpressionCondition(
+        {
+          performerFilterCriterion: {
+            mode: "every",
+            objectFilter: {
+              nameCriterion: { value: "Alpha", modifier: "EQUALS" },
+            },
+          },
         },
-      },
-    }, [criterion], defaultRatingSystemOptions, [])).toBe("Every performer matches all of the following — Name is Alpha");
+        [criterion],
+        defaultRatingSystemOptions,
+        [],
+      ),
+    ).toBe("Every performer matches all of the following — Name is Alpha");
   });
 });

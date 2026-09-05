@@ -11,17 +11,21 @@ describe("extension list filter object representation", () => {
   it("round-trips namespaced criteria without changing core filters", () => {
     const saved = {
       favoriteCriterion: { value: true },
-      extensionCriteria: [{
-        extensionId: "midnight-rider.animated-tag-previews",
-        filterId: "has-preview",
-        modifier: "equals",
-        value: false,
-      }],
+      extensionCriteria: [
+        {
+          extensionId: "midnight-rider.animated-tag-previews",
+          filterId: "has-preview",
+          modifier: "equals",
+          value: false,
+        },
+      ],
     };
 
     const expanded = expandExtensionCriteria(saved);
-    expect(expanded[extensionFilterKey("midnight-rider.animated-tag-previews", "has-preview")])
-      .toEqual({ modifier: "EQUALS", value: false });
+    expect(expanded[extensionFilterKey("midnight-rider.animated-tag-previews", "has-preview")]).toEqual({
+      modifier: "EQUALS",
+      value: false,
+    });
     expect(collapseExtensionCriteria(expanded)).toEqual(saved);
   });
 
@@ -32,10 +36,12 @@ describe("extension list filter object representation", () => {
 
     const definitions = unavailableExtensionCriterionDefinitions(saved, []);
 
-    expect(definitions).toEqual([expect.objectContaining({
-      label: "Unavailable extension filter (missing.extension/owned)",
-      supported: false,
-    })]);
+    expect(definitions).toEqual([
+      expect.objectContaining({
+        label: "Unavailable extension filter (missing.extension/owned)",
+        supported: false,
+      }),
+    ]);
     expect(collapseExtensionCriteria(expandExtensionCriteria(saved))).toEqual(saved);
   });
 
@@ -51,8 +57,7 @@ describe("extension list filter object representation", () => {
       order: 100,
     };
 
-    expect(executableExtensionFilterKey(dualDeclaration))
-      .toBe(extensionFilterKey("owner.actual", "has-preview"));
+    expect(executableExtensionFilterKey(dualDeclaration)).toBe(extensionFilterKey("owner.actual", "has-preview"));
     expect(executableExtensionFilterKey({ ...dualDeclaration, entityType: "videos" })).toBeNull();
   });
 

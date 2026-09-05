@@ -1,8 +1,22 @@
 import type { CriterionDefinition } from "../../components/filterCriteriaTypes";
-import type { BoolCriterion, CriterionModifier, IntCriterion, MultiIdCriterion, StringCriterion, TimestampCriterion } from "../../api/types";
+import type {
+  BoolCriterion,
+  CriterionModifier,
+  IntCriterion,
+  MultiIdCriterion,
+  StringCriterion,
+  TimestampCriterion,
+} from "../../api/types";
 import type { SegmentsPageContentView } from "./types";
 
-const SEGMENT_NUMBER_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"];
+const SEGMENT_NUMBER_MODIFIERS: CriterionModifier[] = [
+  "EQUALS",
+  "NOT_EQUALS",
+  "GREATER_THAN",
+  "LESS_THAN",
+  "BETWEEN",
+  "NOT_BETWEEN",
+];
 const SEGMENT_INCLUDE_ONLY_MODIFIERS: CriterionModifier[] = ["INCLUDES"];
 
 export interface SegmentCriteriaOptions {
@@ -13,29 +27,102 @@ export interface SegmentCriteriaOptions {
 export const SEGMENT_CRITERIA: CriterionDefinition[] = [
   { id: "videoTitle", label: "Video Title", type: "string", filterKey: "videoTitleCriterion" },
   { id: "videos", label: "Videos", type: "multiId", entityType: "videos", filterKey: "videosCriterion" },
-  { id: "videoTags", label: "Video Tags", type: "multiId", entityType: "tags", filterKey: "videoTagsCriterion", modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS },
+  {
+    id: "videoTags",
+    label: "Video Tags",
+    type: "multiId",
+    entityType: "tags",
+    filterKey: "videoTagsCriterion",
+    modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS,
+  },
 ];
 
 export function createSegmentCriteria(options: SegmentCriteriaOptions = {}): CriterionDefinition[] {
   return [
-  ...SEGMENT_CRITERIA,
-  { id: "title", label: "Segment Title", type: "string", filterKey: "rawTitleCriterion" },
-  { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "rawCreatedAtCriterion" },
-  { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "rawUpdatedAtCriterion" },
-  { id: "startSec", label: "Start Time", type: "duration", filterKey: "rawStartSecCriterion", modifiers: SEGMENT_NUMBER_MODIFIERS },
-  { id: "endSec", label: "End Time", type: "duration", filterKey: "rawEndSecCriterion", modifiers: SEGMENT_NUMBER_MODIFIERS },
-  { id: "hostType", label: "Host Type", type: "enum", filterKey: "rawHostTypeCriterion", modifiers: ["EQUALS"], options: [{ value: "video", label: "Video" }] },
-  { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "rawTagsCriterion", modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS },
-  { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "rawPerformersCriterion", modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS },
-  { id: "faces", label: "Faces", type: "multiId", entityType: "faces", filterKey: "rawFacesCriterion", modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS },
-  { id: "kind", label: "Segment Type", type: "enum", filterKey: "rawKindCriterion", modifiers: ["EQUALS"], options: options.kindOptions ?? [] },
-  { id: "source", label: "Source", type: "enum", filterKey: "rawSourceCriterion", modifiers: ["EQUALS"], options: options.sourceOptions ?? [] },
-  { id: "sourceRun", label: "Source Run", type: "string", filterKey: "rawSourceRunCriterion" },
-  { id: "colorHint", label: "Color Hint", type: "string", filterKey: "rawColorHintCriterion" },
-  { id: "hasImage", label: "Has Image", type: "bool", filterKey: "rawHasImageCriterion" },
-  { id: "hasPayload", label: "Has Payload", type: "bool", filterKey: "rawHasPayloadCriterion" },
-  { id: "confidence", label: "Confidence", type: "number", filterKey: "rawConfidenceCriterion", modifiers: SEGMENT_NUMBER_MODIFIERS },
-  { id: "duration", label: "Duration", type: "duration", filterKey: "rawDurationCriterion", modifiers: SEGMENT_NUMBER_MODIFIERS },
+    ...SEGMENT_CRITERIA,
+    { id: "title", label: "Segment Title", type: "string", filterKey: "rawTitleCriterion" },
+    { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "rawCreatedAtCriterion" },
+    { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "rawUpdatedAtCriterion" },
+    {
+      id: "startSec",
+      label: "Start Time",
+      type: "duration",
+      filterKey: "rawStartSecCriterion",
+      modifiers: SEGMENT_NUMBER_MODIFIERS,
+    },
+    {
+      id: "endSec",
+      label: "End Time",
+      type: "duration",
+      filterKey: "rawEndSecCriterion",
+      modifiers: SEGMENT_NUMBER_MODIFIERS,
+    },
+    {
+      id: "hostType",
+      label: "Host Type",
+      type: "enum",
+      filterKey: "rawHostTypeCriterion",
+      modifiers: ["EQUALS"],
+      options: [{ value: "video", label: "Video" }],
+    },
+    {
+      id: "tags",
+      label: "Tags",
+      type: "multiId",
+      entityType: "tags",
+      filterKey: "rawTagsCriterion",
+      modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS,
+    },
+    {
+      id: "performers",
+      label: "Performers",
+      type: "multiId",
+      entityType: "performers",
+      filterKey: "rawPerformersCriterion",
+      modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS,
+    },
+    {
+      id: "faces",
+      label: "Faces",
+      type: "multiId",
+      entityType: "faces",
+      filterKey: "rawFacesCriterion",
+      modifiers: SEGMENT_INCLUDE_ONLY_MODIFIERS,
+    },
+    {
+      id: "kind",
+      label: "Segment Type",
+      type: "enum",
+      filterKey: "rawKindCriterion",
+      modifiers: ["EQUALS"],
+      options: options.kindOptions ?? [],
+    },
+    {
+      id: "source",
+      label: "Source",
+      type: "enum",
+      filterKey: "rawSourceCriterion",
+      modifiers: ["EQUALS"],
+      options: options.sourceOptions ?? [],
+    },
+    { id: "sourceRun", label: "Source Run", type: "string", filterKey: "rawSourceRunCriterion" },
+    { id: "colorHint", label: "Color Hint", type: "string", filterKey: "rawColorHintCriterion" },
+    { id: "hasImage", label: "Has Image", type: "bool", filterKey: "rawHasImageCriterion" },
+    { id: "hasPayload", label: "Has Payload", type: "bool", filterKey: "rawHasPayloadCriterion" },
+    {
+      id: "confidence",
+      label: "Confidence",
+      type: "number",
+      filterKey: "rawConfidenceCriterion",
+      modifiers: SEGMENT_NUMBER_MODIFIERS,
+    },
+    {
+      id: "duration",
+      label: "Duration",
+      type: "duration",
+      filterKey: "rawDurationCriterion",
+      modifiers: SEGMENT_NUMBER_MODIFIERS,
+    },
   ];
 }
 
@@ -175,7 +262,7 @@ export function readStringCriterionValue(value: unknown): SegmentStringCriterion
   const criterion = value as Partial<StringCriterion>;
   const modifier = criterion.modifier;
   const text = typeof criterion.value === "string" ? criterion.value.trim() : "";
-  if ((modifier === "IS_NULL" || modifier === "NOT_NULL") || text.length > 0) {
+  if (modifier === "IS_NULL" || modifier === "NOT_NULL" || text.length > 0) {
     return { modifier, value: text };
   }
 
@@ -196,7 +283,8 @@ export function readTimestampCriterion(value: unknown): SegmentTimestampCriterio
   return {
     modifier: criterion.modifier,
     value: text,
-    value2: typeof criterion.value2 === "string" && criterion.value2.trim().length > 0 ? criterion.value2.trim() : undefined,
+    value2:
+      typeof criterion.value2 === "string" && criterion.value2.trim().length > 0 ? criterion.value2.trim() : undefined,
   };
 }
 

@@ -1,12 +1,15 @@
 export type FilterExpressionOperator = "AND" | "OR" | "JUST_ONE" | "NONE" | "NOT";
 
-export const FILTER_EXPRESSION_OPERATOR_PRESENTATION: Record<FilterExpressionOperator, {
-  label: "All" | "Any" | "Just One" | "None" | "Exclude";
-  rank: number;
-  labelClassName: string;
-  selectedClassName: string;
-  railClassName: string;
-}> = {
+export const FILTER_EXPRESSION_OPERATOR_PRESENTATION: Record<
+  FilterExpressionOperator,
+  {
+    label: "All" | "Any" | "Just One" | "None" | "Exclude";
+    rank: number;
+    labelClassName: string;
+    selectedClassName: string;
+    railClassName: string;
+  }
+> = {
   AND: {
     label: "All",
     rank: 0,
@@ -46,7 +49,9 @@ export const FILTER_EXPRESSION_OPERATOR_PRESENTATION: Record<FilterExpressionOpe
 
 export function normalizeFilterExpressionOperator(operator: unknown): FilterExpressionOperator {
   const normalized = typeof operator === "string" ? operator.toUpperCase() : "AND";
-  return normalized === "OR" || normalized === "JUST_ONE" || normalized === "NONE" || normalized === "NOT" ? normalized : "AND";
+  return normalized === "OR" || normalized === "JUST_ONE" || normalized === "NONE" || normalized === "NOT"
+    ? normalized
+    : "AND";
 }
 
 type PresentableExpression = {
@@ -63,12 +68,16 @@ export function getFilterExpressionPresentationOperator(expression: PresentableE
   return onlyChild?.filter || normalizeFilterExpressionOperator(onlyChild?.group?.operator) === "OR" ? "NONE" : "NOT";
 }
 
-export function getFilterExpressionPresentationChildren<T extends { filter?: Record<string, unknown>; group?: PresentableExpression }>(expression: PresentableExpression & { children?: T[] }): T[] {
+export function getFilterExpressionPresentationChildren<
+  T extends { filter?: Record<string, unknown>; group?: PresentableExpression },
+>(expression: PresentableExpression & { children?: T[] }): T[] {
   const operator = getFilterExpressionPresentationOperator(expression);
   const onlyGroup = expression.children?.length === 1 ? expression.children[0]?.group : undefined;
-  return operator === "NONE" && !expression._semanticNone && normalizeFilterExpressionOperator(onlyGroup?.operator) === "OR"
-    ? (onlyGroup?.children ?? []) as T[]
-    : expression.children ?? [];
+  return operator === "NONE" &&
+    !expression._semanticNone &&
+    normalizeFilterExpressionOperator(onlyGroup?.operator) === "OR"
+    ? ((onlyGroup?.children ?? []) as T[])
+    : (expression.children ?? []);
 }
 
 export function sortFilterExpressionChildrenForDisplay<T extends { group?: { operator?: unknown } }>(
@@ -78,8 +87,15 @@ export function sortFilterExpressionChildrenForDisplay<T extends { group?: { ope
   return children
     .map((child, index) => ({ child, index }))
     .sort((left, right) => {
-      const leftOperator = left.child.group ? getFilterExpressionPresentationOperator(left.child.group) : parentOperator;
-      const rightOperator = right.child.group ? getFilterExpressionPresentationOperator(right.child.group) : parentOperator;
-      return FILTER_EXPRESSION_OPERATOR_PRESENTATION[leftOperator].rank - FILTER_EXPRESSION_OPERATOR_PRESENTATION[rightOperator].rank;
+      const leftOperator = left.child.group
+        ? getFilterExpressionPresentationOperator(left.child.group)
+        : parentOperator;
+      const rightOperator = right.child.group
+        ? getFilterExpressionPresentationOperator(right.child.group)
+        : parentOperator;
+      return (
+        FILTER_EXPRESSION_OPERATOR_PRESENTATION[leftOperator].rank -
+        FILTER_EXPRESSION_OPERATOR_PRESENTATION[rightOperator].rank
+      );
     });
 }

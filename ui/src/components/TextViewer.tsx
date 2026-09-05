@@ -3,31 +3,66 @@ import ReactMarkdown from "react-markdown";
 import { BookOpenText } from "lucide-react";
 
 const MARKDOWN_COMPONENTS = {
-  h1: (props: React.ComponentPropsWithoutRef<"h1">) => <h1 className="mt-8 text-3xl font-semibold tracking-tight text-foreground first:mt-0" {...props} />,
-  h2: (props: React.ComponentPropsWithoutRef<"h2">) => <h2 className="mt-7 text-2xl font-semibold tracking-tight text-foreground first:mt-0" {...props} />,
-  h3: (props: React.ComponentPropsWithoutRef<"h3">) => <h3 className="mt-6 text-xl font-semibold tracking-tight text-foreground first:mt-0" {...props} />,
-  p: (props: React.ComponentPropsWithoutRef<"p">) => <p className="mt-4 text-[15px] leading-7 text-foreground/92 first:mt-0" {...props} />,
-  ul: (props: React.ComponentPropsWithoutRef<"ul">) => <ul className="mt-4 list-disc space-y-2 pl-6 text-[15px] leading-7 text-foreground/92" {...props} />,
-  ol: (props: React.ComponentPropsWithoutRef<"ol">) => <ol className="mt-4 list-decimal space-y-2 pl-6 text-[15px] leading-7 text-foreground/92" {...props} />,
-  blockquote: (props: React.ComponentPropsWithoutRef<"blockquote">) => <blockquote className="mt-5 border-l-4 border-accent/40 bg-card/70 px-4 py-3 text-[15px] italic text-foreground/85" {...props} />,
+  h1: (props: React.ComponentPropsWithoutRef<"h1">) => (
+    <h1 className="mt-8 text-3xl font-semibold tracking-tight text-foreground first:mt-0" {...props} />
+  ),
+  h2: (props: React.ComponentPropsWithoutRef<"h2">) => (
+    <h2 className="mt-7 text-2xl font-semibold tracking-tight text-foreground first:mt-0" {...props} />
+  ),
+  h3: (props: React.ComponentPropsWithoutRef<"h3">) => (
+    <h3 className="mt-6 text-xl font-semibold tracking-tight text-foreground first:mt-0" {...props} />
+  ),
+  p: (props: React.ComponentPropsWithoutRef<"p">) => (
+    <p className="mt-4 text-[15px] leading-7 text-foreground/92 first:mt-0" {...props} />
+  ),
+  ul: (props: React.ComponentPropsWithoutRef<"ul">) => (
+    <ul className="mt-4 list-disc space-y-2 pl-6 text-[15px] leading-7 text-foreground/92" {...props} />
+  ),
+  ol: (props: React.ComponentPropsWithoutRef<"ol">) => (
+    <ol className="mt-4 list-decimal space-y-2 pl-6 text-[15px] leading-7 text-foreground/92" {...props} />
+  ),
+  blockquote: (props: React.ComponentPropsWithoutRef<"blockquote">) => (
+    <blockquote
+      className="mt-5 border-l-4 border-accent/40 bg-card/70 px-4 py-3 text-[15px] italic text-foreground/85"
+      {...props}
+    />
+  ),
   code: ({ className, children, ...props }: React.ComponentPropsWithoutRef<"code">) => {
     const isBlock = className?.includes("language-");
     if (isBlock) {
       return (
-        <code className={["block overflow-x-auto rounded-2xl border border-border bg-slate-950/95 p-4 text-sm text-slate-100", className].filter(Boolean).join(" ")} {...props}>
+        <code
+          className={[
+            "block overflow-x-auto rounded-2xl border border-border bg-slate-950/95 p-4 text-sm text-slate-100",
+            className,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          {...props}
+        >
           {children}
         </code>
       );
     }
 
     return (
-      <code className="rounded-md border border-border/80 bg-card px-1.5 py-0.5 text-[0.92em] text-foreground" {...props}>
+      <code
+        className="rounded-md border border-border/80 bg-card px-1.5 py-0.5 text-[0.92em] text-foreground"
+        {...props}
+      >
         {children}
       </code>
     );
   },
   pre: (props: React.ComponentPropsWithoutRef<"pre">) => <pre className="mt-5 overflow-x-auto" {...props} />,
-  a: (props: React.ComponentPropsWithoutRef<"a">) => <a className="text-accent underline decoration-accent/40 underline-offset-4 transition hover:text-accent/80" target="_blank" rel="noreferrer" {...props} />,
+  a: (props: React.ComponentPropsWithoutRef<"a">) => (
+    <a
+      className="text-accent underline decoration-accent/40 underline-offset-4 transition hover:text-accent/80"
+      target="_blank"
+      rel="noreferrer"
+      {...props}
+    />
+  ),
   hr: (props: React.ComponentPropsWithoutRef<"hr">) => <hr className="my-8 border-border" {...props} />,
 };
 
@@ -83,13 +118,21 @@ export function TextViewer({
   renderMode?: "text" | "markdown" | "html";
   className?: string;
 }) {
-  const plainBlocks = renderMode === "markdown" || renderMode === "html" || !content?.trim() ? [] : toPlainTextBlocks(content);
-  const sanitizedHtml = renderMode === "html" && content?.trim()
-    ? DOMPurify.sanitize(content, { USE_PROFILES: { html: true } })
-    : "";
+  const plainBlocks =
+    renderMode === "markdown" || renderMode === "html" || !content?.trim() ? [] : toPlainTextBlocks(content);
+  const sanitizedHtml =
+    renderMode === "html" && content?.trim() ? DOMPurify.sanitize(content, { USE_PROFILES: { html: true } }) : "";
 
   return (
-    <div data-testid="text-viewer" className={["flex h-full min-h-[24rem] flex-col overflow-hidden rounded-[2rem] border border-border bg-surface text-foreground shadow-[0_24px_64px_rgba(15,23,42,0.08)]", className].filter(Boolean).join(" ")}>
+    <div
+      data-testid="text-viewer"
+      className={[
+        "flex h-full min-h-[24rem] flex-col overflow-hidden rounded-[2rem] border border-border bg-surface text-foreground shadow-[0_24px_64px_rgba(15,23,42,0.08)]",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="border-b border-border bg-card/70 px-4 py-3 backdrop-blur-sm sm:px-6">
         <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-secondary">
           <BookOpenText className="h-3.5 w-3.5" />
@@ -118,7 +161,10 @@ export function TextViewer({
           <article className="min-h-full w-full max-w-none rounded-2xl border border-border bg-card/70 px-5 py-6 shadow-[0_18px_42px_rgba(15,23,42,0.05)] sm:px-7 sm:py-7 lg:px-8">
             <div className="space-y-4 text-[15px] leading-7 text-foreground/92" data-testid="text-viewer-content">
               {plainBlocks.map((block, index) => (
-                <p key={`${index}-${block.text.slice(0, 24)}`} className={block.preserveLineBreaks ? "whitespace-pre-wrap break-words" : "break-words"}>
+                <p
+                  key={`${index}-${block.text.slice(0, 24)}`}
+                  className={block.preserveLineBreaks ? "whitespace-pre-wrap break-words" : "break-words"}
+                >
                   {block.text}
                 </p>
               ))}

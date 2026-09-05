@@ -14,9 +14,7 @@ export function MediaAggregateMetadata({ loading, duration, fileSize }: Props) {
     fileSize == null ? null : formatFileSize(fileSize),
   ].filter((value): value is string => value != null);
 
-  return values.length > 0
-    ? <span className="whitespace-nowrap text-xs text-muted">{values.join(" · ")}</span>
-    : null;
+  return values.length > 0 ? <span className="whitespace-nowrap text-xs text-muted">{values.join(" · ")}</span> : null;
 }
 
 export function formatAggregateDuration(totalSeconds: number) {

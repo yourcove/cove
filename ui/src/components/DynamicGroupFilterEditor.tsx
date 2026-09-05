@@ -93,27 +93,85 @@ const SORT_OPTIONS_BY_ENTITY: Record<string, { value: string; label: string }[]>
   ],
 };
 
-const SEGMENT_NUMBER_MODIFIERS = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN"] as const;
+const SEGMENT_NUMBER_MODIFIERS = [
+  "EQUALS",
+  "NOT_EQUALS",
+  "GREATER_THAN",
+  "LESS_THAN",
+  "BETWEEN",
+  "NOT_BETWEEN",
+] as const;
 
 const SEGMENT_CRITERIA: CriterionDefinition[] = [
   { id: "videoTitle", label: "Video Title", type: "string", filterKey: "videoTitleCriterion" },
   { id: "videos", label: "Videos", type: "multiId", entityType: "videos", filterKey: "videosCriterion" },
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
-  { id: "hostType", label: "Host Type", type: "enum", filterKey: "hostTypeCriterion", modifiers: ["EQUALS", "NOT_EQUALS"], options: [{ value: "video", label: "Video" }, { value: "image", label: "Image" }, { value: "audio", label: "Audio" }] },
-  { id: "sourceCategory", label: "Source Category", type: "enum", filterKey: "sourceCategoryCriterion", modifiers: ["EQUALS", "NOT_EQUALS"], options: [{ value: "extensions", label: "Extensions" }, { value: "user", label: "User-created" }] },
+  {
+    id: "hostType",
+    label: "Host Type",
+    type: "enum",
+    filterKey: "hostTypeCriterion",
+    modifiers: ["EQUALS", "NOT_EQUALS"],
+    options: [
+      { value: "video", label: "Video" },
+      { value: "image", label: "Image" },
+      { value: "audio", label: "Audio" },
+    ],
+  },
+  {
+    id: "sourceCategory",
+    label: "Source Category",
+    type: "enum",
+    filterKey: "sourceCategoryCriterion",
+    modifiers: ["EQUALS", "NOT_EQUALS"],
+    options: [
+      { value: "extensions", label: "Extensions" },
+      { value: "user", label: "User-created" },
+    ],
+  },
   { id: "kind", label: "Kind", type: "string", filterKey: "kindCriterion" },
   { id: "sourceKey", label: "Source", type: "string", filterKey: "sourceKeyCriterion" },
   { id: "sourceRunId", label: "Source Run", type: "string", filterKey: "sourceRunIdCriterion" },
   { id: "colorHint", label: "Color Hint", type: "string", filterKey: "colorHintCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
-  { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
+  {
+    id: "performers",
+    label: "Performers",
+    type: "multiId",
+    entityType: "performers",
+    filterKey: "performersCriterion",
+  },
   { id: "faces", label: "Faces", type: "multiId", entityType: "faces", filterKey: "facesCriterion" },
   { id: "hasImage", label: "Has Image", type: "bool", filterKey: "hasImageCriterion" },
   { id: "hasPayload", label: "Has Payload", type: "bool", filterKey: "hasPayloadCriterion" },
-  { id: "startSec", label: "Start Time", type: "duration", filterKey: "startSecCriterion", modifiers: [...SEGMENT_NUMBER_MODIFIERS] },
-  { id: "endSec", label: "End Time", type: "duration", filterKey: "endSecCriterion", modifiers: [...SEGMENT_NUMBER_MODIFIERS] },
-  { id: "duration", label: "Duration", type: "duration", filterKey: "durationCriterion", modifiers: [...SEGMENT_NUMBER_MODIFIERS] },
-  { id: "confidence", label: "Confidence", type: "number", filterKey: "confidenceCriterion", modifiers: [...SEGMENT_NUMBER_MODIFIERS] },
+  {
+    id: "startSec",
+    label: "Start Time",
+    type: "duration",
+    filterKey: "startSecCriterion",
+    modifiers: [...SEGMENT_NUMBER_MODIFIERS],
+  },
+  {
+    id: "endSec",
+    label: "End Time",
+    type: "duration",
+    filterKey: "endSecCriterion",
+    modifiers: [...SEGMENT_NUMBER_MODIFIERS],
+  },
+  {
+    id: "duration",
+    label: "Duration",
+    type: "duration",
+    filterKey: "durationCriterion",
+    modifiers: [...SEGMENT_NUMBER_MODIFIERS],
+  },
+  {
+    id: "confidence",
+    label: "Confidence",
+    type: "number",
+    filterKey: "confidenceCriterion",
+    modifiers: [...SEGMENT_NUMBER_MODIFIERS],
+  },
   { id: "createdAt", label: "Created At", type: "timestamp", filterKey: "createdAtCriterion" },
   { id: "updatedAt", label: "Updated At", type: "timestamp", filterKey: "updatedAtCriterion" },
 ];
@@ -126,7 +184,7 @@ const ENTITY_OPTIONS = [
   { value: "segment", label: "Segments" },
 ] as const;
 
-type DynamicEntityType = typeof ENTITY_OPTIONS[number]["value"];
+type DynamicEntityType = (typeof ENTITY_OPTIONS)[number]["value"];
 
 interface DynamicGroupFilterQuery {
   entityType?: string;
@@ -159,7 +217,9 @@ export function parseDynamicGroupFilterQuery(queryJson?: string | null): ParsedD
 
   try {
     const parsed = JSON.parse(queryJson) as DynamicGroupFilterQuery;
-    const entityTypes = normalizeEntityTypes(parsed.entityTypes?.length ? parsed.entityTypes : [parsed.entityType ?? "video"]);
+    const entityTypes = normalizeEntityTypes(
+      parsed.entityTypes?.length ? parsed.entityTypes : [parsed.entityType ?? "video"],
+    );
     return {
       entityTypes,
       findFilters: normalizeFindFilters(parsed, entityTypes),
@@ -170,15 +230,21 @@ export function parseDynamicGroupFilterQuery(queryJson?: string | null): ParsedD
   }
 }
 
-export function serializeDynamicGroupFilterQuery(entityTypes: string[], findFilters: Record<string, FindFilter>, objectFilters: Record<string, Record<string, unknown>>) {
+export function serializeDynamicGroupFilterQuery(
+  entityTypes: string[],
+  findFilters: Record<string, FindFilter>,
+  objectFilters: Record<string, Record<string, unknown>>,
+) {
   const normalizedEntityTypes = normalizeEntityTypes(entityTypes);
-  const cleanedFindFilters = Object.fromEntries(normalizedEntityTypes.map((entityType) => {
-    const cleanedFindFilter = normalizeFindFilter(findFilters[entityType], entityType);
-    if (!cleanedFindFilter.q) {
-      delete cleanedFindFilter.q;
-    }
-    return [entityType, cleanedFindFilter] as const;
-  }));
+  const cleanedFindFilters = Object.fromEntries(
+    normalizedEntityTypes.map((entityType) => {
+      const cleanedFindFilter = normalizeFindFilter(findFilters[entityType], entityType);
+      if (!cleanedFindFilter.q) {
+        delete cleanedFindFilter.q;
+      }
+      return [entityType, cleanedFindFilter] as const;
+    }),
+  );
 
   const cleanedObjectFilters = Object.fromEntries(
     Object.entries(objectFilters)
@@ -203,12 +269,22 @@ export function DynamicGroupFilterEditor({ queryJson, onChange }: DynamicGroupFi
 
   const updateEntityTypes = (nextEntityTypes: string[]) => {
     const normalizedEntityTypes = normalizeEntityTypes(nextEntityTypes);
-    const nextFindFilters = Object.fromEntries(normalizedEntityTypes.map((entityType) => [entityType, findFilters[entityType] ?? normalizeFindFilter(undefined, entityType)] as const));
-    const nextFilters = Object.fromEntries(Object.entries(objectFilters).filter(([entityType]) => normalizedEntityTypes.includes(normalizeEntityType(entityType))));
+    const nextFindFilters = Object.fromEntries(
+      normalizedEntityTypes.map(
+        (entityType) => [entityType, findFilters[entityType] ?? normalizeFindFilter(undefined, entityType)] as const,
+      ),
+    );
+    const nextFilters = Object.fromEntries(
+      Object.entries(objectFilters).filter(([entityType]) =>
+        normalizedEntityTypes.includes(normalizeEntityType(entityType)),
+      ),
+    );
     onChange(serializeDynamicGroupFilterQuery(normalizedEntityTypes, nextFindFilters, nextFilters));
   };
-  const updateFindFilter = (entityType: DynamicEntityType, next: FindFilter) => onChange(serializeDynamicGroupFilterQuery(entityTypes, { ...findFilters, [entityType]: next }, objectFilters));
-  const updateObjectFilter = (entityType: DynamicEntityType, next: Record<string, unknown>) => onChange(serializeDynamicGroupFilterQuery(entityTypes, findFilters, { ...objectFilters, [entityType]: next }));
+  const updateFindFilter = (entityType: DynamicEntityType, next: FindFilter) =>
+    onChange(serializeDynamicGroupFilterQuery(entityTypes, { ...findFilters, [entityType]: next }, objectFilters));
+  const updateObjectFilter = (entityType: DynamicEntityType, next: Record<string, unknown>) =>
+    onChange(serializeDynamicGroupFilterQuery(entityTypes, findFilters, { ...objectFilters, [entityType]: next }));
 
   return (
     <div className="rounded-lg border border-border bg-card/60 p-3">
@@ -221,7 +297,13 @@ export function DynamicGroupFilterEditor({ queryJson, onChange }: DynamicGroupFi
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => updateEntityTypes(selected ? entityTypes.filter((entityType) => entityType !== option.value) : [...entityTypes, option.value])}
+                  onClick={() =>
+                    updateEntityTypes(
+                      selected
+                        ? entityTypes.filter((entityType) => entityType !== option.value)
+                        : [...entityTypes, option.value],
+                    )
+                  }
                   className={`rounded border px-2.5 py-1.5 text-sm transition-colors ${selected ? "border-accent bg-accent text-white" : "border-border bg-input text-secondary hover:text-foreground"}`}
                   aria-pressed={selected}
                 >
@@ -247,7 +329,9 @@ export function DynamicGroupFilterEditor({ queryJson, onChange }: DynamicGroupFi
                   <input
                     type="text"
                     value={findFilter.q ?? ""}
-                    onChange={(event) => updateFindFilter(entityType, { ...findFilter, q: event.target.value || undefined, page: 1 })}
+                    onChange={(event) =>
+                      updateFindFilter(entityType, { ...findFilter, q: event.target.value || undefined, page: 1 })
+                    }
                     placeholder={`${label} keyword search`}
                     className="w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
                   />
@@ -255,21 +339,35 @@ export function DynamicGroupFilterEditor({ queryJson, onChange }: DynamicGroupFi
                 <Field label="Sort">
                   <select
                     value={findFilter.sort ?? DEFAULT_FIND_FILTER.sort}
-                    onChange={(event) => updateFindFilter(entityType, { ...findFilter, sort: event.target.value, page: 1 })}
+                    onChange={(event) =>
+                      updateFindFilter(entityType, { ...findFilter, sort: event.target.value, page: 1 })
+                    }
                     className="w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
                   >
                     {sortOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
                     ))}
                   </select>
                 </Field>
                 <button
                   type="button"
-                  onClick={() => updateFindFilter(entityType, { ...findFilter, direction: findFilter.direction === "asc" ? "desc" : "asc", page: 1 })}
+                  onClick={() =>
+                    updateFindFilter(entityType, {
+                      ...findFilter,
+                      direction: findFilter.direction === "asc" ? "desc" : "asc",
+                      page: 1,
+                    })
+                  }
                   className="inline-flex h-10 items-center justify-center rounded border border-border bg-input px-3 text-secondary transition-colors hover:text-foreground"
                   title={findFilter.direction === "asc" ? "Ascending" : "Descending"}
                 >
-                  {findFilter.direction === "desc" ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                  {findFilter.direction === "desc" ? (
+                    <ArrowDown className="h-4 w-4" />
+                  ) : (
+                    <ArrowUp className="h-4 w-4" />
+                  )}
                 </button>
                 {criteriaDefinitions ? (
                   <button
@@ -279,7 +377,11 @@ export function DynamicGroupFilterEditor({ queryJson, onChange }: DynamicGroupFi
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                     Filters
-                    {activeCriteriaCount > 0 ? <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-white">{activeCriteriaCount}</span> : null}
+                    {activeCriteriaCount > 0 ? (
+                      <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {activeCriteriaCount}
+                      </span>
+                    ) : null}
                   </button>
                 ) : null}
               </div>
@@ -316,15 +418,20 @@ function normalizeEntityType(entityType?: string | null): DynamicEntityType {
 }
 
 function normalizeFindFilters(parsed: DynamicGroupFilterQuery, entityTypes: DynamicEntityType[]) {
-  return Object.fromEntries(entityTypes.map((entityType) => {
-    const findFilter = parsed.findFilters?.[entityType] ?? parsed.findFilters?.[`${entityType}s`] ?? parsed.findFilter;
-    return [entityType, normalizeFindFilter(findFilter, entityType)] as const;
-  }));
+  return Object.fromEntries(
+    entityTypes.map((entityType) => {
+      const findFilter =
+        parsed.findFilters?.[entityType] ?? parsed.findFilters?.[`${entityType}s`] ?? parsed.findFilter;
+      return [entityType, normalizeFindFilter(findFilter, entityType)] as const;
+    }),
+  );
 }
 
 function normalizeFindFilter(findFilter: FindFilter | undefined, entityType: DynamicEntityType) {
   const sortOptions = getSortOptions(entityType);
-  const sort = sortOptions.some((option) => option.value === findFilter?.sort) ? findFilter?.sort : sortOptions[0].value;
+  const sort = sortOptions.some((option) => option.value === findFilter?.sort)
+    ? findFilter?.sort
+    : sortOptions[0].value;
   return { ...DEFAULT_FIND_FILTER, ...(findFilter ?? {}), sort, page: 1 };
 }
 
@@ -355,11 +462,17 @@ function getSortOptions(entityType: DynamicEntityType) {
 
 function getCriteriaDefinitions(entityType: DynamicEntityType): CriterionDefinition[] | null {
   switch (entityType) {
-    case "video": return VIDEO_CRITERIA;
-    case "image": return IMAGE_CRITERIA;
-    case "audio": return AUDIO_CRITERIA;
-    case "text": return TEXT_CRITERIA;
-    case "segment": return SEGMENT_CRITERIA;
-    default: return null;
+    case "video":
+      return VIDEO_CRITERIA;
+    case "image":
+      return IMAGE_CRITERIA;
+    case "audio":
+      return AUDIO_CRITERIA;
+    case "text":
+      return TEXT_CRITERIA;
+    case "segment":
+      return SEGMENT_CRITERIA;
+    default:
+      return null;
   }
 }

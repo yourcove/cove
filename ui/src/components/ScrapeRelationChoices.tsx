@@ -36,13 +36,23 @@ export function buildRelationActionMap(
   return actions;
 }
 
-export function buildRelationSelectionPayload(names: string[], actions: ScrapeRelationActionMap): ScrapeCollectionItemSelection[] {
+export function buildRelationSelectionPayload(
+  names: string[],
+  actions: ScrapeRelationActionMap,
+): ScrapeCollectionItemSelection[] {
   return names
     .map((name) => ({ name, action: actions[relationKey(name)] ?? "exclude" }))
-    .filter((selection, index, items) => items.findIndex((candidate) => relationKey(candidate.name) === relationKey(selection.name)) === index);
+    .filter(
+      (selection, index, items) =>
+        items.findIndex((candidate) => relationKey(candidate.name) === relationKey(selection.name)) === index,
+    );
 }
 
-export function countAppliedRelationSelections(names: string[], actions: ScrapeRelationActionMap, collectionMode?: string) {
+export function countAppliedRelationSelections(
+  names: string[],
+  actions: ScrapeRelationActionMap,
+  collectionMode?: string,
+) {
   if (collectionMode === "skip") return 0;
   return names.filter((name) => (actions[relationKey(name)] ?? "exclude") !== "exclude").length;
 }
@@ -81,30 +91,32 @@ export function ScrapeRelationChoices({
         const action = actions[key] ?? "exclude";
         const isCurrent = current.has(key);
         const existsLocally = isCurrent || existing.has(key);
-        const nextAction = action === "exclude" ? existsLocally ? "include" : "create" : "exclude";
+        const nextAction = action === "exclude" ? (existsLocally ? "include" : "create") : "exclude";
         // Show the matched primary name only when it differs from the scraped name (alias match).
         const matchedName = matchInfo?.[key];
         const aliasMatch = matchedName != null && relationKey(matchedName) !== key ? matchedName : null;
-        const label = action === "exclude"
-          ? "Excluded"
-          : action === "create"
-            ? "Will create"
-            : isCurrent
-              ? "Current"
-              : existsLocally
-                ? "Existing"
-                : "Include only";
-        const title = action === "exclude"
-          ? `${displayName} is excluded`
-          : action === "create"
-            ? `${displayName} has no existing match — a new entry will be created`
-            : isCurrent
-              ? `${displayName} is already linked`
-              : aliasMatch
-                ? `${displayName} matches existing "${aliasMatch}" (alias) — no new entry created`
+        const label =
+          action === "exclude"
+            ? "Excluded"
+            : action === "create"
+              ? "Will create"
+              : isCurrent
+                ? "Current"
                 : existsLocally
-                  ? `${displayName} matches an existing entry — no new entry created`
-                  : `${displayName} will be included`;
+                  ? "Existing"
+                  : "Include only";
+        const title =
+          action === "exclude"
+            ? `${displayName} is excluded`
+            : action === "create"
+              ? `${displayName} has no existing match — a new entry will be created`
+              : isCurrent
+                ? `${displayName} is already linked`
+                : aliasMatch
+                  ? `${displayName} matches existing "${aliasMatch}" (alias) — no new entry created`
+                  : existsLocally
+                    ? `${displayName} matches an existing entry — no new entry created`
+                    : `${displayName} will be included`;
 
         return (
           <button

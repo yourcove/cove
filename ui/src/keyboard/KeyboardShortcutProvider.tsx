@@ -1,24 +1,11 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 import { isOverlayOpen } from "../utils/overlayState";
 import { normalizeShortcutEvent, normalizeShortcutSequence } from "./keybindings";
-import {
-  BUILTIN_KEYBOARD_PRESETS,
-  COVE_KEYBOARD_ACTIONS,
-  COVE_KEYBOARD_PRESET_ID,
-} from "./catalog";
+import { BUILTIN_KEYBOARD_PRESETS, COVE_KEYBOARD_ACTIONS, COVE_KEYBOARD_PRESET_ID } from "./catalog";
 import {
   flattenKeyboardPreset,
   getKeyboardSequenceContinuations,
@@ -46,9 +33,11 @@ const SURFACE_PRIORITY: Record<KeyboardShortcutSurface, number> = {
 };
 
 function hasDocumentKeyboardOverlay(target: EventTarget | null) {
-  return isOverlayOpen() || document.querySelector(
-    "[role='dialog'], [aria-modal='true']",
-  ) != null || (target instanceof Element && target.closest("[role='listbox'], [role='menu']") != null);
+  return (
+    isOverlayOpen() ||
+    document.querySelector("[role='dialog'], [aria-modal='true']") != null ||
+    (target instanceof Element && target.closest("[role='listbox'], [role='menu']") != null)
+  );
 }
 
 /** Host-owned dispatch context supplied after Cove resolves and claims a shortcut. */
@@ -143,21 +132,28 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
   const legacyOverrides = user?.uiPreferences?.keybindingOverrides ?? config?.ui.keybindingOverrides;
   const hasLegacyOverrides = !!legacyOverrides && Object.keys(legacyOverrides).length > 0;
   const [activePresetId, setActivePresetId] = useState(
-    () => serverPreferences?.activePresetId ?? stored?.activePresetId ?? (hasLegacyOverrides ? LEGACY_PRESET_ID : COVE_KEYBOARD_PRESET_ID),
+    () =>
+      serverPreferences?.activePresetId ??
+      stored?.activePresetId ??
+      (hasLegacyOverrides ? LEGACY_PRESET_ID : COVE_KEYBOARD_PRESET_ID),
   );
   const [personalPresets, setPersonalPresets] = useState<KeyboardShortcutPreset[]>(() => {
-    const serverPresets = normalizePersonalPresets(serverPreferences?.personalPresets as KeyboardShortcutPreset[] | undefined);
+    const serverPresets = normalizePersonalPresets(
+      serverPreferences?.personalPresets as KeyboardShortcutPreset[] | undefined,
+    );
     const explicit = serverPresets.length > 0 ? serverPresets : normalizePersonalPresets(stored?.personalPresets);
     if (explicit.length > 0 || !legacyOverrides || Object.keys(legacyOverrides).length === 0) return explicit;
-    return [{
-      schemaVersion: 1,
-      id: LEGACY_PRESET_ID,
-      name: "My Cove shortcuts",
-      basePresetId: COVE_KEYBOARD_PRESET_ID,
-      unmappedActions: "unbound",
-      bindings: Object.fromEntries(Object.entries(legacyOverrides).map(([id, value]) => [id, [value]])),
-      provenance: { source: "personal", originalPresetId: COVE_KEYBOARD_PRESET_ID },
-    }];
+    return [
+      {
+        schemaVersion: 1,
+        id: LEGACY_PRESET_ID,
+        name: "My Cove shortcuts",
+        basePresetId: COVE_KEYBOARD_PRESET_ID,
+        unmappedActions: "unbound",
+        bindings: Object.fromEntries(Object.entries(legacyOverrides).map(([id, value]) => [id, [value]])),
+        provenance: { source: "personal", originalPresetId: COVE_KEYBOARD_PRESET_ID },
+      },
+    ];
   });
   const [shortcutDialogOpen, setShortcutDialogOpen] = useState(false);
   const [showChordHints, setShowChordHintsState] = useState(
@@ -171,32 +167,41 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
   const sequenceBufferRef = useRef<string[]>([]);
   const sequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const extensionActions = useMemo<KeyboardActionDefinition[]>(() => (manifest?.keyboardActions ?? [])
-    .filter((action) => !action.requiredPermission || hasPermission(action.requiredPermission))
-    .map((action) => ({
-      id: action.id,
-      label: action.label,
-      description: action.description,
-      group: action.group || `Extension: ${action.extensionId}`,
-      defaultBindings: action.defaultBindings ?? [],
-      scopes: action.scopes,
-      source: "extension",
-      extensionId: action.extensionId,
-      repeatable: action.repeatable,
-      allowInEditable: action.allowInEditable,
-      requiredPermission: action.requiredPermission,
-    })), [hasPermission, manifest?.keyboardActions]);
+  const extensionActions = useMemo<KeyboardActionDefinition[]>(
+    () =>
+      (manifest?.keyboardActions ?? [])
+        .filter((action) => !action.requiredPermission || hasPermission(action.requiredPermission))
+        .map((action) => ({
+          id: action.id,
+          label: action.label,
+          description: action.description,
+          group: action.group || `Extension: ${action.extensionId}`,
+          defaultBindings: action.defaultBindings ?? [],
+          scopes: action.scopes,
+          source: "extension",
+          extensionId: action.extensionId,
+          repeatable: action.repeatable,
+          allowInEditable: action.allowInEditable,
+          requiredPermission: action.requiredPermission,
+        })),
+    [hasPermission, manifest?.keyboardActions],
+  );
   const actions = useMemo(() => [...COVE_KEYBOARD_ACTIONS, ...extensionActions], [extensionActions]);
-  const extensionPresets = useMemo<KeyboardShortcutPreset[]>(() => (manifest?.keyboardShortcutPresets ?? [])
-    .map((preset) => ({
-      ...preset,
-      provenance: { source: "extension" as const, providerId: preset.extensionId },
-    }))
-    .filter((preset) => validateKeyboardPreset(preset).valid), [manifest?.keyboardShortcutPresets]);
-  const presets = useMemo(() => keepResolvableKeyboardPresets(
-    [...BUILTIN_KEYBOARD_PRESETS, ...extensionPresets, ...personalPresets],
-    actions,
-  ), [actions, extensionPresets, personalPresets]);
+  const extensionPresets = useMemo<KeyboardShortcutPreset[]>(
+    () =>
+      (manifest?.keyboardShortcutPresets ?? [])
+        .map((preset) => ({
+          ...preset,
+          provenance: { source: "extension" as const, providerId: preset.extensionId },
+        }))
+        .filter((preset) => validateKeyboardPreset(preset).valid),
+    [manifest?.keyboardShortcutPresets],
+  );
+  const presets = useMemo(
+    () =>
+      keepResolvableKeyboardPresets([...BUILTIN_KEYBOARD_PRESETS, ...extensionPresets, ...personalPresets], actions),
+    [actions, extensionPresets, personalPresets],
+  );
   const selectedPreset = presets.find((preset) => preset.id === activePresetId);
   const fallbackPreset = presets.find((preset) => preset.id === COVE_KEYBOARD_PRESET_ID)!;
   const effectivePreset = selectedPreset ?? fallbackPreset;
@@ -205,94 +210,126 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
     [actions, effectivePreset, presets],
   );
 
-  const persist = useCallback((nextActivePresetId: string, nextPersonalPresets: KeyboardShortcutPreset[], nextShowChordHints = showChordHints) => {
-    const value = { activePresetId: nextActivePresetId, personalPresets: nextPersonalPresets, showChordHints: nextShowChordHints };
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-    } catch {
-      // Server-backed preferences remain authoritative when browser storage is unavailable or full.
-    }
-    updateAuthenticatedUserUiPreferences((current) => ({
-      ...(current ?? {}),
-      keyboardShortcuts: value,
-    }));
-  }, [showChordHints]);
+  const persist = useCallback(
+    (
+      nextActivePresetId: string,
+      nextPersonalPresets: KeyboardShortcutPreset[],
+      nextShowChordHints = showChordHints,
+    ) => {
+      const value = {
+        activePresetId: nextActivePresetId,
+        personalPresets: nextPersonalPresets,
+        showChordHints: nextShowChordHints,
+      };
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+      } catch {
+        // Server-backed preferences remain authoritative when browser storage is unavailable or full.
+      }
+      updateAuthenticatedUserUiPreferences((current) => ({
+        ...(current ?? {}),
+        keyboardShortcuts: value,
+      }));
+    },
+    [showChordHints],
+  );
 
-  const setShowChordHints = useCallback((show: boolean) => {
-    setShowChordHintsState(show);
-    persist(activePresetId, personalPresets, show);
-  }, [activePresetId, persist, personalPresets]);
+  const setShowChordHints = useCallback(
+    (show: boolean) => {
+      setShowChordHintsState(show);
+      persist(activePresetId, personalPresets, show);
+    },
+    [activePresetId, persist, personalPresets],
+  );
 
-  const selectPreset = useCallback((id: string) => {
-    setActivePresetId(id);
-    persist(id, personalPresets);
-  }, [persist, personalPresets]);
+  const selectPreset = useCallback(
+    (id: string) => {
+      setActivePresetId(id);
+      persist(id, personalPresets);
+    },
+    [persist, personalPresets],
+  );
 
-  const updatePersonalPreset = useCallback((preset: KeyboardShortcutPreset) => {
-    if (preset.provenance?.source !== "personal" && preset.provenance?.source !== "import") return;
-    if (!validateKeyboardPreset(preset).valid) return;
-    setPersonalPresets((current) => {
-      const next = current.some((entry) => entry.id === preset.id)
-        ? current.map((entry) => entry.id === preset.id ? preset : entry)
-        : [...current, preset];
-      persist(activePresetId, next);
-      return next;
-    });
-  }, [activePresetId, persist]);
+  const updatePersonalPreset = useCallback(
+    (preset: KeyboardShortcutPreset) => {
+      if (preset.provenance?.source !== "personal" && preset.provenance?.source !== "import") return;
+      if (!validateKeyboardPreset(preset).valid) return;
+      setPersonalPresets((current) => {
+        const next = current.some((entry) => entry.id === preset.id)
+          ? current.map((entry) => (entry.id === preset.id ? preset : entry))
+          : [...current, preset];
+        persist(activePresetId, next);
+        return next;
+      });
+    },
+    [activePresetId, persist],
+  );
 
-  const clonePreset = useCallback((id: string, name?: string) => {
-    const source = presets.find((preset) => preset.id === id);
-    if (!source) return null;
-    const clone = flattenKeyboardPreset(source, presets, actions, {
-      id: createPersonalPresetId(),
-      name: name?.trim() || `${source.name} copy`,
-    });
-    const next = [...personalPresets, clone];
-    setPersonalPresets(next);
-    setActivePresetId(clone.id);
-    persist(clone.id, next);
-    return clone;
-  }, [actions, persist, personalPresets, presets]);
+  const clonePreset = useCallback(
+    (id: string, name?: string) => {
+      const source = presets.find((preset) => preset.id === id);
+      if (!source) return null;
+      const clone = flattenKeyboardPreset(source, presets, actions, {
+        id: createPersonalPresetId(),
+        name: name?.trim() || `${source.name} copy`,
+      });
+      const next = [...personalPresets, clone];
+      setPersonalPresets(next);
+      setActivePresetId(clone.id);
+      persist(clone.id, next);
+      return clone;
+    },
+    [actions, persist, personalPresets, presets],
+  );
 
-  const deletePersonalPreset = useCallback((id: string) => {
-    const next = personalPresets.filter((preset) => preset.id !== id);
-    const nextActive = activePresetId === id ? COVE_KEYBOARD_PRESET_ID : activePresetId;
-    setPersonalPresets(next);
-    setActivePresetId(nextActive);
-    persist(nextActive, next);
-  }, [activePresetId, persist, personalPresets]);
+  const deletePersonalPreset = useCallback(
+    (id: string) => {
+      const next = personalPresets.filter((preset) => preset.id !== id);
+      const nextActive = activePresetId === id ? COVE_KEYBOARD_PRESET_ID : activePresetId;
+      setPersonalPresets(next);
+      setActivePresetId(nextActive);
+      persist(nextActive, next);
+    },
+    [activePresetId, persist, personalPresets],
+  );
 
-  const importPreset = useCallback((raw: string) => {
-    if (new Blob([raw]).size > 1024 * 1024) throw new Error("Keyboard preset files may not exceed 1 MiB.");
-    const parsed = JSON.parse(raw) as KeyboardShortcutPreset;
-    const validation = validateKeyboardPreset(parsed);
-    if (!validation.valid) throw new Error(validation.errors.join(" "));
-    const imported = flattenKeyboardPreset(parsed, [...presets, parsed], actions, {
-      id: createPersonalPresetId(),
-      name: parsed.name,
-    });
-    imported.provenance = {
-      source: "import",
-      providerId: parsed.provenance?.providerId,
-      originalPresetId: parsed.id,
-    };
-    const next = [...personalPresets, imported];
-    setPersonalPresets(next);
-    setActivePresetId(imported.id);
-    persist(imported.id, next);
-    return imported;
-  }, [actions, persist, personalPresets, presets]);
+  const importPreset = useCallback(
+    (raw: string) => {
+      if (new Blob([raw]).size > 1024 * 1024) throw new Error("Keyboard preset files may not exceed 1 MiB.");
+      const parsed = JSON.parse(raw) as KeyboardShortcutPreset;
+      const validation = validateKeyboardPreset(parsed);
+      if (!validation.valid) throw new Error(validation.errors.join(" "));
+      const imported = flattenKeyboardPreset(parsed, [...presets, parsed], actions, {
+        id: createPersonalPresetId(),
+        name: parsed.name,
+      });
+      imported.provenance = {
+        source: "import",
+        providerId: parsed.provenance?.providerId,
+        originalPresetId: parsed.id,
+      };
+      const next = [...personalPresets, imported];
+      setPersonalPresets(next);
+      setActivePresetId(imported.id);
+      persist(imported.id, next);
+      return imported;
+    },
+    [actions, persist, personalPresets, presets],
+  );
 
-  const exportPreset = useCallback((id: string) => {
-    const source = presets.find((preset) => preset.id === id);
-    if (!source) return null;
-    const flattened = flattenKeyboardPreset(source, presets, actions, {
-      id: source.id,
-      name: source.name,
-    });
-    flattened.provenance = source.provenance;
-    return `${JSON.stringify(flattened, null, 2)}\n`;
-  }, [actions, presets]);
+  const exportPreset = useCallback(
+    (id: string) => {
+      const source = presets.find((preset) => preset.id === id);
+      if (!source) return null;
+      const flattened = flattenKeyboardPreset(source, presets, actions, {
+        id: source.id,
+        name: source.name,
+      });
+      flattened.provenance = source.provenance;
+      return `${JSON.stringify(flattened, null, 2)}\n`;
+    },
+    [actions, presets],
+  );
 
   const register = useCallback((values: KeyboardActionRegistration[]) => {
     const entries = values.map((value): ActiveRegistration => ({
@@ -342,27 +379,37 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
         if (!definition && !registration.id.startsWith("legacy:")) return [];
         if (editable && !definition?.allowInEditable) return [];
         if (event.repeat && definition && !definition.repeatable) return [];
-        if (registration.surface && definition
-          && (definition.source === "extension" || definition.scopes?.length)
-          && !definition.scopes?.some((scope) => scope.surface === registration.surface)) return [];
+        if (
+          registration.surface &&
+          definition &&
+          (definition.source === "extension" || definition.scopes?.length) &&
+          !definition.scopes?.some((scope) => scope.surface === registration.surface)
+        )
+          return [];
         const surface = registration.surface ?? definition?.scopes?.[0]?.surface ?? "page";
         if (hasDocumentKeyboardOverlay(event.target) && SURFACE_PRIORITY[surface] < SURFACE_PRIORITY.viewer) return [];
-        const alternatives = registration.bindings ?? effectiveBindings[registration.id] ?? definition?.defaultBindings ?? [];
-        return alternatives.map((keys) => ({
-          registration,
-          normalized: normalizeShortcutSequence(keys),
-          priority: SURFACE_PRIORITY[surface],
-        })).filter((candidate) => candidate.normalized);
+        const alternatives =
+          registration.bindings ?? effectiveBindings[registration.id] ?? definition?.defaultBindings ?? [];
+        return alternatives
+          .map((keys) => ({
+            registration,
+            normalized: normalizeShortcutSequence(keys),
+            priority: SURFACE_PRIORITY[surface],
+          }))
+          .filter((candidate) => candidate.normalized);
       });
 
       sequenceBufferRef.current.push(stroke);
       const sequence = sequenceBufferRef.current.join(" ");
-      const resolution = resolveKeyboardDispatch(candidates.map((candidate) => ({
-        actionId: candidate.registration.id,
-        sequence: candidate.normalized,
-        priority: candidate.priority,
-        value: candidate,
-      })), sequence);
+      const resolution = resolveKeyboardDispatch(
+        candidates.map((candidate) => ({
+          actionId: candidate.registration.id,
+          sequence: candidate.normalized,
+          priority: candidate.priority,
+          value: candidate,
+        })),
+        sequence,
+      );
       if (resolution.kind === "action" || resolution.kind === "conflict") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -374,9 +421,11 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
           });
         } else {
           setConflictMessage(`Shortcut ${sequence} is assigned to multiple actions in this view.`);
-          window.dispatchEvent(new CustomEvent("cove:keyboard-shortcut-conflict", {
-            detail: { sequence, actionIds: resolution.actionIds },
-          }));
+          window.dispatchEvent(
+            new CustomEvent("cove:keyboard-shortcut-conflict", {
+              detail: { sequence, actionIds: resolution.actionIds },
+            }),
+          );
         }
         clearBuffer();
         return;
@@ -409,31 +458,48 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
     };
   }, [actionById, dispatchSuspended, effectiveBindings]);
 
-  const value = useMemo<KeyboardShortcutState>(() => ({
-    actions,
-    presets,
-    activePresetId,
-    effectivePresetId: effectivePreset.id,
-    effectiveBindings,
-    activeActionIds,
-    shortcutDialogOpen,
-    dispatchSuspended,
-    setDispatchSuspended,
-    showChordHints,
-    setShowChordHints,
-    setShortcutDialogOpen,
-    selectPreset,
-    clonePreset,
-    updatePersonalPreset,
-    deletePersonalPreset,
-    importPreset,
-    exportPreset,
-    register,
-  }), [
-    actions, activeActionIds, activePresetId, clonePreset, deletePersonalPreset, effectiveBindings, effectivePreset.id,
-    dispatchSuspended, exportPreset, importPreset, presets, register, selectPreset, shortcutDialogOpen, showChordHints,
-    setShowChordHints, updatePersonalPreset,
-  ]);
+  const value = useMemo<KeyboardShortcutState>(
+    () => ({
+      actions,
+      presets,
+      activePresetId,
+      effectivePresetId: effectivePreset.id,
+      effectiveBindings,
+      activeActionIds,
+      shortcutDialogOpen,
+      dispatchSuspended,
+      setDispatchSuspended,
+      showChordHints,
+      setShowChordHints,
+      setShortcutDialogOpen,
+      selectPreset,
+      clonePreset,
+      updatePersonalPreset,
+      deletePersonalPreset,
+      importPreset,
+      exportPreset,
+      register,
+    }),
+    [
+      actions,
+      activeActionIds,
+      activePresetId,
+      clonePreset,
+      deletePersonalPreset,
+      effectiveBindings,
+      effectivePreset.id,
+      dispatchSuspended,
+      exportPreset,
+      importPreset,
+      presets,
+      register,
+      selectPreset,
+      shortcutDialogOpen,
+      showChordHints,
+      setShowChordHints,
+      updatePersonalPreset,
+    ],
+  );
 
   return (
     <KeyboardShortcutContext.Provider value={value}>
@@ -477,20 +543,21 @@ export function useOptionalKeyboardShortcuts() {
 export function useRegisterKeyboardActions(registrations: KeyboardActionRegistration[]) {
   const context = useOptionalKeyboardShortcuts();
   const register = context?.register;
-  const registrationKey = registrations.map((entry) => [
-    entry.id,
-    entry.enabled !== false,
-    entry.surface ?? "page",
-    entry.bindings?.join("\u001f") ?? "",
-  ].join("\u001e")).join("\u001d");
+  const registrationKey = registrations
+    .map((entry) =>
+      [entry.id, entry.enabled !== false, entry.surface ?? "page", entry.bindings?.join("\u001f") ?? ""].join("\u001e"),
+    )
+    .join("\u001d");
   const registrationsRef = useRef(registrations);
   registrationsRef.current = registrations;
 
   useEffect(() => {
     if (!register) return;
-    return register(registrationsRef.current.map((entry, index) => ({
-      ...entry,
-      action: (event) => registrationsRef.current[index]?.action(event),
-    })));
+    return register(
+      registrationsRef.current.map((entry, index) => ({
+        ...entry,
+        action: (event) => registrationsRef.current[index]?.action(event),
+      })),
+    );
   }, [register, registrationKey]);
 }

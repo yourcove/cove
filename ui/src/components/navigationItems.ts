@@ -1,4 +1,17 @@
-import { Bookmark, Building2, FileText, Film, Fingerprint, Headphones, Image, ImageIcon, Layers, Tags, Users, type LucideIcon } from "lucide-react";
+import {
+  Bookmark,
+  Building2,
+  FileText,
+  Film,
+  Fingerprint,
+  Headphones,
+  Image,
+  ImageIcon,
+  Layers,
+  Tags,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import type { NavPage } from "../auth/visibility";
 
 export interface BuiltInNavigationItem {

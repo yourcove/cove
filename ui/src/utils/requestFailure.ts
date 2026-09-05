@@ -20,7 +20,7 @@ function getApiErrorDetails(message: string): { status: number; detail?: string 
       if (errors && typeof errors === "object") {
         for (const fieldErrors of Object.values(errors)) {
           if (!Array.isArray(fieldErrors)) continue;
-          const validationDetail = fieldErrors.find(value => typeof value === "string" && value.trim());
+          const validationDetail = fieldErrors.find((value) => typeof value === "string" && value.trim());
           if (typeof validationDetail === "string") return { status, detail: validationDetail.trim() };
         }
       }

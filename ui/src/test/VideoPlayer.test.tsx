@@ -477,9 +477,13 @@ describe("VideoPlayer source lifecycle", () => {
 
   it("keeps a stalled transcoded timestamp pending for the new source metadata", async () => {
     mockUiConfig.alwaysResumeOnPlayback = false;
-    fetchMock.mockImplementation((input) => String(input).includes("/resolutions")
-      ? Promise.resolve(new Response(JSON.stringify(["720p"]), { status: 200, headers: { "Content-Type": "application/json" } }))
-      : Promise.resolve(new Response(null, { status: 200 })));
+    fetchMock.mockImplementation((input) =>
+      String(input).includes("/resolutions")
+        ? Promise.resolve(
+            new Response(JSON.stringify(["720p"]), { status: 200, headers: { "Content-Type": "application/json" } }),
+          )
+        : Promise.resolve(new Response(null, { status: 200 })),
+    );
     const { container, rerender } = render(
       <VideoPlayer
         streamUrl="/api/stream/video/1"
@@ -581,9 +585,11 @@ describe("VideoPlayer source lifecycle", () => {
   });
 
   it("discovers a full outage from a native network error without other API traffic", async () => {
-    fetchMock.mockImplementation((input) => input === "/api/system/status"
-      ? Promise.reject(new TypeError("Failed to fetch"))
-      : new Promise<Response>(() => {}));
+    fetchMock.mockImplementation((input) =>
+      input === "/api/system/status"
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : new Promise<Response>(() => {}),
+    );
     const { container } = render(
       <VideoPlayer
         streamUrl="/api/stream/video/1"
@@ -602,10 +608,12 @@ describe("VideoPlayer source lifecycle", () => {
 
     fireEvent.error(video);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/system/status",
-      expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
-    ));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/system/status",
+        expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
+      ),
+    );
     await waitFor(() => expect(getServerAvailability()).toBe("unavailable"));
 
     act(() => reportServerResponse(new Response(null, { status: 200 })));
@@ -887,9 +895,7 @@ describe("VideoPlayer source lifecycle", () => {
     };
     video.webkitEnterFullscreen = enterFullscreen;
 
-    const fullscreenButton = container.querySelector(
-      'button[aria-label="Enter fullscreen"]',
-    );
+    const fullscreenButton = container.querySelector('button[aria-label="Enter fullscreen"]');
     expect(fullscreenButton).toBeInstanceOf(HTMLButtonElement);
     fireEvent.click(fullscreenButton as HTMLButtonElement);
 
@@ -963,7 +969,9 @@ describe("VideoPlayer source lifecycle", () => {
         videoId={1}
         detections={[]}
         trackingEnabled={false}
-        onSeekRegister={(registered) => { seek = registered; }}
+        onSeekRegister={(registered) => {
+          seek = registered;
+        }}
       />,
     );
     const video = container.querySelector("video") as HTMLVideoElement;
@@ -1389,10 +1397,13 @@ describe("VideoPlayer source lifecycle", () => {
 
     expect(mockPlaybackTracker.recordInterval).toHaveBeenCalledTimes(1);
     expect(mockPlaybackTracker.flush).toHaveBeenCalledTimes(1);
-    expect(mockPlaybackTracker.recordInterval).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      startSec: 5,
-      endSec: 6,
-    }));
+    expect(mockPlaybackTracker.recordInterval).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        startSec: 5,
+        endSec: 6,
+      }),
+    );
 
     act(() => {
       video.currentTime = 21;
@@ -1402,17 +1413,27 @@ describe("VideoPlayer source lifecycle", () => {
     });
 
     expect(mockPlaybackTracker.recordInterval).toHaveBeenCalledTimes(2);
-    expect(mockPlaybackTracker.recordInterval).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      startSec: 20,
-      endSec: 21,
-    }));
+    expect(mockPlaybackTracker.recordInterval).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        startSec: 20,
+        endSec: 21,
+      }),
+    );
   });
 
   describe("initial compatibility fallback", () => {
     const mockResolutions = (resolutions: string[]) => {
-      fetchMock.mockImplementation((input) => String(input).includes("/resolutions")
-        ? Promise.resolve(new Response(JSON.stringify(resolutions), { status: 200, headers: { "Content-Type": "application/json" } }))
-        : Promise.resolve(new Response(null, { status: 200 })));
+      fetchMock.mockImplementation((input) =>
+        String(input).includes("/resolutions")
+          ? Promise.resolve(
+              new Response(JSON.stringify(resolutions), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+            )
+          : Promise.resolve(new Response(null, { status: 200 })),
+      );
     };
 
     const player = (videoId: number, format: string, audioCodec = "aac") => (
@@ -1431,10 +1452,12 @@ describe("VideoPlayer source lifecycle", () => {
       mockResolutions(["360p", "720p", "1080p"]);
       const { container } = render(player(41, format));
 
-      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute(
-        "src",
-        "/api/stream/video/41/transcode?resolution=1080p",
-      ));
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute(
+          "src",
+          "/api/stream/video/41/transcode?resolution=1080p",
+        ),
+      );
       expect(screen.getByText("Using transcoded stream for video format compatibility")).toBeInTheDocument();
     });
 
@@ -1442,7 +1465,9 @@ describe("VideoPlayer source lifecycle", () => {
       mockResolutions(["360p", "720p"]);
       const { container } = render(player(42, "mp4"));
 
-      await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/resolutions"))).toBe(true));
+      await waitFor(() =>
+        expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/resolutions"))).toBe(true),
+      );
       expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/42");
       expect(screen.queryByText(/Using transcoded stream for/)).not.toBeInTheDocument();
     });
@@ -1451,10 +1476,12 @@ describe("VideoPlayer source lifecycle", () => {
       mockResolutions(["360p", "720p"]);
       const { container } = render(player(43, "mp4", " AC3 "));
 
-      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute(
-        "src",
-        "/api/stream/video/43/transcode?resolution=720p",
-      ));
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute(
+          "src",
+          "/api/stream/video/43/transcode?resolution=720p",
+        ),
+      );
       expect(screen.getByText("Using transcoded stream for audio codec compatibility")).toBeInTheDocument();
     });
 
@@ -1473,7 +1500,10 @@ describe("VideoPlayer source lifecycle", () => {
       expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/44");
 
       const video = container.querySelector("video") as HTMLVideoElement;
-      Object.defineProperty(video, "error", { configurable: true, value: { code: MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED } });
+      Object.defineProperty(video, "error", {
+        configurable: true,
+        value: { code: MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED },
+      });
       fireEvent.error(video);
       await act(async () => Promise.resolve());
       expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/44");
@@ -1481,20 +1511,28 @@ describe("VideoPlayer source lifecycle", () => {
 
     it("does not attach Direct while compatibility lookup is pending", async () => {
       let resolveResolutions: ((response: Response) => void) | undefined;
-      fetchMock.mockImplementation((input) => String(input).includes("/resolutions")
-        ? new Promise<Response>((resolve) => { resolveResolutions = resolve; })
-        : Promise.resolve(new Response(null, { status: 200 })));
+      fetchMock.mockImplementation((input) =>
+        String(input).includes("/resolutions")
+          ? new Promise<Response>((resolve) => {
+              resolveResolutions = resolve;
+            })
+          : Promise.resolve(new Response(null, { status: 200 })),
+      );
       const { container } = render(player(48, "wmv"));
       expect(container.querySelector("source")).not.toHaveAttribute("src");
 
       await act(async () => {
-        resolveResolutions?.(new Response(JSON.stringify(["360p"]), { status: 200, headers: { "Content-Type": "application/json" } }));
+        resolveResolutions?.(
+          new Response(JSON.stringify(["360p"]), { status: 200, headers: { "Content-Type": "application/json" } }),
+        );
       });
 
-      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute(
-        "src",
-        "/api/stream/video/48/transcode?resolution=360p",
-      ));
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute(
+          "src",
+          "/api/stream/video/48/transcode?resolution=360p",
+        ),
+      );
     });
 
     it("keeps Direct when selected from compact controls during compatibility lookup", async () => {
@@ -1513,19 +1551,27 @@ describe("VideoPlayer source lifecycle", () => {
       });
 
       let resolveResolutions: ((response: Response) => void) | undefined;
-      fetchMock.mockImplementation((input) => String(input).includes("/resolutions")
-        ? new Promise<Response>((resolve) => { resolveResolutions = resolve; })
-        : Promise.resolve(new Response(null, { status: 200 })));
+      fetchMock.mockImplementation((input) =>
+        String(input).includes("/resolutions")
+          ? new Promise<Response>((resolve) => {
+              resolveResolutions = resolve;
+            })
+          : Promise.resolve(new Response(null, { status: 200 })),
+      );
       const rendered = render(player(52, "wmv"));
       try {
         fireEvent.click(screen.getByRole("button", { name: "Playback options" }));
         fireEvent.click(screen.getByRole("button", { name: "Direct" }));
 
         await act(async () => {
-          resolveResolutions?.(new Response(JSON.stringify(["360p"]), { status: 200, headers: { "Content-Type": "application/json" } }));
+          resolveResolutions?.(
+            new Response(JSON.stringify(["360p"]), { status: 200, headers: { "Content-Type": "application/json" } }),
+          );
         });
 
-        await waitFor(() => expect(rendered.container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/52"));
+        await waitFor(() =>
+          expect(rendered.container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/52"),
+        );
         expect(screen.queryByText(/Using transcoded stream for/)).not.toBeInTheDocument();
       } finally {
         rendered.unmount();
@@ -1544,27 +1590,37 @@ describe("VideoPlayer source lifecycle", () => {
       loadMock.mockClear();
 
       let resolveResolutions: ((response: Response) => void) | undefined;
-      fetchMock.mockImplementation((input) => String(input).includes("/resolutions")
-        ? new Promise<Response>((resolve) => { resolveResolutions = resolve; })
-        : Promise.resolve(new Response(null, { status: 200 })));
+      fetchMock.mockImplementation((input) =>
+        String(input).includes("/resolutions")
+          ? new Promise<Response>((resolve) => {
+              resolveResolutions = resolve;
+            })
+          : Promise.resolve(new Response(null, { status: 200 })),
+      );
       rerender(player(50, "avi"));
 
       expect(container.querySelector("source")).not.toHaveAttribute("src");
       expect(pauseMock).toHaveBeenCalledOnce();
       expect(loadMock).toHaveBeenCalledOnce();
       await act(async () => {
-        resolveResolutions?.(new Response(JSON.stringify(["360p"]), { status: 200, headers: { "Content-Type": "application/json" } }));
+        resolveResolutions?.(
+          new Response(JSON.stringify(["360p"]), { status: 200, headers: { "Content-Type": "application/json" } }),
+        );
       });
-      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute(
-        "src",
-        "/api/stream/video/50/transcode?resolution=360p",
-      ));
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute(
+          "src",
+          "/api/stream/video/50/transcode?resolution=360p",
+        ),
+      );
     });
 
     it("uses Direct without a notice when compatibility lookup fails", async () => {
-      fetchMock.mockImplementation((input) => String(input).includes("/resolutions")
-        ? Promise.reject(new Error("lookup failed"))
-        : Promise.resolve(new Response(null, { status: 200 })));
+      fetchMock.mockImplementation((input) =>
+        String(input).includes("/resolutions")
+          ? Promise.reject(new Error("lookup failed"))
+          : Promise.resolve(new Response(null, { status: 200 })),
+      );
       const { container } = render(player(51, "wmv"));
 
       await waitFor(() => expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/51"));
@@ -1575,7 +1631,9 @@ describe("VideoPlayer source lifecycle", () => {
       mockResolutions([]);
       const { container } = render(player(45, "asf"));
 
-      await waitFor(() => expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/45/transcode"));
+      await waitFor(() =>
+        expect(container.querySelector("source")).toHaveAttribute("src", "/api/stream/video/45/transcode"),
+      );
       expect(screen.getByTitle("Video quality")).toHaveTextContent("Source");
     });
 

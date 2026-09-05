@@ -34,15 +34,18 @@ function changelogPlugin() {
 const extensionRuntimeEntries = Object.fromEntries(
   extensionRuntimeModules.map((definition) => [
     `extension-runtime-${definition.id}`,
-    path.resolve(import.meta.dirname, `./src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`),
-  ])
+    path.resolve(
+      import.meta.dirname,
+      `./src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`,
+    ),
+  ]),
 );
 
 const extensionRuntimeFileNames = new Map<string, string>(
   extensionRuntimeModules.map((definition) => [
     `extension-runtime-${definition.id}`,
     `assets/extension-runtime/${extensionRuntimeVersion}/${definition.outputFileName}`,
-  ])
+  ]),
 );
 
 function buildExtensionImportMap(useDevRuntimeModules: boolean) {
@@ -52,7 +55,7 @@ function buildExtensionImportMap(useDevRuntimeModules: boolean) {
         ? `/src/generated/extensions/runtime/${extensionRuntimeVersion}/${definition.sourceFileName}`
         : `/${extensionRuntimeFileNames.get(`extension-runtime-${definition.id}`)!}`;
       return [definition.specifier, ...definition.legacySpecifiers].map((specifier) => [specifier, target]);
-    })
+    }),
   );
 }
 

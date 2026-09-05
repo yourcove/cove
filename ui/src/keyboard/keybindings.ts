@@ -53,7 +53,7 @@ export const KEYBINDING_GROUPS = Array.from(
     existing.push(definition);
     groups.set(definition.group, existing);
     return groups;
-  }, new Map<string, KeybindingDefinition[]>()).entries()
+  }, new Map<string, KeybindingDefinition[]>()).entries(),
 ).map(([group, definitions]) => ({ group, definitions }));
 
 export function resolveKeybinding(overrides: Record<string, string> | undefined, id: string, fallback: string) {
@@ -159,7 +159,13 @@ function normalizeShortcutStroke(value: string) {
       continue;
     }
 
-    if (normalized === "ctrl" || normalized === "control" || normalized === "cmd" || normalized === "command" || normalized === "meta") {
+    if (
+      normalized === "ctrl" ||
+      normalized === "control" ||
+      normalized === "cmd" ||
+      normalized === "command" ||
+      normalized === "meta"
+    ) {
       modifiers.add("Ctrl");
       continue;
     }
@@ -183,7 +189,6 @@ function normalizeShortcutStroke(value: string) {
     "Ctrl",
     "Alt",
     ...((key.length > 1 || isSingleCharacterLetter(key)) && modifiers.has("Shift") ? ["Shift"] : []),
-  ]
-    .filter((modifier) => modifiers.has(modifier));
+  ].filter((modifier) => modifiers.has(modifier));
   return [...orderedModifiers, key].join("+");
 }

@@ -18,10 +18,7 @@ vi.mock("../extensions/ExtensionLoader", () => ({
     overrideRendererCalls.push(props);
     if (renderDefaultMedia.current) return props.renderDefault();
     return (
-      <div
-        data-testid="hero-media-override"
-        data-image-url={String(props.componentProps.imageUrl ?? "")}
-      >
+      <div data-testid="hero-media-override" data-image-url={String(props.componentProps.imageUrl ?? "")}>
         Extension hero media
       </div>
     );

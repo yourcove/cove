@@ -5,15 +5,22 @@ import { resetServerAvailabilityForTests } from "../state/serverAvailability";
 function pendingJsonResponse() {
   let resolve!: (response: Response) => void;
   let signal: AbortSignal | null | undefined;
-  vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-    signal = init?.signal;
-    return new Promise<Response>((resolveFetch) => {
-      resolve = resolveFetch;
-    });
-  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal;
+      return new Promise<Response>((resolveFetch) => {
+        resolve = resolveFetch;
+      });
+    }),
+  );
   return {
-    get signal() { return signal; },
-    finish() { resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } })); },
+    get signal() {
+      return signal;
+    },
+    finish() {
+      resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    },
   };
 }
 
@@ -59,5 +66,4 @@ describe("API client timeout policies", () => {
     fetchRequest.finish();
     await request;
   });
-
 });

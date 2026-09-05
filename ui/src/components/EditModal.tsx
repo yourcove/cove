@@ -15,9 +15,14 @@ export function EditModal({ title, open, onClose, children, maxWidthClassName = 
   useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
-      const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+      const handleEsc = (e: KeyboardEvent) => {
+        if (e.key === "Escape") onClose();
+      };
       window.addEventListener("keydown", handleEsc);
-      return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", handleEsc); };
+      return () => {
+        document.body.style.overflow = "";
+        window.removeEventListener("keydown", handleEsc);
+      };
     }
   }, [open, onClose]);
 
@@ -26,16 +31,16 @@ export function EditModal({ title, open, onClose, children, maxWidthClassName = 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className={`relative bg-surface sm:rounded-lg shadow-xl w-full ${maxWidthClassName} h-full sm:h-auto sm:max-h-[85vh] flex flex-col sm:mx-4`}>
+      <div
+        className={`relative bg-surface sm:rounded-lg shadow-xl w-full ${maxWidthClassName} h-full sm:h-auto sm:max-h-[85vh] flex flex-col sm:mx-4`}
+      >
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button onClick={onClose} className="text-secondary hover:text-foreground p-1">
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-          {children}
-        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">{children}</div>
       </div>
     </div>
   );
@@ -64,10 +69,20 @@ export function Field({
     <FieldProvenanceHover fieldProvenance={fieldProvenance} fieldKey={fieldKey} block>
       {content}
     </FieldProvenanceHover>
-  ) : content;
+  ) : (
+    content
+  );
 }
 
-export function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function TextInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
   return (
     <input
       type="text"
@@ -79,7 +94,17 @@ export function TextInput({ value, onChange, placeholder }: { value: string; onC
   );
 }
 
-export function TextArea({ value, onChange, placeholder, rows = 3 }: { value: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
+export function TextArea({
+  value,
+  onChange,
+  placeholder,
+  rows = 3,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  rows?: number;
+}) {
   return (
     <textarea
       value={value}
@@ -91,7 +116,17 @@ export function TextArea({ value, onChange, placeholder, rows = 3 }: { value: st
   );
 }
 
-export function NumberInput({ value, onChange, min, max }: { value: number | undefined; onChange: (v: number | undefined) => void; min?: number; max?: number }) {
+export function NumberInput({
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+  min?: number;
+  max?: number;
+}) {
   return (
     <input
       type="number"
@@ -104,7 +139,15 @@ export function NumberInput({ value, onChange, min, max }: { value: number | und
   );
 }
 
-export function SelectInput({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+export function SelectInput({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
   return (
     <select
       value={value}
@@ -113,13 +156,23 @@ export function SelectInput({ value, onChange, options }: { value: string; onCha
     >
       <option value="">—</option>
       {options.map((o) => (
-        <option key={o.value} value={o.value}>{o.label}</option>
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
       ))}
     </select>
   );
 }
 
-export function SaveButton({ loading, disabled = false, onClick }: { loading: boolean; disabled?: boolean; onClick: () => void }) {
+export function SaveButton({
+  loading,
+  disabled = false,
+  onClick,
+}: {
+  loading: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -158,11 +211,17 @@ export function CreateModalActions({
           />
           <span>
             <span className="block font-medium text-foreground">Create another after save</span>
-            <span className="mt-1 block text-xs text-secondary">Keep this dialog open and reset the form so you can immediately start the next item.</span>
+            <span className="mt-1 block text-xs text-secondary">
+              Keep this dialog open and reset the form so you can immediately start the next item.
+            </span>
           </span>
         </label>
         <div className="flex items-center justify-end gap-3">
-          {onCancel && <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>}
+          {onCancel && (
+            <button onClick={onCancel} className="px-4 py-2 text-sm text-secondary hover:text-white">
+              Cancel
+            </button>
+          )}
           <SaveButton loading={loading} disabled={disabled} onClick={onSave} />
         </div>
       </div>

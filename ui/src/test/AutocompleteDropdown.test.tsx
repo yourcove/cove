@@ -32,14 +32,20 @@ describe("AutocompleteDropdown portal layout", () => {
 
     const view = render(
       <>
-        <AutocompleteDropdown key="first" anchorRef={firstRef} portalContainer={portal}>First</AutocompleteDropdown>
-        <AutocompleteDropdown key="second" anchorRef={secondRef} portalContainer={portal}>Second</AutocompleteDropdown>
+        <AutocompleteDropdown key="first" anchorRef={firstRef} portalContainer={portal}>
+          First
+        </AutocompleteDropdown>
+        <AutocompleteDropdown key="second" anchorRef={secondRef} portalContainer={portal}>
+          Second
+        </AutocompleteDropdown>
       </>,
     );
     expect(portal).toHaveStyle({ position: "relative" });
 
     view.rerender(
-      <AutocompleteDropdown key="second" anchorRef={secondRef} portalContainer={portal}>Second</AutocompleteDropdown>,
+      <AutocompleteDropdown key="second" anchorRef={secondRef} portalContainer={portal}>
+        Second
+      </AutocompleteDropdown>,
     );
     expect(portal).toHaveStyle({ position: "relative" });
 
@@ -86,11 +92,7 @@ describe("AutocompleteDropdown portal layout", () => {
     vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(rect(120, 240, 200, 40));
 
     render(
-      <AutocompleteDropdown
-        anchorRef={{ current: anchor }}
-        portalContainer={portal}
-        data-testid="dropdown"
-      >
+      <AutocompleteDropdown anchorRef={{ current: anchor }} portalContainer={portal} data-testid="dropdown">
         Result
       </AutocompleteDropdown>,
     );

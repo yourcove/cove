@@ -46,7 +46,9 @@ export function reportServerResponse(response: Response): void {
 async function fetchServerStatus(): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => {
-    controller.abort(new DOMException(`Server status check timed out after ${SERVER_PROBE_TIMEOUT_MS} ms.`, "TimeoutError"));
+    controller.abort(
+      new DOMException(`Server status check timed out after ${SERVER_PROBE_TIMEOUT_MS} ms.`, "TimeoutError"),
+    );
   }, SERVER_PROBE_TIMEOUT_MS);
 
   try {
@@ -110,7 +112,10 @@ function combineAbortSignals(signals: AbortSignal[]): AbortSignal | undefined {
   return controller.signal;
 }
 
-export async function serverAwareFetch(input: RequestInfo | URL, options: ServerAwareFetchOptions = {}): Promise<Response> {
+export async function serverAwareFetch(
+  input: RequestInfo | URL,
+  options: ServerAwareFetchOptions = {},
+): Promise<Response> {
   const { timeoutMs = API_REQUEST_TIMEOUT_MS, signal: callerSignal, ...init } = options;
   const requestSignal = input instanceof Request ? input.signal : null;
   const callerSignals = [requestSignal, callerSignal].filter((signal): signal is AbortSignal => signal != null);
@@ -120,10 +125,7 @@ export async function serverAwareFetch(input: RequestInfo | URL, options: Server
       requestController.abort(new DOMException(`API request timed out after ${timeoutMs} ms.`, "TimeoutError"));
     }, timeoutMs);
   }
-  const signal = combineAbortSignals([
-    ...callerSignals,
-    requestController.signal,
-  ]);
+  const signal = combineAbortSignals([...callerSignals, requestController.signal]);
 
   try {
     const response = await fetch(input, { ...init, signal });
@@ -145,7 +147,9 @@ export function beginServerReconnect(): void {
   setAvailability("reconnecting");
 }
 
-export async function runServerProbe({ showReconnecting = true }: { showReconnecting?: boolean } = {}): Promise<boolean> {
+export async function runServerProbe({
+  showReconnecting = true,
+}: { showReconnecting?: boolean } = {}): Promise<boolean> {
   serverEvidenceVersion += 1;
   const probeVersion = serverEvidenceVersion;
   if (showReconnecting) {

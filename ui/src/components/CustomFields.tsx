@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { Braces, ChevronDown, ChevronRight, X } from "lucide-react";
 import type { CustomFieldDefinition, CustomFieldEntityType, CustomFieldType } from "../api/types";
@@ -35,14 +44,19 @@ export function CustomFieldsDisplay({
           const urlValue = definition?.type === "url" && typeof value === "string" ? value.trim() : "";
 
           return (
-            <div key={key} className={`flex flex-col ${definition?.type === "json" || definition?.type === "longText" ? "col-span-2" : ""}`}>
+            <div
+              key={key}
+              className={`flex flex-col ${definition?.type === "json" || definition?.type === "longText" ? "col-span-2" : ""}`}
+            >
               <span className="text-muted text-xs">{label}</span>
               {urlValue ? (
                 <a href={urlValue} target="_blank" rel="noreferrer" className="text-accent hover:underline break-all">
                   {formatCustomFieldValue(value, definition?.type)}
                 </a>
               ) : (
-                <div className={`text-foreground break-words ${definition?.type === "longText" ? "whitespace-pre-wrap" : ""}`}>
+                <div
+                  className={`text-foreground break-words ${definition?.type === "longText" ? "whitespace-pre-wrap" : ""}`}
+                >
                   <CustomFieldDisplayValue definition={definition} value={value} />
                 </div>
               )}
@@ -120,7 +134,9 @@ export function CustomFieldsEditor({
   return (
     <div className="space-y-3">
       {definitions.map((definition) => {
-        const currentValue = Object.prototype.hasOwnProperty.call(value, definition.key) ? value[definition.key] : undefined;
+        const currentValue = Object.prototype.hasOwnProperty.call(value, definition.key)
+          ? value[definition.key]
+          : undefined;
         return (
           <div key={definition.key} className="space-y-1">
             <label className="block text-xs font-medium text-secondary">
@@ -152,7 +168,14 @@ function ConfiguredFieldInput({
   onJsonValidityChange: (key: string, isValid: boolean) => void;
 }) {
   if (definition.type === "json") {
-    return <JsonFieldInput definition={definition} value={value} onChange={onChange} onValidityChange={onJsonValidityChange} />;
+    return (
+      <JsonFieldInput
+        definition={definition}
+        value={value}
+        onChange={onChange}
+        onValidityChange={onJsonValidityChange}
+      />
+    );
   }
 
   if (definition.type === "longText") {
@@ -180,11 +203,7 @@ function ConfiguredFieldInput({
     }
 
     return (
-      <EntityReferenceSelector
-        entityType={definition.type}
-        value={ids[0]}
-        onChange={(nextId) => onChange(nextId)}
-      />
+      <EntityReferenceSelector entityType={definition.type} value={ids[0]} onChange={(nextId) => onChange(nextId)} />
     );
   }
 
@@ -200,7 +219,10 @@ function ConfiguredFieldInput({
         {definition.options.map((option) => {
           const selected = selectedOptions.includes(option);
           return (
-            <label key={option} className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-sm ${selected ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary"}`}>
+            <label
+              key={option}
+              className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-sm ${selected ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary"}`}
+            >
               <input
                 type="checkbox"
                 checked={selected}
@@ -235,7 +257,9 @@ function ConfiguredFieldInput({
             <button
               key={String(option)}
               type="button"
-              onClick={() => onChange(selected ? selectedValues.filter((entry) => entry !== option) : [...selectedValues, option])}
+              onClick={() =>
+                onChange(selected ? selectedValues.filter((entry) => entry !== option) : [...selectedValues, option])
+              }
               className={`rounded-full border px-3 py-1 text-sm ${selected ? "border-accent bg-accent/15 text-foreground" : "border-border text-secondary hover:border-accent/60 hover:text-foreground"}`}
             >
               {option ? "True" : "False"}
@@ -269,7 +293,9 @@ function ConfiguredFieldInput({
       >
         <option value="">Unset</option>
         {definition.options.map((option) => (
-          <option key={option} value={option}>{option}</option>
+          <option key={option} value={option}>
+            {option}
+          </option>
         ))}
       </select>
     );
@@ -405,12 +431,7 @@ function JsonFieldInput({
 
   return (
     <>
-      <JsonContentPreview
-        label={label}
-        value={value}
-        editable
-        onOpen={openEditor}
-      />
+      <JsonContentPreview label={label} value={value} editable onOpen={openEditor} />
       {open ? (
         <JsonFieldDialog
           label={label}
@@ -505,9 +526,11 @@ function JsonFieldDialog({
     }
 
     if (event.key !== "Tab" || !dialogRef.current) return;
-    const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
-    ));
+    const focusable = Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      ),
+    );
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -523,7 +546,9 @@ function JsonFieldDialog({
   return createPortal(
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-3 sm:p-6"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <div
         ref={dialogRef}
@@ -536,7 +561,9 @@ function JsonFieldDialog({
         <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2">
             <Braces className="h-5 w-5 shrink-0 text-accent" />
-            <h2 id={titleId} className="truncate text-lg font-semibold text-foreground">{title}</h2>
+            <h2 id={titleId} className="truncate text-lg font-semibold text-foreground">
+              {title}
+            </h2>
           </div>
           <button
             type="button"
@@ -587,9 +614,14 @@ function JsonFieldDialog({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 {error ? (
-                  <span id={errorId} role="alert" className="text-xs text-red-300">{error}</span>
+                  <span id={errorId} role="alert" className="text-xs text-red-300">
+                    {error}
+                  </span>
                 ) : (
-                  <span className="text-xs text-muted">Objects, arrays, strings, booleans, and finite numbers are supported. Numbers use JavaScript precision.</span>
+                  <span className="text-xs text-muted">
+                    Objects, arrays, strings, booleans, and finite numbers are supported. Numbers use JavaScript
+                    precision.
+                  </span>
                 )}
               </div>
               <div className="flex shrink-0 items-center justify-end gap-2">
@@ -643,10 +675,7 @@ const MAX_JSON_AUTO_EXPANDED_ENTRIES = 200;
 
 function JsonSyntaxTree({ label, value }: { label: string; value: unknown }) {
   return (
-    <div
-      aria-label={`${label} JSON value`}
-      className="bg-background font-mono text-sm leading-relaxed text-foreground"
-    >
+    <div aria-label={`${label} JSON value`} className="bg-background font-mono text-sm leading-relaxed text-foreground">
       <JsonSyntaxNode value={value} path="$" depth={0} />
     </div>
   );
@@ -667,14 +696,19 @@ function JsonSyntaxNode({
 }) {
   const isContainer = value !== null && typeof value === "object";
   const entries = isContainer ? Object.entries(value) : [];
-  const [expanded, setExpanded] = useState(depth < DEFAULT_JSON_EXPANDED_LEVELS && entries.length <= MAX_JSON_AUTO_EXPANDED_ENTRIES);
-  const indentation = { paddingLeft: `${depth * 1.25}rem` };
-  const propertyPrefix = propertyName === undefined ? null : (
-    <>
-      <span data-json-token="key" className="text-sky-300">{JSON.stringify(propertyName)}</span>
-      <span className="text-secondary">: </span>
-    </>
+  const [expanded, setExpanded] = useState(
+    depth < DEFAULT_JSON_EXPANDED_LEVELS && entries.length <= MAX_JSON_AUTO_EXPANDED_ENTRIES,
   );
+  const indentation = { paddingLeft: `${depth * 1.25}rem` };
+  const propertyPrefix =
+    propertyName === undefined ? null : (
+      <>
+        <span data-json-token="key" className="text-sky-300">
+          {JSON.stringify(propertyName)}
+        </span>
+        <span className="text-secondary">: </span>
+      </>
+    );
 
   if (!isContainer) {
     return (
@@ -689,14 +723,20 @@ function JsonSyntaxNode({
   const isArray = Array.isArray(value);
   const opening = isArray ? "[" : "{";
   const closing = isArray ? "]" : "}";
-  const itemLabel = isArray ? `${entries.length} ${entries.length === 1 ? "item" : "items"}` : `${entries.length} ${entries.length === 1 ? "property" : "properties"}`;
+  const itemLabel = isArray
+    ? `${entries.length} ${entries.length === 1 ? "item" : "items"}`
+    : `${entries.length} ${entries.length === 1 ? "property" : "properties"}`;
   const pathLabel = path === "$" ? "JSON root" : path;
 
   if (entries.length === 0) {
     return (
       <div className="whitespace-pre-wrap break-words" style={indentation}>
         {propertyPrefix}
-        <span className="text-secondary">{opening}{closing}{trailingComma ? "," : ""}</span>
+        <span className="text-secondary">
+          {opening}
+          {closing}
+          {trailingComma ? "," : ""}
+        </span>
       </div>
     );
   }
@@ -711,7 +751,11 @@ function JsonSyntaxNode({
           onClick={() => setExpanded((current) => !current)}
           className="-ml-5 mt-0.5 inline-flex min-w-0 items-start rounded text-left hover:bg-card-hover focus:outline-none focus:ring-1 focus:ring-accent"
         >
-          {expanded ? <ChevronDown className="mr-0.5 h-4 w-4 shrink-0 text-muted" /> : <ChevronRight className="mr-0.5 h-4 w-4 shrink-0 text-muted" />}
+          {expanded ? (
+            <ChevronDown className="mr-0.5 h-4 w-4 shrink-0 text-muted" />
+          ) : (
+            <ChevronRight className="mr-0.5 h-4 w-4 shrink-0 text-muted" />
+          )}
           <span className="min-w-0 whitespace-pre-wrap break-words">
             {propertyPrefix}
             <span className="text-secondary">{expanded ? opening : `${opening}…${closing}`}</span>
@@ -732,7 +776,10 @@ function JsonSyntaxNode({
               trailingComma={index < entries.length - 1}
             />
           ))}
-          <div className="text-secondary" style={indentation}>{closing}{trailingComma ? "," : ""}</div>
+          <div className="text-secondary" style={indentation}>
+            {closing}
+            {trailingComma ? "," : ""}
+          </div>
         </>
       ) : null}
     </>
@@ -740,14 +787,35 @@ function JsonSyntaxNode({
 }
 
 function JsonPrimitiveValue({ value }: { value: unknown }) {
-  if (value === null) return <span data-json-token="null" className="text-rose-300">null</span>;
-  if (typeof value === "string") return <span data-json-token="string" className="text-emerald-300">{JSON.stringify(value)}</span>;
-  if (typeof value === "number") return <span data-json-token="number" className="text-amber-300">{String(value)}</span>;
-  if (typeof value === "boolean") return <span data-json-token="boolean" className="text-violet-300">{String(value)}</span>;
+  if (value === null)
+    return (
+      <span data-json-token="null" className="text-rose-300">
+        null
+      </span>
+    );
+  if (typeof value === "string")
+    return (
+      <span data-json-token="string" className="text-emerald-300">
+        {JSON.stringify(value)}
+      </span>
+    );
+  if (typeof value === "number")
+    return (
+      <span data-json-token="number" className="text-amber-300">
+        {String(value)}
+      </span>
+    );
+  if (typeof value === "boolean")
+    return (
+      <span data-json-token="boolean" className="text-violet-300">
+        {String(value)}
+      </span>
+    );
   return <span className="text-secondary">{JSON.stringify(value) ?? String(value)}</span>;
 }
 
-const JSON_TOKEN_PATTERN = /"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\u0000-\u001F])*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b/g;
+const JSON_TOKEN_PATTERN =
+  /"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\u0000-\u001F])*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b/g;
 const MAX_JSON_HIGHLIGHT_CHARACTERS = 100_000;
 const MAX_JSON_HIGHLIGHT_TOKENS = 2_000;
 
@@ -767,9 +835,30 @@ function JsonHighlightedText({ text }: { text: string }) {
     const token = match[0];
     const isString = token.startsWith('"');
     const isKey = isString && /^\s*:/.test(text.slice(index + token.length));
-    const kind = isKey ? "key" : isString ? "string" : token === "null" ? "null" : token === "true" || token === "false" ? "boolean" : "number";
-    const color = kind === "key" ? "text-sky-300" : kind === "string" ? "text-emerald-300" : kind === "number" ? "text-amber-300" : kind === "boolean" ? "text-violet-300" : "text-rose-300";
-    parts.push(<span key={index} data-json-token={kind} className={color}>{token}</span>);
+    const kind = isKey
+      ? "key"
+      : isString
+        ? "string"
+        : token === "null"
+          ? "null"
+          : token === "true" || token === "false"
+            ? "boolean"
+            : "number";
+    const color =
+      kind === "key"
+        ? "text-sky-300"
+        : kind === "string"
+          ? "text-emerald-300"
+          : kind === "number"
+            ? "text-amber-300"
+            : kind === "boolean"
+              ? "text-violet-300"
+              : "text-rose-300";
+    parts.push(
+      <span key={index} data-json-token={kind} className={color}>
+        {token}
+      </span>,
+    );
     cursor = index + token.length;
   }
 
@@ -805,14 +894,12 @@ function getJsonContentSummary(value: unknown): string {
     const count = Object.keys(value).length;
     return `JSON object · ${count} ${count === 1 ? "property" : "properties"}`;
   }
-  if (typeof value === "string") return `JSON string · ${value.length} ${value.length === 1 ? "character" : "characters"}`;
+  if (typeof value === "string")
+    return `JSON string · ${value.length} ${value.length === 1 ? "character" : "characters"}`;
   return `JSON ${typeof value}`;
 }
 
-function getDisplayEntries(
-  customFields: Record<string, unknown> | undefined,
-  definitions: CustomFieldDefinition[],
-) {
+function getDisplayEntries(customFields: Record<string, unknown> | undefined, definitions: CustomFieldDefinition[]) {
   if (!customFields) {
     return [];
   }
@@ -826,10 +913,21 @@ function getDisplayEntries(
   return [...orderedKeys, ...extraKeys]
     .filter((key) => Object.prototype.hasOwnProperty.call(customFields, key))
     .map((key) => ({ key, definition: definitionMap.get(key), value: customFields[key] }))
-    .filter((entry) => entry.value !== undefined && entry.value !== null && !(typeof entry.value === "string" && entry.value.trim() === ""));
+    .filter(
+      (entry) =>
+        entry.value !== undefined &&
+        entry.value !== null &&
+        !(typeof entry.value === "string" && entry.value.trim() === ""),
+    );
 }
 
-function CustomFieldDisplayValue({ definition, value }: { definition: CustomFieldDefinition | undefined; value: unknown }) {
+function CustomFieldDisplayValue({
+  definition,
+  value,
+}: {
+  definition: CustomFieldDefinition | undefined;
+  value: unknown;
+}) {
   if (definition?.type === "json") {
     return <JsonFieldDisplayValue definition={definition} value={value} />;
   }
@@ -850,12 +948,7 @@ function JsonFieldDisplayValue({ definition, value }: { definition: CustomFieldD
     <>
       <JsonContentPreview label={label} value={value} editable={false} onOpen={() => setOpen(true)} />
       {open ? (
-        <JsonFieldDialog
-          label={label}
-          draft={serializeJsonValue(value)}
-          editable={false}
-          onClose={closeViewer}
-        />
+        <JsonFieldDialog label={label} draft={serializeJsonValue(value)} editable={false} onClose={closeViewer} />
       ) : null}
     </>
   );
@@ -906,7 +999,10 @@ function formatCustomFieldValue(value: unknown, type: CustomFieldType | undefine
   }
 
   if (Array.isArray(value)) {
-    return value.map((entry) => formatCustomFieldValue(entry, undefined)).filter(Boolean).join(", ");
+    return value
+      .map((entry) => formatCustomFieldValue(entry, undefined))
+      .filter(Boolean)
+      .join(", ");
   }
 
   switch (type) {
@@ -937,7 +1033,10 @@ function normalizeDefinedFieldValue(value: string, type: CustomFieldType): unkno
     return value.trim() === "" ? undefined : value;
   }
 
-  const values = value.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  const values = value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
   if (values.length > 1) {
     return values.map((entry) => normalizeDefinedFieldValue(entry, type)).filter((entry) => entry !== undefined);
   }
@@ -1027,8 +1126,9 @@ function normalizeConfiguredFieldValue(rawValue: unknown, definition: CustomFiel
   }
 
   if (definition.isMultiValue && definition.type === "boolean") {
-    const values = (Array.isArray(rawValue) ? rawValue : [rawValue])
-      .filter((entry): entry is boolean => typeof entry === "boolean");
+    const values = (Array.isArray(rawValue) ? rawValue : [rawValue]).filter(
+      (entry): entry is boolean => typeof entry === "boolean",
+    );
     return values.length > 0 ? values : undefined;
   }
 

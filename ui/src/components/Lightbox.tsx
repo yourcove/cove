@@ -89,11 +89,15 @@ export function Lightbox({
   const count = queuedImages.length;
   const current = queuedImages[index];
   const queryClient = useQueryClient();
-  const { engagement, rating, setRating, ratingPending } = useEntityEngagement("image", current?.id ?? 0, { enabled: open && Boolean(current) });
+  const { engagement, rating, setRating, ratingPending } = useEntityEngagement("image", current?.id ?? 0, {
+    enabled: open && Boolean(current),
+  });
   const likeMutation = useMutation({
     mutationFn: (imageId: number) => imageApi.incrementLike(imageId),
     onSuccess: (likeCount, imageId) => {
-      queryClient.setQueryData(["engagement", "image", imageId], (existing: EntityEngagement | undefined) => existing ? { ...existing, likeCount } : existing);
+      queryClient.setQueryData(["engagement", "image", imageId], (existing: EntityEngagement | undefined) =>
+        existing ? { ...existing, likeCount } : existing,
+      );
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", imageId] });
       queryClient.invalidateQueries({ queryKey: ["engagement", "image", "batch"] });
       queryClient.invalidateQueries({ queryKey: ["image", imageId] });
@@ -107,22 +111,25 @@ export function Lightbox({
     likeMutation.reset();
   }, [current?.id]);
 
-  const trackCurrentImageInteraction = useCallback((kind: string, extraMeta?: Record<string, unknown>) => {
-    if (!current) {
-      return;
-    }
+  const trackCurrentImageInteraction = useCallback(
+    (kind: string, extraMeta?: Record<string, unknown>) => {
+      if (!current) {
+        return;
+      }
 
-    trackInteraction({
-      hostType: "image",
-      hostId: current.id,
-      kind,
-      meta: {
-        source: current.interactionSource ?? "lightbox",
-        ...(current.interactionMeta ?? {}),
-        ...(extraMeta ?? {}),
-      },
-    });
-  }, [current]);
+      trackInteraction({
+        hostType: "image",
+        hostId: current.id,
+        kind,
+        meta: {
+          source: current.interactionSource ?? "lightbox",
+          ...(current.interactionMeta ?? {}),
+          ...(extraMeta ?? {}),
+        },
+      });
+    },
+    [current],
+  );
 
   // Sync index when initialIndex or open changes
   useEffect(() => {
@@ -177,23 +184,25 @@ export function Lightbox({
       if (flushed) return;
       flushed = true;
       const durationSec = elapsedSeconds();
-      void playback.recordIntervals({
-        hostType: "image",
-        hostId: imageId,
-        sessionId,
-        mediaDurationSec: durationSec,
-        currentPositionSec: durationSec,
-        state,
-        surface: "lightbox",
-        scopeKey: `image:${imageId}:lightbox`,
-        context: {
-          index: index + 1,
-          count,
-          source: current.interactionSource ?? "lightbox",
-          ...(current.interactionMeta ?? {}),
-        },
-        intervals: [{ startSec: 0, endSec: durationSec }],
-      }).catch(() => {});
+      void playback
+        .recordIntervals({
+          hostType: "image",
+          hostId: imageId,
+          sessionId,
+          mediaDurationSec: durationSec,
+          currentPositionSec: durationSec,
+          state,
+          surface: "lightbox",
+          scopeKey: `image:${imageId}:lightbox`,
+          context: {
+            index: index + 1,
+            count,
+            source: current.interactionSource ?? "lightbox",
+            ...(current.interactionMeta ?? {}),
+          },
+          intervals: [{ startSec: 0, endSec: durationSec }],
+        })
+        .catch(() => {});
     };
 
     const handlePageHide = () => flushDwell("abandoned");
@@ -333,15 +342,18 @@ export function Lightbox({
     }
   }, [trackCurrentImageInteraction]);
 
-  const changeSlideshowDelay = useCallback((deltaMs: number) => {
-    setCurrentSlideshowDelay((current) => {
-      const next = Math.min(30000, Math.max(1000, current + deltaMs));
-      if (next !== current) {
-        trackCurrentImageInteraction("slideshowDelay", { milliseconds: next });
-      }
-      return next;
-    });
-  }, [trackCurrentImageInteraction]);
+  const changeSlideshowDelay = useCallback(
+    (deltaMs: number) => {
+      setCurrentSlideshowDelay((current) => {
+        const next = Math.min(30000, Math.max(1000, current + deltaMs));
+        if (next !== current) {
+          trackCurrentImageInteraction("slideshowDelay", { milliseconds: next });
+        }
+        return next;
+      });
+    },
+    [trackCurrentImageInteraction],
+  );
 
   const handleClose = useCallback(() => {
     if (open) {
@@ -366,12 +378,27 @@ export function Lightbox({
   }, [playing, open, goNext, currentSlideshowDelay]);
 
   // Keyboard
-  useKeySequence(useMemo(() => open ? [
-    { id: "viewer.previous", keys: "ArrowLeft", surface: "viewer" as const, action: goPrev },
-    { id: "viewer.next", keys: "ArrowRight", surface: "viewer" as const, action: goNext },
-    { id: "viewer.slideshow", keys: "Space", surface: "viewer" as const, action: toggleSlideshow },
-    { id: "viewer.fullscreen", keys: "f", surface: "viewer" as const, action: () => { void toggleFullscreen(); } },
-  ] : [], [goNext, goPrev, open, toggleFullscreen, toggleSlideshow]));
+  useKeySequence(
+    useMemo(
+      () =>
+        open
+          ? [
+              { id: "viewer.previous", keys: "ArrowLeft", surface: "viewer" as const, action: goPrev },
+              { id: "viewer.next", keys: "ArrowRight", surface: "viewer" as const, action: goNext },
+              { id: "viewer.slideshow", keys: "Space", surface: "viewer" as const, action: toggleSlideshow },
+              {
+                id: "viewer.fullscreen",
+                keys: "f",
+                surface: "viewer" as const,
+                action: () => {
+                  void toggleFullscreen();
+                },
+              },
+            ]
+          : [],
+      [goNext, goPrev, open, toggleFullscreen, toggleSlideshow],
+    ),
+  );
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -387,18 +414,15 @@ export function Lightbox({
   }, [handleClose, open]);
 
   // Scroll wheel zoom
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.25 : 0.25;
-      setZoom((z) => {
-        const next = Math.min(Math.max(z + delta, 1), 5);
-        if (next === 1) setPan({ x: 0, y: 0 });
-        return next;
-      });
-    },
-    [],
-  );
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.25 : 0.25;
+    setZoom((z) => {
+      const next = Math.min(Math.max(z + delta, 1), 5);
+      if (next === 1) setPan({ x: 0, y: 0 });
+      return next;
+    });
+  }, []);
 
   // Pan handlers
   const handlePointerDown = useCallback(
@@ -455,9 +479,7 @@ export function Lightbox({
       <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-gradient-to-b from-black/80 via-black/40 to-transparent">
         <span className="text-white text-sm font-medium select-none">
           {index + 1} / {count}
-          {current?.title && (
-            <span className="ml-3 text-white/70">{current.title}</span>
-          )}
+          {current?.title && <span className="ml-3 text-white/70">{current.title}</span>}
         </span>
         <div className="flex items-center gap-2">
           {count > 1 ? (
@@ -470,7 +492,9 @@ export function Lightbox({
               >
                 -
               </button>
-              <span className="min-w-[3.5rem] text-center tabular-nums">{(currentSlideshowDelay / 1000).toFixed(0)}s</span>
+              <span className="min-w-[3.5rem] text-center tabular-nums">
+                {(currentSlideshowDelay / 1000).toFixed(0)}s
+              </span>
               <button
                 onClick={() => changeSlideshowDelay(1000)}
                 className="rounded px-1 py-0.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"

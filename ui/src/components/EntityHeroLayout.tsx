@@ -110,23 +110,33 @@ export function EntityHeroLayout({
   contentClassName,
   children,
 }: EntityHeroLayoutProps) {
-  const resolvedImageContainerClassName = imageContainerClassName ?? "relative flex h-48 w-48 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card shadow-xl shadow-black/35 md:h-56 md:w-56";
+  const resolvedImageContainerClassName =
+    imageContainerClassName ??
+    "relative flex h-48 w-48 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card shadow-xl shadow-black/35 md:h-56 md:w-56";
   const resolvedImageClassName = imageClassName ?? "h-full w-full object-cover";
-  const resolvedFallbackClassName = imageFallbackClassName ?? "h-full w-full items-center justify-center bg-card text-muted";
+  const resolvedFallbackClassName =
+    imageFallbackClassName ?? "h-full w-full items-center justify-center bg-card text-muted";
   const resolvedHeroRowClassName = heroRowClassName ?? "flex flex-col gap-6 md:flex-row md:items-start";
-  const resolvedContentClassName = contentClassName ?? "w-full px-4 py-6 [&>[data-entity-detail-tabs]:first-child]:-mt-6";
+  const resolvedContentClassName =
+    contentClassName ?? "w-full px-4 py-6 [&>[data-entity-detail-tabs]:first-child]:-mt-6";
   const carouselUrls = useMemo(
-    () => Array.from(new Set((imageCarouselUrls ?? []).filter((url): url is string => typeof url === "string" && url.trim().length > 0))),
+    () =>
+      Array.from(
+        new Set(
+          (imageCarouselUrls ?? []).filter((url): url is string => typeof url === "string" && url.trim().length > 0),
+        ),
+      ),
     [imageCarouselUrls],
   );
   const hasCarousel = carouselUrls.length > 1 && onImageCarouselIndexChange != null;
-  const boundedCarouselIndex = carouselUrls.length > 0 ? Math.min(Math.max(imageCarouselIndex, 0), carouselUrls.length - 1) : 0;
+  const boundedCarouselIndex =
+    carouselUrls.length > 0 ? Math.min(Math.max(imageCarouselIndex, 0), carouselUrls.length - 1) : 0;
   const resolvedImageUrl = carouselUrls[boundedCarouselIndex] ?? imageUrl;
   const hasAlternateImage = !hasCarousel && Boolean(alternateImageUrl);
   const [showAlternateImage, setShowAlternateImage] = useState(false);
   const displayedImageSlot = hasAlternateImage && showAlternateImage ? "alternate" : "primary";
   const displayedImageUrl = displayedImageSlot === "alternate" ? alternateImageUrl : resolvedImageUrl;
-  const displayedImageAlt = displayedImageSlot === "alternate" ? alternateImageAlt ?? imageAlt : imageAlt;
+  const displayedImageAlt = displayedImageSlot === "alternate" ? (alternateImageAlt ?? imageAlt) : imageAlt;
   const displayedOrganized = organized;
 
   useEffect(() => {
@@ -137,45 +147,53 @@ export function EntityHeroLayout({
 
   const favoriteTitle = favorite ? "Remove favorite" : "Favorite";
   const heroActionClassName = HERO_ACTION_BUTTON_CLASS;
-  const favoriteAction = typeof favorite === "boolean" ? (
-    onFavoriteToggle ? (
-      <button
-        type="button"
-        onClick={onFavoriteToggle}
-        disabled={favoritePending}
-        aria-pressed={favorite}
-        title={favoriteTitle}
-        className={`${heroActionClassName} ${favorite ? "text-red-400" : "text-accent"}`}
-      >
-        <Heart className={`h-4 w-4 ${favorite ? "fill-current" : ""}`} />
-      </button>
-    ) : (
-      <span title={favoriteTitle} className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card ${favorite ? "text-red-400" : "text-accent"}`}>
-        <Heart className={`h-4 w-4 ${favorite ? "fill-current" : ""}`} />
-      </span>
-    )
-  ) : null;
+  const favoriteAction =
+    typeof favorite === "boolean" ? (
+      onFavoriteToggle ? (
+        <button
+          type="button"
+          onClick={onFavoriteToggle}
+          disabled={favoritePending}
+          aria-pressed={favorite}
+          title={favoriteTitle}
+          className={`${heroActionClassName} ${favorite ? "text-red-400" : "text-accent"}`}
+        >
+          <Heart className={`h-4 w-4 ${favorite ? "fill-current" : ""}`} />
+        </button>
+      ) : (
+        <span
+          title={favoriteTitle}
+          className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card ${favorite ? "text-red-400" : "text-accent"}`}
+        >
+          <Heart className={`h-4 w-4 ${favorite ? "fill-current" : ""}`} />
+        </span>
+      )
+    ) : null;
   const organizedTitle = displayedOrganized ? "Mark unorganized" : "Mark organized";
-  const organizedAction = typeof organized === "boolean" ? (
-    onOrganizedToggle ? (
-      <button
-        type="button"
-        onClick={() => {
-          onOrganizedToggle(!organized);
-        }}
-        disabled={organizedPending}
-        aria-pressed={displayedOrganized}
-        title={organizedTitle}
-        className={`${heroActionClassName} ${displayedOrganized ? "text-emerald-400" : "text-secondary"}`}
-      >
-        <Check className="h-4 w-4" />
-      </button>
-    ) : organized ? (
-      <span title="Organized" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-emerald-400">
-        <Check className="h-4 w-4" />
-      </span>
-    ) : null
-  ) : null;
+  const organizedAction =
+    typeof organized === "boolean" ? (
+      onOrganizedToggle ? (
+        <button
+          type="button"
+          onClick={() => {
+            onOrganizedToggle(!organized);
+          }}
+          disabled={organizedPending}
+          aria-pressed={displayedOrganized}
+          title={organizedTitle}
+          className={`${heroActionClassName} ${displayedOrganized ? "text-emerald-400" : "text-secondary"}`}
+        >
+          <Check className="h-4 w-4" />
+        </button>
+      ) : organized ? (
+        <span
+          title="Organized"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-emerald-400"
+        >
+          <Check className="h-4 w-4" />
+        </span>
+      ) : null
+    ) : null;
   const hasHeaderActions = Boolean(organizedAction || favoriteAction || actions);
   const imageContent = (
     <>
@@ -208,12 +226,7 @@ export function EntityHeroLayout({
                 }}
               />
             ) : null}
-            <div
-              className={[
-                resolvedFallbackClassName,
-                displayedImageUrl ? "hidden" : "flex",
-              ].join(" ")}
-            >
+            <div className={[resolvedFallbackClassName, displayedImageUrl ? "hidden" : "flex"].join(" ")}>
               {imageFallback}
             </div>
           </>
@@ -268,7 +281,9 @@ export function EntityHeroLayout({
         </button>
       ) : null}
       {onImageClick ? (
-        <span className={`pointer-events-none absolute inset-x-3 ${hasAlternateImage ? "bottom-14" : "bottom-3"} rounded-lg bg-black/70 px-3 py-2 text-center text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100`}>
+        <span
+          className={`pointer-events-none absolute inset-x-3 ${hasAlternateImage ? "bottom-14" : "bottom-3"} rounded-lg bg-black/70 px-3 py-2 text-center text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100`}
+        >
           {imageActionTitle}
         </span>
       ) : null}
@@ -283,12 +298,19 @@ export function EntityHeroLayout({
             <img
               src={backgroundImageUrl}
               alt={backgroundImageAlt ?? ""}
-              className={backgroundImageClassName ?? "absolute inset-0 h-full w-full scale-110 object-cover opacity-10 blur-md"}
+              className={
+                backgroundImageClassName ?? "absolute inset-0 h-full w-full scale-110 object-cover opacity-10 blur-md"
+              }
               onError={(event) => {
                 (event.target as HTMLImageElement).style.display = "none";
               }}
             />
-            <div className={backgroundOverlayClassName ?? "absolute inset-0 bg-gradient-to-t from-background via-background/70 to-transparent"} />
+            <div
+              className={
+                backgroundOverlayClassName ??
+                "absolute inset-0 bg-gradient-to-t from-background via-background/70 to-transparent"
+              }
+            />
           </>
         ) : null}
 
@@ -301,18 +323,37 @@ export function EntityHeroLayout({
             >
               <ArrowLeft className="h-4 w-4" /> {backLabel}
             </button>
-            {hasHeaderActions ? <div className="flex items-center gap-2">{organizedAction}{favoriteAction}{actions}</div> : null}
+            {hasHeaderActions ? (
+              <div className="flex items-center gap-2">
+                {organizedAction}
+                {favoriteAction}
+                {actions}
+              </div>
+            ) : null}
           </div>
 
           <div className={resolvedHeroRowClassName}>
             {onImageClick && !hasCarousel && !hasAlternateImage ? (
-              <button type="button" onClick={() => onImageClick(displayedImageSlot)} title={imageActionTitle} className={`${resolvedImageContainerClassName} group focus:outline-none focus:ring-2 focus:ring-accent`}>
+              <button
+                type="button"
+                onClick={() => onImageClick(displayedImageSlot)}
+                title={imageActionTitle}
+                className={`${resolvedImageContainerClassName} group focus:outline-none focus:ring-2 focus:ring-accent`}
+              >
                 {imageContent}
               </button>
             ) : (
-              <div className={`${resolvedImageContainerClassName} ${onImageClick ? "group focus-within:ring-2 focus-within:ring-accent" : ""}`}>
+              <div
+                className={`${resolvedImageContainerClassName} ${onImageClick ? "group focus-within:ring-2 focus-within:ring-accent" : ""}`}
+              >
                 {onImageClick ? (
-                  <button type="button" onClick={() => onImageClick(displayedImageSlot)} title={imageActionTitle} aria-label={imageActionTitle} className="absolute inset-0 z-10 focus:outline-none" />
+                  <button
+                    type="button"
+                    onClick={() => onImageClick(displayedImageSlot)}
+                    title={imageActionTitle}
+                    aria-label={imageActionTitle}
+                    className="absolute inset-0 z-10 focus:outline-none"
+                  />
                 ) : null}
                 {imageContent}
               </div>
@@ -336,7 +377,10 @@ export function EntityHeroLayout({
               {counts.length > 0 ? (
                 <div className="mt-4 flex flex-wrap gap-3">
                   {counts.map((c) => (
-                    <div key={c.key} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+                    <div
+                      key={c.key}
+                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+                    >
                       {c.icon ? <span className="text-accent">{c.icon}</span> : null}
                       <div>
                         <div className="text-lg font-semibold text-foreground">{c.value}</div>
@@ -347,7 +391,9 @@ export function EntityHeroLayout({
                 </div>
               ) : null}
 
-              {metaRow ? <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted">{metaRow}</div> : null}
+              {metaRow ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted">{metaRow}</div>
+              ) : null}
               {heroContent ? <div className="mt-4">{heroContent}</div> : null}
             </div>
           </div>
@@ -355,9 +401,7 @@ export function EntityHeroLayout({
         <div aria-hidden="true" className="pointer-events-none absolute inset-x-4 bottom-0 border-b border-border" />
       </div>
 
-      <div className={resolvedContentClassName}>
-        {children}
-      </div>
+      <div className={resolvedContentClassName}>{children}</div>
     </div>
   );
 }

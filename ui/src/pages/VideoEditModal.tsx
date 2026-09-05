@@ -32,15 +32,17 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   const [urls, setUrls] = useState<string[]>(video.urls.length > 0 ? video.urls : [""]);
   const addUrl = () => setUrls([...urls, ""]);
   const removeUrl = (i: number) => setUrls(urls.filter((_, idx) => idx !== i));
-  const updateUrl = (i: number, val: string) => setUrls(urls.map((u, idx) => idx === i ? val : u));
+  const updateUrl = (i: number, val: string) => setUrls(urls.map((u, idx) => (idx === i ? val : u)));
   const [studioId, setStudioId] = useState<number | undefined>(video.studioId ?? undefined);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(getEditableTagIds(video.tags));
   const [selectedPerformerIds, setSelectedPerformerIds] = useState<number[]>(video.performers.map((p) => p.id));
   const [selectedGalleryIds, setSelectedGalleryIds] = useState<number[]>(video.galleries.map((g) => g.id));
   const [selectedGroups, setSelectedGroups] = useState<{ groupId: number; videoIndex: number }[]>(
-    video.groups.map((g) => ({ groupId: g.id, videoIndex: g.videoIndex }))
+    video.groups.map((g) => ({ groupId: g.id, videoIndex: g.videoIndex })),
   );
-  const [contextTagIdsByPerformer, setContextTagIdsByPerformer] = useState<Record<number, number[]>>(() => buildPerformerContextTagIds(video));
+  const [contextTagIdsByPerformer, setContextTagIdsByPerformer] = useState<Record<number, number[]>>(() =>
+    buildPerformerContextTagIds(video),
+  );
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(video.customFields ?? {}) });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(video.remoteIds.map((remoteId) => ({ ...remoteId })));
@@ -69,7 +71,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
     meta: { suppressGlobalError: true },
     mutationFn: async (data: VideoUpdate) => {
       const updated = await videos.update(video.id, data);
-      await syncPerformerContextTags(video.id, video.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
+      await syncPerformerContextTags(
+        video.id,
+        video.contextTagApplications ?? [],
+        contextTagIdsByPerformer,
+        selectedPerformerIds,
+      );
       return updated;
     },
     onSuccess: () => {
@@ -109,7 +116,11 @@ export function VideoEditModal({ video, open, onClose }: Props) {
   };
 
   const setSelectedGroupIds = (groupIds: number[]) => {
-    setSelectedGroups(groupIds.map((groupId) => selectedGroups.find((group) => group.groupId === groupId) ?? { groupId, videoIndex: 0 }));
+    setSelectedGroups(
+      groupIds.map(
+        (groupId) => selectedGroups.find((group) => group.groupId === groupId) ?? { groupId, videoIndex: 0 },
+      ),
+    );
   };
 
   const lockedTagIds = getLockedTagIds(video.tags);
@@ -164,7 +175,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
         <RatingField value={rating} onChange={setRating} fieldProvenance={video.fieldProvenance} />
         <Field label="VR" fieldProvenance={video.fieldProvenance} fieldKey="isVr">
           <label className="inline-flex items-center gap-2 rounded border border-border bg-card px-3 py-2 text-sm text-foreground">
-            <input type="checkbox" checked={isVr} onChange={(event) => setIsVr(event.target.checked)} className="accent-accent" />
+            <input
+              type="checkbox"
+              checked={isVr}
+              onChange={(event) => setIsVr(event.target.checked)}
+              className="accent-accent"
+            />
             <span>VR</span>
           </label>
         </Field>
@@ -190,7 +206,9 @@ export function VideoEditModal({ video, open, onClose }: Props) {
                 onClick={() => removeUrl(i)}
                 className="p-1 text-muted hover:text-red-400 transition-colors flex-shrink-0"
                 title="Remove URL"
-              >×</button>
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>
@@ -198,17 +216,33 @@ export function VideoEditModal({ video, open, onClose }: Props) {
           type="button"
           onClick={addUrl}
           className="mt-1.5 flex items-center gap-1 text-xs text-accent hover:text-accent-hover"
-        >+ Add URL</button>
+        >
+          + Add URL
+        </button>
       </Field>
 
       {/* Tags */}
       <Field label="Tags" fieldProvenance={video.fieldProvenance} fieldKey="tags">
-        <EntityReferenceMultiSelector entityType="tag" values={displayedTagIds} lockedIds={lockedTagIds} onChange={updateSelectedTagIds} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} seedOptions={tagSeedOptions} />
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={displayedTagIds}
+          lockedIds={lockedTagIds}
+          onChange={updateSelectedTagIds}
+          placeholder="Search tags..."
+          selectedProvenanceById={tagProvenanceById}
+          seedOptions={tagSeedOptions}
+        />
       </Field>
 
       {/* Performers */}
       <Field label="Performers" fieldProvenance={video.fieldProvenance} fieldKey="performers">
-        <EntityReferenceMultiSelector entityType="performer" values={selectedPerformerIds} onChange={setSelectedPerformerIds} placeholder="Search performers..." seedOptions={performerSeedOptions} />
+        <EntityReferenceMultiSelector
+          entityType="performer"
+          values={selectedPerformerIds}
+          onChange={setSelectedPerformerIds}
+          placeholder="Search performers..."
+          seedOptions={performerSeedOptions}
+        />
       </Field>
 
       {selectedPerformerIds.length > 0 ? (
@@ -220,8 +254,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
               return (
                 <div key={performerId} className="rounded-lg border border-border bg-card/70 p-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="min-w-0 text-sm font-medium text-foreground"><EntityReferenceValue entityType="performer" value={performerId} /></div>
-                    <div className="text-xs text-muted">{tagIds.length} tag{tagIds.length === 1 ? "" : "s"}</div>
+                    <div className="min-w-0 text-sm font-medium text-foreground">
+                      <EntityReferenceValue entityType="performer" value={performerId} />
+                    </div>
+                    <div className="text-xs text-muted">
+                      {tagIds.length} tag{tagIds.length === 1 ? "" : "s"}
+                    </div>
                   </div>
                   <EntityReferenceMultiSelector
                     entityType="tag"
@@ -240,7 +278,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
       ) : null}
 
       <Field label="Galleries" fieldProvenance={video.fieldProvenance} fieldKey="galleries">
-        <EntityReferenceMultiSelector entityType="gallery" values={selectedGalleryIds} onChange={setSelectedGalleryIds} placeholder="Search galleries..." />
+        <EntityReferenceMultiSelector
+          entityType="gallery"
+          values={selectedGalleryIds}
+          onChange={setSelectedGalleryIds}
+          placeholder="Search galleries..."
+        />
       </Field>
 
       {/* Groups */}
@@ -251,7 +294,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
               <div key={sg.groupId} className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-900 text-orange-300">
                   <EntityReferenceValue entityType="group" value={sg.groupId} />
-                  <button onClick={() => setSelectedGroups(selectedGroups.filter((g) => g.groupId !== sg.groupId))} className="hover:text-white">×</button>
+                  <button
+                    onClick={() => setSelectedGroups(selectedGroups.filter((g) => g.groupId !== sg.groupId))}
+                    className="hover:text-white"
+                  >
+                    ×
+                  </button>
                 </span>
                 <label className="flex items-center gap-1 text-xs text-secondary">
                   Video #
@@ -259,7 +307,13 @@ export function VideoEditModal({ video, open, onClose }: Props) {
                     type="number"
                     min={0}
                     value={sg.videoIndex}
-                    onChange={(e) => setSelectedGroups(selectedGroups.map((g) => g.groupId === sg.groupId ? { ...g, videoIndex: Number(e.target.value) || 0 } : g))}
+                    onChange={(e) =>
+                      setSelectedGroups(
+                        selectedGroups.map((g) =>
+                          g.groupId === sg.groupId ? { ...g, videoIndex: Number(e.target.value) || 0 } : g,
+                        ),
+                      )
+                    }
                     className="w-16 bg-card border border-border rounded px-2 py-0.5 text-xs text-foreground focus:outline-none focus:border-accent"
                   />
                 </label>
@@ -267,7 +321,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
             );
           })}
         </div>
-        <EntityReferenceMultiSelector entityType="group" values={selectedGroups.map((group) => group.groupId)} onChange={setSelectedGroupIds} placeholder="Search groups..." />
+        <EntityReferenceMultiSelector
+          entityType="group"
+          values={selectedGroups.map((group) => group.groupId)}
+          onChange={setSelectedGroupIds}
+          placeholder="Search groups..."
+        />
       </Field>
 
       <Field label="Remote IDs" fieldProvenance={video.fieldProvenance} fieldKey="remoteIds">
@@ -275,7 +334,12 @@ export function VideoEditModal({ video, open, onClose }: Props) {
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={video.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="video" />
+        <CustomFieldsEditor
+          value={customFields}
+          onChange={setCustomFields}
+          onValidityChange={setCustomFieldsValid}
+          entityType="video"
+        />
       </Field>
 
       {mutation.error && (
@@ -285,7 +349,9 @@ export function VideoEditModal({ video, open, onClose }: Props) {
       )}
 
       <div className="flex justify-end gap-3">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
+        <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">
+          Cancel
+        </button>
         <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>
@@ -305,7 +371,12 @@ function buildPerformerContextTagIds(video: Video): Record<number, number[]> {
   return result;
 }
 
-async function syncPerformerContextTags(videoId: number, existingApplications: TagApplication[], desiredByPerformer: Record<number, number[]>, selectedPerformerIds: number[]) {
+async function syncPerformerContextTags(
+  videoId: number,
+  existingApplications: TagApplication[],
+  desiredByPerformer: Record<number, number[]>,
+  selectedPerformerIds: number[],
+) {
   const selectedPerformers = new Set(selectedPerformerIds);
   const desiredKeys = new Set<string>();
 
@@ -320,7 +391,9 @@ async function syncPerformerContextTags(videoId: number, existingApplications: T
     }
   }
 
-  const existingContextApplications = existingApplications.filter((application) => application.contextType === "performer" && application.contextId != null);
+  const existingContextApplications = existingApplications.filter(
+    (application) => application.contextType === "performer" && application.contextId != null,
+  );
 
   for (const application of existingContextApplications) {
     const key = `${application.contextId}:${application.tag.id}`;
@@ -329,7 +402,9 @@ async function syncPerformerContextTags(videoId: number, existingApplications: T
     }
   }
 
-  const existingKeys = new Set(existingContextApplications.map((application) => `${application.contextId}:${application.tag.id}`));
+  const existingKeys = new Set(
+    existingContextApplications.map((application) => `${application.contextId}:${application.tag.id}`),
+  );
   for (const [performerIdText, tagIds] of Object.entries(desiredByPerformer)) {
     const performerId = Number(performerIdText);
     if (!selectedPerformers.has(performerId)) {

@@ -46,9 +46,13 @@ describe("RedeemInvitePage", () => {
 
   it("shows password length guidance returned by the API", async () => {
     const user = userEvent.setup();
-    mocks.redeemInvite.mockRejectedValue(new Error(`API Error 400: ${JSON.stringify({
-      errors: { Password: ["Password must be 8-200 characters."] },
-    })}`));
+    mocks.redeemInvite.mockRejectedValue(
+      new Error(
+        `API Error 400: ${JSON.stringify({
+          errors: { Password: ["Password must be 8-200 characters."] },
+        })}`,
+      ),
+    );
     renderPage();
 
     await screen.findByDisplayValue("invited-user");
@@ -62,7 +66,9 @@ describe("RedeemInvitePage", () => {
 
   it("does not render internal details from an unexpected server error", async () => {
     const user = userEvent.setup();
-    mocks.redeemInvite.mockRejectedValue(new Error("API Error 500: System.InvalidOperationException: internal stack trace"));
+    mocks.redeemInvite.mockRejectedValue(
+      new Error("API Error 500: System.InvalidOperationException: internal stack trace"),
+    );
     renderPage();
 
     await screen.findByDisplayValue("invited-user");

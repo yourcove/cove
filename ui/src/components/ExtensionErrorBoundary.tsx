@@ -28,7 +28,7 @@ export class ExtensionErrorBoundary extends Component<Props, State> {
     console.error(
       `[Extension${this.props.extensionId ? ` ${this.props.extensionId}` : ""}] Component error:`,
       error,
-      errorInfo.componentStack
+      errorInfo.componentStack,
     );
   }
 

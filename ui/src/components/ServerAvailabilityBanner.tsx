@@ -1,11 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, WifiOff } from "lucide-react";
-import {
-  getServerAvailability,
-  runServerProbe,
-  subscribeToServerAvailability,
-} from "../state/serverAvailability";
+import { getServerAvailability, runServerProbe, subscribeToServerAvailability } from "../state/serverAvailability";
 
 const RECONNECT_INTERVAL_MS = 5_000;
 

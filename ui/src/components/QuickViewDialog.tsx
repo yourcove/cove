@@ -68,10 +68,15 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
     <Overlay onClose={onClose}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-        <h2 className="text-lg font-semibold text-foreground truncate pr-4">{video.title || file?.basename || "Untitled"}</h2>
+        <h2 className="text-lg font-semibold text-foreground truncate pr-4">
+          {video.title || file?.basename || "Untitled"}
+        </h2>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => { onClose(); onNavigate({ page: "video", id }); }}
+            onClick={() => {
+              onClose();
+              onNavigate({ page: "video", id });
+            }}
             className="flex items-center gap-1 px-2.5 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover"
           >
             <ExternalLink className="w-3 h-3" /> Open
@@ -91,7 +96,11 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
             format={file.format}
             audioCodec={file.audioCodec}
             duration={duration}
-            clip={video.parentVideoId != null ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false } : undefined}
+            clip={
+              video.parentVideoId != null
+                ? { start: video.clipStartSec ?? 0, end: video.clipEndSec, loop: false }
+                : undefined
+            }
             videoId={video.id}
             extensionSurface="quick-view"
             playbackTracking={{
@@ -103,11 +112,7 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
             showAbLoop={false}
           />
         ) : (
-          <img
-            src={videos.screenshotUrl(video.id, video.updatedAt)}
-            alt=""
-            className="h-full w-full object-contain"
-          />
+          <img src={videos.screenshotUrl(video.id, video.updatedAt)} alt="" className="h-full w-full object-contain" />
         )}
       </div>
 
@@ -124,23 +129,34 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
         {/* Meta row */}
         <div className="flex flex-wrap gap-3 text-xs text-secondary">
           {video.date && (
-            <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {video.date}</span>
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> {video.date}
+            </span>
           )}
           {resLabel && (
-            <span className="flex items-center gap-1"><Monitor className="w-3 h-3" /> {resLabel}</span>
+            <span className="flex items-center gap-1">
+              <Monitor className="w-3 h-3" /> {resLabel}
+            </span>
           )}
           {file && (
-            <span className="flex items-center gap-1"><HardDrive className="w-3 h-3" /> {formatFileSize(file.size)}</span>
+            <span className="flex items-center gap-1">
+              <HardDrive className="w-3 h-3" /> {formatFileSize(file.size)}
+            </span>
           )}
           {duration > 0 && (
-            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatDuration(duration)}</span>
+            <span className="flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {formatDuration(duration)}
+            </span>
           )}
         </div>
 
         {/* Studio */}
         {video.studioName && (
           <button
-            onClick={() => { onClose(); onNavigate({ page: "studio", id: video.studioId }); }}
+            onClick={() => {
+              onClose();
+              onNavigate({ page: "studio", id: video.studioId });
+            }}
             className="flex items-center gap-2 text-sm text-foreground hover:text-accent"
           >
             <Building2 className="w-4 h-4 text-muted" />
@@ -158,7 +174,10 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
               {video.performers.map((p: any) => (
                 <button
                   key={p.id}
-                  onClick={() => { onClose(); onNavigate({ page: "performer", id: p.id }); }}
+                  onClick={() => {
+                    onClose();
+                    onNavigate({ page: "performer", id: p.id });
+                  }}
                   className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 hover:border-accent/50 transition-colors"
                 >
                   {p.imagePath ? (
@@ -181,16 +200,22 @@ function VideoQuickView({ id, onClose, onNavigate }: Omit<VideoQuickViewProps, "
             </div>
             <div className="flex flex-wrap gap-1">
               {video.tags.map((t: any) => (
-                <TagBadge key={t.id} name={t.name} tag={t} onClick={() => { onClose(); onNavigate({ page: "tag", id: t.id }); }} />
+                <TagBadge
+                  key={t.id}
+                  name={t.name}
+                  tag={t}
+                  onClick={() => {
+                    onClose();
+                    onNavigate({ page: "tag", id: t.id });
+                  }}
+                />
               ))}
             </div>
           </div>
         )}
 
         {/* Details text */}
-        {video.details && (
-          <p className="text-sm text-secondary leading-relaxed">{video.details}</p>
-        )}
+        {video.details && <p className="text-sm text-secondary leading-relaxed">{video.details}</p>}
 
         {/* File path */}
         {file && (
@@ -235,17 +260,19 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
       if (flushed) return;
       flushed = true;
       const durationSec = elapsedSeconds();
-      void playback.recordIntervals({
-        hostType: "image",
-        hostId: imageId,
-        sessionId,
-        mediaDurationSec: durationSec,
-        currentPositionSec: durationSec,
-        state,
-        surface: "quickView",
-        scopeKey: `image:${imageId}:quickView`,
-        intervals: [{ startSec: 0, endSec: durationSec }],
-      }).catch(() => {});
+      void playback
+        .recordIntervals({
+          hostType: "image",
+          hostId: imageId,
+          sessionId,
+          mediaDurationSec: durationSec,
+          currentPositionSec: durationSec,
+          state,
+          surface: "quickView",
+          scopeKey: `image:${imageId}:quickView`,
+          intervals: [{ startSec: 0, endSec: durationSec }],
+        })
+        .catch(() => {});
     };
 
     const handlePageHide = () => flushDwell("abandoned");
@@ -276,7 +303,10 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
         <h2 className="text-lg font-semibold text-foreground truncate pr-4">{displayTitle}</h2>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => { onClose(); onNavigate({ page: "image", id }); }}
+            onClick={() => {
+              onClose();
+              onNavigate({ page: "image", id });
+            }}
             className="flex items-center gap-1 px-2.5 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover"
           >
             <ExternalLink className="w-3 h-3" /> Open
@@ -288,7 +318,13 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
       </div>
 
       {/* Preview */}
-      <div className="bg-black flex items-center justify-center h-[50vh]" onClick={() => { onClose(); onNavigate({ page: "image", id }); }}>
+      <div
+        className="bg-black flex items-center justify-center h-[50vh]"
+        onClick={() => {
+          onClose();
+          onNavigate({ page: "image", id });
+        }}
+      >
         <img
           src={images.thumbnailUrl(image.id, 1600)}
           alt=""
@@ -309,14 +345,19 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
         {/* Meta */}
         <div className="flex flex-wrap gap-3 text-xs text-secondary">
           {image.createdAt && (
-            <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {formatDate(image.createdAt)}</span>
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> {formatDate(image.createdAt)}
+            </span>
           )}
         </div>
 
         {/* Studio */}
         {image.studioName && (
           <button
-            onClick={() => { onClose(); onNavigate({ page: "studio", id: image.studioId }); }}
+            onClick={() => {
+              onClose();
+              onNavigate({ page: "studio", id: image.studioId });
+            }}
             className="flex items-center gap-2 text-sm text-foreground hover:text-accent"
           >
             <Building2 className="w-4 h-4 text-muted" />
@@ -334,7 +375,10 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
               {image.performers.map((p: any) => (
                 <button
                   key={p.id}
-                  onClick={() => { onClose(); onNavigate({ page: "performer", id: p.id }); }}
+                  onClick={() => {
+                    onClose();
+                    onNavigate({ page: "performer", id: p.id });
+                  }}
                   className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-1 hover:border-accent/50 transition-colors"
                 >
                   <User className="h-4 w-4 text-muted" />
@@ -353,7 +397,15 @@ function ImageQuickView({ id, onClose, onNavigate }: Omit<ImageQuickViewProps, "
             </div>
             <div className="flex flex-wrap gap-1">
               {image.tags.map((t: any) => (
-                <TagBadge key={t.id} name={t.name} tag={t} onClick={() => { onClose(); onNavigate({ page: "tag", id: t.id }); }} />
+                <TagBadge
+                  key={t.id}
+                  name={t.name}
+                  tag={t}
+                  onClick={() => {
+                    onClose();
+                    onNavigate({ page: "tag", id: t.id });
+                  }}
+                />
               ))}
             </div>
           </div>

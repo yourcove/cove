@@ -1,7 +1,27 @@
-import { ArrowDown, ArrowUp, Tags, FolderTree, Grid3X3, LayoutGrid, List, MonitorPlay, Rows3, Share2, Shuffle, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Tags,
+  FolderTree,
+  Grid3X3,
+  LayoutGrid,
+  List,
+  MonitorPlay,
+  Rows3,
+  Share2,
+  Shuffle,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import type { FindFilter } from "../api/types";
 import { isValidElement, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
+import {
+  clampEntityCardSizeLevel,
+  getEntityCardMaxLevel,
+  getEntityCardMinWidthPx,
+  parseEntityCardSizeLevel,
+  useEntityCardSize,
+} from "../hooks/useEntityCardSize";
 import { useRegisterKeyboardActionHandler } from "../hooks/useRegisterKeyboardActionHandler";
 import { reshuffleRandomSort, withSeededRandomSort } from "../utils/seededRandomSort";
 import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from "./listToolbarStyles";
@@ -11,7 +31,12 @@ import type { CriterionDefinition } from "./filterCriteriaTypes";
 import { migrateLegacyPerformerFavoriteCriterion } from "./filterCriterionState";
 import { PageSizeSelect } from "./PageSizeSelect";
 import { SavedFilterMenu, useDefaultSavedFilterOnMount } from "./SavedFilterMenu";
-import { ActiveObjectFilterChips, countActiveObjectFilters, getFilterChipTargetKey, removeObjectFilterChipTarget } from "./ActiveObjectFilterChips";
+import {
+  ActiveObjectFilterChips,
+  countActiveObjectFilters,
+  getFilterChipTargetKey,
+  removeObjectFilterChipTarget,
+} from "./ActiveObjectFilterChips";
 import { ListSearchControl } from "./ListSearchControl";
 import { PaginationControls } from "./PaginationControls";
 import { WallSizeControl } from "./WallSizeControl";
@@ -85,7 +110,16 @@ export interface DetailListPaginationProps {
  * Reusable finite/infinite list pagination. Once a non-empty count is known, the component repairs
  * an out-of-range page through `onFilterChange` so standalone consumers cannot remain stranded.
  */
-export function DetailListPagination({ filter, onFilterChange, totalCount, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, className = "mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-1 py-4", ariaLabel = "Pagination" }: DetailListPaginationProps) {
+export function DetailListPagination({
+  filter,
+  onFilterChange,
+  totalCount,
+  allowInfinitePageSize = false,
+  infinitePageSizeOnly = false,
+  showPagingControls = true,
+  className = "mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-1 py-4",
+  ariaLabel = "Pagination",
+}: DetailListPaginationProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
   const infinitePageSize = allowInfinitePageSize && (perPage === 0 || infinitePageSizeOnly);
@@ -112,7 +146,39 @@ export function DetailListPagination({ filter, onFilterChange, totalCount, allow
   );
 }
 
-export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOptions, zoomLevel, onZoomChange, cardSizeEntityType, showSearch, showSort = true, selectedCount, onSelectAll, onSelectAllMatching, onSelectNone, selectAllLabel = "Select all", selectAllPending = false, selectAllMatchingLabel = "Select all matching", selectAllMatchingPending, selectionActions, displayMode, onDisplayModeChange, availableDisplayModes, criteriaDefinitions, objectFilter, onObjectFilterChange, allowInfinitePageSize = false, infinitePageSizeOnly = false, showPagingControls = true, paginationAriaLabel = "Pagination above results", filterMode, filterDefaultKey, defaultFilterResolved = false }: DetailListToolbarProps) {
+export function DetailListToolbar({
+  filter,
+  onFilterChange,
+  totalCount,
+  sortOptions,
+  zoomLevel,
+  onZoomChange,
+  cardSizeEntityType,
+  showSearch,
+  showSort = true,
+  selectedCount,
+  onSelectAll,
+  onSelectAllMatching,
+  onSelectNone,
+  selectAllLabel = "Select all",
+  selectAllPending = false,
+  selectAllMatchingLabel = "Select all matching",
+  selectAllMatchingPending,
+  selectionActions,
+  displayMode,
+  onDisplayModeChange,
+  availableDisplayModes,
+  criteriaDefinitions,
+  objectFilter,
+  onObjectFilterChange,
+  allowInfinitePageSize = false,
+  infinitePageSizeOnly = false,
+  showPagingControls = true,
+  paginationAriaLabel = "Pagination above results",
+  filterMode,
+  filterDefaultKey,
+  defaultFilterResolved = false,
+}: DetailListToolbarProps) {
   const page = filter.page ?? 1;
   const perPage = filter.perPage ?? 24;
   // Random sort with no seed (e.g. a default saved filter, or a re-mounted detail-page list) would
@@ -139,32 +205,49 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
   const [filterDialogInitialView, setFilterDialogInitialView] = useState<"simple" | "advanced">("simple");
   const [filterDialogExpressionPath, setFilterDialogExpressionPath] = useState<number[] | undefined>();
   const [filterDialogOpenAtRoot, setFilterDialogOpenAtRoot] = useState(false);
-  useRegisterKeyboardActionHandler("list.filters", () => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); }, {
-    enabled: Boolean(criteriaDefinitions && onObjectFilterChange),
-    surface: "list",
-  });
+  useRegisterKeyboardActionHandler(
+    "list.filters",
+    () => {
+      setFilterDialogPreselect(undefined);
+      setFilterDialogExpressionPath(undefined);
+      setFilterDialogInitialView("simple");
+      setFilterDialogOpenAtRoot(true);
+      setFilterDialogOpen(true);
+    },
+    {
+      enabled: Boolean(criteriaDefinitions && onObjectFilterChange),
+      surface: "list",
+    },
+  );
   const sortedSortOptions = useMemo(
     () => [...sortOptions].sort((left, right) => left.label.localeCompare(right.label)),
-    [sortOptions]
+    [sortOptions],
   );
   const selectionActionEntityType = useMemo(() => {
     if (!isValidElement<{ entityType?: string }>(selectionActions)) return undefined;
     return selectionActions.props.entityType;
   }, [selectionActions]);
-  const inferredCardSizeEntityType = useMemo(() => cardSizeEntityType ?? selectionActionEntityType ?? inferCardSizeEntityType(sortOptions), [cardSizeEntityType, selectionActionEntityType, sortOptions]);
+  const inferredCardSizeEntityType = useMemo(
+    () => cardSizeEntityType ?? selectionActionEntityType ?? inferCardSizeEntityType(sortOptions),
+    [cardSizeEntityType, selectionActionEntityType, sortOptions],
+  );
   const maxZoomLevel = getEntityCardMaxLevel(inferredCardSizeEntityType);
   const [storedZoomLevel, setStoredZoomLevel] = useEntityCardSize(inferredCardSizeEntityType);
   const effectiveZoomLevel = inferredCardSizeEntityType ? storedZoomLevel : zoomLevel;
-  const displayModes = availableDisplayModes ?? (displayMode && onDisplayModeChange ? ["grid", "list"] as DetailListDisplayMode[] : []);
+  const displayModes =
+    availableDisplayModes ?? (displayMode && onDisplayModeChange ? (["grid", "list"] as DetailListDisplayMode[]) : []);
 
   useEffect(() => {
     if (!inferredCardSizeEntityType || zoomLevel == null || !onZoomChange) return;
     if (Math.abs(storedZoomLevel - zoomLevel) > 0.001) onZoomChange(storedZoomLevel);
   }, [inferredCardSizeEntityType, onZoomChange, storedZoomLevel, zoomLevel]);
 
-  const handleSearchChange = useCallback((query: string | undefined) => {
-    onFilterChange({ ...filter, q: query, page: 1 });
-  }, [filter, onFilterChange]);
+  const handleSearchChange = useCallback(
+    (query: string | undefined) => {
+      onFilterChange({ ...filter, q: query, page: 1 });
+    },
+    [filter, onFilterChange],
+  );
 
   const handleZoomChange = (level: number) => {
     const nextLevel = clampEntityCardSizeLevel(inferredCardSizeEntityType, level);
@@ -186,19 +269,24 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
   // Any embedded list that exposes the saved-filter menu must also honor that mode's default.
   // Keep the surrounding entity constraint outside FindFilter and always start on the first page.
-  useDefaultSavedFilterOnMount(filterDefaultKey ?? filterMode ?? "", (findFilter, defaultObjectFilter, defaultUIOptions) => {
-    if (!filterMode) return;
-    if (!defaultFilterResolved) {
-      if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
-      if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0) onObjectFilterChange?.(defaultObjectFilter);
-      const defaultDisplayMode = typeof defaultUIOptions?.displayMode === "string" ? defaultUIOptions.displayMode : undefined;
-      if (defaultDisplayMode && displayModes.includes(defaultDisplayMode as DetailListDisplayMode)) {
-        onDisplayModeChange?.(defaultDisplayMode as DetailListDisplayMode);
+  useDefaultSavedFilterOnMount(
+    filterDefaultKey ?? filterMode ?? "",
+    (findFilter, defaultObjectFilter, defaultUIOptions) => {
+      if (!filterMode) return;
+      if (!defaultFilterResolved) {
+        if (findFilter) onFilterChange({ ...filter, ...findFilter, page: 1 });
+        if (defaultObjectFilter && Object.keys(defaultObjectFilter).length > 0)
+          onObjectFilterChange?.(defaultObjectFilter);
+        const defaultDisplayMode =
+          typeof defaultUIOptions?.displayMode === "string" ? defaultUIOptions.displayMode : undefined;
+        if (defaultDisplayMode && displayModes.includes(defaultDisplayMode as DetailListDisplayMode)) {
+          onDisplayModeChange?.(defaultDisplayMode as DetailListDisplayMode);
+        }
       }
-    }
-    const defaultZoomLevel = parseEntityCardSizeLevel(inferredCardSizeEntityType, defaultUIOptions?.zoomLevel);
-    if (defaultZoomLevel != null) handleZoomChange(defaultZoomLevel);
-  });
+      const defaultZoomLevel = parseEntityCardSizeLevel(inferredCardSizeEntityType, defaultUIOptions?.zoomLevel);
+      if (defaultZoomLevel != null) handleZoomChange(defaultZoomLevel);
+    },
+  );
 
   return (
     <>
@@ -210,18 +298,27 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
         </div>
 
         {showSearch && (
-          <ListSearchControl query={filter.q} onQueryChange={handleSearchChange} placeholder="Search…" className="sm:max-w-[18rem]" />
+          <ListSearchControl
+            query={filter.q}
+            onQueryChange={handleSearchChange}
+            placeholder="Search…"
+            className="sm:max-w-[18rem]"
+          />
         )}
 
         {showSort && (
           <div className={toolbarSegmentClass}>
             <select
               value={filter.sort ?? sortedSortOptions[0]?.value ?? ""}
-              onChange={(e) => onFilterChange(withSeededRandomSort(filter, { ...filter, sort: e.target.value, page: 1 }))}
+              onChange={(e) =>
+                onFilterChange(withSeededRandomSort(filter, { ...filter, sort: e.target.value, page: 1 }))
+              }
               className={`${toolbarSelectClass} min-w-[8.5rem] max-w-[10rem]`}
             >
               {sortedSortOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
             {filter.sort === "random" ? (
@@ -237,17 +334,38 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             ) : null}
             <button
               type="button"
-              onClick={() => onFilterChange(withSeededRandomSort(filter, { ...filter, direction: filter.direction === "asc" ? "desc" : "asc", page: 1 }))}
+              onClick={() =>
+                onFilterChange(
+                  withSeededRandomSort(filter, {
+                    ...filter,
+                    direction: filter.direction === "asc" ? "desc" : "asc",
+                    page: 1,
+                  }),
+                )
+              }
               className={toolbarIconButtonClass}
               title={filter.direction === "asc" ? "Ascending" : "Descending"}
             >
-              {filter.direction === "desc" ? <ArrowDown className="w-3.5 h-3.5" /> : <ArrowUp className="w-3.5 h-3.5" />}
+              {filter.direction === "desc" ? (
+                <ArrowDown className="w-3.5 h-3.5" />
+              ) : (
+                <ArrowUp className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
         )}
 
         {criteriaDefinitions && onObjectFilterChange ? (
-          <FilterButton activeCount={countActiveObjectFilters(criteriaDefinitions, activeObjectFilter)} onClick={() => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); }} />
+          <FilterButton
+            activeCount={countActiveObjectFilters(criteriaDefinitions, activeObjectFilter)}
+            onClick={() => {
+              setFilterDialogPreselect(undefined);
+              setFilterDialogExpressionPath(undefined);
+              setFilterDialogInitialView("simple");
+              setFilterDialogOpenAtRoot(true);
+              setFilterDialogOpen(true);
+            }}
+          />
         ) : null}
 
         {filterMode ? (
@@ -296,21 +414,27 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
             onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: nextPerPage, page: 1 })}
           />
 
-          {effectiveZoomLevel !== undefined && onZoomChange && (displayMode === "grid" || displayMode === "list" || displayMode == null) && (
-            <div className="hidden items-center gap-1 pl-1 md:flex">
-              <ZoomOut className="w-3 h-3 text-muted" />
-              <input
-                type="range"
-                min={0} max={maxZoomLevel} step={0.25}
-                value={effectiveZoomLevel}
-                onChange={(e) => handleZoomChange(Number(e.target.value))}
-                style={{ "--range-fill": `${(effectiveZoomLevel / Math.max(0.25, maxZoomLevel)) * 100}%` } as CSSProperties}
-                className="themed-range-input h-1 w-16 cursor-pointer sm:w-20"
-                title={`Card size: ${getEntityCardMinWidthPx(inferredCardSizeEntityType, effectiveZoomLevel)}px`}
-              />
-              <ZoomIn className="w-3 h-3 text-muted" />
-            </div>
-          )}
+          {effectiveZoomLevel !== undefined &&
+            onZoomChange &&
+            (displayMode === "grid" || displayMode === "list" || displayMode == null) && (
+              <div className="hidden items-center gap-1 pl-1 md:flex">
+                <ZoomOut className="w-3 h-3 text-muted" />
+                <input
+                  type="range"
+                  min={0}
+                  max={maxZoomLevel}
+                  step={0.25}
+                  value={effectiveZoomLevel}
+                  onChange={(e) => handleZoomChange(Number(e.target.value))}
+                  style={
+                    { "--range-fill": `${(effectiveZoomLevel / Math.max(0.25, maxZoomLevel)) * 100}%` } as CSSProperties
+                  }
+                  className="themed-range-input h-1 w-16 cursor-pointer sm:w-20"
+                  title={`Card size: ${getEntityCardMinWidthPx(inferredCardSizeEntityType, effectiveZoomLevel)}px`}
+                />
+                <ZoomIn className="w-3 h-3 text-muted" />
+              </div>
+            )}
 
           {displayMode === "wall" && effectiveZoomLevel !== undefined && onZoomChange && (
             <WallSizeControl sizeLevel={effectiveZoomLevel} onChange={handleZoomChange} />
@@ -326,11 +450,27 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
           onEdit={(target) => {
             const key = getFilterChipTargetKey(target);
             setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
-            const criterion = criteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
-            setFilterDialogPreselect(target.kind === "expression" ? undefined : target.kind === "related"
-              ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
-              : criterion?.id ?? key);
-            setFilterDialogInitialView(key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple");
+            const criterion = criteriaDefinitions.find(
+              (item) =>
+                item.id === key ||
+                item.filterKey === key ||
+                item.secondaryFilterKey === key ||
+                item.auxiliaryToggleKey === key,
+            );
+            setFilterDialogPreselect(
+              target.kind === "expression"
+                ? undefined
+                : target.kind === "related"
+                  ? {
+                      criterionId: criterion?.id ?? key,
+                      relatedFacet: target.facet,
+                      nestedCriterionId: target.nestedCriterionId,
+                    }
+                  : (criterion?.id ?? key),
+            );
+            setFilterDialogInitialView(
+              key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple",
+            );
             setFilterDialogOpenAtRoot(false);
             setFilterDialogOpen(true);
           }}
@@ -349,13 +489,29 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
       {selectedCount !== undefined && selectedCount > 0 && (
         <div className="mx-auto mb-2 flex max-w-7xl flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-1.5">
           <span className="text-xs text-secondary">{selectedCount} selected</span>
-          {onSelectAll && <button onClick={onSelectAll} disabled={selectAllPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">{selectAllPending ? "Selecting..." : selectAllLabel}</button>}
+          {onSelectAll && (
+            <button
+              onClick={onSelectAll}
+              disabled={selectAllPending}
+              className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {selectAllPending ? "Selecting..." : selectAllLabel}
+            </button>
+          )}
           {onSelectAllMatching && (
-            <button onClick={onSelectAllMatching} disabled={selectAllMatchingPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">
+            <button
+              onClick={onSelectAllMatching}
+              disabled={selectAllMatchingPending}
+              className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            >
               {selectAllMatchingPending ? "Selecting..." : selectAllMatchingLabel}
             </button>
           )}
-          {onSelectNone && <button onClick={onSelectNone} className="text-xs text-secondary hover:text-foreground">Deselect all</button>}
+          {onSelectNone && (
+            <button onClick={onSelectNone} className="text-xs text-secondary hover:text-foreground">
+              Deselect all
+            </button>
+          )}
           {selectionActions}
         </div>
       )}
@@ -373,7 +529,13 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
       {criteriaDefinitions && onObjectFilterChange ? (
         <FilterDialog
           open={filterDialogOpen}
-          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); setFilterDialogInitialView("simple"); setFilterDialogExpressionPath(undefined); setFilterDialogOpenAtRoot(false); }}
+          onClose={() => {
+            setFilterDialogOpen(false);
+            setFilterDialogPreselect(undefined);
+            setFilterDialogInitialView("simple");
+            setFilterDialogExpressionPath(undefined);
+            setFilterDialogOpenAtRoot(false);
+          }}
           criteria={criteriaDefinitions}
           activeFilter={activeObjectFilter}
           onApply={(nextFilter) => {
@@ -393,7 +555,8 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
 function inferCardSizeEntityType(sortOptions?: { value: string; label: string }[]) {
   const values = new Set((sortOptions ?? []).map((option) => option.value));
-  if (values.has("framerate") || values.has("bitrate") || values.has("play_duration") || values.has("performer_age")) return "videos";
+  if (values.has("framerate") || values.has("bitrate") || values.has("play_duration") || values.has("performer_age"))
+    return "videos";
   if (values.has("measurements") || values.has("birthdate") || values.has("career_length")) return "performers";
   if (values.has("image_count") && values.has("path")) return "galleries";
   return undefined;

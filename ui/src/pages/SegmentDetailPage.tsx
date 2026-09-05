@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Camera, ChevronLeft, ChevronRight, Clapperboard, Clock, ExternalLink, Film, Image, MoreVertical, Network, Sparkles, Trash2 } from "lucide-react";
+import {
+  Bookmark,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Clapperboard,
+  Clock,
+  ExternalLink,
+  Film,
+  Image,
+  MoreVertical,
+  Network,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { entityImages, videos, segmentLibrary } from "../api/client";
 import type { Video, SegmentRecord, TagProvenance } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -79,9 +93,10 @@ function formatSegmentTimeInput(seconds: number) {
   const tenths = Math.round((safeSeconds - Math.floor(safeSeconds)) * 10);
   const normalizedWholeSeconds = tenths === 10 ? wholeSeconds + 1 : wholeSeconds;
   const normalizedTenths = tenths === 10 ? 0 : tenths;
-  const secondText = normalizedTenths > 0
-    ? `${normalizedWholeSeconds.toString().padStart(2, "0")}.${normalizedTenths}`
-    : normalizedWholeSeconds.toString().padStart(2, "0");
+  const secondText =
+    normalizedTenths > 0
+      ? `${normalizedWholeSeconds.toString().padStart(2, "0")}.${normalizedTenths}`
+      : normalizedWholeSeconds.toString().padStart(2, "0");
 
   return hours > 0 ? `${hours}:${minutes.toString().padStart(2, "0")}:${secondText}` : `${minutes}:${secondText}`;
 }
@@ -137,9 +152,10 @@ function getSegmentContextDescriptor(segment: SegmentRecord) {
       emptyMessage: referenceLabel
         ? `No later ${referenceLabel} segment is in this video.`
         : `This segment does not have a ${label.toLowerCase()} to follow.`,
-      matchKey: segment.refId != null
-        ? `${normalizedKind || "reference"}:${segment.refId}`
-        : `${normalizedKind || "reference"}-name:${referenceLabel?.toLowerCase()}`,
+      matchKey:
+        segment.refId != null
+          ? `${normalizedKind || "reference"}:${segment.refId}`
+          : `${normalizedKind || "reference"}-name:${referenceLabel?.toLowerCase()}`,
     };
   }
 
@@ -150,13 +166,21 @@ function getSegmentContextMatchKey(segment: SegmentRecord) {
   return getSegmentContextDescriptor(segment)?.matchKey;
 }
 
-function setStartTimeFromSeconds(seconds: number, setStartSec: (value: number) => void, setStartText: (value: string) => void) {
+function setStartTimeFromSeconds(
+  seconds: number,
+  setStartSec: (value: number) => void,
+  setStartText: (value: string) => void,
+) {
   const normalized = Math.max(0, seconds);
   setStartSec(normalized);
   setStartText(formatSegmentTimeInput(normalized));
 }
 
-function setEndTimeFromSeconds(seconds: number | "", setEndSec: (value: number | "") => void, setEndText: (value: string) => void) {
+function setEndTimeFromSeconds(
+  seconds: number | "",
+  setEndSec: (value: number | "") => void,
+  setEndText: (value: string) => void,
+) {
   if (seconds === "") {
     setEndSec("");
     setEndText("");
@@ -180,7 +204,12 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   const canReadFaces = canReadEntity("face", hasPermission);
   const { backLabel, goBack } = useBackNavigation({ page: "segments" }, onNavigate);
 
-  const { data: segment, isLoading, error: segmentError, refetch: retrySegment } = useQuery({
+  const {
+    data: segment,
+    isLoading,
+    error: segmentError,
+    refetch: retrySegment,
+  } = useQuery({
     queryKey: ["segment", id],
     queryFn: () => segmentLibrary.get(id),
   });
@@ -228,7 +257,12 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     resetEditState();
   }, [segment]);
 
-  const { data: siblingSegmentsData, isLoading: siblingSegmentsLoading, error: siblingSegmentsError, refetch: retrySiblingSegments } = useQuery({
+  const {
+    data: siblingSegmentsData,
+    isLoading: siblingSegmentsLoading,
+    error: siblingSegmentsError,
+    refetch: retrySiblingSegments,
+  } = useQuery({
     queryKey: ["segment", id, "video-context", segment?.hostId],
     queryFn: () => videos.segments.list(segment!.hostId),
     enabled: !!segment,
@@ -240,7 +274,10 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     queryFn: () => videos.get(segment!.hostId),
     enabled: !!segment && segment.hostType === "video" && canReadVideos,
   });
-  const { engagementById: videoEngagement } = useEntityEngagementBatch("video", segment?.hostType === "video" && segment.hostId != null ? [segment.hostId] : []);
+  const { engagementById: videoEngagement } = useEntityEngagementBatch(
+    "video",
+    segment?.hostType === "video" && segment.hostId != null ? [segment.hostId] : [],
+  );
   const normalizedTitle = title.trim() || undefined;
   const normalizedKind = kind;
   const normalizedColorHint = colorHint.trim() || undefined;
@@ -249,11 +286,12 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   const parsedEnd = endTextIsBlank ? null : parseSegmentTimeInput(endText);
   const endTimeIsValid = endTextIsBlank || parsedEnd != null;
   const normalizedEndSec = parsedEnd == null ? undefined : parsedEnd;
-  const hasSelectedReference = kind === "tag"
-    ? selectedTagId != null
-    : kind === "performer"
-      ? selectedPerformerId != null
-      : selectedFaceId != null;
+  const hasSelectedReference =
+    kind === "tag"
+      ? selectedTagId != null
+      : kind === "performer"
+        ? selectedPerformerId != null
+        : selectedFaceId != null;
   const canSave =
     canWriteSegments &&
     parsedStart != null &&
@@ -291,12 +329,13 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         throw new Error("Segment start is invalid");
       }
 
-      const nextTagId = kind === "tag" ? selectedTagId ?? undefined : undefined;
-      const nextRefId = kind === "performer"
-        ? selectedPerformerId ?? undefined
-        : kind === "face"
-          ? selectedFaceId ?? undefined
-          : undefined;
+      const nextTagId = kind === "tag" ? (selectedTagId ?? undefined) : undefined;
+      const nextRefId =
+        kind === "performer"
+          ? (selectedPerformerId ?? undefined)
+          : kind === "face"
+            ? (selectedFaceId ?? undefined)
+            : undefined;
 
       return videos.segments.update(segment.hostId, segment.id, {
         startSec: parsedStart,
@@ -359,13 +398,17 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
 
       return videos.createSubVideo(
         segment.hostId,
-        buildSubVideoCreate(playbackVideo, {
-          startSec: segment.startSec,
-          endSec: clipEndSec,
-        }, {
-          title: displayTitle,
-          tagIds: segment.tagId ? [segment.tagId] : undefined,
-        }),
+        buildSubVideoCreate(
+          playbackVideo,
+          {
+            startSec: segment.startSec,
+            endSec: clipEndSec,
+          },
+          {
+            title: displayTitle,
+            tagIds: segment.tagId ? [segment.tagId] : undefined,
+          },
+        ),
       );
     },
     onSuccess: (newVideo) => {
@@ -375,9 +418,21 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     },
   });
 
-  const displayTitle = segment?.title?.trim() || segment?.tagName || segment?.performerName || segment?.refLabel || segment?.kind || "Segment";
+  const displayTitle =
+    segment?.title?.trim() ||
+    segment?.tagName ||
+    segment?.performerName ||
+    segment?.refLabel ||
+    segment?.kind ||
+    "Segment";
   const orderedSiblingSegments = useMemo(
-    () => [...siblingSegments].sort((left, right) => left.startSec - right.startSec || (left.endSec ?? left.startSec) - (right.endSec ?? right.startSec) || left.id - right.id),
+    () =>
+      [...siblingSegments].sort(
+        (left, right) =>
+          left.startSec - right.startSec ||
+          (left.endSec ?? left.startSec) - (right.endSec ?? right.startSec) ||
+          left.id - right.id,
+      ),
     [siblingSegments],
   );
   const contextDescriptor = useMemo(() => (segment ? getSegmentContextDescriptor(segment) : null), [segment]);
@@ -405,9 +460,15 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
       return item.id !== segment.id && item.startSec < currentEnd && itemEnd > segment.startSec;
     };
     const currentContextMatchKey = getSegmentContextMatchKey(segment);
-    const nextSameReference = currentContextMatchKey == null
-      ? undefined
-      : orderedSiblingSegments.find((item) => item.id !== segment.id && getSegmentContextMatchKey(item) === currentContextMatchKey && item.startSec >= currentEnd);
+    const nextSameReference =
+      currentContextMatchKey == null
+        ? undefined
+        : orderedSiblingSegments.find(
+            (item) =>
+              item.id !== segment.id &&
+              getSegmentContextMatchKey(item) === currentContextMatchKey &&
+              item.startSec >= currentEnd,
+          );
     const intersecting = orderedSiblingSegments.filter(intersectsCurrent).slice(0, 6);
 
     return {
@@ -420,12 +481,13 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   }, [orderedSiblingSegments, segment]);
   const previousSegment = videoContext.previous.at(-1);
   const nextSegment = videoContext.next[0];
-  const canCreateSubVideo = !!segment
-    && segment.hostType === "video"
-    && !!playbackVideo
-    && canReadVideos
-    && canWriteVideos
-    && (segment.endSec != null || (playbackVideo?.files[0]?.duration ?? 0) > segment.startSec);
+  const canCreateSubVideo =
+    !!segment &&
+    segment.hostType === "video" &&
+    !!playbackVideo &&
+    canReadVideos &&
+    canWriteVideos &&
+    (segment.endSec != null || (playbackVideo?.files[0]?.duration ?? 0) > segment.startSec);
   const canSetSegmentCover = !!segment && segment.hostType === "video" && canWriteSegments && canReadVideos;
   const coverActionPending = setSegmentCoverMutation.isPending;
   const hasVisualSimilarity = useSegmentVisualSimilarityAvailable({
@@ -519,7 +581,16 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   }
 
   if (segmentLoadError) {
-    return <ListLoadError error={segmentLoadError} onRetry={() => { void retrySegment(); }} title="Could not load segment" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={segmentLoadError}
+        onRetry={() => {
+          void retrySegment();
+        }}
+        title="Could not load segment"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!segment) {
@@ -527,7 +598,10 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
   }
 
   const displayTitleWithProvenance = (
-    <FieldProvenanceHover fieldProvenance={segment.fieldProvenance} fieldKey={["title", "tag_id", "performer_id", "ref_id", "kind"]}>
+    <FieldProvenanceHover
+      fieldProvenance={segment.fieldProvenance}
+      fieldKey={["title", "tag_id", "performer_id", "ref_id", "kind"]}
+    >
       {displayTitle}
     </FieldProvenanceHover>
   );
@@ -544,7 +618,9 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">{canWriteSegments ? "Edit Segment" : "Segment Details"}</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+            {canWriteSegments ? "Edit Segment" : "Segment Details"}
+          </h2>
           <p className="mt-1 text-sm text-secondary">
             {canWriteSegments
               ? "Update the timing, metadata, and reference assignment for this segment."
@@ -581,7 +657,9 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
               className="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-accent"
             >
               {EDITABLE_SEGMENT_KIND_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
             </select>
           </label>
@@ -603,7 +681,15 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
                 onBlur={() => setStartText(formatSegmentTimeInput(startSec))}
                 className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 font-mono text-sm font-normal text-foreground outline-none focus:border-accent"
               />
-              <button type="button" onClick={() => setStartTimeFromSeconds(segmentVideoTime, setStartSec, setStartText)} className="inline-flex items-center justify-center rounded-lg border border-border px-3 text-secondary hover:text-foreground" title="Use current time" aria-label="Use current time for segment start"><Clock className="h-4 w-4" /></button>
+              <button
+                type="button"
+                onClick={() => setStartTimeFromSeconds(segmentVideoTime, setStartSec, setStartText)}
+                className="inline-flex items-center justify-center rounded-lg border border-border px-3 text-secondary hover:text-foreground"
+                title="Use current time"
+                aria-label="Use current time for segment start"
+              >
+                <Clock className="h-4 w-4" />
+              </button>
             </div>
           </label>
 
@@ -628,7 +714,15 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
                 placeholder="Optional"
                 className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 font-mono text-sm font-normal text-foreground outline-none focus:border-accent"
               />
-              <button type="button" onClick={() => setEndTimeFromSeconds(segmentVideoTime, setEndSec, setEndText)} className="inline-flex items-center justify-center rounded-lg border border-border px-3 text-secondary hover:text-foreground" title="Use current time" aria-label="Use current time for segment end"><Clock className="h-4 w-4" /></button>
+              <button
+                type="button"
+                onClick={() => setEndTimeFromSeconds(segmentVideoTime, setEndSec, setEndText)}
+                className="inline-flex items-center justify-center rounded-lg border border-border px-3 text-secondary hover:text-foreground"
+                title="Use current time"
+                aria-label="Use current time for segment end"
+              >
+                <Clock className="h-4 w-4" />
+              </button>
             </div>
           </label>
 
@@ -636,14 +730,28 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
             {kind === "tag" ? "Tag" : kind === "performer" ? "Performer" : "Face"}
             <EntityReferenceSelector
               entityType={kind}
-              value={kind === "tag" ? selectedTagId ?? undefined : kind === "performer" ? selectedPerformerId ?? undefined : selectedFaceId ?? undefined}
-              selectedLabel={kind === "tag" ? segment.tagName ?? undefined : kind === "performer" ? segment.performerName ?? segment.refLabel ?? undefined : segment.refLabel ?? undefined}
+              value={
+                kind === "tag"
+                  ? (selectedTagId ?? undefined)
+                  : kind === "performer"
+                    ? (selectedPerformerId ?? undefined)
+                    : (selectedFaceId ?? undefined)
+              }
+              selectedLabel={
+                kind === "tag"
+                  ? (segment.tagName ?? undefined)
+                  : kind === "performer"
+                    ? (segment.performerName ?? segment.refLabel ?? undefined)
+                    : (segment.refLabel ?? undefined)
+              }
               onChange={(value) => {
                 if (kind === "tag") setSelectedTagId(value ?? null);
                 if (kind === "performer") setSelectedPerformerId(value ?? null);
                 if (kind === "face") setSelectedFaceId(value ?? null);
               }}
-              placeholder={kind === "tag" ? "Search tags..." : kind === "performer" ? "Search performers..." : "Search faces..."}
+              placeholder={
+                kind === "tag" ? "Search tags..." : kind === "performer" ? "Search performers..." : "Search faces..."
+              }
               disabled={kind === "tag" ? !canReadTags : kind === "performer" ? !canReadPerformers : !canReadFaces}
               selectedDisplay="input"
               inputClassName="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 pr-8 text-sm font-normal text-foreground outline-none focus:border-accent disabled:cursor-not-allowed disabled:text-muted"
@@ -688,11 +796,11 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
               ? "Start must be a valid time."
               : !endTimeIsValid
                 ? "End must be a valid time."
-              : parsedEnd != null && parsedEnd < parsedStart
-                ? "End time must be after the start time."
-                : !hasSelectedReference
-                  ? `Choose a ${kind}.`
-                  : "Changes are written back through the owning video segment API."}
+                : parsedEnd != null && parsedEnd < parsedStart
+                  ? "End time must be after the start time."
+                  : !hasSelectedReference
+                    ? `Choose a ${kind}.`
+                    : "Changes are written back through the owning video segment API."}
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -730,32 +838,67 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
               : "See nearby segments from the same video to understand context."}
           </p>
         </div>
-        <div className="text-xs text-muted">{siblingSegmentsLoadError ? "Unavailable" : `${orderedSiblingSegments.length} segment${orderedSiblingSegments.length === 1 ? "" : "s"} in video`}</div>
+        <div className="text-xs text-muted">
+          {siblingSegmentsLoadError
+            ? "Unavailable"
+            : `${orderedSiblingSegments.length} segment${orderedSiblingSegments.length === 1 ? "" : "s"} in video`}
+        </div>
       </div>
 
       {siblingSegmentsLoading ? (
         <div className="mt-4 text-sm text-secondary">Loading video context...</div>
       ) : siblingSegmentsLoadError ? (
-        <ListLoadError error={siblingSegmentsLoadError} onRetry={() => { void retrySiblingSegments(); }} className="mt-4" />
+        <ListLoadError
+          error={siblingSegmentsLoadError}
+          onRetry={() => {
+            void retrySiblingSegments();
+          }}
+          className="mt-4"
+        />
       ) : (
         <div className="mt-4 space-y-4">
           {segment.hostType === "video" && playbackVideo ? (
             <div className="max-w-sm">
-              <VideoCard video={playbackVideo} engagement={videoEngagement.get(playbackVideo.id)} onClick={() => onNavigate(buildVideoRouteForSegment(segment))} onNavigate={onNavigate} />
+              <VideoCard
+                video={playbackVideo}
+                engagement={videoEngagement.get(playbackVideo.id)}
+                onClick={() => onNavigate(buildVideoRouteForSegment(segment))}
+                onNavigate={onNavigate}
+              />
             </div>
           ) : null}
           {orderedSiblingSegments.length <= 1 ? (
-            <EmptyPanel icon={<Clapperboard className="h-10 w-10" />} message="No additional segments exist in this video yet." />
+            <EmptyPanel
+              icon={<Clapperboard className="h-10 w-10" />}
+              message="No additional segments exist in this video yet."
+            />
           ) : (
             <>
-              <SegmentContextSection title="Previous Segments" items={videoContext.previous} onNavigate={onNavigate} emptyMessage="This is the first segment in the video." />
-              <SegmentContextSection title="Next Segments" items={videoContext.next} onNavigate={onNavigate} emptyMessage="This is the last segment in the video." />
-              <SegmentContextSection title="Intersecting Segments" items={videoContext.intersecting} onNavigate={onNavigate} emptyMessage="No other segments overlap this time range." />
+              <SegmentContextSection
+                title="Previous Segments"
+                items={videoContext.previous}
+                onNavigate={onNavigate}
+                emptyMessage="This is the first segment in the video."
+              />
+              <SegmentContextSection
+                title="Next Segments"
+                items={videoContext.next}
+                onNavigate={onNavigate}
+                emptyMessage="This is the last segment in the video."
+              />
+              <SegmentContextSection
+                title="Intersecting Segments"
+                items={videoContext.intersecting}
+                onNavigate={onNavigate}
+                emptyMessage="No other segments overlap this time range."
+              />
               <SegmentContextSection
                 title={contextDescriptor?.title ?? "Next With Same Reference"}
                 items={videoContext.nextSameReference ? [videoContext.nextSameReference] : []}
                 onNavigate={onNavigate}
-                emptyMessage={contextDescriptor?.emptyMessage ?? "This segment does not have a matching reference to follow."}
+                emptyMessage={
+                  contextDescriptor?.emptyMessage ?? "This segment does not have a matching reference to follow."
+                }
                 compact
               />
             </>
@@ -767,27 +910,34 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
 
   const overviewContent = (
     <div className="space-y-6">
-      <SegmentSummaryCard
-        segment={segment}
-        canReadVideos={canReadVideos}
-        onNavigate={onNavigate}
-        showHeading={false}
-      />
+      <SegmentSummaryCard segment={segment} canReadVideos={canReadVideos} onNavigate={onNavigate} showHeading={false} />
     </div>
   );
 
   const contextContent = relatedContent;
 
   const activeContent =
-    activeTab === "metadata"
-      ? editContent
-      : activeTab === "context"
-          ? contextContent
-          : activeTab === "similar"
-              ? segment.hostType === "video"
-                ? <SegmentVisualSimilarityPanel videoId={segment.hostId} startSec={segment.startSec} endSec={segment.endSec} onNavigate={onNavigate} />
-                : <EmptyPanel icon={<Film className="h-10 w-10" />} message="Visual similarity is only available for video-backed segments." />
-            : overviewContent;
+    activeTab === "metadata" ? (
+      editContent
+    ) : activeTab === "context" ? (
+      contextContent
+    ) : activeTab === "similar" ? (
+      segment.hostType === "video" ? (
+        <SegmentVisualSimilarityPanel
+          videoId={segment.hostId}
+          startSec={segment.startSec}
+          endSec={segment.endSec}
+          onNavigate={onNavigate}
+        />
+      ) : (
+        <EmptyPanel
+          icon={<Film className="h-10 w-10" />}
+          message="Visual similarity is only available for video-backed segments."
+        />
+      )
+    ) : (
+      overviewContent
+    );
 
   return (
     <>
@@ -803,20 +953,32 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         onSuccess={() => invalidateSegmentQueries(segment)}
         aspectRatio="16/9"
         externalPending={coverActionPending}
-        extraActions={canSetSegmentCover ? ((imageOperationPending) => (
-          <>
-            <button
-              type="button"
-              onClick={() => setSegmentCoverMutation.mutate(segmentVideoTime)}
-              disabled={coverActionPending || imageOperationPending}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
-            >
-              {coverActionPending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" /> : <Camera className="h-3.5 w-3.5" />}
-              From Current Frame
-            </button>
-            {setSegmentCoverMutation.error ? <p role="alert" className="mt-2 text-xs text-red-400">{(setSegmentCoverMutation.error as Error).message}</p> : null}
-          </>
-        )) : null}
+        extraActions={
+          canSetSegmentCover
+            ? (imageOperationPending) => (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSegmentCoverMutation.mutate(segmentVideoTime)}
+                    disabled={coverActionPending || imageOperationPending}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:border-accent hover:text-accent disabled:opacity-60"
+                  >
+                    {coverActionPending ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-accent" />
+                    ) : (
+                      <Camera className="h-3.5 w-3.5" />
+                    )}
+                    From Current Frame
+                  </button>
+                  {setSegmentCoverMutation.error ? (
+                    <p role="alert" className="mt-2 text-xs text-red-400">
+                      {(setSegmentCoverMutation.error as Error).message}
+                    </p>
+                  ) : null}
+                </>
+              )
+            : null
+        }
       />
       <MediaDetailLayout
         title={displayTitleWithProvenance}
@@ -842,49 +1004,54 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
         keyboardShortcuts={segmentKeyboardShortcuts}
         actions={
           <>
-          {previousSegment ? (
-            <button
-              type="button"
-              aria-label="Open previous segment"
-              title="Open previous segment"
-              onClick={() => onNavigate({ page: "segment", id: previousSegment.id })}
-              className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-          ) : null}
-          {nextSegment ? (
-            <button
-              type="button"
-              aria-label="Open next segment"
-              title="Open next segment"
-              onClick={() => onNavigate({ page: "segment", id: nextSegment.id })}
-              className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          ) : null}
-          {segment.hostType === "video" && canReadVideos ? (
-            <button
-              type="button"
-              onClick={() => onNavigate(buildVideoRouteForSegment(segment))}
-              className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
-              title="Open parent video"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </button>
-          ) : null}
-          {canSetSegmentCover || canCreateSubVideo || canDeleteSegments ? (
-            <div className="relative" ref={opsMenuRef}>
+            {previousSegment ? (
               <button
                 type="button"
-                onClick={() => setShowOpsMenu((current) => !current)}
+                aria-label="Open previous segment"
+                title="Open previous segment"
+                onClick={() => onNavigate({ page: "segment", id: previousSegment.id })}
                 className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
-                title="Operations"
               >
-                <MoreVertical className="h-4 w-4" />
+                <ChevronLeft className="h-4 w-4" />
               </button>
-              <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[190px] py-1">
+            ) : null}
+            {nextSegment ? (
+              <button
+                type="button"
+                aria-label="Open next segment"
+                title="Open next segment"
+                onClick={() => onNavigate({ page: "segment", id: nextSegment.id })}
+                className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            ) : null}
+            {segment.hostType === "video" && canReadVideos ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(buildVideoRouteForSegment(segment))}
+                className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
+                title="Open parent video"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </button>
+            ) : null}
+            {canSetSegmentCover || canCreateSubVideo || canDeleteSegments ? (
+              <div className="relative" ref={opsMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowOpsMenu((current) => !current)}
+                  className="inline-flex items-center justify-center rounded p-1 text-secondary transition hover:bg-card hover:text-foreground"
+                  title="Operations"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+                <FloatingActionMenu
+                  open={showOpsMenu}
+                  anchorRef={opsMenuRef}
+                  onClose={() => setShowOpsMenu(false)}
+                  className="min-w-[190px] py-1"
+                >
                   {canSetSegmentCover ? (
                     <button
                       type="button"
@@ -898,7 +1065,9 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
                       <Image className="h-3.5 w-3.5" /> Set Cover...
                     </button>
                   ) : null}
-                  {canSetSegmentCover && (canCreateSubVideo || canDeleteSegments) ? <div className="my-1 border-t border-border" /> : null}
+                  {canSetSegmentCover && (canCreateSubVideo || canDeleteSegments) ? (
+                    <div className="my-1 border-t border-border" />
+                  ) : null}
                   {canCreateSubVideo ? (
                     <button
                       type="button"
@@ -909,7 +1078,8 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
                       disabled={createSubVideoMutation.isPending}
                       className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface disabled:opacity-60"
                     >
-                      <Clapperboard className="h-3.5 w-3.5" /> {createSubVideoMutation.isPending ? "Creating video" : "Make video"}
+                      <Clapperboard className="h-3.5 w-3.5" />{" "}
+                      {createSubVideoMutation.isPending ? "Creating video" : "Make video"}
                     </button>
                   ) : null}
                   {canCreateSubVideo && canDeleteSegments ? <div className="my-1 border-t border-border" /> : null}
@@ -926,12 +1096,12 @@ export function SegmentDetailPage({ id, onNavigate }: Props) {
                       <Trash2 className="h-3.5 w-3.5" /> Delete
                     </button>
                   ) : null}
-              </FloatingActionMenu>
-            </div>
-          ) : null}
-        </>
-      }
-    >
+                </FloatingActionMenu>
+              </div>
+            ) : null}
+          </>
+        }
+      >
         <ConfirmDialog
           open={confirmDelete}
           title="Delete Segment"
@@ -1010,7 +1180,8 @@ function SegmentSummaryCard({
   onNavigate: (r: any) => void;
   showHeading?: boolean;
 }) {
-  const displayTitle = segment.title?.trim() || segment.tagName || segment.performerName || segment.refLabel || segment.kind || "Segment";
+  const displayTitle =
+    segment.title?.trim() || segment.tagName || segment.performerName || segment.refLabel || segment.kind || "Segment";
   const summaryMetrics = buildSegmentSummaryMetrics(segment);
 
   return (
@@ -1018,7 +1189,10 @@ function SegmentSummaryCard({
       {showHeading ? (
         <div>
           <h1 className="text-xl font-semibold text-foreground">
-            <FieldProvenanceHover fieldProvenance={segment.fieldProvenance} fieldKey={["title", "tag_id", "performer_id", "ref_id", "kind"]}>
+            <FieldProvenanceHover
+              fieldProvenance={segment.fieldProvenance}
+              fieldKey={["title", "tag_id", "performer_id", "ref_id", "kind"]}
+            >
               {displayTitle}
             </FieldProvenanceHover>
           </h1>
@@ -1033,7 +1207,9 @@ function SegmentSummaryCard({
       <SegmentSourceSummary segment={segment} onNavigate={onNavigate} className={showHeading ? "mt-4" : ""} />
 
       <div className="mt-4 grid grid-cols-2 gap-2">
-        {summaryMetrics.map((metric) => <InfoMetric key={metric.label} label={metric.label} value={metric.value} />)}
+        {summaryMetrics.map((metric) => (
+          <InfoMetric key={metric.label} label={metric.label} value={metric.value} />
+        ))}
       </div>
 
       <dl className="mt-4 space-y-2 text-sm text-secondary">
@@ -1104,7 +1280,9 @@ function SegmentPlaybackPanel({
         </div>
         <div className="space-y-2 p-5">
           <h2 className="text-lg font-semibold text-foreground">Segment Playback</h2>
-          <p className="text-sm text-secondary">Inline playback is only available for video-backed segments right now.</p>
+          <p className="text-sm text-secondary">
+            Inline playback is only available for video-backed segments right now.
+          </p>
         </div>
       </article>
     );
@@ -1118,7 +1296,9 @@ function SegmentPlaybackPanel({
         </div>
         <div className="space-y-2 p-5">
           <h2 className="text-lg font-semibold text-foreground">Segment Playback</h2>
-          <p className="text-sm text-secondary">The shared video player is unavailable because your current permissions do not allow video playback.</p>
+          <p className="text-sm text-secondary">
+            The shared video player is unavailable because your current permissions do not allow video playback.
+          </p>
         </div>
       </article>
     );
@@ -1139,19 +1319,39 @@ function SegmentPlaybackPanel({
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
             <StatusPill label={formatSegmentRange(segment.startSec, segment.endSec)} tone="accent" />
-            {clipDuration > 0 ? <StatusPill label={formatSegmentDuration(segment.startSec, segment.endSec)} tone="muted" /> : null}
+            {clipDuration > 0 ? (
+              <StatusPill label={formatSegmentDuration(segment.startSec, segment.endSec)} tone="muted" />
+            ) : null}
             <StatusPill label={segment.hostTitle || `Video #${segment.hostId}`} tone="muted" />
           </div>
         </div>
       ) : null}
 
-      <div className={embedded ? "flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black" : "bg-black px-3 py-3 sm:px-4"}>
+      <div
+        className={
+          embedded
+            ? "flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-black"
+            : "bg-black px-3 py-3 sm:px-4"
+        }
+      >
         {videoLoading ? (
-          <div className={embedded ? "flex flex-1 items-center justify-center bg-black text-sm text-secondary" : "mx-auto flex aspect-video max-w-5xl items-center justify-center rounded-2xl bg-black text-sm text-secondary"}>
+          <div
+            className={
+              embedded
+                ? "flex flex-1 items-center justify-center bg-black text-sm text-secondary"
+                : "mx-auto flex aspect-video max-w-5xl items-center justify-center rounded-2xl bg-black text-sm text-secondary"
+            }
+          >
             Loading video player...
           </div>
         ) : file ? (
-          <div className={embedded ? "flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black" : "mx-auto aspect-video max-w-5xl overflow-hidden rounded-2xl bg-black"}>
+          <div
+            className={
+              embedded
+                ? "flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-black"
+                : "mx-auto aspect-video max-w-5xl overflow-hidden rounded-2xl bg-black"
+            }
+          >
             <VideoPlayer
               streamUrl={videos.streamUrl(segment.hostId)}
               posterUrl={videos.screenshotUrl(segment.hostId, segment.updatedAt)}
@@ -1183,48 +1383,60 @@ function SegmentPlaybackPanel({
             />
           </div>
         ) : (
-          <div className={embedded ? "flex flex-1 items-center justify-center bg-black text-sm text-secondary" : "mx-auto flex aspect-video max-w-5xl items-center justify-center rounded-2xl bg-black text-sm text-secondary"}>
+          <div
+            className={
+              embedded
+                ? "flex flex-1 items-center justify-center bg-black text-sm text-secondary"
+                : "mx-auto flex aspect-video max-w-5xl items-center justify-center rounded-2xl bg-black text-sm text-secondary"
+            }
+          >
             No playable video file is available for this segment.
           </div>
         )}
       </div>
 
       {!embedded ? (
-      <div className="space-y-4 p-5">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <InfoMetric label="Clip Start" value={formatSegmentTime(segment.startSec)} />
-          <InfoMetric label="Clip End" value={segment.endSec != null ? formatSegmentTime(segment.endSec) : "Video end"} />
-          <InfoMetric label="Duration" value={clipDuration > 0 ? formatSegmentTime(clipDuration) : "Instant"} />
-        </div>
+        <div className="space-y-4 p-5">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <InfoMetric label="Clip Start" value={formatSegmentTime(segment.startSec)} />
+            <InfoMetric
+              label="Clip End"
+              value={segment.endSec != null ? formatSegmentTime(segment.endSec) : "Video end"}
+            />
+            <InfoMetric label="Duration" value={clipDuration > 0 ? formatSegmentTime(clipDuration) : "Instant"} />
+          </div>
 
-        <div className="rounded-2xl border border-border bg-surface/50 p-4">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Clip-focused playback</div>
-          <p className="text-sm text-secondary">
-            The shared video player opens at this segment's start time with the normal video controls, captions, quality selection, and X-ray overlays.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <StatusPill label={segment.sourceKey} tone="muted" />
-            {segment.kind ? <StatusPill label={segment.kind} tone="muted" /> : null}
-            {segment.tagName ? <StatusPill label={segment.tagName} tone="muted" /> : null}
-            <StatusPill label={formatConfidence(segment.confidence)} tone="muted" />
+          <div className="rounded-2xl border border-border bg-surface/50 p-4">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+              Clip-focused playback
+            </div>
+            <p className="text-sm text-secondary">
+              The shared video player opens at this segment's start time with the normal video controls, captions,
+              quality selection, and X-ray overlays.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <StatusPill label={segment.sourceKey} tone="muted" />
+              {segment.kind ? <StatusPill label={segment.kind} tone="muted" /> : null}
+              {segment.tagName ? <StatusPill label={segment.tagName} tone="muted" /> : null}
+              <StatusPill label={formatConfidence(segment.confidence)} tone="muted" />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-surface/50 p-4">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Video handoff</div>
+            <p className="text-sm text-secondary">Open the parent video exactly where this segment begins.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigate(buildVideoRouteForSegment(segment))}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open at clip start
+              </button>
+            </div>
           </div>
         </div>
-
-        <div className="rounded-2xl border border-border bg-surface/50 p-4">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Video handoff</div>
-          <p className="text-sm text-secondary">Open the parent video exactly where this segment begins.</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onNavigate(buildVideoRouteForSegment(segment))}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Open at clip start
-            </button>
-          </div>
-        </div>
-      </div>
       ) : null}
     </article>
   );
@@ -1239,7 +1451,15 @@ function InfoMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SegmentSourceSummary({ segment, onNavigate, className = "" }: { segment: SegmentRecord; onNavigate: (r: any) => void; className?: string }) {
+function SegmentSourceSummary({
+  segment,
+  onNavigate,
+  className = "",
+}: {
+  segment: SegmentRecord;
+  onNavigate: (r: any) => void;
+  className?: string;
+}) {
   const provenance = buildSegmentTagProvenance(segment);
   const referenceLabel = segment.performerName || segment.refLabel;
   const referenceKind = getEditableSegmentKind(segment);
@@ -1342,7 +1562,9 @@ function SegmentContextSection({
                     {!compact && item.kind ? <span>{item.kind}</span> : null}
                   </div>
                 </div>
-                <div className="shrink-0 text-xs text-muted">{compact ? item.sourceKey : formatSegmentDuration(item.startSec, item.endSec)}</div>
+                <div className="shrink-0 text-xs text-muted">
+                  {compact ? item.sourceKey : formatSegmentDuration(item.startSec, item.endSec)}
+                </div>
               </button>
             );
           })}
@@ -1353,9 +1575,8 @@ function SegmentContextSection({
 }
 
 function StatusPill({ label, tone }: { label: string; tone: "accent" | "muted" }) {
-  const toneClass = tone === "accent"
-    ? "border-accent/30 bg-accent/10 text-accent"
-    : "border-border bg-surface text-secondary";
+  const toneClass =
+    tone === "accent" ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-secondary";
 
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-1 ${toneClass}`}>
@@ -1415,9 +1636,7 @@ function formatSegmentTime(value: number) {
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
 
-  const fractional = hundredths % 10 === 0
-    ? String(Math.floor(hundredths / 10))
-    : String(hundredths).padStart(2, "0");
+  const fractional = hundredths % 10 === 0 ? String(Math.floor(hundredths / 10)) : String(hundredths).padStart(2, "0");
 
   if (hours > 0) {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${fractional}`;
@@ -1444,16 +1663,23 @@ function formatSegmentSourceLabel(sourceKey?: string) {
   }
 
   return sourceKey.startsWith("ext:")
-    ? sourceKey.slice(4).split(/[._-]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ")
+    ? sourceKey
+        .slice(4)
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")
     : sourceKey;
 }
 
 function buildSegmentTagProvenance(segment: SegmentRecord): TagProvenance[] {
-  return [{
-    sourceKey: segment.sourceKey,
-    sourceRunId: segment.sourceRunId,
-    confidence: segment.confidence,
-    appliedAt: segment.updatedAt || segment.createdAt,
-    totalDurationSec: getSegmentDuration(segment.startSec, segment.endSec),
-  }];
+  return [
+    {
+      sourceKey: segment.sourceKey,
+      sourceRunId: segment.sourceRunId,
+      confidence: segment.confidence,
+      appliedAt: segment.updatedAt || segment.createdAt,
+      totalDurationSec: getSegmentDuration(segment.startSec, segment.endSec),
+    },
+  ];
 }

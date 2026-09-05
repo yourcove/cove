@@ -29,7 +29,12 @@ export interface ImageSelectionActionsProps {
  * delete — dialogs included. Shared so the native images page and any extension list (the recommendations feed)
  * offer the same actions and keep doing so as actions are added.
  */
-export function ImageSelectionActions({ selectedIds, onSelectNone, onPlay, queryKey = "images" }: ImageSelectionActionsProps) {
+export function ImageSelectionActions({
+  selectedIds,
+  onSelectNone,
+  onPlay,
+  queryKey = "images",
+}: ImageSelectionActionsProps) {
   const { hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const canWrite = canWriteEntity("image", hasPermission);
@@ -48,12 +53,19 @@ export function ImageSelectionActions({ selectedIds, onSelectNone, onPlay, query
     mutationFn: async (options) => {
       return images.bulkDelete([...selectedIds], options);
     },
-    onSuccess: () => { setShowDeleteConfirm(false); onSelectNone(); },
+    onSuccess: () => {
+      setShowDeleteConfirm(false);
+      onSelectNone();
+    },
   });
 
   const bulkEditMut = useMutation({
     mutationFn: (values: Record<string, unknown>) => images.bulkUpdate({ ids: [...selectedIds], ...values } as any),
-    onSuccess: () => { setShowBulkEdit(false); onSelectNone(); invalidate(); },
+    onSuccess: () => {
+      setShowBulkEdit(false);
+      onSelectNone();
+      invalidate();
+    },
   });
 
   return (
@@ -65,7 +77,10 @@ export function ImageSelectionActions({ selectedIds, onSelectNone, onPlay, query
         </button>
       ) : null}
       {canWrite && (
-        <button onClick={() => setShowBulkEdit(true)} className={`${actionClass} text-accent hover:text-accent-hover hover:bg-accent/10`}>
+        <button
+          onClick={() => setShowBulkEdit(true)}
+          className={`${actionClass} text-accent hover:text-accent-hover hover:bg-accent/10`}
+        >
           <Edit className="w-3 h-3" />
           Edit
         </button>
@@ -88,7 +103,10 @@ export function ImageSelectionActions({ selectedIds, onSelectNone, onPlay, query
         message={`Delete ${selectedIds.size} selected image${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`}
         confirmLabel={bulkDeleteMut.isPending ? "Queueing..." : "Queue deletion"}
         onConfirm={(options) => bulkDeleteMut.mutate(options)}
-        onCancel={() => { bulkDeleteMut.reset(); setShowDeleteConfirm(false); }}
+        onCancel={() => {
+          bulkDeleteMut.reset();
+          setShowDeleteConfirm(false);
+        }}
         isPending={bulkDeleteMut.isPending}
         errorMessage={bulkDeleteMut.error?.message ?? null}
         showDeleteFile={canDeleteFiles}

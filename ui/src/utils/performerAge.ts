@@ -20,7 +20,8 @@ function parsePartialDateBounds(value?: string): CalendarDateBounds | null {
   const day = match[3] ? Number(match[3]) : null;
   if (year < 1 || year > 9999 || (month !== null && (month < 1 || month > 12))) return null;
   const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const daysInMonth = month === null ? null : [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  const daysInMonth =
+    month === null ? null : [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
   if (day !== null && (day < 1 || day > daysInMonth!)) return null;
   return {
     earliest: { year, month: month ?? 1, day: day ?? 1 },

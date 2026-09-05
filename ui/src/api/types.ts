@@ -32,7 +32,8 @@ export interface Video {
   imagePath?: string | null;
 }
 
-export type GlobalSearchEntityType = "video" | "performer" | "studio" | "tag" | "gallery" | "image" | "group" | "audio" | "text";
+export type GlobalSearchEntityType =
+  "video" | "performer" | "studio" | "tag" | "gallery" | "image" | "group" | "audio" | "text";
 
 export interface GlobalSearchItem {
   id: number;
@@ -586,7 +587,6 @@ export interface Image {
   fieldProvenance?: FieldProvenance[];
 }
 
-
 export interface VisualSimilarVideo {
   video: Video;
   distance: number;
@@ -904,7 +904,19 @@ export interface GroupSummary {
   videoIndex: number;
 }
 
-export type GroupItemKind = "video" | "videoRange" | "image" | "audio" | "text" | "group" | "performer" | "studio" | "tag" | "gallery" | "face" | "segment";
+export type GroupItemKind =
+  | "video"
+  | "videoRange"
+  | "image"
+  | "audio"
+  | "text"
+  | "group"
+  | "performer"
+  | "studio"
+  | "tag"
+  | "gallery"
+  | "face"
+  | "segment";
 
 export interface GroupItem {
   id: number;
@@ -1111,7 +1123,8 @@ export interface TagSegmentWall {
 
 export type SegmentHostType = "video" | "image" | "audio";
 export type DetectionHostType = "video" | "image";
-export type AffinityHostType = "video" | "audio" | "text" | "image" | "performer" | "face" | "tag" | "studio" | "gallery" | "group" | "segment";
+export type AffinityHostType =
+  "video" | "audio" | "text" | "image" | "performer" | "face" | "tag" | "studio" | "gallery" | "group" | "segment";
 export type InteractionHostType = AffinityHostType | "segment" | "search" | "collection";
 
 export interface Segment {
@@ -2016,8 +2029,27 @@ export interface InterfaceConfig {
   disableDropdownCreateTag: boolean;
 }
 
-export type CustomFieldEntityType = "video" | "audio" | "text" | "performer" | "tag" | "studio" | "gallery" | "image" | "group" | "face";
-export type CustomFieldType = "text" | "longText" | "number" | "boolean" | "date" | "timestamp" | "duration" | "percent" | "url" | "enum" | "json" | "tag" | "performer" | "studio" | "video" | "gallery" | "image" | "group";
+export type CustomFieldEntityType =
+  "video" | "audio" | "text" | "performer" | "tag" | "studio" | "gallery" | "image" | "group" | "face";
+export type CustomFieldType =
+  | "text"
+  | "longText"
+  | "number"
+  | "boolean"
+  | "date"
+  | "timestamp"
+  | "duration"
+  | "percent"
+  | "url"
+  | "enum"
+  | "json"
+  | "tag"
+  | "performer"
+  | "studio"
+  | "video"
+  | "gallery"
+  | "image"
+  | "group";
 export type CustomFieldJsonPathType = Extract<CustomFieldType, "text" | "number" | "boolean">;
 
 export interface CustomFieldJsonPathDefinition {
@@ -2290,8 +2322,7 @@ export interface RelatedFilterCriterion<TObjectFilter = Record<string, unknown>>
 }
 
 export type FilterExpressionNode<TFilter = Record<string, unknown>> =
-  | { filter: TFilter; group?: never }
-  | { group: FilterExpression<TFilter>; filter?: never };
+  { filter: TFilter; group?: never } | { group: FilterExpression<TFilter>; filter?: never };
 
 export interface FilterExpression<TFilter = Record<string, unknown>> {
   operator: "AND" | "OR" | "JUST_ONE" | "NOT";
@@ -2685,11 +2716,22 @@ export interface MetadataServerVideoImportRequest {
 // ===== Filter Criteria =====
 
 export type CriterionModifier =
-  | "EQUALS" | "NOT_EQUALS" | "GREATER_THAN" | "LESS_THAN"
-  | "INCLUDES" | "EXCLUDES" | "INCLUDES_ALL" | "EXCLUDES_ALL"
-  | "IS_NULL" | "NOT_NULL" | "BETWEEN" | "NOT_BETWEEN"
-  | "MATCHES_REGEX" | "NOT_MATCHES_REGEX"
-  | "UNDER_PATH" | "NOT_UNDER_PATH";
+  | "EQUALS"
+  | "NOT_EQUALS"
+  | "GREATER_THAN"
+  | "LESS_THAN"
+  | "INCLUDES"
+  | "EXCLUDES"
+  | "INCLUDES_ALL"
+  | "EXCLUDES_ALL"
+  | "IS_NULL"
+  | "NOT_NULL"
+  | "BETWEEN"
+  | "NOT_BETWEEN"
+  | "MATCHES_REGEX"
+  | "NOT_MATCHES_REGEX"
+  | "UNDER_PATH"
+  | "NOT_UNDER_PATH";
 
 export interface IntCriterion {
   value: number;
@@ -3184,10 +3226,23 @@ export interface PerformerFilteredQueryRequest extends FilteredQueryRequest<Perf
 
 export type AudioFilteredQueryRequest = FilteredQueryRequest<AudioFilterCriteria>;
 
-export interface ImageAggregate { count: number; fileSize: number }
-export interface AudioAggregate { count: number; duration: number; fileSize: number }
-export interface TextAggregate { count: number; fileSize: number }
-export interface GalleryAggregate { count: number; fileSize: number }
+export interface ImageAggregate {
+  count: number;
+  fileSize: number;
+}
+export interface AudioAggregate {
+  count: number;
+  duration: number;
+  fileSize: number;
+}
+export interface TextAggregate {
+  count: number;
+  fileSize: number;
+}
+export interface GalleryAggregate {
+  count: number;
+  fileSize: number;
+}
 
 // ===== Bulk Edit Types =====
 

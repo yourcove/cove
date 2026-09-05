@@ -51,9 +51,33 @@ vi.mock("../components/CoverImageDialog", () => ({
 }));
 
 vi.mock("../components/MediaDetailLayout/MediaDetailLayout", () => {
-  const MockMediaDetailLayout = ({ media, tabs, activeTab, onTabChange, children }: { media: ReactElement<{ children?: ReactNode }>; tabs: { key: string; label: string }[]; activeTab: string; onTabChange: (key: string) => void; children?: ReactNode }) => {
+  const MockMediaDetailLayout = ({
+    media,
+    tabs,
+    activeTab,
+    onTabChange,
+    children,
+  }: {
+    media: ReactElement<{ children?: ReactNode }>;
+    tabs: { key: string; label: string }[];
+    activeTab: string;
+    onTabChange: (key: string) => void;
+    children?: ReactNode;
+  }) => {
     const mediaChildren = Array.isArray(media.props.children) ? media.props.children : [media.props.children];
-    return <><div>{tabs.map((tab) => <button key={tab.key} role="tab" aria-selected={tab.key === activeTab} onClick={() => onTabChange(tab.key)}>{tab.label}</button>)}</div>{mediaChildren[0]}{activeTab === "edit" ? children : null}</>;
+    return (
+      <>
+        <div>
+          {tabs.map((tab) => (
+            <button key={tab.key} role="tab" aria-selected={tab.key === activeTab} onClick={() => onTabChange(tab.key)}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {mediaChildren[0]}
+        {activeTab === "edit" ? children : null}
+      </>
+    );
   };
   MockMediaDetailLayout.Content = ({ children }: { children: ReactNode }) => <>{children}</>;
   return { MediaDetailLayout: MockMediaDetailLayout };
@@ -198,14 +222,16 @@ describe("VideoDetailPage media-player extension surface", () => {
       title: "Detail video",
       organized: false,
       updatedAt: "2026-07-11T00:00:00Z",
-      files: [{
-        format: "mp4",
-        duration: 120,
-        width: 1920,
-        height: 1080,
-        frameRate: 30,
-        captions: [],
-      }],
+      files: [
+        {
+          format: "mp4",
+          duration: 120,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          captions: [],
+        },
+      ],
       performers: [],
       tags: [],
       contextTagApplications: [],
@@ -214,10 +240,12 @@ describe("VideoDetailPage media-player extension surface", () => {
     renderVideoDetail();
 
     expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
-    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
-      videoId: 14,
-      extensionSurface: "detail",
-    }));
+    expect(videoPlayerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId: 14,
+        extensionSurface: "detail",
+      }),
+    );
   });
 
   it("constrains sub-video playback to its parent clip range", async () => {
@@ -229,14 +257,16 @@ describe("VideoDetailPage media-player extension surface", () => {
       parentVideoId: 14,
       clipStartSec: 30,
       clipEndSec: 60,
-      files: [{
-        format: "mp4",
-        duration: 120,
-        width: 1920,
-        height: 1080,
-        frameRate: 30,
-        captions: [],
-      }],
+      files: [
+        {
+          format: "mp4",
+          duration: 120,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          captions: [],
+        },
+      ],
       performers: [],
       tags: [],
       contextTagApplications: [],
@@ -245,10 +275,12 @@ describe("VideoDetailPage media-player extension surface", () => {
     renderVideoDetail(15);
 
     expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
-    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
-      videoId: 15,
-      clip: { start: 30, end: 60, loop: false },
-    }));
+    expect(videoPlayerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId: 15,
+        clip: { start: 30, end: 60, loop: false },
+      }),
+    );
   });
 
   it("passes an explicit route timestamp separately from saved resume state", async () => {
@@ -257,14 +289,16 @@ describe("VideoDetailPage media-player extension surface", () => {
       title: "Timestamped video",
       organized: false,
       updatedAt: "2026-07-11T00:00:00Z",
-      files: [{
-        format: "mp4",
-        duration: 120,
-        width: 1920,
-        height: 1080,
-        frameRate: 30,
-        captions: [],
-      }],
+      files: [
+        {
+          format: "mp4",
+          duration: 120,
+          width: 1920,
+          height: 1080,
+          frameRate: 30,
+          captions: [],
+        },
+      ],
       performers: [],
       tags: [],
       contextTagApplications: [],
@@ -273,10 +307,12 @@ describe("VideoDetailPage media-player extension surface", () => {
     renderVideoDetail(14, 42.5);
 
     expect(await screen.findByTestId("video-detail-player")).toBeInTheDocument();
-    expect(videoPlayerMock).toHaveBeenCalledWith(expect.objectContaining({
-      seekTo: 42.5,
-      resumeTime: undefined,
-    }));
+    expect(videoPlayerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seekTo: 42.5,
+        resumeTime: undefined,
+      }),
+    );
   });
 
   it("stays on the edit tab after saving", async () => {
@@ -359,25 +395,25 @@ describe("VideoDetailPage media-player extension surface", () => {
   });
 
   it("shows a retryable load error when the video request fails", async () => {
-    mockVideos.get
-      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
-      .mockResolvedValueOnce({
-        id: 14,
-        title: "Recovered video",
-        organized: false,
-        updatedAt: "2026-07-11T00:00:00Z",
-        files: [{
+    mockVideos.get.mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404")).mockResolvedValueOnce({
+      id: 14,
+      title: "Recovered video",
+      organized: false,
+      updatedAt: "2026-07-11T00:00:00Z",
+      files: [
+        {
           format: "mp4",
           duration: 120,
           width: 1920,
           height: 1080,
           frameRate: 30,
           captions: [],
-        }],
-        performers: [],
-        tags: [],
-        contextTagApplications: [],
-      });
+        },
+      ],
+      performers: [],
+      tags: [],
+      contextTagApplications: [],
+    });
 
     renderVideoDetail();
 
@@ -405,14 +441,16 @@ describe("VideoDetailPage media-player extension surface", () => {
         title: "First video",
         organized: false,
         updatedAt: "2026-07-11T00:00:00Z",
-        files: [{
-          format: "mp4",
-          duration: 120,
-          width: 1920,
-          height: 1080,
-          frameRate: 30,
-          captions: [],
-        }],
+        files: [
+          {
+            format: "mp4",
+            duration: 120,
+            width: 1920,
+            height: 1080,
+            frameRate: 30,
+            captions: [],
+          },
+        ],
         performers: [],
         tags: [],
         contextTagApplications: [],

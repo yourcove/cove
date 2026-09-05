@@ -7,26 +7,20 @@ import type { ExtensionTutorialTopic } from "../api/types";
 describe("TutorialStoryboardDialog", () => {
   it("gives every built-in manual slide a screenshot", () => {
     const missing = builtinTutorialTopics.flatMap((topic) =>
-      topic.slides
-        .filter((slide) => !slide.imageSrc || !slide.imageAlt)
-        .map((slide) => `${topic.id}/${slide.id}`),
+      topic.slides.filter((slide) => !slide.imageSrc || !slide.imageAlt).map((slide) => `${topic.id}/${slide.id}`),
     );
 
     expect(missing).toEqual([]);
   });
 
   it("renders colored manual callouts without the box label text", () => {
-    render(
-      <TutorialStoryboardDialog
-        open
-        onClose={vi.fn()}
-        request={{ topicId: "list-pages", slideId: "anatomy" }}
-      />,
-    );
+    render(<TutorialStoryboardDialog open onClose={vi.fn()} request={{ topicId: "list-pages", slideId: "anatomy" }} />);
 
     expect(screen.queryByText(/Green box:/i)).not.toBeInTheDocument();
 
-    const point = screen.getByText("the view switcher for grid, wall, feed, and other layouts").closest("[data-box-tone]");
+    const point = screen
+      .getByText("the view switcher for grid, wall, feed, and other layouts")
+      .closest("[data-box-tone]");
     expect(point).not.toBeNull();
     expect(point).toHaveAttribute("data-box-tone", "green");
     expect((point as HTMLElement).className).toContain("border-green-500/55");
@@ -61,7 +55,8 @@ describe("TutorialStoryboardDialog", () => {
           {
             id: "settings",
             title: "Open nested docs",
-            bodyMarkdown: "Use **extension manual pages** for workflows that live outside Cove source.\n\n- Contribute a topic\n- Attach matching contexts",
+            bodyMarkdown:
+              "Use **extension manual pages** for workflows that live outside Cove source.\n\n- Contribute a topic\n- Attach matching contexts",
             imageSrc: "docs/topic.png",
             imageAlt: "Docs topic screenshot",
             links: [{ label: "Extension docs", url: "https://example.com/docs" }],
@@ -88,7 +83,10 @@ describe("TutorialStoryboardDialog", () => {
     expect(screen.getByRole("heading", { name: "Docs Child" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Open nested docs" })).toBeInTheDocument();
     expect(screen.getByText("extension manual pages")).toBeInTheDocument();
-    expect(screen.getByAltText("Docs topic screenshot")).toHaveAttribute("src", "/api/extensions/assets/docs.bundle/docs/topic.png");
+    expect(screen.getByAltText("Docs topic screenshot")).toHaveAttribute(
+      "src",
+      "/api/extensions/assets/docs.bundle/docs/topic.png",
+    );
     expect(screen.getByRole("link", { name: /Extension docs/i })).toHaveAttribute("href", "https://example.com/docs");
   });
 
@@ -183,4 +181,3 @@ describe("TutorialStoryboardDialog", () => {
     expect(screen.getByRole("heading", { name: "Find related items" })).toBeInTheDocument();
   });
 });
-

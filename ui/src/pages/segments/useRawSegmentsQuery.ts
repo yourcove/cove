@@ -129,22 +129,24 @@ export function useRawSegmentsQuery({
       includeAggregate,
     ],
     queryFn: async (): Promise<{ items: RawSegmentItem[]; totalCount: number; duration: number }> => {
-      const response = await segmentLibrary.list(buildRawSegmentListOptions({
-        pageNumber,
-        perPage,
-        q,
-        videoTitle,
-        videoTagIds,
-        videoTagDepth,
-        sort,
-        direction,
-        seed,
-        includeVideoIds,
-        excludeVideoIds,
-        rawSegmentIds,
-        rawFilter,
-        includeAggregate,
-      }));
+      const response = await segmentLibrary.list(
+        buildRawSegmentListOptions({
+          pageNumber,
+          perPage,
+          q,
+          videoTitle,
+          videoTagIds,
+          videoTagDepth,
+          sort,
+          direction,
+          seed,
+          includeVideoIds,
+          excludeVideoIds,
+          rawSegmentIds,
+          rawFilter,
+          includeAggregate,
+        }),
+      );
 
       return {
         items: response.items.map((item) => ({

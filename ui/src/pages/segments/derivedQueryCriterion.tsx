@@ -46,9 +46,10 @@ export function readDerivedSpanQueryFilter(value: unknown): DerivedSpanQueryFilt
     mergeGapSec?: unknown;
     minDurationSec?: unknown;
   };
-  const operator = candidate.operator === "union" || candidate.operator === "difference" || candidate.operator === "intersection"
-    ? candidate.operator
-    : fallback.operator;
+  const operator =
+    candidate.operator === "union" || candidate.operator === "difference" || candidate.operator === "intersection"
+      ? candidate.operator
+      : fallback.operator;
   const operands = Array.isArray(candidate.operands)
     ? candidate.operands.map(readDerivedSpanOperandFilter)
     : fallback.operands;
@@ -96,17 +97,17 @@ export function buildAppliedDerivedQuery(
   };
 }
 
-export function buildDerivedQueryDescriptor(filter: DerivedSpanQueryFilterValue): SegmentDerivedQueryDescriptor | undefined {
-  const operands = filter.operands
-    .filter(isDerivedSpanOperandFilterActive)
-    .map((operand) => ({
-      sourceKey: operand.sourceKey,
-      kind: operand.kind,
-      tagIds: operand.tagIds.length > 0 ? operand.tagIds : undefined,
-      performerIds: operand.performerIds.length > 0 ? operand.performerIds : undefined,
-      faceIds: operand.faceIds.length > 0 ? operand.faceIds : undefined,
-      minConfidence: operand.minConfidence,
-    }));
+export function buildDerivedQueryDescriptor(
+  filter: DerivedSpanQueryFilterValue,
+): SegmentDerivedQueryDescriptor | undefined {
+  const operands = filter.operands.filter(isDerivedSpanOperandFilterActive).map((operand) => ({
+    sourceKey: operand.sourceKey,
+    kind: operand.kind,
+    tagIds: operand.tagIds.length > 0 ? operand.tagIds : undefined,
+    performerIds: operand.performerIds.length > 0 ? operand.performerIds : undefined,
+    faceIds: operand.faceIds.length > 0 ? operand.faceIds : undefined,
+    minConfidence: operand.minConfidence,
+  }));
 
   if (operands.length === 0) {
     return undefined;
@@ -158,7 +159,10 @@ function readDerivedSpanOperandFilter(value: unknown): DerivedSpanOperandFilterV
   };
 
   return {
-    sourceKey: typeof operand.sourceKey === "string" && operand.sourceKey.trim().length > 0 ? operand.sourceKey.trim() : undefined,
+    sourceKey:
+      typeof operand.sourceKey === "string" && operand.sourceKey.trim().length > 0
+        ? operand.sourceKey.trim()
+        : undefined,
     kind: typeof operand.kind === "string" && operand.kind.trim().length > 0 ? operand.kind.trim() : undefined,
     tagIds: normalizeIdArray(operand.tagIds),
     performerIds: normalizeIdArray(operand.performerIds),
@@ -169,12 +173,12 @@ function readDerivedSpanOperandFilter(value: unknown): DerivedSpanOperandFilterV
 
 function isDerivedSpanOperandFilterActive(operand: DerivedSpanOperandFilterValue) {
   return Boolean(
-    operand.sourceKey
-    || operand.kind
-    || operand.tagIds.length > 0
-    || operand.performerIds.length > 0
-    || operand.faceIds.length > 0
-    || operand.minConfidence != null,
+    operand.sourceKey ||
+    operand.kind ||
+    operand.tagIds.length > 0 ||
+    operand.performerIds.length > 0 ||
+    operand.faceIds.length > 0 ||
+    operand.minConfidence != null,
   );
 }
 
@@ -182,14 +186,22 @@ function buildAppliedDerivedOperand(
   operand: DerivedSpanOperandFilterValue,
   performerFaceIdsByPerformer: Map<number, number[]>,
 ): SegmentSpanOperand | null {
-  const linkedFaceIds = operand.performerIds.flatMap((performerId) => performerFaceIdsByPerformer.get(performerId) ?? []);
+  const linkedFaceIds = operand.performerIds.flatMap(
+    (performerId) => performerFaceIdsByPerformer.get(performerId) ?? [],
+  );
   const refIds = Array.from(new Set([...operand.faceIds, ...linkedFaceIds]));
 
   if (operand.performerIds.length > 0 && refIds.length === 0) {
     refIds.push(-1);
   }
 
-  if (!operand.sourceKey && !operand.kind && operand.tagIds.length === 0 && refIds.length === 0 && operand.minConfidence == null) {
+  if (
+    !operand.sourceKey &&
+    !operand.kind &&
+    operand.tagIds.length === 0 &&
+    refIds.length === 0 &&
+    operand.minConfidence == null
+  ) {
     return null;
   }
 
@@ -229,8 +241,18 @@ function DerivedSpanQueryEditor({
         perPage: 5000,
       });
 
-      const sourceKeys = Array.from(new Set(response.items.map((segment) => segment.sourceKey?.trim()).filter((option): option is string => Boolean(option)))).sort((left, right) => left.localeCompare(right));
-      const kinds = Array.from(new Set(response.items.map((segment) => segment.kind?.trim()).filter((option): option is string => Boolean(option)))).sort((left, right) => left.localeCompare(right));
+      const sourceKeys = Array.from(
+        new Set(
+          response.items
+            .map((segment) => segment.sourceKey?.trim())
+            .filter((option): option is string => Boolean(option)),
+        ),
+      ).sort((left, right) => left.localeCompare(right));
+      const kinds = Array.from(
+        new Set(
+          response.items.map((segment) => segment.kind?.trim()).filter((option): option is string => Boolean(option)),
+        ),
+      ).sort((left, right) => left.localeCompare(right));
 
       return { sourceKeys, kinds };
     },
@@ -238,21 +260,27 @@ function DerivedSpanQueryEditor({
   });
 
   const sourceOptions = optionsQuery.data?.sourceKeys ?? [];
-  const kindOptions = useMemo(() => Array.from(new Set(["tag", "performer", "face", ...(optionsQuery.data?.kinds ?? [])])), [optionsQuery.data?.kinds]);
+  const kindOptions = useMemo(
+    () => Array.from(new Set(["tag", "performer", "face", ...(optionsQuery.data?.kinds ?? [])])),
+    [optionsQuery.data?.kinds],
+  );
   const optionsLoading = optionsQuery.isLoading;
 
   const updateOperand = (index: number, patch: Partial<DerivedSpanOperandFilterValue>) => {
     onChange({
       ...value,
-      operands: value.operands.map((operand, operandIndex) => (
-        operandIndex === index ? { ...operand, ...patch } : operand
-      )),
+      operands: value.operands.map((operand, operandIndex) =>
+        operandIndex === index ? { ...operand, ...patch } : operand,
+      ),
     });
   };
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-secondary">Build derived span combinations inside Filters so intersections, unions, and performer or face matches stay part of the page’s filter state.</p>
+      <p className="text-xs text-secondary">
+        Build derived span combinations inside Filters so intersections, unions, and performer or face matches stay part
+        of the page’s filter state.
+      </p>
 
       <div className="grid gap-3 md:grid-cols-3">
         <label className="space-y-1.5 text-sm font-medium text-secondary">
@@ -301,7 +329,9 @@ function DerivedSpanQueryEditor({
               {value.operands.length > 2 ? (
                 <button
                   type="button"
-                  onClick={() => onChange({ ...value, operands: value.operands.filter((_, operandIndex) => operandIndex !== index) })}
+                  onClick={() =>
+                    onChange({ ...value, operands: value.operands.filter((_, operandIndex) => operandIndex !== index) })
+                  }
                   className="min-h-9 rounded-lg px-3 py-1.5 text-sm text-secondary hover:bg-card hover:text-foreground"
                 >
                   Remove operand
@@ -318,9 +348,15 @@ function DerivedSpanQueryEditor({
                   className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
                 >
                   <option value="">Any source</option>
-                  {optionsLoading && sourceOptions.length === 0 ? <option value="" disabled>Loading sources...</option> : null}
+                  {optionsLoading && sourceOptions.length === 0 ? (
+                    <option value="" disabled>
+                      Loading sources...
+                    </option>
+                  ) : null}
                   {sourceOptions.map((sourceKey) => (
-                    <option key={sourceKey} value={sourceKey}>{sourceKey}</option>
+                    <option key={sourceKey} value={sourceKey}>
+                      {sourceKey}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -341,9 +377,15 @@ function DerivedSpanQueryEditor({
                   className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base font-normal text-foreground focus:border-accent focus:outline-none md:text-sm"
                 >
                   <option value="">Any kind</option>
-                  {optionsLoading && kindOptions.length === 0 ? <option value="" disabled>Loading kinds...</option> : null}
+                  {optionsLoading && kindOptions.length === 0 ? (
+                    <option value="" disabled>
+                      Loading kinds...
+                    </option>
+                  ) : null}
                   {kindOptions.map((kind) => (
-                    <option key={kind} value={kind}>{kind}</option>
+                    <option key={kind} value={kind}>
+                      {kind}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -378,14 +420,26 @@ function DerivedSpanQueryEditor({
   );
 }
 
-function OperandEntitySelector({ operand, onChange }: { operand: DerivedSpanOperandFilterValue; onChange: (patch: Partial<DerivedSpanOperandFilterValue>) => void }) {
+function OperandEntitySelector({
+  operand,
+  onChange,
+}: {
+  operand: DerivedSpanOperandFilterValue;
+  onChange: (patch: Partial<DerivedSpanOperandFilterValue>) => void;
+}) {
   const selectorKind = normalizeOperandSelectorKind(operand.kind);
 
   if (selectorKind === "tag") {
     return (
       <div className="mt-3 max-w-xl space-y-1">
         <div className="text-sm font-medium text-secondary">Tags</div>
-        <EntityMultiSelector entityType="tags" values={operand.tagIds} onChange={(tagIds) => onChange({ tagIds })} placeholder="Search tags..." emptyMessage="No tags found" />
+        <EntityMultiSelector
+          entityType="tags"
+          values={operand.tagIds}
+          onChange={(tagIds) => onChange({ tagIds })}
+          placeholder="Search tags..."
+          emptyMessage="No tags found"
+        />
       </div>
     );
   }
@@ -394,7 +448,13 @@ function OperandEntitySelector({ operand, onChange }: { operand: DerivedSpanOper
     return (
       <div className="mt-3 max-w-xl space-y-1">
         <div className="text-sm font-medium text-secondary">Performers</div>
-        <EntityMultiSelector entityType="performers" values={operand.performerIds} onChange={(performerIds) => onChange({ performerIds })} placeholder="Search performers..." emptyMessage="No performers found" />
+        <EntityMultiSelector
+          entityType="performers"
+          values={operand.performerIds}
+          onChange={(performerIds) => onChange({ performerIds })}
+          placeholder="Search performers..."
+          emptyMessage="No performers found"
+        />
         <p className="text-[11px] text-muted">Performer matches use linked faces automatically.</p>
       </div>
     );
@@ -404,7 +464,13 @@ function OperandEntitySelector({ operand, onChange }: { operand: DerivedSpanOper
     return (
       <div className="mt-3 max-w-xl space-y-1">
         <div className="text-sm font-medium text-secondary">Faces</div>
-        <EntityMultiSelector entityType="faces" values={operand.faceIds} onChange={(faceIds) => onChange({ faceIds })} placeholder="Search faces..." emptyMessage="No faces found" />
+        <EntityMultiSelector
+          entityType="faces"
+          values={operand.faceIds}
+          onChange={(faceIds) => onChange({ faceIds })}
+          placeholder="Search faces..."
+          emptyMessage="No faces found"
+        />
       </div>
     );
   }

@@ -23,16 +23,26 @@ interface PageSizeSelectProps {
  * sizes plus optional "Infinite", and a "Custom…" entry that swaps in a number
  * input so the user can pick any size that isn't one of the presets.
  */
-export function PageSizeSelect({ perPage, allowInfinite, infinitePageSize, infinitePageSizeOnly = false, maxPageSize, onChange }: PageSizeSelectProps) {
+export function PageSizeSelect({
+  perPage,
+  allowInfinite,
+  infinitePageSize,
+  infinitePageSizeOnly = false,
+  maxPageSize,
+  onChange,
+}: PageSizeSelectProps) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customText, setCustomText] = useState("");
 
   const options = useMemo(() => {
     if (infinitePageSizeOnly) return [];
     // Surface a previously-applied custom size as its own option so it stays selected.
-    const presets = maxPageSize == null ? LIST_PER_PAGE_OPTIONS : LIST_PER_PAGE_OPTIONS.filter((value) => value <= maxPageSize);
+    const presets =
+      maxPageSize == null ? LIST_PER_PAGE_OPTIONS : LIST_PER_PAGE_OPTIONS.filter((value) => value <= maxPageSize);
     if (infinitePageSize || presets.includes(perPage)) return presets;
-    return [...presets, perPage].filter((value) => maxPageSize == null || value <= maxPageSize).sort((left, right) => left - right);
+    return [...presets, perPage]
+      .filter((value) => maxPageSize == null || value <= maxPageSize)
+      .sort((left, right) => left - right);
   }, [infinitePageSize, infinitePageSizeOnly, maxPageSize, perPage]);
 
   const closeCustom = () => {
@@ -94,7 +104,9 @@ export function PageSizeSelect({ perPage, allowInfinite, infinitePageSize, infin
     >
       {allowInfinite ? <option value="infinite">Infinite</option> : null}
       {options.map((n) => (
-        <option key={n} value={n}>{n}</option>
+        <option key={n} value={n}>
+          {n}
+        </option>
       ))}
       {!infinitePageSizeOnly ? <option value={CUSTOM_VALUE}>Custom…</option> : null}
     </select>

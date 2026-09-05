@@ -71,7 +71,15 @@ vi.mock("../api/client", () => ({
 
 vi.mock("../hooks/useEntityEngagement", () => ({
   useEntityEngagement: () => ({
-    engagement: { playCount: 2, playDuration: 120, pageVisitCount: 3, resumeTime: 18, likeCount: 0, derivedLikeCount: 0, completeCount: 0 },
+    engagement: {
+      playCount: 2,
+      playDuration: 120,
+      pageVisitCount: 3,
+      resumeTime: 18,
+      likeCount: 0,
+      derivedLikeCount: 0,
+      completeCount: 0,
+    },
     favorite: false,
     rating: 4,
     setFavorite: mockSetFavorite,
@@ -136,7 +144,21 @@ function buildAudio(overrides: Record<string, unknown> = {}) {
     tags: [{ id: 2, name: "Synthwave", color: null, tagGroupColor: null, provenance: undefined }],
     performers: [{ id: 7, name: "Riley Hart", imagePath: undefined }],
     tracks: [{ id: 1, orderIndex: 0, title: "Intro", startSec: 0, endSec: 42 }],
-    files: [{ id: 1, path: "C:/audio/night-drive.mp3", basename: "night-drive.mp3", format: "mp3", duration: 240, audioCodec: "mp3", bitRate: 320000, sampleRate: 44100, channels: 2, size: 6_291_456, hasVideoTrack: false }],
+    files: [
+      {
+        id: 1,
+        path: "C:/audio/night-drive.mp3",
+        basename: "night-drive.mp3",
+        format: "mp3",
+        duration: 240,
+        audioCodec: "mp3",
+        bitRate: 320000,
+        sampleRate: 44100,
+        channels: 2,
+        size: 6_291_456,
+        hasVideoTrack: false,
+      },
+    ],
     groups: [{ id: 5, name: "Late Night Mix", videoIndex: 0 }],
     customFields: {},
     createdAt: "2026-05-04T00:00:00Z",
@@ -161,7 +183,18 @@ function buildText(overrides: Record<string, unknown> = {}) {
     urls: ["https://example.com/text/22"],
     tags: [{ id: 4, name: "Reference", color: null, tagGroupColor: null, provenance: undefined }],
     performers: [{ id: 7, name: "Dana Lee", imagePath: undefined }],
-    files: [{ id: 2, path: "C:/docs/project-notes.md", basename: "project-notes.md", format: "md", pageCount: 4, wordCount: 1200, excerptText: "Working notes for wave 5.", size: 4096 }],
+    files: [
+      {
+        id: 2,
+        path: "C:/docs/project-notes.md",
+        basename: "project-notes.md",
+        format: "md",
+        pageCount: 4,
+        wordCount: 1200,
+        excerptText: "Working notes for wave 5.",
+        size: 4096,
+      },
+    ],
     groups: [{ id: 8, name: "Wave 5", videoIndex: 0 }],
     customFields: {},
     createdAt: "2026-05-06T00:00:00Z",
@@ -206,7 +239,9 @@ describe("Audio and text detail pages", () => {
     fireEvent.click(audioFavorite);
     expect(mockSetFavorite).toHaveBeenCalledWith(true);
     expect(screen.queryByRole("tab", { name: /related/i })).not.toBeInTheDocument();
-    expect(mockTrackInteraction).toHaveBeenCalledWith(expect.objectContaining({ hostType: "audio", hostId: 14, kind: "pageVisit" }));
+    expect(mockTrackInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ hostType: "audio", hostId: 14, kind: "pageVisit" }),
+    );
 
     expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
     expect(screen.getByText("Late Night Mix")).toBeInTheDocument();
@@ -262,10 +297,26 @@ describe("Audio and text detail pages", () => {
   });
 
   it("switches to the shared video player when an audio file carries video", async () => {
-    mockAudios.get.mockResolvedValue(buildAudio({
-      files: [{ id: 3, path: "C:/audio/live-session.mp4", basename: "live-session.mp4", format: "mp4", duration: 180, audioCodec: "aac", bitRate: 192000, sampleRate: 48000, channels: 2, size: 7_340_032, hasVideoTrack: true }],
-      hasVideoFiles: true,
-    }));
+    mockAudios.get.mockResolvedValue(
+      buildAudio({
+        files: [
+          {
+            id: 3,
+            path: "C:/audio/live-session.mp4",
+            basename: "live-session.mp4",
+            format: "mp4",
+            duration: 180,
+            audioCodec: "aac",
+            bitRate: 192000,
+            sampleRate: 48000,
+            channels: 2,
+            size: 7_340_032,
+            hasVideoTrack: true,
+          },
+        ],
+        hasVideoFiles: true,
+      }),
+    );
 
     renderWithQueryClient(<AudioDetailPage id={14} onNavigate={vi.fn()} />);
 
@@ -325,7 +376,11 @@ describe("Audio and text detail pages", () => {
 
     view.unmount();
 
-    await waitFor(() => expect(mockPlayback.recordIntervals).toHaveBeenCalledWith(expect.objectContaining({ hostType: "text", hostId: 22 })));
+    await waitFor(() =>
+      expect(mockPlayback.recordIntervals).toHaveBeenCalledWith(
+        expect.objectContaining({ hostType: "text", hostId: 22 }),
+      ),
+    );
   });
 
   it("shows a retryable load error when the text request fails", async () => {

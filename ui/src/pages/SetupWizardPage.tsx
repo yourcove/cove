@@ -29,7 +29,8 @@ interface Props {
   onComplete: (options?: { showTutorial?: boolean }) => void;
 }
 
-export type Step = "welcome" | "source" | "paths" | "confirm" | "stash-config" | "backup-restore" | "owner" | "theme" | "done";
+export type Step =
+  "welcome" | "source" | "paths" | "confirm" | "stash-config" | "backup-restore" | "owner" | "theme" | "done";
 export type SetupMode = "fresh" | "stash" | "backup" | null;
 type ActiveSetupMode = Exclude<SetupMode, null>;
 
@@ -69,40 +70,62 @@ const TUTORIAL_STEPS = [
   {
     eyebrow: "Step 1",
     title: "Scan and generate your library",
-    description: "After setup, run Scan to index files, then use Scan & Generate when you want previews, thumbnails, hashes, sprites, or segments.",
+    description:
+      "After setup, run Scan to index files, then use Scan & Generate when you want previews, thumbnails, hashes, sprites, or segments.",
     actionLabel: "Open Scan & Generate",
     highlight: "This is the fastest way to move from an empty library to something you can actually browse.",
-    checklist: ["Scan the folders you just added", "Run Generate for previews and images", "Come back later if you add more media"],
+    checklist: [
+      "Scan the folders you just added",
+      "Run Generate for previews and images",
+      "Come back later if you add more media",
+    ],
     icon: FolderOpen,
     kind: "tasks",
   },
   {
     eyebrow: "Step 2",
     title: "Browse with the view that fits the media",
-    description: "Videos and images each have multiple layouts. Start with grid, then try feed, wall, or Infinite page size when you want long browsing sessions.",
+    description:
+      "Videos and images each have multiple layouts. Start with grid, then try feed, wall, or Infinite page size when you want long browsing sessions.",
     actionLabel: "Open Videos or Images",
-    highlight: "Feed is better for reading details. Wall is better for visual skimming. Infinite keeps the list moving.",
-    checklist: ["Switch between grid, wall, and feed", "Use page size to turn on Infinite", "Open detail pages when something needs cleanup"],
+    highlight:
+      "Feed is better for reading details. Wall is better for visual skimming. Infinite keeps the list moving.",
+    checklist: [
+      "Switch between grid, wall, and feed",
+      "Use page size to turn on Infinite",
+      "Open detail pages when something needs cleanup",
+    ],
     icon: Play,
     kind: "browse",
   },
   {
     eyebrow: "Step 3",
     title: "Scrape and identify when titles are incomplete",
-    description: "If a video or image is missing tags, performers, studios, or dates, use Scrape or Identify from the media pages and then tune providers in Settings.",
+    description:
+      "If a video or image is missing tags, performers, studios, or dates, use Scrape or Identify from the media pages and then tune providers in Settings.",
     actionLabel: "Use Scrape or Identify",
-    highlight: "Start from a single item first so you can verify the source and field mappings before doing it in bulk.",
-    checklist: ["Open one item and inspect the current fields", "Run Scrape or Identify", "Adjust scrapers or MetadataServer settings if the match looks wrong"],
+    highlight:
+      "Start from a single item first so you can verify the source and field mappings before doing it in bulk.",
+    checklist: [
+      "Open one item and inspect the current fields",
+      "Run Scrape or Identify",
+      "Adjust scrapers or MetadataServer settings if the match looks wrong",
+    ],
     icon: Database,
     kind: "metadata",
   },
   {
     eyebrow: "Step 4",
     title: "Keep settings and docs within reach",
-    description: "Most setup tasks live in Settings, and the docs site fills in the edge cases: extensions, MetadataServer setup, import workflows, and troubleshooting.",
+    description:
+      "Most setup tasks live in Settings, and the docs site fills in the edge cases: extensions, MetadataServer setup, import workflows, and troubleshooting.",
     actionLabel: "Use Settings and docs.cove.app",
     highlight: "If you forget where something from this wizard went, it is almost always in Settings.",
-    checklist: ["Return to Settings for paths, scrapers, and themes", "Use docs.cove.app for deeper walkthroughs", "Treat the wizard as the fast path, not the only path"],
+    checklist: [
+      "Return to Settings for paths, scrapers, and themes",
+      "Use docs.cove.app for deeper walkthroughs",
+      "Treat the wizard as the fast path, not the only path",
+    ],
     icon: BookOpen,
     kind: "docs",
   },
@@ -122,10 +145,17 @@ function ThemeMiniPreview({ cssVariables }: { cssVariables?: Record<string, stri
 
   return (
     <div className="overflow-hidden rounded-xl border border-black/10" style={{ background }}>
-      <div className="flex items-center justify-between gap-2 border-b border-black/10 px-3 py-2" style={{ background: surface }}>
+      <div
+        className="flex items-center justify-between gap-2 border-b border-black/10 px-3 py-2"
+        style={{ background: surface }}
+      >
         <div className="flex items-center gap-1.5">
           {[background, surface, card, accent, foreground].map((color, index) => (
-            <span key={`${color}-${index}`} className="h-4 w-4 rounded-full border border-black/15" style={{ background: color }} />
+            <span
+              key={`${color}-${index}`}
+              className="h-4 w-4 rounded-full border border-black/15"
+              style={{ background: color }}
+            />
           ))}
         </div>
         <div className="h-2 w-14 rounded-full" style={{ background: secondary, opacity: 0.55 }} />
@@ -140,7 +170,11 @@ function ThemeMiniPreview({ cssVariables }: { cssVariables?: Record<string, stri
           <div className="h-9 rounded-lg" style={{ background: accent }} />
           <div className="grid grid-cols-3 gap-1.5">
             {[surface, card, accent].map((color, index) => (
-              <div key={`${color}-${index}`} className="h-6 rounded-md" style={{ background: color, opacity: index === 2 ? 0.75 : 1 }} />
+              <div
+                key={`${color}-${index}`}
+                className="h-6 rounded-md"
+                style={{ background: color, opacity: index === 2 ? 0.75 : 1 }}
+              />
             ))}
           </div>
         </div>
@@ -149,7 +183,7 @@ function ThemeMiniPreview({ cssVariables }: { cssVariables?: Record<string, stri
   );
 }
 
-function TutorialPreview({ step }: { step: typeof TUTORIAL_STEPS[number] }) {
+function TutorialPreview({ step }: { step: (typeof TUTORIAL_STEPS)[number] }) {
   if (step.kind === "tasks") {
     return (
       <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
@@ -166,7 +200,9 @@ function TutorialPreview({ step }: { step: typeof TUTORIAL_STEPS[number] }) {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium text-foreground">{label}</div>
-                  <div className="text-xs text-muted">{index === 0 ? "Reads folders and creates items" : "Builds thumbnails, previews, and hashes"}</div>
+                  <div className="text-xs text-muted">
+                    {index === 0 ? "Reads folders and creates items" : "Builds thumbnails, previews, and hashes"}
+                  </div>
                 </div>
                 <div className="rounded-full bg-accent px-3 py-1 text-[11px] font-semibold text-white">
                   {index === 0 ? "Run first" : "Run second"}
@@ -231,11 +267,17 @@ function TutorialPreview({ step }: { step: typeof TUTORIAL_STEPS[number] }) {
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Actions</div>
             <div className="mt-3 flex flex-wrap gap-2">
               <div className="rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-white">Scrape</div>
-              <div className="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-foreground">Identify</div>
+              <div className="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-foreground">
+                Identify
+              </div>
             </div>
             <div className="mt-4 space-y-2 text-xs text-muted">
-              <div className="rounded-xl bg-background/70 px-3 py-2">Tags, performers, studios, dates, and urls can all be reviewed before you apply.</div>
-              <div className="rounded-xl bg-background/70 px-3 py-2">Use one item first before running a bulk pass.</div>
+              <div className="rounded-xl bg-background/70 px-3 py-2">
+                Tags, performers, studios, dates, and urls can all be reviewed before you apply.
+              </div>
+              <div className="rounded-xl bg-background/70 px-3 py-2">
+                Use one item first before running a bulk pass.
+              </div>
             </div>
           </div>
         </div>
@@ -257,7 +299,10 @@ function TutorialPreview({ step }: { step: typeof TUTORIAL_STEPS[number] }) {
         <div className="rounded-2xl border border-border bg-card p-3">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Docs</div>
           <div className="mt-3 rounded-xl bg-accent/10 px-3 py-2 text-sm font-semibold text-accent">docs.cove.app</div>
-          <div className="mt-2 text-xs text-muted">Use it for extension setup, troubleshooting, deeper metadata workflows, and examples that do not fit in the wizard.</div>
+          <div className="mt-2 text-xs text-muted">
+            Use it for extension setup, troubleshooting, deeper metadata workflows, and examples that do not fit in the
+            wizard.
+          </div>
         </div>
       </div>
     </div>
@@ -270,7 +315,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   const [paths, setPaths] = useState<CovePathConfig[]>(
     config.covePaths.length > 0
       ? config.covePaths
-      : [{ path: "", excludeVideo: false, excludeImage: false, excludeAudio: false, excludeText: false }]
+      : [{ path: "", excludeVideo: false, excludeImage: false, excludeAudio: false, excludeText: false }],
   );
   const [error, setError] = useState<string | null>(null);
   const [stashDbPath, setStashDbPath] = useState("");
@@ -303,20 +348,22 @@ export function SetupWizardPage({ config, onComplete }: Props) {
     pathMappings: importPathMappings.length > 0 ? importPathMappings : undefined,
   };
   const updatePathMapping = (index: number, field: keyof StashPathMapping, value: string) => {
-    setPathMappings((current) => current.map((mapping, mappingIndex) => (
-      mappingIndex === index ? { ...mapping, [field]: value } : mapping
-    )));
+    setPathMappings((current) =>
+      current.map((mapping, mappingIndex) => (mappingIndex === index ? { ...mapping, [field]: value } : mapping)),
+    );
   };
   const addPathMapping = () => setPathMappings((current) => [...current, { source: "", target: "" }]);
-  const removePathMapping = (index: number) => setPathMappings((current) => (
-    current.length <= 1 ? [{ source: "", target: "" }] : current.filter((_, mappingIndex) => mappingIndex !== index)
-  ));
-  const activeMode = setupMode
-    ?? (step === "stash-config" || stashImportJobId !== null || stashResult !== null
+  const removePathMapping = (index: number) =>
+    setPathMappings((current) =>
+      current.length <= 1 ? [{ source: "", target: "" }] : current.filter((_, mappingIndex) => mappingIndex !== index),
+    );
+  const activeMode =
+    setupMode ??
+    (step === "stash-config" || stashImportJobId !== null || stashResult !== null
       ? "stash"
       : step === "backup-restore" || backupRestoreResult !== null
-      ? "backup"
-      : "fresh");
+        ? "backup"
+        : "fresh");
   const bootstrapStatusQuery = useQuery({ queryKey: ["auth", "bootstrap-status"], queryFn: auth.bootstrapStatus });
   const needsOwnerSetup = bootstrapStatusQuery.data?.ownerExists === false;
   const stepList = buildSetupStepList(activeMode, needsOwnerSetup);
@@ -402,7 +449,11 @@ export function SetupWizardPage({ config, onComplete }: Props) {
         await database.restoreConfig(configBackupPath);
       }
 
-      return { backupPath, preRestoreBackupPath: restoreResult.preRestoreBackupPath, configBackupPath: configBackupPath || null };
+      return {
+        backupPath,
+        preRestoreBackupPath: restoreResult.preRestoreBackupPath,
+        configBackupPath: configBackupPath || null,
+      };
     },
     onSuccess: async (result) => {
       setError(null);
@@ -471,7 +522,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
   });
 
   const addPath = () => {
-    setPaths([...paths, { path: "", excludeVideo: false, excludeImage: false, excludeAudio: false, excludeText: false }]);
+    setPaths([
+      ...paths,
+      { path: "", excludeVideo: false, excludeImage: false, excludeAudio: false, excludeText: false },
+    ]);
   };
 
   const removePath = (index: number) => {
@@ -528,8 +582,8 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       s === step
                         ? "bg-accent text-white"
                         : currentIdx > i
-                        ? "bg-green-600 text-white"
-                        : "bg-card border border-border text-muted"
+                          ? "bg-green-600 text-white"
+                          : "bg-card border border-border text-muted"
                     }`}
                   >
                     {currentIdx > i ? <Check className="w-4 h-4" /> : i + 1}
@@ -549,8 +603,7 @@ export function SetupWizardPage({ config, onComplete }: Props) {
               </div>
               <h1 className="text-2xl font-bold text-foreground mb-3">Welcome to Cove</h1>
               <p className="text-secondary mb-6 max-w-md mx-auto">
-                Cove is a self-hosted organizer for your media library. Let's get set up
-                by configuring your library.
+                Cove is a self-hosted organizer for your media library. Let's get set up by configuring your library.
               </p>
               <button
                 onClick={() => setStep("source")}
@@ -569,7 +622,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
               </p>
               <div className="grid gap-4 md:grid-cols-3">
                 <button
-                  onClick={() => { setSetupMode("fresh"); setStep("paths"); }}
+                  onClick={() => {
+                    setSetupMode("fresh");
+                    setStep("paths");
+                  }}
                   className="flex flex-col items-center gap-3 p-6 bg-card border-2 border-border hover:border-accent rounded-xl transition-colors text-left"
                 >
                   <FolderOpen className="w-8 h-8 text-accent" />
@@ -590,17 +646,29 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   </div>
                 </button>
                 <button
-                  onClick={() => { setSetupMode("backup"); setStep("backup-restore"); }}
+                  onClick={() => {
+                    setSetupMode("backup");
+                    setStep("backup-restore");
+                  }}
                   className="flex flex-col items-center gap-3 p-6 bg-card border-2 border-border hover:border-accent rounded-xl transition-colors text-left"
                 >
                   <RefreshCw className="w-8 h-8 text-accent" />
                   <div>
                     <div className="font-semibold text-foreground mb-1">Restore Cove Backup</div>
-                    <div className="text-xs text-secondary">Restore a Cove database backup, and optionally a config backup too.</div>
+                    <div className="text-xs text-secondary">
+                      Restore a Cove database backup, and optionally a config backup too.
+                    </div>
                   </div>
                 </button>
               </div>
-              {error ? <div role="alert" className="mt-4 rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300">{error}</div> : null}
+              {error ? (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300"
+                >
+                  {error}
+                </div>
+              ) : null}
               <div className="mt-6 flex justify-start">
                 <button
                   onClick={() => setStep("welcome")}
@@ -616,7 +684,8 @@ export function SetupWizardPage({ config, onComplete }: Props) {
             <div className="p-8">
               <h2 className="text-xl font-bold text-foreground mb-2">Restore from a Cove backup</h2>
               <p className="text-sm text-secondary mb-6">
-                Choose a Cove database backup to restore. You can also provide a config backup if you want Cove paths and related settings restored too.
+                Choose a Cove database backup to restore. You can also provide a config backup if you want Cove paths
+                and related settings restored too.
               </p>
 
               <div className="space-y-4">
@@ -628,7 +697,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       <input
                         type="text"
                         value={restoreBackupPath}
-                        onChange={(e) => { setRestoreBackupPath(e.target.value); setError(null); }}
+                        onChange={(e) => {
+                          setRestoreBackupPath(e.target.value);
+                          setError(null);
+                        }}
                         placeholder="C:\\Backups\\cove-2026-05-01.db"
                         className="flex-1 bg-transparent outline-none text-sm text-foreground"
                       />
@@ -642,7 +714,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       </button>
                     )}
                   </div>
-                  {latestBackupQuery.data ? <p className="mt-2 text-xs text-muted">Latest backup: {latestBackupQuery.data}</p> : null}
+                  {latestBackupQuery.data ? (
+                    <p className="mt-2 text-xs text-muted">Latest backup: {latestBackupQuery.data}</p>
+                  ) : null}
                 </div>
 
                 <div>
@@ -653,7 +727,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       <input
                         type="text"
                         value={restoreConfigBackupPath}
-                        onChange={(e) => { setRestoreConfigBackupPath(e.target.value); setError(null); }}
+                        onChange={(e) => {
+                          setRestoreConfigBackupPath(e.target.value);
+                          setError(null);
+                        }}
                         placeholder="Optional: C:\\Backups\\cove-config-2026-05-01.json"
                         className="flex-1 bg-transparent outline-none text-sm text-foreground"
                       />
@@ -670,7 +747,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   <p className="mt-2 text-xs text-muted">
                     Optional. Add this when you want Cove paths and other config values restored alongside the database.
                   </p>
-                  {latestConfigBackupQuery.data ? <p className="mt-1 text-xs text-muted">Latest config backup: {latestConfigBackupQuery.data}</p> : null}
+                  {latestConfigBackupQuery.data ? (
+                    <p className="mt-1 text-xs text-muted">Latest config backup: {latestConfigBackupQuery.data}</p>
+                  ) : null}
                 </div>
 
                 <label className="flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm text-secondary">
@@ -682,28 +761,44 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   />
                   <span>
                     <span className="block font-medium text-foreground">Replace the current Cove data</span>
-                    <span className="block text-xs text-muted">Restoring replaces the current library database. If you provide a config backup, that file is restored too.</span>
+                    <span className="block text-xs text-muted">
+                      Restoring replaces the current library database. If you provide a config backup, that file is
+                      restored too.
+                    </span>
                   </span>
                 </label>
 
                 {error && (
-                  <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-3 text-sm text-red-300">{error}</div>
+                  <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-3 text-sm text-red-300">
+                    {error}
+                  </div>
                 )}
               </div>
 
               <div className="flex justify-between mt-6">
                 <button
-                  onClick={() => { setStep("source"); setSetupMode(null); setError(null); }}
+                  onClick={() => {
+                    setStep("source");
+                    setSetupMode(null);
+                    setError(null);
+                  }}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
                 <button
-                  onClick={() => { setError(null); backupRestoreMut.mutate(); }}
+                  onClick={() => {
+                    setError(null);
+                    backupRestoreMut.mutate();
+                  }}
                   disabled={restoreBackupPath.trim() === "" || !restoreConfirmed || backupRestoreMut.isPending}
                   className="inline-flex items-center gap-2 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {backupRestoreMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  {backupRestoreMut.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
                   Restore & Continue
                 </button>
               </div>
@@ -714,7 +809,8 @@ export function SetupWizardPage({ config, onComplete }: Props) {
             <div className="p-8">
               <h2 className="text-xl font-bold text-foreground mb-2">Import from Stash</h2>
               <p className="text-sm text-secondary mb-6">
-                Enter the path to your Stash SQLite database file (usually <code className="text-xs bg-card px-1 py-0.5 rounded">~/.stash/stash-go.sqlite</code>).
+                Enter the path to your Stash SQLite database file (usually{" "}
+                <code className="text-xs bg-card px-1 py-0.5 rounded">~/.stash/stash-go.sqlite</code>).
               </p>
               <div className="space-y-4">
                 <div className="flex gap-2">
@@ -723,18 +819,28 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                     <input
                       type="text"
                       value={stashDbPath}
-                      onChange={(e) => { setStashDbPath(e.target.value); setStashPreview(null); }}
+                      onChange={(e) => {
+                        setStashDbPath(e.target.value);
+                        setStashPreview(null);
+                      }}
                       placeholder="/path/to/stash-go.sqlite"
                       disabled={isStashImportActive}
                       className="flex-1 bg-transparent outline-none text-sm text-foreground"
                     />
                   </div>
                   <button
-                    onClick={() => { setError(null); stashPreviewMut.mutate(); }}
+                    onClick={() => {
+                      setError(null);
+                      stashPreviewMut.mutate();
+                    }}
                     disabled={stashDbPath.trim() === "" || stashPreviewMut.isPending || isStashImportActive}
                     className="px-4 py-2 text-sm bg-card border border-border hover:border-accent text-foreground rounded-lg disabled:opacity-50 transition-colors flex items-center gap-1.5"
                   >
-                    {stashPreviewMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    {stashPreviewMut.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
                     Preview
                   </button>
                 </div>
@@ -754,7 +860,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       />
                       <span>
                         <span className="block font-medium text-foreground">Migrate generated content</span>
-                        <span className="block text-xs text-muted">Copy Stash screenshots, previews, sprite sheets, and VTT files into Cove. Enabled by default.</span>
+                        <span className="block text-xs text-muted">
+                          Copy Stash screenshots, previews, sprite sheets, and VTT files into Cove. Enabled by default.
+                        </span>
                       </span>
                     </label>
 
@@ -768,7 +876,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                         disabled={isStashImportActive}
                         className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none disabled:opacity-60"
                       />
-                      <span className="block mt-1 text-xs text-muted">This updates Cove's generated-assets destination before the import runs. Stash's source path is still read from config.yml.</span>
+                      <span className="block mt-1 text-xs text-muted">
+                        This updates Cove's generated-assets destination before the import runs. Stash's source path is
+                        still read from config.yml.
+                      </span>
                     </label>
 
                     <div className="space-y-2 text-sm text-secondary">
@@ -815,7 +926,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                           </div>
                         ))}
                       </div>
-                      <span className="block text-xs text-muted">Map the paths stored in Stash to the paths Cove can access, such as a Docker mount at /media.</span>
+                      <span className="block text-xs text-muted">
+                        Map the paths stored in Stash to the paths Cove can access, such as a Docker mount at /media.
+                      </span>
                     </div>
                   </div>
                 </details>
@@ -824,14 +937,14 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   <div className="bg-card border border-border rounded-xl p-4">
                     <h3 className="text-xs font-medium uppercase tracking-wide text-muted mb-3">Database Summary</h3>
                     <div className="grid grid-cols-3 gap-3">
-                      {([
+                      {[
                         { label: "Videos", value: stashPreview.videos },
                         { label: "Images", value: stashPreview.images },
                         { label: "Galleries", value: stashPreview.galleries },
                         { label: "Performers", value: stashPreview.performers },
                         { label: "Tags", value: stashPreview.tags },
                         { label: "Studios", value: stashPreview.studios },
-                      ]).map(({ label, value }) => (
+                      ].map(({ label, value }) => (
                         <div key={label} className="text-center">
                           <div className="text-2xl font-bold text-foreground">{value}</div>
                           <div className="text-xs text-muted">{label}</div>
@@ -865,32 +978,44 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   </div>
                 )}
 
-                {activeStashImportJob && (
-                  <SetupImportProgressCard job={activeStashImportJob} />
-                )}
+                {activeStashImportJob && <SetupImportProgressCard job={activeStashImportJob} />}
 
                 {error && (
-                  <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-3 text-sm text-red-300">{error}</div>
+                  <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-3 text-sm text-red-300">
+                    {error}
+                  </div>
                 )}
               </div>
 
               <div className="flex justify-between mt-6">
                 <button
-                  onClick={() => { setStep("source"); setSetupMode(null); setStashPreview(null); setError(null); }}
+                  onClick={() => {
+                    setStep("source");
+                    setSetupMode(null);
+                    setStashPreview(null);
+                    setError(null);
+                  }}
                   disabled={isStashImportActive}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
                 <button
-                  onClick={() => { setError(null); stashImportMut.mutate(); }}
+                  onClick={() => {
+                    setError(null);
+                    stashImportMut.mutate();
+                  }}
                   disabled={!stashPreview || stashImportMut.isPending || isStashImportActive}
                   className="inline-flex items-center gap-2 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {stashImportMut.isPending || isStashImportActive ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Importing…</>
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Importing…
+                    </>
                   ) : (
-                    <>Import <ChevronRight className="w-4 h-4" /></>
+                    <>
+                      Import <ChevronRight className="w-4 h-4" />
+                    </>
                   )}
                 </button>
               </div>
@@ -901,8 +1026,8 @@ export function SetupWizardPage({ config, onComplete }: Props) {
             <div className="p-8">
               <h2 className="text-xl font-bold text-foreground mb-2">Library Paths</h2>
               <p className="text-sm text-secondary mb-6">
-                Add the directories containing your media files. Cove will scan these
-                directories for videos, images, and galleries.
+                Add the directories containing your media files. Cove will scan these directories for videos, images,
+                and galleries.
               </p>
 
               <div className="space-y-3 mb-4">
@@ -979,7 +1104,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
 
               <div className="flex justify-between">
                 <button
-                  onClick={() => { setStep("source"); setSetupMode(null); }}
+                  onClick={() => {
+                    setStep("source");
+                    setSetupMode(null);
+                  }}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
@@ -1011,7 +1139,16 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       <span className="text-sm text-foreground font-mono">{p.path}</span>
                       {(p.excludeVideo || p.excludeImage || p.excludeAudio || p.excludeText) && (
                         <span className="text-xs text-muted">
-                          (excludes: {[p.excludeVideo && "video", p.excludeImage && "images", p.excludeAudio && "audio", p.excludeText && "texts"].filter(Boolean).join(", ")})
+                          (excludes:{" "}
+                          {[
+                            p.excludeVideo && "video",
+                            p.excludeImage && "images",
+                            p.excludeAudio && "audio",
+                            p.excludeText && "texts",
+                          ]
+                            .filter(Boolean)
+                            .join(", ")}
+                          )
                         </span>
                       )}
                     </div>
@@ -1027,7 +1164,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
 
               <div className="flex justify-between">
                 <button
-                  onClick={() => { setStep("paths"); setError(null); }}
+                  onClick={() => {
+                    setStep("paths");
+                    setError(null);
+                  }}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-secondary hover:text-foreground transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
@@ -1055,7 +1195,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
 
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="setup-owner-username" className="block text-sm font-medium text-foreground mb-2">Owner username</label>
+                  <label htmlFor="setup-owner-username" className="block text-sm font-medium text-foreground mb-2">
+                    Owner username
+                  </label>
                   <input
                     id="setup-owner-username"
                     type="text"
@@ -1067,7 +1209,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   />
                 </div>
                 <div>
-                  <label htmlFor="setup-owner-password" className="block text-sm font-medium text-foreground mb-2">Owner password</label>
+                  <label htmlFor="setup-owner-password" className="block text-sm font-medium text-foreground mb-2">
+                    Owner password
+                  </label>
                   <input
                     id="setup-owner-password"
                     type="password"
@@ -1079,7 +1223,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   />
                 </div>
                 <div>
-                  <label htmlFor="setup-owner-confirm" className="block text-sm font-medium text-foreground mb-2">Confirm password</label>
+                  <label htmlFor="setup-owner-confirm" className="block text-sm font-medium text-foreground mb-2">
+                    Confirm password
+                  </label>
                   <input
                     id="setup-owner-confirm"
                     type="password"
@@ -1092,7 +1238,14 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                 </div>
               </div>
 
-              {error ? <div role="alert" className="mt-4 rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300">{error}</div> : null}
+              {error ? (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300"
+                >
+                  {error}
+                </div>
+              ) : null}
 
               <div className="flex justify-between mt-6">
                 <button
@@ -1138,9 +1291,15 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                       <div className="mt-4 flex items-start justify-between gap-3">
                         <div>
                           <div className="font-semibold text-foreground">{theme.name}</div>
-                          <div className="mt-1 text-xs text-secondary">{theme.description ?? "Extension-provided theme."}</div>
+                          <div className="mt-1 text-xs text-secondary">
+                            {theme.description ?? "Extension-provided theme."}
+                          </div>
                         </div>
-                        {isSelected ? <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-white">Selected</span> : null}
+                        {isSelected ? (
+                          <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-white">
+                            Selected
+                          </span>
+                        ) : null}
                       </div>
                     </button>
                   );
@@ -1155,7 +1314,9 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   >
                     <ChevronLeft className="w-4 h-4" /> Back
                   </button>
-                ) : <div />}
+                ) : (
+                  <div />
+                )}
                 <button
                   onClick={() => setStep("done")}
                   className="inline-flex items-center gap-2 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition-colors"
@@ -1178,14 +1339,14 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                     Successfully imported your Stash library into Cove.
                   </p>
                   <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto mb-2">
-                    {([
+                    {[
                       { label: "Videos", value: stashResult.videos },
                       { label: "Images", value: stashResult.images },
                       { label: "Galleries", value: stashResult.galleries },
                       { label: "Performers", value: stashResult.performers },
                       { label: "Tags", value: stashResult.tags },
                       { label: "Studios", value: stashResult.studios },
-                    ]).map(({ label, value }) => (
+                    ].map(({ label, value }) => (
                       <div key={label} className="bg-card border border-border rounded-lg p-2">
                         <div className="text-xl font-bold text-foreground">{value}</div>
                         <div className="text-xs text-muted">{label}</div>
@@ -1195,21 +1356,22 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                 </div>
               ) : backupRestoreResult ? (
                 <div className="mb-6 max-w-lg mx-auto text-left">
-                  <p className="text-secondary mb-4 text-center">
-                    Restored your Cove library from backup.
-                  </p>
+                  <p className="text-secondary mb-4 text-center">Restored your Cove library from backup.</p>
                   <div className="bg-card border border-border rounded-xl p-4 space-y-2 text-xs text-secondary">
                     <div>
-                      <span className="font-medium text-foreground">Database backup:</span> {backupRestoreResult.backupPath}
+                      <span className="font-medium text-foreground">Database backup:</span>{" "}
+                      {backupRestoreResult.backupPath}
                     </div>
                     {backupRestoreResult.preRestoreBackupPath ? (
                       <div>
-                        <span className="font-medium text-foreground">Pre-restore backup:</span> {backupRestoreResult.preRestoreBackupPath}
+                        <span className="font-medium text-foreground">Pre-restore backup:</span>{" "}
+                        {backupRestoreResult.preRestoreBackupPath}
                       </div>
                     ) : null}
                     {backupRestoreResult.configBackupPath ? (
                       <div>
-                        <span className="font-medium text-foreground">Config backup:</span> {backupRestoreResult.configBackupPath}
+                        <span className="font-medium text-foreground">Config backup:</span>{" "}
+                        {backupRestoreResult.configBackupPath}
                       </div>
                     ) : (
                       <div>Config restore was skipped.</div>
@@ -1218,11 +1380,13 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                 </div>
               ) : (
                 <p className="text-secondary mb-6 max-w-md mx-auto">
-                  Your library paths have been configured. Run Scan to start indexing files, or jump straight into your videos.
+                  Your library paths have been configured. Run Scan to start indexing files, or jump straight into your
+                  videos.
                 </p>
               )}
               <p className="text-xs text-muted mb-6">
-                You can add more paths, configure scrapers, set up MetadataServer connections, and change themes from Settings later.
+                You can add more paths, configure scrapers, set up MetadataServer connections, and change themes from
+                Settings later.
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 <button
@@ -1232,7 +1396,10 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   Go to Videos <ChevronRight className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => { setError(null); scanMut.mutate(); }}
+                  onClick={() => {
+                    setError(null);
+                    scanMut.mutate();
+                  }}
                   disabled={scanMut.isPending}
                   className="inline-flex items-center gap-2 px-6 py-3 bg-card border border-border text-secondary hover:text-foreground rounded-lg font-medium transition-colors"
                 >
@@ -1246,8 +1413,16 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                   <Settings className="w-4 h-4" /> Open Settings
                 </button>
               </div>
-              {scanJobId ? <p className="mt-4 text-xs text-green-300">Scan started. You can stay here or open Videos while it runs.</p> : null}
-              {error ? <div className="mx-auto mt-4 max-w-md rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300">{error}</div> : null}
+              {scanJobId ? (
+                <p className="mt-4 text-xs text-green-300">
+                  Scan started. You can stay here or open Videos while it runs.
+                </p>
+              ) : null}
+              {error ? (
+                <div className="mx-auto mt-4 max-w-md rounded-lg border border-red-700/50 bg-red-900/20 p-3 text-sm text-red-300">
+                  {error}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -1320,31 +1495,36 @@ function SetupImportProgressCard({ job }: { job: JobInfo }) {
     <div className="bg-card border border-border rounded-xl p-4">
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-foreground">{job.description}</span>
-        <span className={`text-xs px-1.5 py-0.5 rounded ${
-          job.status === "running"
-            ? "bg-green-600/20 text-green-300"
-            : job.status === "pending"
-            ? "bg-yellow-600/20 text-yellow-300"
-            : job.status === "failed"
-            ? "bg-red-600/20 text-red-300"
-            : "bg-card text-muted"
-        }`}>
+        <span
+          className={`text-xs px-1.5 py-0.5 rounded ${
+            job.status === "running"
+              ? "bg-green-600/20 text-green-300"
+              : job.status === "pending"
+                ? "bg-yellow-600/20 text-yellow-300"
+                : job.status === "failed"
+                  ? "bg-red-600/20 text-red-300"
+                  : "bg-card text-muted"
+          }`}
+        >
           {job.status}
         </span>
       </div>
-      <p className="text-xs text-muted mt-1 truncate">{job.subTask ?? (job.status === "pending" ? "Waiting for import job to start..." : "Preparing import...")}</p>
+      <p className="text-xs text-muted mt-1 truncate">
+        {job.subTask ?? (job.status === "pending" ? "Waiting for import job to start..." : "Preparing import...")}
+      </p>
       {(job.status === "running" || job.status === "pending") && (
         <>
           <div className="mt-3 h-2 w-full rounded-full bg-surface overflow-hidden">
-            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.min(progressPct, 100)}%` }} />
+            <div
+              className="h-full rounded-full bg-accent transition-all"
+              style={{ width: `${Math.min(progressPct, 100)}%` }}
+            />
           </div>
           <div className="flex items-center justify-between mt-1">
             <span className="text-xs text-muted">
               {progressPct}% · {formatJobDuration(elapsedMs)} elapsed
             </span>
-            {etaMs != null && (
-              <span className="text-xs text-muted">~{formatJobDuration(etaMs)} remaining</span>
-            )}
+            {etaMs != null && <span className="text-xs text-muted">~{formatJobDuration(etaMs)} remaining</span>}
           </div>
         </>
       )}

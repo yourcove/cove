@@ -18,9 +18,7 @@ describe("ServerAvailabilityBanner", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    const queryFn = vi.fn()
-      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
-      .mockResolvedValue("recovered");
+    const queryFn = vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValue("recovered");
     reportServerResponse(new Response("", { status: 502 }));
 
     render(

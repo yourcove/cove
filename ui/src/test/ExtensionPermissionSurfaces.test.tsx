@@ -37,17 +37,75 @@ vi.mock("../api/client", () => ({
   extensions: {
     getManifest: vi.fn().mockResolvedValue({
       pages: [
-        { route: "allowed-catalog", label: "Allowed", showInNav: true, navOrder: 10, requiredPermissions: ["catalog.view", "catalog.audit"], requiredPermissionMode: "all" },
-        { route: "any-catalog", label: "Any", showInNav: true, navOrder: 15, requiredPermissions: ["catalog.admin", "catalog.view"], requiredPermissionMode: "any" },
+        {
+          route: "allowed-catalog",
+          label: "Allowed",
+          showInNav: true,
+          navOrder: 10,
+          requiredPermissions: ["catalog.view", "catalog.audit"],
+          requiredPermissionMode: "all",
+        },
+        {
+          route: "any-catalog",
+          label: "Any",
+          showInNav: true,
+          navOrder: 15,
+          requiredPermissions: ["catalog.admin", "catalog.view"],
+          requiredPermissionMode: "any",
+        },
         { route: "legacy-catalog", label: "Legacy", showInNav: true, navOrder: 18, requiredPermission: "catalog.view" },
-        { route: "denied-catalog", label: "Denied", showInNav: true, navOrder: 20, requiredPermissions: ["catalog.view", "catalog.admin"], requiredPermissionMode: "all", extensionId: "catalog", componentName: "DeniedPage" },
+        {
+          route: "denied-catalog",
+          label: "Denied",
+          showInNav: true,
+          navOrder: 20,
+          requiredPermissions: ["catalog.view", "catalog.admin"],
+          requiredPermissionMode: "all",
+          extensionId: "catalog",
+          componentName: "DeniedPage",
+        },
       ],
       slots: [],
       tabs: [
-        { key: "allowed", label: "Allowed", pageType: "performer", extensionId: "catalog", componentName: "AllowedTab", order: 10, requiredPermissions: ["catalog.view", "catalog.audit"], requiredPermissionMode: "all" },
-        { key: "any", label: "Any", pageType: "performer", extensionId: "catalog", componentName: "AnyTab", order: 15, requiredPermissions: ["catalog.admin", "catalog.view"], requiredPermissionMode: "any" },
-        { key: "legacy", label: "Legacy", pageType: "performer", extensionId: "catalog", componentName: "LegacyTab", order: 18, requiredPermission: "catalog.view" },
-        { key: "denied", label: "Denied", pageType: "performer", extensionId: "catalog", componentName: "DeniedTab", order: 20, requiredPermissions: ["catalog.view", "catalog.admin"], requiredPermissionMode: "all" },
+        {
+          key: "allowed",
+          label: "Allowed",
+          pageType: "performer",
+          extensionId: "catalog",
+          componentName: "AllowedTab",
+          order: 10,
+          requiredPermissions: ["catalog.view", "catalog.audit"],
+          requiredPermissionMode: "all",
+        },
+        {
+          key: "any",
+          label: "Any",
+          pageType: "performer",
+          extensionId: "catalog",
+          componentName: "AnyTab",
+          order: 15,
+          requiredPermissions: ["catalog.admin", "catalog.view"],
+          requiredPermissionMode: "any",
+        },
+        {
+          key: "legacy",
+          label: "Legacy",
+          pageType: "performer",
+          extensionId: "catalog",
+          componentName: "LegacyTab",
+          order: 18,
+          requiredPermission: "catalog.view",
+        },
+        {
+          key: "denied",
+          label: "Denied",
+          pageType: "performer",
+          extensionId: "catalog",
+          componentName: "DeniedTab",
+          order: 20,
+          requiredPermissions: ["catalog.view", "catalog.admin"],
+          requiredPermissionMode: "all",
+        },
       ],
       features: [],
       themes: [],
@@ -60,16 +118,20 @@ vi.mock("../api/client", () => ({
       actions: [],
       listFilters: [],
       listSorts: [],
-      extensionBundles: [
-        { extensionId: "catalog", version: "1.0.0", jsBundleUrl: "/catalog.mjs?v=1" },
-      ],
+      extensionBundles: [{ extensionId: "catalog", version: "1.0.0", jsBundleUrl: "/catalog.mjs?v=1" }],
     }),
   },
 }));
 
 function TabProbe() {
   const { getTabsForPage } = useExtensions();
-  return <div>{getTabsForPage("performer").map((tab) => tab.key).join(",")}</div>;
+  return (
+    <div>
+      {getTabsForPage("performer")
+        .map((tab) => tab.key)
+        .join(",")}
+    </div>
+  );
 }
 
 afterEach(() => {

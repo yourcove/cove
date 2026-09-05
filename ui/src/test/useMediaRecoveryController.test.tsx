@@ -16,7 +16,10 @@ describe("useMediaRecoveryController", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetServerAvailabilityForTests();
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(null, { status: 200 }))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 200 }))),
+    );
   });
 
   afterEach(() => {
@@ -27,9 +30,12 @@ describe("useMediaRecoveryController", () => {
 
   it("keeps callbacks stable while using the latest transcode conversion", async () => {
     let rejectPlay!: (error: Error) => void;
-    const play = vi.fn(() => new Promise<void>((_resolve, reject) => {
-      rejectPlay = reject;
-    }));
+    const play = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectPlay = reject;
+        }),
+    );
     const media = createMedia(play);
     media.currentTime = 2;
     const mediaRef = { current: media };
@@ -37,14 +43,15 @@ describe("useMediaRecoveryController", () => {
     const initialPlayFailed = vi.fn();
     const currentPlayFailed = vi.fn();
     const { result, rerender } = renderHook(
-      ({ offset, onRecoveryPlayFailed }) => useMediaRecoveryController({
-        mediaRef,
-        resetKey: "video-1|source-a",
-        toAbsoluteTime: (time) => offset + time,
-        toMediaTime: (time) => time - offset,
-        setBuffering,
-        onRecoveryPlayFailed,
-      }),
+      ({ offset, onRecoveryPlayFailed }) =>
+        useMediaRecoveryController({
+          mediaRef,
+          resetKey: "video-1|source-a",
+          toAbsoluteTime: (time) => offset + time,
+          toMediaTime: (time) => time - offset,
+          setBuffering,
+          onRecoveryPlayFailed,
+        }),
       { initialProps: { offset: 40, onRecoveryPlayFailed: initialPlayFailed } },
     );
     const initialCallbacks = {
@@ -86,13 +93,14 @@ describe("useMediaRecoveryController", () => {
     const mediaRef = { current: media };
     const setBuffering = vi.fn();
     const { result, rerender } = renderHook(
-      ({ resetKey }) => useMediaRecoveryController({
-        mediaRef,
-        resetKey,
-        toAbsoluteTime: (time) => time,
-        toMediaTime: (time) => time,
-        setBuffering,
-      }),
+      ({ resetKey }) =>
+        useMediaRecoveryController({
+          mediaRef,
+          resetKey,
+          toAbsoluteTime: (time) => time,
+          toMediaTime: (time) => time,
+          setBuffering,
+        }),
       { initialProps: { resetKey: "video-1|source-a" } },
     );
 
@@ -111,13 +119,15 @@ describe("useMediaRecoveryController", () => {
     media.currentTime = 24;
     const mediaRef = { current: media };
     const setBuffering = vi.fn();
-    const { result } = renderHook(() => useMediaRecoveryController({
-      mediaRef,
-      resetKey: "video-1|source-a",
-      toAbsoluteTime: (time) => time,
-      toMediaTime: (time) => time,
-      setBuffering,
-    }));
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering,
+      }),
+    );
 
     act(() => result.current.waiting(media, "play"));
     expect(result.current.phase).toBe("stalled");
@@ -141,19 +151,25 @@ describe("useMediaRecoveryController", () => {
 
   it("ignores a late recovery play rejection from an old source", async () => {
     let rejectPlay!: (error: Error) => void;
-    const media = createMedia(vi.fn(() => new Promise<void>((_resolve, reject) => {
-      rejectPlay = reject;
-    })));
+    const media = createMedia(
+      vi.fn(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectPlay = reject;
+          }),
+      ),
+    );
     media.currentTime = 18;
     const mediaRef = { current: media };
     const { result, rerender } = renderHook(
-      ({ resetKey }) => useMediaRecoveryController({
-        mediaRef,
-        resetKey,
-        toAbsoluteTime: (time) => time,
-        toMediaTime: (time) => time,
-        setBuffering: vi.fn(),
-      }),
+      ({ resetKey }) =>
+        useMediaRecoveryController({
+          mediaRef,
+          resetKey,
+          toAbsoluteTime: (time) => time,
+          toMediaTime: (time) => time,
+          setBuffering: vi.fn(),
+        }),
       { initialProps: { resetKey: "video-1|source-a" } },
     );
 
@@ -175,20 +191,27 @@ describe("useMediaRecoveryController", () => {
 
   it("ignores an older play rejection after a newer same-source recovery attempt starts", async () => {
     const rejectPlays: Array<(error: Error) => void> = [];
-    const media = createMedia(vi.fn(() => new Promise<void>((_resolve, reject) => {
-      rejectPlays.push(reject);
-    })));
+    const media = createMedia(
+      vi.fn(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectPlays.push(reject);
+          }),
+      ),
+    );
     media.currentTime = 22;
     const mediaRef = { current: media };
     const onRecoveryPlayFailed = vi.fn();
-    const { result } = renderHook(() => useMediaRecoveryController({
-      mediaRef,
-      resetKey: "video-1|source-a",
-      toAbsoluteTime: (time) => time,
-      toMediaTime: (time) => time,
-      setBuffering: vi.fn(),
-      onRecoveryPlayFailed,
-    }));
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering: vi.fn(),
+        onRecoveryPlayFailed,
+      }),
+    );
 
     act(() => result.current.networkError(media, "play", false));
     act(() => vi.advanceTimersByTime(500));
@@ -218,20 +241,27 @@ describe("useMediaRecoveryController", () => {
 
   it("ignores an old recovery rejection after a newer user play succeeds", async () => {
     let rejectRecoveryPlay!: (error: Error) => void;
-    const media = createMedia(vi.fn(() => new Promise<void>((_resolve, reject) => {
-      rejectRecoveryPlay = reject;
-    })));
+    const media = createMedia(
+      vi.fn(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectRecoveryPlay = reject;
+          }),
+      ),
+    );
     media.currentTime = 28;
     const mediaRef = { current: media };
     const onRecoveryPlayFailed = vi.fn();
-    const { result } = renderHook(() => useMediaRecoveryController({
-      mediaRef,
-      resetKey: "video-1|source-a",
-      toAbsoluteTime: (time) => time,
-      toMediaTime: (time) => time,
-      setBuffering: vi.fn(),
-      onRecoveryPlayFailed,
-    }));
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering: vi.fn(),
+        onRecoveryPlayFailed,
+      }),
+    );
 
     act(() => result.current.networkError(media, "play", false));
     act(() => vi.advanceTimersByTime(500));
@@ -255,13 +285,15 @@ describe("useMediaRecoveryController", () => {
     media.currentTime = 17;
     const mediaRef = { current: media };
     const setBuffering = vi.fn();
-    const { result } = renderHook(() => useMediaRecoveryController({
-      mediaRef,
-      resetKey: "video-1|source-a",
-      toAbsoluteTime: (time) => time,
-      toMediaTime: (time) => time,
-      setBuffering,
-    }));
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering,
+      }),
+    );
 
     act(() => reportServerResponse(new Response(null, { status: 502 })));
     act(() => result.current.networkError(media, "play", false));
@@ -278,13 +310,15 @@ describe("useMediaRecoveryController", () => {
     const media = createMedia();
     media.currentTime = 36;
     const mediaRef = { current: media };
-    const { result } = renderHook(() => useMediaRecoveryController({
-      mediaRef,
-      resetKey: "video-1|source-a",
-      toAbsoluteTime: (time) => time,
-      toMediaTime: (time) => time,
-      setBuffering: vi.fn(),
-    }));
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering: vi.fn(),
+      }),
+    );
 
     act(() => result.current.networkError(media, "play", false));
     await act(() => vi.advanceTimersByTimeAsync(500));
@@ -308,13 +342,15 @@ describe("useMediaRecoveryController", () => {
     const media = createMedia();
     media.currentTime = 17;
     const mediaRef = { current: media };
-    const { result } = renderHook(() => useMediaRecoveryController({
-      mediaRef,
-      resetKey: "video-1|source-a",
-      toAbsoluteTime: (time) => time,
-      toMediaTime: (time) => time,
-      setBuffering: vi.fn(),
-    }));
+    const { result } = renderHook(() =>
+      useMediaRecoveryController({
+        mediaRef,
+        resetKey: "video-1|source-a",
+        toAbsoluteTime: (time) => time,
+        toMediaTime: (time) => time,
+        setBuffering: vi.fn(),
+      }),
+    );
 
     act(() => reportServerResponse(new Response(null, { status: 502 })));
     act(() => result.current.networkError(media, "play", false));

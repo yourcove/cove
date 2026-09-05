@@ -12,7 +12,7 @@ describe("ErrorBoundary", () => {
     render(
       <ErrorBoundaryModule.ErrorBoundary>
         <div>Hello</div>
-      </ErrorBoundaryModule.ErrorBoundary>
+      </ErrorBoundaryModule.ErrorBoundary>,
     );
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
@@ -23,7 +23,7 @@ describe("ErrorBoundary", () => {
     render(
       <ErrorBoundaryModule.ErrorBoundary>
         <ThrowingComponent shouldThrow={true} />
-      </ErrorBoundaryModule.ErrorBoundary>
+      </ErrorBoundaryModule.ErrorBoundary>,
     );
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
     expect(screen.getByText("Test error")).toBeInTheDocument();
@@ -38,7 +38,7 @@ describe("ErrorBoundary", () => {
     render(
       <ErrorBoundaryModule.ErrorBoundary onRetry={onRetry}>
         <ThrowingComponent shouldThrow={true} />
-      </ErrorBoundaryModule.ErrorBoundary>
+      </ErrorBoundaryModule.ErrorBoundary>,
     );
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
 

@@ -2,7 +2,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { BulkEditDialog, GROUP_BULK_FIELDS, PERFORMER_BULK_FIELDS, VIDEO_BULK_FIELDS } from "../components/BulkEditDialog";
+import {
+  BulkEditDialog,
+  GROUP_BULK_FIELDS,
+  PERFORMER_BULK_FIELDS,
+  VIDEO_BULK_FIELDS,
+} from "../components/BulkEditDialog";
 
 const mocks = vi.hoisted(() => ({
   tagsFind: vi.fn(),
@@ -92,7 +97,7 @@ describe("BulkEditDialog", () => {
     await user.click(screen.getByRole("checkbox", { name: "Groups" }));
     const overwriteButtons = screen.getAllByRole("button", { name: "Overwrite" });
     await user.click(overwriteButtons[1]);
-  await user.type(screen.getByPlaceholderText("Search groups..."), "Series");
+    await user.type(screen.getByPlaceholderText("Search groups..."), "Series");
     await waitFor(() => expect(screen.getByRole("option", { name: /Series One/i })).toBeInTheDocument());
     await user.click(screen.getByRole("option", { name: /Series One/i }));
 
@@ -160,7 +165,14 @@ describe("BulkEditDialog", () => {
     const onApply = vi.fn();
 
     const { rerender } = renderDialog(
-      <BulkEditDialog open onClose={vi.fn()} title="Edit Performers" selectedCount={2} fields={PERFORMER_BULK_FIELDS} onApply={onApply} />,
+      <BulkEditDialog
+        open
+        onClose={vi.fn()}
+        title="Edit Performers"
+        selectedCount={2}
+        fields={PERFORMER_BULK_FIELDS}
+        onApply={onApply}
+      />,
     );
     await user.click(screen.getByRole("checkbox", { name: "Country" }));
     await user.click(screen.getByRole("button", { name: "Show countries" }));
@@ -168,7 +180,19 @@ describe("BulkEditDialog", () => {
     await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenLastCalledWith({ country: "US" });
 
-    rerender(<QueryClientProvider client={new QueryClient()}><BulkEditDialog key="clear-country" open onClose={vi.fn()} title="Edit Performers" selectedCount={2} fields={PERFORMER_BULK_FIELDS} onApply={onApply} /></QueryClientProvider>);
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <BulkEditDialog
+          key="clear-country"
+          open
+          onClose={vi.fn()}
+          title="Edit Performers"
+          selectedCount={2}
+          fields={PERFORMER_BULK_FIELDS}
+          onApply={onApply}
+        />
+      </QueryClientProvider>,
+    );
     await user.click(screen.getByRole("checkbox", { name: "Country" }));
     await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenLastCalledWith({ country: null, clearFields: ["country"] });

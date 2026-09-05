@@ -27,7 +27,12 @@ describe("TextViewer", () => {
   });
 
   it("renders sanitized html content without flattening inline structure", () => {
-    render(<TextViewer renderMode="html" content={'<article><h1>Chapter One</h1><p>First <em>paragraph</em>.</p><script>alert("x")</script></article>'} />);
+    render(
+      <TextViewer
+        renderMode="html"
+        content={'<article><h1>Chapter One</h1><p>First <em>paragraph</em>.</p><script>alert("x")</script></article>'}
+      />,
+    );
 
     const content = screen.getByTestId("text-viewer-content");
 

@@ -49,12 +49,7 @@ describe("orderDetailTabsByMenuItems", () => {
   });
 
   it("keeps tabs omitted from the configured menu in their existing relative order", () => {
-    const tabs = [
-      { key: "videos" },
-      { key: "galleries" },
-      { key: "appearsWith" },
-      { key: "similar" },
-    ];
+    const tabs = [{ key: "videos" }, { key: "galleries" }, { key: "appearsWith" }, { key: "similar" }];
 
     expect(orderDetailTabsByMenuItems(tabs, ["galleries", "videos"]).map((tab) => tab.key)).toEqual([
       "galleries",

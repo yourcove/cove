@@ -4,8 +4,20 @@ export type NavVisibilityUser = {
   readGrantedEntityKinds?: string[];
 };
 
-export type EntityResource = "video" | "audio" | "text" | "image" | "performer" | "gallery" | "studio" | "tag" | "group" | "segment" | "face";
-export type NavPage = "videos" | "audios" | "texts" | "segments" | "images" | "faces" | "galleries" | "performers" | "studios" | "tags" | "groups";
+export type EntityResource =
+  "video" | "audio" | "text" | "image" | "performer" | "gallery" | "studio" | "tag" | "group" | "segment" | "face";
+export type NavPage =
+  | "videos"
+  | "audios"
+  | "texts"
+  | "segments"
+  | "images"
+  | "faces"
+  | "galleries"
+  | "performers"
+  | "studios"
+  | "tags"
+  | "groups";
 
 const READ_PERMISSIONS: Record<EntityResource, string> = {
   video: "videos.read",

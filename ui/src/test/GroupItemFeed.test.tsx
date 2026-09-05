@@ -5,7 +5,12 @@ import { GroupItemFeed } from "../components/GroupItemFeed";
 
 const { authState, mocks } = vi.hoisted(() => ({
   authState: {
-    user: { id: "7", kind: "user", readGrantedEntityKinds: [] as string[], uiPreferences: {} as { renderMarkdown?: boolean } },
+    user: {
+      id: "7",
+      kind: "user",
+      readGrantedEntityKinds: [] as string[],
+      uiPreferences: {} as { renderMarkdown?: boolean },
+    },
     permissions: ["groups.read", "videos.read", "images.read"],
   },
   mocks: {
@@ -46,14 +51,39 @@ vi.mock("../hooks/useEntityEngagement", () => ({
 }));
 
 vi.mock("../components/WallMediaCard", () => ({
-  WallMediaCard: ({ title, videoSrc, videoStartTimeSec, videoEndTimeSec, children }: { title: string; videoSrc?: string; videoStartTimeSec?: number; videoEndTimeSec?: number; children?: React.ReactNode }) => (
-    <div data-video-src={videoSrc} data-video-start={videoStartTimeSec} data-video-end={videoEndTimeSec}>Media for {title}{children}</div>
+  WallMediaCard: ({
+    title,
+    videoSrc,
+    videoStartTimeSec,
+    videoEndTimeSec,
+    children,
+  }: {
+    title: string;
+    videoSrc?: string;
+    videoStartTimeSec?: number;
+    videoEndTimeSec?: number;
+    children?: React.ReactNode;
+  }) => (
+    <div data-video-src={videoSrc} data-video-start={videoStartTimeSec} data-video-end={videoEndTimeSec}>
+      Media for {title}
+      {children}
+    </div>
   ),
 }));
 
 vi.mock("../components/VirtualizedInfiniteList", () => ({
-  VirtualizedInfiniteList: ({ items, renderItem }: { items: unknown[]; renderItem: (arg: { item: unknown; index: number; isActive: boolean }) => React.ReactNode }) => (
-    <div>{items.map((item, index) => <div key={index}>{renderItem({ item, index, isActive: true })}</div>)}</div>
+  VirtualizedInfiniteList: ({
+    items,
+    renderItem,
+  }: {
+    items: unknown[];
+    renderItem: (arg: { item: unknown; index: number; isActive: boolean }) => React.ReactNode;
+  }) => (
+    <div>
+      {items.map((item, index) => (
+        <div key={index}>{renderItem({ item, index, isActive: true })}</div>
+      ))}
+    </div>
   ),
 }));
 
@@ -62,7 +92,12 @@ describe("GroupItemFeed", () => {
     vi.clearAllMocks();
     authState.user = { id: "7", kind: "user", readGrantedEntityKinds: [], uiPreferences: {} };
     authState.permissions = ["groups.read", "videos.read", "images.read"];
-    mocks.useEntityEngagement.mockReturnValue({ engagement: undefined, rating: undefined, setRating: vi.fn(), ratingPending: false });
+    mocks.useEntityEngagement.mockReturnValue({
+      engagement: undefined,
+      rating: undefined,
+      setRating: vi.fn(),
+      ratingPending: false,
+    });
     mocks.getGroup.mockResolvedValue({ id: 4, name: "Mixed group", kind: "static" });
     mocks.pageItems.mockResolvedValue({
       items: [
@@ -73,8 +108,22 @@ describe("GroupItemFeed", () => {
       page: 1,
       perPage: 10,
     });
-    mocks.getVideo.mockResolvedValue({ id: 21, title: "Video entry", files: [{ width: 1920, height: 1080, duration: 60 }], updatedAt: "", tags: [], performers: [] });
-    mocks.getImage.mockResolvedValue({ id: 22, title: "Image entry", files: [{ width: 1200, height: 800 }], updatedAt: "", tags: [], performers: [] });
+    mocks.getVideo.mockResolvedValue({
+      id: 21,
+      title: "Video entry",
+      files: [{ width: 1920, height: 1080, duration: 60 }],
+      updatedAt: "",
+      tags: [],
+      performers: [],
+    });
+    mocks.getImage.mockResolvedValue({
+      id: 22,
+      title: "Image entry",
+      files: [{ width: 1200, height: 800 }],
+      updatedAt: "",
+      tags: [],
+      performers: [],
+    });
   });
 
   it("renders an ordered mixed group as native feed cards and navigates to an item", async () => {
@@ -94,12 +143,24 @@ describe("GroupItemFeed", () => {
     fireEvent.click(screen.getByRole("button", { name: "Video entry" }));
     expect(onNavigate).toHaveBeenCalledWith({ page: "video", id: 21 });
     await waitFor(() => expect(document.querySelectorAll("[data-feed-group-item]")).toHaveLength(2));
-    expect(mocks.useEntityEngagement.mock.calls.some((call) => call[2]?.enabled === true && String(call[2]?.queryScope).startsWith("user:7:"))).toBe(true);
+    expect(
+      mocks.useEntityEngagement.mock.calls.some(
+        (call) => call[2]?.enabled === true && String(call[2]?.queryScope).startsWith("user:7:"),
+      ),
+    ).toBe(true);
   });
 
   it("renders feed details as Markdown when the viewer enables it", async () => {
     authState.user.uiPreferences = { renderMarkdown: true };
-    mocks.getVideo.mockResolvedValue({ id: 21, title: "Video entry", details: "**Formatted feed details**", files: [{ width: 1920, height: 1080, duration: 60 }], updatedAt: "", tags: [], performers: [] });
+    mocks.getVideo.mockResolvedValue({
+      id: 21,
+      title: "Video entry",
+      details: "**Formatted feed details**",
+      files: [{ width: 1920, height: 1080, duration: 60 }],
+      updatedAt: "",
+      tags: [],
+      performers: [],
+    });
 
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -134,8 +195,28 @@ describe("GroupItemFeed", () => {
   it("does not expose cached group-item metadata or engagement when host hydration is denied", async () => {
     mocks.pageItems.mockResolvedValue({
       items: [
-        { id: 11, groupId: 4, orderIndex: 0, kind: "video", videoId: 21, videoTitle: "Restricted video", title: "Restricted override", notes: "Restricted notes", createdAt: "", updatedAt: "" },
-        { id: 12, groupId: 4, orderIndex: 1, kind: "image", imageId: 22, imageTitle: "Restricted image", createdAt: "", updatedAt: "" },
+        {
+          id: 11,
+          groupId: 4,
+          orderIndex: 0,
+          kind: "video",
+          videoId: 21,
+          videoTitle: "Restricted video",
+          title: "Restricted override",
+          notes: "Restricted notes",
+          createdAt: "",
+          updatedAt: "",
+        },
+        {
+          id: 12,
+          groupId: 4,
+          orderIndex: 1,
+          kind: "image",
+          imageId: 22,
+          imageTitle: "Restricted image",
+          createdAt: "",
+          updatedAt: "",
+        },
       ],
       totalCount: 2,
       page: 1,
@@ -158,7 +239,19 @@ describe("GroupItemFeed", () => {
 
   it("uses the full stream and bounded playback times for video-range items", async () => {
     mocks.pageItems.mockResolvedValue({
-      items: [{ id: 11, groupId: 4, orderIndex: 0, kind: "videoRange", videoId: 21, startSec: 12, endSec: 20, createdAt: "", updatedAt: "" }],
+      items: [
+        {
+          id: 11,
+          groupId: 4,
+          orderIndex: 0,
+          kind: "videoRange",
+          videoId: 21,
+          startSec: 12,
+          endSec: 20,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
       totalCount: 1,
       page: 1,
       perPage: 10,

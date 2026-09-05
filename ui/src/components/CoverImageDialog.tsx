@@ -50,10 +50,18 @@ export function CoverImageDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-foreground">{title}</h2>
-          <button type="button" onClick={onClose} className="rounded-lg border border-border bg-card p-1.5 text-secondary hover:text-foreground" title="Close">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-border bg-card p-1.5 text-secondary hover:text-foreground"
+            title="Close"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -97,7 +105,11 @@ export function CoverImageDialog({
           fallback={null}
         />
 
-        {extraActions ? <div className="mt-3 border-t border-border pt-3">{typeof extraActions === "function" ? extraActions(imageOperationPending) : extraActions}</div> : null}
+        {extraActions ? (
+          <div className="mt-3 border-t border-border pt-3">
+            {typeof extraActions === "function" ? extraActions(imageOperationPending) : extraActions}
+          </div>
+        ) : null}
       </div>
     </div>
   );

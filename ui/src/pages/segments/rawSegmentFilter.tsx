@@ -48,10 +48,7 @@ export function createRawSegmentCustomFilterSection(): FilterDialogCustomSection
     isActive: isRawSegmentFilterActive,
     summarize: summarizeRawSegmentFilter,
     renderEditor: (value, onChange) => (
-      <RawSegmentFilterEditor
-        value={readRawSegmentFilter(value)}
-        onChange={(nextValue) => onChange(nextValue)}
-      />
+      <RawSegmentFilterEditor value={readRawSegmentFilter(value)} onChange={(nextValue) => onChange(nextValue)} />
     ),
   };
 }
@@ -81,7 +78,10 @@ export function readRawSegmentFilter(value: unknown): RawSegmentFilterValue {
   };
 
   return {
-    sourceCategory: candidate.sourceCategory === "user" || candidate.sourceCategory === "extensions" ? candidate.sourceCategory : undefined,
+    sourceCategory:
+      candidate.sourceCategory === "user" || candidate.sourceCategory === "extensions"
+        ? candidate.sourceCategory
+        : undefined,
     sourceKey: normalizeString(candidate.sourceKey),
     kind: normalizeString(candidate.kind),
     tagIds: normalizeIdArray(candidate.tagIds),
@@ -131,14 +131,14 @@ export function readRawSegmentListFilter(objectFilter: Record<string, unknown>) 
 export function isRawSegmentFilterActive(value: unknown) {
   const filter = readRawSegmentFilter(value);
   return Boolean(
-    filter.sourceCategory
-    || filter.sourceKey
-    || filter.kind
-    || filter.tagIds.length > 0
-    || filter.performerIds.length > 0
-    || filter.faceIds.length > 0
-    || filter.minConfidence != null
-    || filter.minDurationSec != null,
+    filter.sourceCategory ||
+    filter.sourceKey ||
+    filter.kind ||
+    filter.tagIds.length > 0 ||
+    filter.performerIds.length > 0 ||
+    filter.faceIds.length > 0 ||
+    filter.minConfidence != null ||
+    filter.minDurationSec != null,
   );
 }
 
@@ -150,7 +150,8 @@ function summarizeRawSegmentFilter(value: unknown) {
   if (filter.sourceKey) parts.push(filter.sourceKey);
   if (filter.kind) parts.push(filter.kind);
   if (filter.tagIds.length > 0) parts.push(`${filter.tagIds.length} tag${filter.tagIds.length === 1 ? "" : "s"}`);
-  if (filter.performerIds.length > 0) parts.push(`${filter.performerIds.length} performer${filter.performerIds.length === 1 ? "" : "s"}`);
+  if (filter.performerIds.length > 0)
+    parts.push(`${filter.performerIds.length} performer${filter.performerIds.length === 1 ? "" : "s"}`);
   if (filter.faceIds.length > 0) parts.push(`${filter.faceIds.length} face${filter.faceIds.length === 1 ? "" : "s"}`);
   if (filter.minConfidence != null) parts.push(`${Math.round(filter.minConfidence * 100)}%+ confidence`);
   if (filter.minDurationSec != null) parts.push(`${filter.minDurationSec}s+`);
@@ -158,7 +159,13 @@ function summarizeRawSegmentFilter(value: unknown) {
   return parts.length > 0 ? parts.join(" · ") : "Raw segments";
 }
 
-function RawSegmentFilterEditor({ value, onChange }: { value: RawSegmentFilterValue; onChange: (value: RawSegmentFilterValue) => void }) {
+function RawSegmentFilterEditor({
+  value,
+  onChange,
+}: {
+  value: RawSegmentFilterValue;
+  onChange: (value: RawSegmentFilterValue) => void;
+}) {
   const sourceOptionsQuery = useQuery({
     queryKey: ["segments-page", "raw-filter", "source-keys"],
     queryFn: () => segmentLibrary.distinctSourceKeys(),
@@ -179,7 +186,13 @@ function RawSegmentFilterEditor({ value, onChange }: { value: RawSegmentFilterVa
           <span className="font-semibold uppercase tracking-wide text-muted">Provider</span>
           <select
             value={value.sourceCategory ?? ""}
-            onChange={(event) => onChange({ ...value, sourceCategory: event.target.value === "user" || event.target.value === "extensions" ? event.target.value : undefined })}
+            onChange={(event) =>
+              onChange({
+                ...value,
+                sourceCategory:
+                  event.target.value === "user" || event.target.value === "extensions" ? event.target.value : undefined,
+              })
+            }
             className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
           >
             <option value="">Any provider</option>
@@ -195,9 +208,15 @@ function RawSegmentFilterEditor({ value, onChange }: { value: RawSegmentFilterVa
             className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
           >
             <option value="">Any source</option>
-            {sourceOptionsQuery.isLoading && sourceOptions.length === 0 ? <option value="" disabled>Loading sources...</option> : null}
+            {sourceOptionsQuery.isLoading && sourceOptions.length === 0 ? (
+              <option value="" disabled>
+                Loading sources...
+              </option>
+            ) : null}
             {sourceOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.value} ({option.count})</option>
+              <option key={option.value} value={option.value}>
+                {option.value} ({option.count})
+              </option>
             ))}
           </select>
         </label>
@@ -209,9 +228,15 @@ function RawSegmentFilterEditor({ value, onChange }: { value: RawSegmentFilterVa
             className="w-full rounded border border-border bg-input px-2 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
           >
             <option value="">Any kind</option>
-            {kindOptionsQuery.isLoading && kindOptions.length === 0 ? <option value="" disabled>Loading kinds...</option> : null}
+            {kindOptionsQuery.isLoading && kindOptions.length === 0 ? (
+              <option value="" disabled>
+                Loading kinds...
+              </option>
+            ) : null}
             {kindOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.value} ({option.count})</option>
+              <option key={option.value} value={option.value}>
+                {option.value} ({option.count})
+              </option>
             ))}
           </select>
         </label>
@@ -245,15 +270,33 @@ function RawSegmentFilterEditor({ value, onChange }: { value: RawSegmentFilterVa
         </label>
         <div className="space-y-1">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted">Tags</div>
-          <EntityMultiSelector entityType="tags" values={value.tagIds} onChange={(tagIds) => onChange({ ...value, tagIds })} placeholder="Search tags..." emptyMessage="No tags found" />
+          <EntityMultiSelector
+            entityType="tags"
+            values={value.tagIds}
+            onChange={(tagIds) => onChange({ ...value, tagIds })}
+            placeholder="Search tags..."
+            emptyMessage="No tags found"
+          />
         </div>
         <div className="space-y-1">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted">Performers</div>
-          <EntityMultiSelector entityType="performers" values={value.performerIds} onChange={(performerIds) => onChange({ ...value, performerIds })} placeholder="Search performers..." emptyMessage="No performers found" />
+          <EntityMultiSelector
+            entityType="performers"
+            values={value.performerIds}
+            onChange={(performerIds) => onChange({ ...value, performerIds })}
+            placeholder="Search performers..."
+            emptyMessage="No performers found"
+          />
         </div>
         <div className="space-y-1">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted">Faces</div>
-          <EntityMultiSelector entityType="faces" values={value.faceIds} onChange={(faceIds) => onChange({ ...value, faceIds })} placeholder="Search faces..." emptyMessage="No faces found" />
+          <EntityMultiSelector
+            entityType="faces"
+            values={value.faceIds}
+            onChange={(faceIds) => onChange({ ...value, faceIds })}
+            placeholder="Search faces..."
+            emptyMessage="No faces found"
+          />
         </div>
       </div>
     </div>

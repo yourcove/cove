@@ -30,8 +30,8 @@ export function useDetailListQuery<TItem extends { id: string | number }>({
     data: {
       items: listData.items,
       totalCount: listData.totalCount,
-      page: filter.perPage === 0 ? 1 : filter.page ?? 1,
-      perPage: filter.perPage === 0 ? chunkSize : filter.perPage ?? chunkSize,
+      page: filter.perPage === 0 ? 1 : (filter.page ?? 1),
+      perPage: filter.perPage === 0 ? chunkSize : (filter.perPage ?? chunkSize),
     } satisfies PaginatedResponse<TItem>,
     isLoading: listData.isLoading,
     loadError: listData.loadError,

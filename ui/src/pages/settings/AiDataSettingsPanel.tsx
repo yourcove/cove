@@ -3,7 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, RefreshCw, Search, Trash2 } from "lucide-react";
 
 import { aiData } from "../../api/client";
-import type { AiDataKind, AiDataPurgeRequest, AiDataPurgeResult, AiDataSelector, AiDataSummaryItem } from "../../api/types";
+import type {
+  AiDataKind,
+  AiDataPurgeRequest,
+  AiDataPurgeResult,
+  AiDataSelector,
+  AiDataSummaryItem,
+} from "../../api/types";
 import { SectionCard, SelectField, SettingsMetricCard, TextField } from "../../components/SettingsPrimitives";
 import { useExtensions } from "../../extensions/ExtensionLoader";
 
@@ -85,16 +91,28 @@ export function AiDataSettingsPanel() {
   const activeSummary = previewSummary && previewMatchesCurrent ? previewSummary : overallSummary;
   const hasActiveFilters = selectorKey !== JSON.stringify({});
   const previewTotal = previewResult ? getPurgeTotal(previewResult) : 0;
-  const canPurge = Boolean(previewResult && previewMatchesCurrent && previewTotal > 0 && !previewPurgeQuery.isFetching && !purgeMutation.isPending);
+  const canPurge = Boolean(
+    previewResult &&
+    previewMatchesCurrent &&
+    previewTotal > 0 &&
+    !previewPurgeQuery.isFetching &&
+    !purgeMutation.isPending,
+  );
 
   return (
     <div className="space-y-5">
       <PurgeConfirmDialog
         open={confirmOpen}
-        previewResult={previewMatchesCurrent ? previewResult ?? null : null}
+        previewResult={previewMatchesCurrent ? (previewResult ?? null) : null}
         previewTotal={previewMatchesCurrent ? previewTotal : 0}
         isPending={purgeMutation.isPending}
-        error={purgeMutation.isError ? (purgeMutation.error instanceof Error ? purgeMutation.error.message : "Purge failed.") : null}
+        error={
+          purgeMutation.isError
+            ? purgeMutation.error instanceof Error
+              ? purgeMutation.error.message
+              : "Purge failed."
+            : null
+        }
         onConfirm={() => {
           if (previewSelector) {
             purgeMutation.mutate(buildPurgeRequest(previewSelector, false));
@@ -106,7 +124,7 @@ export function AiDataSettingsPanel() {
       <SectionCard
         title="AI Artifact Totals"
         description="Current counts across embeddings, detections, timeline segments, tag provenance, and face-owned AI state."
-        actions={(
+        actions={
           <button
             type="button"
             onClick={() => {
@@ -117,12 +135,15 @@ export function AiDataSettingsPanel() {
             <RefreshCw className={`h-4 w-4 ${summaryQuery.isFetching ? "animate-spin" : ""}`} />
             Refresh
           </button>
-        )}
+        }
       >
-
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {KIND_OPTIONS.map((option) => (
-            <SettingsMetricCard key={option.value} label={option.label} value={(overallSummary?.totals?.[option.value] ?? 0).toLocaleString()} />
+            <SettingsMetricCard
+              key={option.value}
+              label={option.label}
+              value={(overallSummary?.totals?.[option.value] ?? 0).toLocaleString()}
+            />
           ))}
         </div>
       </SectionCard>
@@ -134,18 +155,21 @@ export function AiDataSettingsPanel() {
         }
 
         return (
-          <SectionCard key={panel.id} title={panel.label} description={`Provided by the ${panel.extensionId} extension.`}>
+          <SectionCard
+            key={panel.id}
+            title={panel.label}
+            description={`Provided by the ${panel.extensionId} extension.`}
+          >
             <Component />
           </SectionCard>
         );
       })}
 
-
       <SectionCard
         title="Selector"
         description="Preview a selector before running a destructive purge. Leaving fields empty broadens the match."
         headerClassName="flex-col lg:flex-row lg:items-start"
-        actions={(
+        actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -156,7 +180,11 @@ export function AiDataSettingsPanel() {
               disabled={previewSummaryQuery.isFetching || previewPurgeQuery.isFetching}
               className="inline-flex items-center gap-2 rounded-xl bg-accent px-3 py-2 text-sm font-medium text-white transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {previewSummaryQuery.isFetching || previewPurgeQuery.isFetching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              {previewSummaryQuery.isFetching || previewPurgeQuery.isFetching ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
               {previewSummaryQuery.isFetching || previewPurgeQuery.isFetching ? "Previewing..." : "Preview"}
             </button>
             <button
@@ -181,16 +209,45 @@ export function AiDataSettingsPanel() {
               Purge
             </button>
           </div>
-        )}
+        }
       >
-
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <TextField label="Source key" value={filters.sourceKey} onChange={(value) => setFilters((current) => ({ ...current, sourceKey: value }))} placeholder="ext:your.extension" />
-          <TextField label="Source run id" value={filters.sourceRunId} onChange={(value) => setFilters((current) => ({ ...current, sourceRunId: value }))} placeholder="run-1234" />
-          <TextField label="Model" value={filters.model} onChange={(value) => setFilters((current) => ({ ...current, model: value }))} placeholder="tagger-v1" />
-          <SelectField label="Modality" value={filters.modality} onChange={(value) => setFilters((current) => ({ ...current, modality: value }))} options={buildAnyOptions(MODALITY_OPTIONS)} />
-          <SelectField label="Host type" value={filters.hostType} onChange={(value) => setFilters((current) => ({ ...current, hostType: value }))} options={buildAnyOptions(HOST_TYPE_OPTIONS)} />
-          <TextField label="Host id" value={filters.hostId} onChange={(value) => setFilters((current) => ({ ...current, hostId: value }))} placeholder="42" />
+          <TextField
+            label="Source key"
+            value={filters.sourceKey}
+            onChange={(value) => setFilters((current) => ({ ...current, sourceKey: value }))}
+            placeholder="ext:your.extension"
+          />
+          <TextField
+            label="Source run id"
+            value={filters.sourceRunId}
+            onChange={(value) => setFilters((current) => ({ ...current, sourceRunId: value }))}
+            placeholder="run-1234"
+          />
+          <TextField
+            label="Model"
+            value={filters.model}
+            onChange={(value) => setFilters((current) => ({ ...current, model: value }))}
+            placeholder="tagger-v1"
+          />
+          <SelectField
+            label="Modality"
+            value={filters.modality}
+            onChange={(value) => setFilters((current) => ({ ...current, modality: value }))}
+            options={buildAnyOptions(MODALITY_OPTIONS)}
+          />
+          <SelectField
+            label="Host type"
+            value={filters.hostType}
+            onChange={(value) => setFilters((current) => ({ ...current, hostType: value }))}
+            options={buildAnyOptions(HOST_TYPE_OPTIONS)}
+          />
+          <TextField
+            label="Host id"
+            value={filters.hostId}
+            onChange={(value) => setFilters((current) => ({ ...current, hostId: value }))}
+            placeholder="42"
+          />
         </div>
 
         <div className="mt-4">
@@ -244,11 +301,15 @@ export function AiDataSettingsPanel() {
               Dry-run preview would remove {previewTotal.toLocaleString()} row(s)
             </div>
             <p className="mt-1 text-sm text-secondary">
-              {hasActiveFilters ? "This preview is scoped to the current selector." : "No filters are set, so the preview spans all AI-managed artifacts."}
+              {hasActiveFilters
+                ? "This preview is scoped to the current selector."
+                : "No filters are set, so the preview spans all AI-managed artifacts."}
             </p>
             <PurgeKindCounts result={previewResult} />
             {previewTotal === 0 ? (
-              <p className="mt-3 text-sm text-secondary">Nothing matches the current selector, so deletion stays disabled.</p>
+              <p className="mt-3 text-sm text-secondary">
+                Nothing matches the current selector, so deletion stays disabled.
+              </p>
             ) : (
               <p className="mt-3 text-sm text-secondary">Open Purge and type purge to enable the destructive action.</p>
             )}
@@ -256,8 +317,10 @@ export function AiDataSettingsPanel() {
         ) : null}
       </SectionCard>
 
-      <SectionCard title={previewSummary && previewMatchesCurrent ? "Preview Results" : "Summary Table"} description="Grouped by artifact kind, detail, provenance source, model, and host type.">
-
+      <SectionCard
+        title={previewSummary && previewMatchesCurrent ? "Preview Results" : "Summary Table"}
+        description="Grouped by artifact kind, detail, provenance source, model, and host type."
+      >
         {summaryQuery.isLoading || previewSummaryQuery.isFetching ? (
           <div className="mt-6 flex items-center justify-center py-10 text-secondary">
             <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -336,7 +399,12 @@ function PurgeKindCounts({ result }: { result: AiDataPurgeResult }) {
   return (
     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {KIND_OPTIONS.map((option) => (
-        <SettingsMetricCard key={option.value} label={option.label} value={(result.removedCounts[option.value] ?? 0).toLocaleString()} valueClassName="text-xl" />
+        <SettingsMetricCard
+          key={option.value}
+          label={option.label}
+          value={(result.removedCounts[option.value] ?? 0).toLocaleString()}
+          valueClassName="text-xl"
+        />
       ))}
     </div>
   );
@@ -378,11 +446,15 @@ function PurgeConfirmDialog({
       <div className="fixed inset-0 bg-black/60" onClick={onCancel} />
       <div className="relative mx-4 w-full max-w-2xl rounded-lg border border-border bg-surface p-6 shadow-xl">
         <h3 className="text-lg font-semibold text-foreground">Purge AI Data</h3>
-        <p className="mt-2 text-sm text-secondary">This permanently deletes the AI artifacts from the current dry-run preview.</p>
+        <p className="mt-2 text-sm text-secondary">
+          This permanently deletes the AI artifacts from the current dry-run preview.
+        </p>
 
         {previewResult ? (
           <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
-            <div className="text-sm font-medium text-foreground">This delete will remove {previewTotal.toLocaleString()} row(s).</div>
+            <div className="text-sm font-medium text-foreground">
+              This delete will remove {previewTotal.toLocaleString()} row(s).
+            </div>
             <PurgeKindCounts result={previewResult} />
           </div>
         ) : (
@@ -392,7 +464,9 @@ function PurgeConfirmDialog({
         )}
 
         <div className="mt-4 flex flex-col gap-2">
-          <p className="text-sm font-medium text-red-300">Final confirmation: type purge to enable permanent deletion.</p>
+          <p className="text-sm font-medium text-red-300">
+            Final confirmation: type purge to enable permanent deletion.
+          </p>
           <input
             type="text"
             value={value}
@@ -417,7 +491,9 @@ function PurgeConfirmDialog({
             disabled={!canConfirm}
             className="flex items-center gap-1.5 rounded-md bg-red-700 px-4 py-2 text-sm text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isPending ? <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" /> : null}
+            {isPending ? (
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+            ) : null}
             Delete AI Data
           </button>
         </div>
@@ -427,10 +503,7 @@ function PurgeConfirmDialog({
 }
 
 function buildAnyOptions(options: readonly string[]) {
-  return [
-    { value: "", label: "Any" },
-    ...options.map((option) => ({ value: option, label: formatKind(option) })),
-  ];
+  return [{ value: "", label: "Any" }, ...options.map((option) => ({ value: option, label: formatKind(option) }))];
 }
 
 function formatKind(value: string) {
@@ -443,5 +516,7 @@ function formatKind(value: string) {
 }
 
 function buildRowKey(item: AiDataSummaryItem) {
-  return [item.kind, item.detail ?? "", item.sourceKey, item.sourceRunId ?? "", item.model ?? "", item.hostType].join("::");
+  return [item.kind, item.detail ?? "", item.sourceKey, item.sourceRunId ?? "", item.model ?? "", item.hostType].join(
+    "::",
+  );
 }

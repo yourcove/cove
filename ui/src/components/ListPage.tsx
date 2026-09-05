@@ -1,6 +1,40 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { LayoutGrid, List, Tags, Grid3X3, Share2, FolderTree, ZoomIn, ZoomOut, SlidersHorizontal, Plus, X, Rows3, MonitorPlay, Play, Pause } from "lucide-react";
-import type { CriterionModifier, CustomFieldCriterion, CustomFieldDefinition, CustomFieldEntityType, CustomFieldType, ExtensionListFilterContribution, ExtensionListSortContribution, FindFilter } from "../api/types";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  LayoutGrid,
+  List,
+  Tags,
+  Grid3X3,
+  Share2,
+  FolderTree,
+  ZoomIn,
+  ZoomOut,
+  SlidersHorizontal,
+  Plus,
+  X,
+  Rows3,
+  MonitorPlay,
+  Play,
+  Pause,
+} from "lucide-react";
+import type {
+  CriterionModifier,
+  CustomFieldCriterion,
+  CustomFieldDefinition,
+  CustomFieldEntityType,
+  CustomFieldType,
+  ExtensionListFilterContribution,
+  ExtensionListSortContribution,
+  FindFilter,
+} from "../api/types";
 import { ExtensionSlot } from "../router/RouteRegistry";
 import { getDefaultFilter, SavedFilterMenu } from "./SavedFilterMenu";
 import { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
@@ -9,13 +43,24 @@ import { FilterDialog, type FilterDialogPreselection } from "./FilterDialog";
 import { FilterButton } from "./FilterButton";
 import type { CriterionDefinition, CriterionType, EntityType, FilterDialogCustomSection } from "./filterCriteriaTypes";
 import { migrateLegacyPerformerFavoriteCriterion } from "./filterCriterionState";
-import { EntityReferenceSelector, getEntityReferenceLabel, isEntityReferenceType, parseEntityReferenceId } from "./EntityReferenceSelector";
+import {
+  EntityReferenceSelector,
+  getEntityReferenceLabel,
+  isEntityReferenceType,
+  parseEntityReferenceId,
+} from "./EntityReferenceSelector";
 import { useResolvedKeybindingOverrides } from "../hooks/useResolvedKeybindingOverrides";
 import { useKeySequence } from "../hooks/useKeySequence";
 import { resolveKeybinding } from "../keyboard/keybindings";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useCustomFieldDefinitions } from "../hooks/useCustomFieldDefinitions";
-import { clampEntityCardSizeLevel, getEntityCardMaxLevel, getEntityCardMinWidthPx, parseEntityCardSizeLevel, useEntityCardSize } from "../hooks/useEntityCardSize";
+import {
+  clampEntityCardSizeLevel,
+  getEntityCardMaxLevel,
+  getEntityCardMinWidthPx,
+  parseEntityCardSizeLevel,
+  useEntityCardSize,
+} from "../hooks/useEntityCardSize";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { withSeededRandomSort } from "../utils/seededRandomSort";
 import { defaultSortDirection, getSortClauses } from "../utils/sortClauses";
@@ -24,8 +69,18 @@ import { toolbarIconButtonClass, toolbarSegmentClass, toolbarSelectClass } from 
 import { PageSizeSelect } from "./PageSizeSelect";
 import { ListPageCardSizeContext } from "./ListPageCardSizeContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
-import { ActiveObjectFilterChips, countActiveObjectFilters, getFilterChipTargetKey, removeObjectFilterChipTarget } from "./ActiveObjectFilterChips";
-import { collapseExtensionCriteria, executableExtensionFilterKey, expandExtensionCriteria, unavailableExtensionCriterionDefinitions } from "../extensions/extensionListFilters";
+import {
+  ActiveObjectFilterChips,
+  countActiveObjectFilters,
+  getFilterChipTargetKey,
+  removeObjectFilterChipTarget,
+} from "./ActiveObjectFilterChips";
+import {
+  collapseExtensionCriteria,
+  executableExtensionFilterKey,
+  expandExtensionCriteria,
+  unavailableExtensionCriterionDefinitions,
+} from "../extensions/extensionListFilters";
 import { QueryState } from "./QueryState";
 import { resolveQueryLoadState, type QueryLoadState } from "../utils/queryLoadState";
 import { ListSearchControl, type ListSearchCommitSource } from "./ListSearchControl";
@@ -103,7 +158,17 @@ export interface ListPageProps {
 }
 const DEFAULT_ZOOM_LEVEL = 1;
 const RELEVANCE_SORT_OPTION = { value: "relevance", label: "Relevance" } as const;
-const RELEVANCE_SORT_ENTITY_TYPES = new Set(["video", "image", "audio", "text", "gallery", "performer", "tag", "group", "studio"]);
+const RELEVANCE_SORT_ENTITY_TYPES = new Set([
+  "video",
+  "image",
+  "audio",
+  "text",
+  "gallery",
+  "performer",
+  "tag",
+  "group",
+  "studio",
+]);
 const CUSTOM_FIELD_ENTITY_BY_FILTER_MODE: Record<string, CustomFieldEntityType> = {
   videos: "video",
   audios: "audio",
@@ -177,8 +242,24 @@ const CUSTOM_FIELD_MODIFIER_LABELS: Record<CriterionModifier, string> = {
   NOT_UNDER_PATH: "Not Under",
 };
 
-const TEXT_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "IS_NULL", "NOT_NULL"];
-const ORDERED_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "BETWEEN", "NOT_BETWEEN", "IS_NULL", "NOT_NULL"];
+const TEXT_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = [
+  "EQUALS",
+  "NOT_EQUALS",
+  "INCLUDES",
+  "EXCLUDES",
+  "IS_NULL",
+  "NOT_NULL",
+];
+const ORDERED_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = [
+  "EQUALS",
+  "NOT_EQUALS",
+  "GREATER_THAN",
+  "LESS_THAN",
+  "BETWEEN",
+  "NOT_BETWEEN",
+  "IS_NULL",
+  "NOT_NULL",
+];
 const BOOLEAN_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["EQUALS", "NOT_EQUALS", "IS_NULL", "NOT_NULL"];
 const REFERENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["INCLUDES", "EXCLUDES", "IS_NULL", "NOT_NULL"];
 const PRESENCE_CUSTOM_FIELD_MODIFIERS: CriterionModifier[] = ["NOT_NULL", "IS_NULL"];
@@ -193,7 +274,9 @@ function getDefaultCustomFieldValue(type: CustomFieldType) {
 }
 
 function normalizeCustomFieldCriteria(value: unknown): CustomFieldCriterion[] {
-  return Array.isArray(value) ? value.filter((item): item is CustomFieldCriterion => Boolean(item && typeof item === "object")) : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is CustomFieldCriterion => Boolean(item && typeof item === "object"))
+    : [];
 }
 
 function isCustomFieldCriterionActive(value: CustomFieldCriterion | undefined) {
@@ -282,9 +365,10 @@ function createExtensionCriterionDefinition(contribution: ExtensionListFilterCon
   const criterionType = normalizeCriterionType(contribution.criterionType || contribution.customFieldType);
   const executableFilterKey = executableExtensionFilterKey(contribution);
   if (contribution.filterId && !executableFilterKey) return null;
-  const filterKey = executableFilterKey
-    || contribution.filterKey
-    || (contribution.customFieldKey ? `extension:${contribution.extensionId}:${contribution.id}` : undefined);
+  const filterKey =
+    executableFilterKey ||
+    contribution.filterKey ||
+    (contribution.customFieldKey ? `extension:${contribution.extensionId}:${contribution.id}` : undefined);
   if (!filterKey) return null;
 
   return {
@@ -301,7 +385,11 @@ function createExtensionCriterionDefinition(contribution: ExtensionListFilterCon
 }
 
 function createExtensionSortOption(contribution: ExtensionListSortContribution) {
-  const value = contribution.sortKey || (contribution.customFieldKey ? `custom:${contribution.customFieldType || "text"}:${contribution.customFieldKey}` : undefined);
+  const value =
+    contribution.sortKey ||
+    (contribution.customFieldKey
+      ? `custom:${contribution.customFieldType || "text"}:${contribution.customFieldKey}`
+      : undefined);
   return value ? { value, label: contribution.label } : null;
 }
 
@@ -330,12 +418,11 @@ function customFieldQueryDefinitionId(definition: CustomFieldQueryDefinition) {
   return definition.jsonPath ? `${definition.key}:${encodeURIComponent(definition.jsonPath)}` : definition.key;
 }
 
-function findCustomFieldQueryDefinition(
-  definitions: CustomFieldQueryDefinition[],
-  criterion: CustomFieldCriterion,
-) {
-  return definitions.find((candidate) => candidate.key === criterion.key
-    && (candidate.jsonPath ?? undefined) === (criterion.jsonPath ?? undefined));
+function findCustomFieldQueryDefinition(definitions: CustomFieldQueryDefinition[], criterion: CustomFieldCriterion) {
+  return definitions.find(
+    (candidate) =>
+      candidate.key === criterion.key && (candidate.jsonPath ?? undefined) === (criterion.jsonPath ?? undefined),
+  );
 }
 
 function createCustomFieldQueryDefinitions(
@@ -344,12 +431,16 @@ function createCustomFieldQueryDefinitions(
 ): CustomFieldQueryDefinition[] {
   return definitions.flatMap((definition) => {
     if (definition.type === "longText") {
-      return capability === "filterable" ? [{
-        ...definition,
-        fieldLabel: definition.label || definition.key,
-        targetLabel: "Presence",
-        filterable: true,
-      }] : [];
+      return capability === "filterable"
+        ? [
+            {
+              ...definition,
+              fieldLabel: definition.label || definition.key,
+              targetLabel: "Presence",
+              filterable: true,
+            },
+          ]
+        : [];
     }
 
     if (definition.type !== "json") {
@@ -368,15 +459,18 @@ function createCustomFieldQueryDefinitions(
         filterable: jsonPath.filterable,
         sortable: jsonPath.sortable,
         jsonPath: jsonPath.path,
-    }));
+      }));
 
     if (capability === "sortable") return pathDefinitions;
-    return [{
-      ...definition,
-      fieldLabel: definition.label || definition.key,
-      targetLabel: "Presence",
-      filterable: true,
-    }, ...pathDefinitions];
+    return [
+      {
+        ...definition,
+        fieldLabel: definition.label || definition.key,
+        targetLabel: "Presence",
+        filterable: true,
+      },
+      ...pathDefinitions,
+    ];
   });
 }
 
@@ -419,7 +513,9 @@ function createCustomFieldFilterSection(definitions: CustomFieldQueryDefinition[
     if (!definition) return criterion;
     const availableModifiers = getCustomFieldModifiers(definition.type);
     const defaultModifier = getDefaultCustomFieldModifier(definition.type);
-    const modifier = availableModifiers.includes(criterion.modifier ?? defaultModifier) ? (criterion.modifier ?? defaultModifier) : defaultModifier;
+    const modifier = availableModifiers.includes(criterion.modifier ?? defaultModifier)
+      ? (criterion.modifier ?? defaultModifier)
+      : defaultModifier;
     return { ...criterion, type: definition.type, jsonPath: definition.jsonPath, modifier };
   };
 
@@ -430,24 +526,29 @@ function createCustomFieldFilterSection(definitions: CustomFieldQueryDefinition[
     defaultValue: [] satisfies CustomFieldCriterion[],
     isActive: (value) => normalizeCustomFieldCriteria(value).map(normalizeCriterion).some(isCustomFieldCriterionActive),
     shouldKeepDraft: (value) => normalizeCustomFieldCriteria(value).some((criterion) => Boolean(criterion.key)),
-    sanitize: (value) => normalizeCustomFieldCriteria(value).map(normalizeCriterion).filter(isCustomFieldCriterionActive),
+    sanitize: (value) =>
+      normalizeCustomFieldCriteria(value).map(normalizeCriterion).filter(isCustomFieldCriterionActive),
     summarize: (value) => {
-      const activeCriteria = normalizeCustomFieldCriteria(value).map(normalizeCriterion).filter(isCustomFieldCriterionActive);
+      const activeCriteria = normalizeCustomFieldCriteria(value)
+        .map(normalizeCriterion)
+        .filter(isCustomFieldCriterionActive);
       if (activeCriteria.length === 0) return "";
-      return activeCriteria.map((criterion) => {
-        const definition = findCustomFieldQueryDefinition(definitions, criterion);
-        const label = definition?.label || criterion.key;
-        const modifier = CUSTOM_FIELD_MODIFIER_LABELS[criterion.modifier ?? "EQUALS"];
-        if (criterion.modifier === "IS_NULL" || criterion.modifier === "NOT_NULL") {
-          return `${label} ${modifier}`;
-        }
+      return activeCriteria
+        .map((criterion) => {
+          const definition = findCustomFieldQueryDefinition(definitions, criterion);
+          const label = definition?.label || criterion.key;
+          const modifier = CUSTOM_FIELD_MODIFIER_LABELS[criterion.modifier ?? "EQUALS"];
+          if (criterion.modifier === "IS_NULL" || criterion.modifier === "NOT_NULL") {
+            return `${label} ${modifier}`;
+          }
 
-        if (criterion.modifier === "BETWEEN" || criterion.modifier === "NOT_BETWEEN") {
-          return `${label} ${modifier} ${formatCustomFieldCriterionValue(definition, criterion, "value")} and ${formatCustomFieldCriterionValue(definition, criterion, "value2")}`;
-        }
+          if (criterion.modifier === "BETWEEN" || criterion.modifier === "NOT_BETWEEN") {
+            return `${label} ${modifier} ${formatCustomFieldCriterionValue(definition, criterion, "value")} and ${formatCustomFieldCriterionValue(definition, criterion, "value2")}`;
+          }
 
-        return `${label} ${modifier} ${formatCustomFieldCriterionValue(definition, criterion, "value")}`;
-      }).join(", ");
+          return `${label} ${modifier} ${formatCustomFieldCriterionValue(definition, criterion, "value")}`;
+        })
+        .join(", ");
     },
     renderEditor: (value, onChange) => (
       <CustomFieldCriteriaEditor
@@ -469,17 +570,26 @@ function CustomFieldCriteriaEditor({
   onChange: (value: CustomFieldCriterion[]) => void;
 }) {
   const firstDefinition = definitions.find((definition) => !definition.unavailable);
-  const fieldDefinitions = definitions.filter((definition, index) =>
-    definitions.findIndex((candidate) => candidate.key === definition.key) === index
+  const fieldDefinitions = definitions.filter(
+    (definition, index) => definitions.findIndex((candidate) => candidate.key === definition.key) === index,
   );
   const rows = value.length > 0 ? value : [];
   const setRow = (index: number, nextCriterion: CustomFieldCriterion) => {
-    onChange(rows.map((criterion, candidateIndex) => candidateIndex === index ? nextCriterion : criterion));
+    onChange(rows.map((criterion, candidateIndex) => (candidateIndex === index ? nextCriterion : criterion)));
   };
   const removeRow = (index: number) => onChange(rows.filter((_, candidateIndex) => candidateIndex !== index));
   const addRow = () => {
     if (!firstDefinition) return;
-    onChange([...rows, { key: firstDefinition.key, jsonPath: firstDefinition.jsonPath, type: firstDefinition.type, value: getDefaultCustomFieldValue(firstDefinition.type), modifier: getDefaultCustomFieldModifier(firstDefinition.type) }]);
+    onChange([
+      ...rows,
+      {
+        key: firstDefinition.key,
+        jsonPath: firstDefinition.jsonPath,
+        type: firstDefinition.type,
+        value: getDefaultCustomFieldValue(firstDefinition.type),
+        modifier: getDefaultCustomFieldModifier(firstDefinition.type),
+      },
+    ]);
   };
 
   return (
@@ -489,7 +599,9 @@ function CustomFieldCriteriaEditor({
         if (!definition) return null;
         const availableModifiers = getCustomFieldModifiers(definition.type);
         const defaultModifier = getDefaultCustomFieldModifier(definition.type);
-        const modifier = availableModifiers.includes(criterion.modifier ?? defaultModifier) ? (criterion.modifier ?? defaultModifier) : defaultModifier;
+        const modifier = availableModifiers.includes(criterion.modifier ?? defaultModifier)
+          ? (criterion.modifier ?? defaultModifier)
+          : defaultModifier;
         const valueDisabled = modifier === "IS_NULL" || modifier === "NOT_NULL";
         const targetDefinitions = definitions.filter((candidate) => candidate.key === definition.key);
 
@@ -502,13 +614,24 @@ function CustomFieldCriteriaEditor({
                   <select
                     value={definition.key}
                     onChange={(event) => {
-                      const nextDefinition = definitions.find((candidate) => candidate.key === event.target.value && !candidate.unavailable) ?? definition;
-                      setRow(index, { key: nextDefinition.key, jsonPath: nextDefinition.jsonPath, type: nextDefinition.type, value: getDefaultCustomFieldValue(nextDefinition.type), modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
+                      const nextDefinition =
+                        definitions.find(
+                          (candidate) => candidate.key === event.target.value && !candidate.unavailable,
+                        ) ?? definition;
+                      setRow(index, {
+                        key: nextDefinition.key,
+                        jsonPath: nextDefinition.jsonPath,
+                        type: nextDefinition.type,
+                        value: getDefaultCustomFieldValue(nextDefinition.type),
+                        modifier: getDefaultCustomFieldModifier(nextDefinition.type),
+                      });
                     }}
                     className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
                   >
                     {fieldDefinitions.map((option) => (
-                      <option key={option.key} value={option.key} disabled={option.unavailable}>{option.fieldLabel || option.label || option.key}</option>
+                      <option key={option.key} value={option.key} disabled={option.unavailable}>
+                        {option.fieldLabel || option.label || option.key}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -518,13 +641,28 @@ function CustomFieldCriteriaEditor({
                     <select
                       value={customFieldQueryDefinitionId(definition)}
                       onChange={(event) => {
-                        const nextDefinition = targetDefinitions.find((candidate) => customFieldQueryDefinitionId(candidate) === event.target.value) ?? definition;
-                        setRow(index, { key: nextDefinition.key, jsonPath: nextDefinition.jsonPath, type: nextDefinition.type, value: getDefaultCustomFieldValue(nextDefinition.type), modifier: getDefaultCustomFieldModifier(nextDefinition.type) });
+                        const nextDefinition =
+                          targetDefinitions.find(
+                            (candidate) => customFieldQueryDefinitionId(candidate) === event.target.value,
+                          ) ?? definition;
+                        setRow(index, {
+                          key: nextDefinition.key,
+                          jsonPath: nextDefinition.jsonPath,
+                          type: nextDefinition.type,
+                          value: getDefaultCustomFieldValue(nextDefinition.type),
+                          modifier: getDefaultCustomFieldModifier(nextDefinition.type),
+                        });
                       }}
                       className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
                     >
                       {targetDefinitions.map((option) => (
-                        <option key={customFieldQueryDefinitionId(option)} value={customFieldQueryDefinitionId(option)} disabled={option.unavailable}>{option.targetLabel || option.label || option.key}</option>
+                        <option
+                          key={customFieldQueryDefinitionId(option)}
+                          value={customFieldQueryDefinitionId(option)}
+                          disabled={option.unavailable}
+                        >
+                          {option.targetLabel || option.label || option.key}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -534,20 +672,35 @@ function CustomFieldCriteriaEditor({
                 Match
                 <select
                   value={modifier}
-                  onChange={(event) => setRow(index, { ...criterion, modifier: event.target.value as CriterionModifier })}
+                  onChange={(event) =>
+                    setRow(index, { ...criterion, modifier: event.target.value as CriterionModifier })
+                  }
                   className="mt-1 w-full rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
                 >
                   {availableModifiers.map((option) => (
-                    <option key={option} value={option}>{CUSTOM_FIELD_MODIFIER_LABELS[option]}</option>
+                    <option key={option} value={option}>
+                      {CUSTOM_FIELD_MODIFIER_LABELS[option]}
+                    </option>
                   ))}
                 </select>
               </label>
-              <div className={`min-w-0 ${modifier === "BETWEEN" || modifier === "NOT_BETWEEN" ? "grid gap-2 sm:grid-cols-2" : ""}`}>
+              <div
+                className={`min-w-0 ${modifier === "BETWEEN" || modifier === "NOT_BETWEEN" ? "grid gap-2 sm:grid-cols-2" : ""}`}
+              >
                 <CustomFieldValueInput
                   definition={definition}
                   disabled={valueDisabled}
                   value={criterion.value ?? ""}
-                  onChange={(nextValue, displayValue) => setRow(index, { ...criterion, modifier, type: definition.type, jsonPath: definition.jsonPath, value: nextValue, displayValue })}
+                  onChange={(nextValue, displayValue) =>
+                    setRow(index, {
+                      ...criterion,
+                      modifier,
+                      type: definition.type,
+                      jsonPath: definition.jsonPath,
+                      value: nextValue,
+                      displayValue,
+                    })
+                  }
                 />
                 {modifier === "BETWEEN" || modifier === "NOT_BETWEEN" ? (
                   <CustomFieldValueInput
@@ -555,7 +708,16 @@ function CustomFieldCriteriaEditor({
                     disabled={valueDisabled}
                     label="And"
                     value={criterion.value2 ?? ""}
-                    onChange={(nextValue, displayValue) => setRow(index, { ...criterion, modifier, type: definition.type, jsonPath: definition.jsonPath, value2: nextValue, displayValue2: displayValue })}
+                    onChange={(nextValue, displayValue) =>
+                      setRow(index, {
+                        ...criterion,
+                        modifier,
+                        type: definition.type,
+                        jsonPath: definition.jsonPath,
+                        value2: nextValue,
+                        displayValue2: displayValue,
+                      })
+                    }
                   />
                 ) : null}
               </div>
@@ -646,7 +808,9 @@ function CustomFieldValueInput({
         >
           <option value="">Select</option>
           {definition.options.map((option) => (
-            <option key={option} value={option}>{option}</option>
+            <option key={option} value={option}>
+              {option}
+            </option>
           ))}
         </select>
       </label>
@@ -762,24 +926,39 @@ export function ListPage({
   const customFieldEntityType = filterMode ? CUSTOM_FIELD_ENTITY_BY_FILTER_MODE[filterMode] : undefined;
   const listEntityType = normalizeListEntityType(filterMode ?? pageKey);
   const extensionCriteriaDefinitions = useMemo(
-    () => getListFiltersForEntity(listEntityType).map(createExtensionCriterionDefinition).filter((item): item is CriterionDefinition => item != null),
-    [getListFiltersForEntity, listEntityType]
+    () =>
+      getListFiltersForEntity(listEntityType)
+        .map(createExtensionCriterionDefinition)
+        .filter((item): item is CriterionDefinition => item != null),
+    [getListFiltersForEntity, listEntityType],
   );
-  const extensionFilterContributions = useMemo(() => getListFiltersForEntity(listEntityType), [getListFiltersForEntity, listEntityType]);
+  const extensionFilterContributions = useMemo(
+    () => getListFiltersForEntity(listEntityType),
+    [getListFiltersForEntity, listEntityType],
+  );
   const unavailableExtensionCriteria = useMemo(
     () => unavailableExtensionCriterionDefinitions(objectFilter ?? {}, extensionFilterContributions),
     [extensionFilterContributions, objectFilter],
   );
 
-  const applySavedFilterUIOptions = useCallback((options: Record<string, unknown>, applyDisplayMode = true) => {
-    const nextDisplayMode = typeof options.displayMode === "string" ? options.displayMode as DisplayMode : undefined;
-    if (applyDisplayMode && nextDisplayMode && onDisplayModeChange && (!availableDisplayModes || availableDisplayModes.includes(nextDisplayMode))) {
-      onDisplayModeChange(nextDisplayMode);
-    }
-    const nextZoomLevel = parseEntityCardSizeLevel(cardSizeEntityType, options.zoomLevel);
-    if (nextZoomLevel != null) setZoomLevel(nextZoomLevel);
-    onApplySavedFilterUIOptions?.(options);
-  }, [availableDisplayModes, cardSizeEntityType, onApplySavedFilterUIOptions, onDisplayModeChange, setZoomLevel]);
+  const applySavedFilterUIOptions = useCallback(
+    (options: Record<string, unknown>, applyDisplayMode = true) => {
+      const nextDisplayMode =
+        typeof options.displayMode === "string" ? (options.displayMode as DisplayMode) : undefined;
+      if (
+        applyDisplayMode &&
+        nextDisplayMode &&
+        onDisplayModeChange &&
+        (!availableDisplayModes || availableDisplayModes.includes(nextDisplayMode))
+      ) {
+        onDisplayModeChange(nextDisplayMode);
+      }
+      const nextZoomLevel = parseEntityCardSizeLevel(cardSizeEntityType, options.zoomLevel);
+      if (nextZoomLevel != null) setZoomLevel(nextZoomLevel);
+      onApplySavedFilterUIOptions?.(options);
+    },
+    [availableDisplayModes, cardSizeEntityType, onApplySavedFilterUIOptions, onDisplayModeChange, setZoomLevel],
+  );
 
   useEffect(() => {
     if (!resolvedSavedFilterScope || defaultUIOptionsModeRef.current === resolvedSavedFilterScope) return;
@@ -787,8 +966,9 @@ export function ListPage({
     const options = getDefaultFilter(resolvedSavedFilterScope)?.uiOptions;
     if (!options) return;
     const explicitDisplayMode = new URLSearchParams(window.location.search).get("view");
-    const hasSupportedExplicitDisplayMode = explicitDisplayMode != null
-      && (!availableDisplayModes || availableDisplayModes.includes(explicitDisplayMode as DisplayMode));
+    const hasSupportedExplicitDisplayMode =
+      explicitDisplayMode != null &&
+      (!availableDisplayModes || availableDisplayModes.includes(explicitDisplayMode as DisplayMode));
     applySavedFilterUIOptions(options, !hasSupportedExplicitDisplayMode);
   }, [applySavedFilterUIOptions, availableDisplayModes, resolvedSavedFilterScope]);
   const mergedCriteriaDefinitions = useMemo(() => {
@@ -796,29 +976,47 @@ export function ListPage({
     return merged.length > 0 ? merged : undefined;
   }, [criteriaDefinitions, extensionCriteriaDefinitions, unavailableExtensionCriteria]);
   const editorObjectFilter = useMemo(
-    () => migrateLegacyPerformerFavoriteCriterion(expandExtensionCriteria(objectFilter ?? {}), mergedCriteriaDefinitions ?? []),
+    () =>
+      migrateLegacyPerformerFavoriteCriterion(
+        expandExtensionCriteria(objectFilter ?? {}),
+        mergedCriteriaDefinitions ?? [],
+      ),
     [mergedCriteriaDefinitions, objectFilter],
   );
   const extensionSortOptions = useMemo(
-    () => getListSortsForEntity(listEntityType).map(createExtensionSortOption).filter((item): item is { value: string; label: string } => item != null),
-    [getListSortsForEntity, listEntityType]
+    () =>
+      getListSortsForEntity(listEntityType)
+        .map(createExtensionSortOption)
+        .filter((item): item is { value: string; label: string } => item != null),
+    [getListSortsForEntity, listEntityType],
   );
-  const { data: customFieldDefinitions = [] } = useCustomFieldDefinitions(customFieldEntityType, Boolean(customFieldEntityType));
+  const { data: customFieldDefinitions = [] } = useCustomFieldDefinitions(
+    customFieldEntityType,
+    Boolean(customFieldEntityType),
+  );
   const generatedCustomFieldSection = useMemo(() => {
     const definitions = createCustomFieldQueryDefinitions(customFieldDefinitions, "filterable");
     const unavailableDefinitions = normalizeCustomFieldCriteria(objectFilter?.customFieldCriteria)
       .filter((criterion) => Boolean(criterion.key) && !findCustomFieldQueryDefinition(definitions, criterion))
-      .filter((criterion, index, criteria) => criteria.findIndex((candidate) =>
-        candidate.key === criterion.key && (candidate.jsonPath ?? undefined) === (criterion.jsonPath ?? undefined)
-      ) === index)
+      .filter(
+        (criterion, index, criteria) =>
+          criteria.findIndex(
+            (candidate) =>
+              candidate.key === criterion.key &&
+              (candidate.jsonPath ?? undefined) === (criterion.jsonPath ?? undefined),
+          ) === index,
+      )
       .map(createUnavailableCustomFieldQueryDefinition);
     const editorDefinitions = [...definitions, ...unavailableDefinitions];
 
     return editorDefinitions.length > 0 ? createCustomFieldFilterSection(editorDefinitions) : undefined;
   }, [customFieldDefinitions, objectFilter]);
   const mergedCustomFilterSections = useMemo(
-    () => generatedCustomFieldSection ? [...(customFilterSections ?? []), generatedCustomFieldSection] : customFilterSections,
-    [customFilterSections, generatedCustomFieldSection]
+    () =>
+      generatedCustomFieldSection
+        ? [...(customFilterSections ?? []), generatedCustomFieldSection]
+        : customFilterSections,
+    [customFilterSections, generatedCustomFieldSection],
   );
 
   const perPage = filter.perPage ?? 25;
@@ -830,27 +1028,36 @@ export function ListPage({
   const start = totalCount > 0 ? (infinitePageSize ? 1 : (page - 1) * effectivePerPage + 1) : 0;
   const end = infinitePageSize ? totalCount : Math.min(page * effectivePerPage, totalCount);
   const sortedSortOptions = useMemo(() => {
-    const customSortOptions = createCustomFieldQueryDefinitions(customFieldDefinitions, "sortable")
-      .map((definition) => ({
+    const customSortOptions = createCustomFieldQueryDefinitions(customFieldDefinitions, "sortable").map(
+      (definition) => ({
         value: definition.jsonPath
           ? `custom-json:${definition.type}:${definition.key}:${encodeURIComponent(definition.jsonPath)}`
           : `custom:${definition.type}:${definition.key}`,
         label: `Custom: ${definition.label || definition.key}`,
-      }));
-    const relevanceOptions = RELEVANCE_SORT_ENTITY_TYPES.has(listEntityType) && Boolean(filter.q?.trim()) ? [RELEVANCE_SORT_OPTION] : [];
+      }),
+    );
+    const relevanceOptions =
+      RELEVANCE_SORT_ENTITY_TYPES.has(listEntityType) && Boolean(filter.q?.trim()) ? [RELEVANCE_SORT_OPTION] : [];
     const mergedOptions = [...relevanceOptions, ...(sortOptions ?? []), ...extensionSortOptions, ...customSortOptions];
     const knownValues = new Set(mergedOptions.map((option) => option.value));
     const unavailableCustomSortOptions = getSortClauses(filter)
-      .filter((clause) => (clause.key.startsWith("custom:") || clause.key.startsWith("custom-json:")) && !knownValues.has(clause.key))
+      .filter(
+        (clause) =>
+          (clause.key.startsWith("custom:") || clause.key.startsWith("custom-json:")) && !knownValues.has(clause.key),
+      )
       .map((clause) => createUnavailableCustomSortOption(clause.key));
     mergedOptions.push(...unavailableCustomSortOptions);
-    return mergedOptions.length > 0 ? mergedOptions.sort((left, right) => left.label.localeCompare(right.label)) : undefined;
+    return mergedOptions.length > 0
+      ? mergedOptions.sort((left, right) => left.label.localeCompare(right.label))
+      : undefined;
   }, [customFieldDefinitions, extensionSortOptions, filter, listEntityType, sortOptions]);
   const slotContext = { pageKey, title, filter, onFilterChange, totalCount, isLoading };
   const selecting = selectedIds && selectedIds.size > 0;
   const showSelectionBar = Boolean(selectedIds && selecting);
   const showInfiniteAutoScrollControls = infinitePageSize && showAutoScrollControls;
-  const contentOwnsInfiniteLoading = infinitePageSize && (displayMode === "grid" || displayMode === "wall" || displayMode === "feed" || displayMode === "vertical");
+  const contentOwnsInfiniteLoading =
+    infinitePageSize &&
+    (displayMode === "grid" || displayMode === "wall" || displayMode === "feed" || displayMode === "vertical");
   const wakeAutoScrollControls = useCallback(() => setAutoScrollControlsAwake(true), []);
 
   useEffect(() => {
@@ -942,77 +1149,97 @@ export function ListPage({
       }
 
       const hasPerPageOverride = new URLSearchParams(window.location.search).has(perPageQueryKey ?? "perPage");
-      const persistedPerPageAllowed = typeof parsed.perPage === "number"
-        && (parsed.perPage > 0 || (allowInfinitePageSize && parsed.perPage === 0))
-        && (maxPageSize == null || parsed.perPage <= maxPageSize);
+      const persistedPerPageAllowed =
+        typeof parsed.perPage === "number" &&
+        (parsed.perPage > 0 || (allowInfinitePageSize && parsed.perPage === 0)) &&
+        (maxPageSize == null || parsed.perPage <= maxPageSize);
       if (!hasPerPageOverride && persistedPerPageAllowed && parsed.perPage !== perPage) {
         onFilterChange({ ...filter, perPage: parsed.perPage, page: 1 });
       }
     } catch {
       // Ignore invalid persisted list preferences.
     }
-  }, [allowInfinitePageSize, filter, maxPageSize, onFilterChange, onWallColumnCountChange, pageKey, perPage, perPageQueryKey]);
+  }, [
+    allowInfinitePageSize,
+    filter,
+    maxPageSize,
+    onFilterChange,
+    onWallColumnCountChange,
+    pageKey,
+    perPage,
+    perPageQueryKey,
+  ]);
 
   useEffect(() => {
     if (!pageKey) {
       return;
     }
 
-    localStorage.setItem(
-      `cove-list-prefs-${pageKey}`,
-      JSON.stringify({ perPage, wallColumnCount })
-    );
+    localStorage.setItem(`cove-list-prefs-${pageKey}`, JSON.stringify({ perPage, wallColumnCount }));
   }, [pageKey, perPage, wallColumnCount]);
 
-  const handleSearchChange = useCallback((query: string | undefined, source: ListSearchCommitSource) => {
-    if (pageKey && query && source !== "clear") {
-      trackInteraction({
-        hostType: "collection",
-        kind: "searchQuery",
-        meta: {
-          pageKey,
-          query,
-          source: "listPageToolbar",
-          activeFilterCount: Object.keys(objectFilter ?? {}).length,
-        },
-      });
-    }
+  const handleSearchChange = useCallback(
+    (query: string | undefined, source: ListSearchCommitSource) => {
+      if (pageKey && query && source !== "clear") {
+        trackInteraction({
+          hostType: "collection",
+          kind: "searchQuery",
+          meta: {
+            pageKey,
+            query,
+            source: "listPageToolbar",
+            activeFilterCount: Object.keys(objectFilter ?? {}).length,
+          },
+        });
+      }
 
-    const currentQuery = filter.q?.trim();
-    if (query && !currentQuery && RELEVANCE_SORT_ENTITY_TYPES.has(listEntityType)) {
-      previousSearchSortRef.current = {
-        sort: filter.sort,
-        direction: filter.direction,
-        sorts: filter.sorts,
-        seed: filter.seed,
-      };
-      onFilterChange({ ...filter, q: query, page: 1, sort: "relevance", direction: "desc", sorts: undefined, seed: undefined });
-      return;
-    }
+      const currentQuery = filter.q?.trim();
+      if (query && !currentQuery && RELEVANCE_SORT_ENTITY_TYPES.has(listEntityType)) {
+        previousSearchSortRef.current = {
+          sort: filter.sort,
+          direction: filter.direction,
+          sorts: filter.sorts,
+          seed: filter.seed,
+        };
+        onFilterChange({
+          ...filter,
+          q: query,
+          page: 1,
+          sort: "relevance",
+          direction: "desc",
+          sorts: undefined,
+          seed: undefined,
+        });
+        return;
+      }
 
-    if (!query && currentQuery && filter.sort === "relevance") {
-      const fallbackSort = sortOptions?.find((option) => option.value !== "relevance")?.value;
-      const previousSort = previousSearchSortRef.current ?? {
-        sort: fallbackSort,
-        direction: fallbackSort ? defaultSortDirection(fallbackSort) : undefined,
-        sorts: undefined,
-        seed: undefined,
-      };
-      previousSearchSortRef.current = null;
-      onFilterChange({ ...filter, ...previousSort, q: undefined, page: 1 });
-      return;
-    }
+      if (!query && currentQuery && filter.sort === "relevance") {
+        const fallbackSort = sortOptions?.find((option) => option.value !== "relevance")?.value;
+        const previousSort = previousSearchSortRef.current ?? {
+          sort: fallbackSort,
+          direction: fallbackSort ? defaultSortDirection(fallbackSort) : undefined,
+          sorts: undefined,
+          seed: undefined,
+        };
+        previousSearchSortRef.current = null;
+        onFilterChange({ ...filter, ...previousSort, q: undefined, page: 1 });
+        return;
+      }
 
-    onFilterChange({ ...filter, q: query, page: 1 });
-  }, [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions]);
+      onFilterChange({ ...filter, q: query, page: 1 });
+    },
+    [filter, listEntityType, objectFilter, onFilterChange, pageKey, sortOptions],
+  );
 
-  const resolvedLoadState = loadState ?? resolveQueryLoadState({
-    data: isLoading || error ? undefined : true,
-    isPending: isLoading,
-    error,
-    isEmpty: () => false,
-    retry: onRetry,
-  });
+  const resolvedLoadState =
+    loadState ??
+    resolveQueryLoadState({
+      data: isLoading || error ? undefined : true,
+      isPending: isLoading,
+      error,
+      isEmpty: () => false,
+      retry: onRetry,
+    });
 
   const goTo = useCallback(
     (p: number) => {
@@ -1020,50 +1247,195 @@ export function ListPage({
       if (resolvedLoadState.status === "pending" || resolvedLoadState.status === "error") return;
       onFilterChange({ ...filter, page: Math.max(1, Math.min(totalPages, p)) });
     },
-    [filter, onFilterChange, resolvedLoadState.status, totalPages]
+    [filter, onFilterChange, resolvedLoadState.status, totalPages],
   );
 
   // List-page keyboard shortcuts
-  const listBindings = useMemo(() => [
-    // "/" focuses search
-    { id: "list.search", keys: resolveKeybinding(keybindingOverrides, "list.search", "/"), surface: "list" as const, action: () => { document.querySelector<HTMLInputElement>("input[data-list-search='true']")?.focus(); } },
-    // View switching
-    ...(onDisplayModeChange && availableDisplayModes ? [
-      ...(availableDisplayModes.includes("grid") ? [{ id: "list.view.grid", keys: "v g", surface: "list" as const, action: () => onDisplayModeChange("grid") }] : []),
-      ...(availableDisplayModes.includes("list") ? [{ id: "list.view.list", keys: "v l", surface: "list" as const, action: () => onDisplayModeChange("list") }] : []),
-      ...(availableDisplayModes.includes("wall") ? [{ id: "list.view.wall", keys: "v w", surface: "list" as const, action: () => onDisplayModeChange("wall") }] : []),
-      ...(availableDisplayModes.includes("tagger") ? [{ id: "list.view.tagger", keys: "v t", surface: "list" as const, action: () => onDisplayModeChange("tagger") }] : []),
-      ...(availableDisplayModes.includes("graph") ? [{ id: "list.view.graph", keys: "v h", surface: "list" as const, action: () => onDisplayModeChange("graph") }] : []),
-      ...(availableDisplayModes.includes("byGroup") ? [{ id: "list.view.group", keys: "v b", surface: "list" as const, action: () => onDisplayModeChange("byGroup") }] : []),
-      ...(availableDisplayModes.includes("feed") ? [{ id: "list.view.feed", keys: "v f", surface: "list" as const, action: () => onDisplayModeChange("feed") }] : []),
-      ...(availableDisplayModes.includes("vertical") ? [{ id: "list.view.vertical", keys: "v k", surface: "list" as const, action: () => onDisplayModeChange("vertical") }] : []),
-    ] : []),
-    // Selection
-    ...(onSelectAll ? [{ id: "list.select.all", keys: "s a", surface: "list" as const, action: onSelectAll }] : []),
-    ...(onSelectNone ? [{ id: "list.select.none", keys: "s n", surface: "list" as const, action: onSelectNone }] : []),
-    ...(onInvertSelection ? [{ id: "list.select.invert", keys: "s i", surface: "list" as const, action: onInvertSelection }] : []),
-    // Pagination
-    ...(showPagingControls ? [
-      { id: "list.page.previous", keys: "ArrowLeft", surface: "list" as const, action: () => goTo(page - 1) },
-      { id: "list.page.next", keys: "ArrowRight", surface: "list" as const, action: () => goTo(page + 1) },
-      { id: "list.page.back10", keys: "Shift+ArrowLeft", surface: "list" as const, action: () => goTo(page - 10) },
-      { id: "list.page.forward10", keys: "Shift+ArrowRight", surface: "list" as const, action: () => goTo(page + 10) },
-      { id: "list.page.first", keys: "Ctrl+Home", surface: "list" as const, action: () => goTo(1) },
-      { id: "list.page.last", keys: "Ctrl+End", surface: "list" as const, action: () => goTo(totalPages) },
-    ] : []),
-    // Filter dialog
-    ...(mergedCriteriaDefinitions && onObjectFilterChange ? [{ id: "list.filters", keys: "", surface: "list" as const, action: () => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); } }] : []),
-    // Zoom
-    { id: "list.zoom.in", keys: "+", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v + 0.25)) },
-    { id: "list.zoom.out", keys: "-", surface: "list" as const, action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v - 0.25)) },
-  ], [availableDisplayModes, cardSizeEntityType, goTo, keybindingOverrides, mergedCriteriaDefinitions, onDisplayModeChange, onInvertSelection, onObjectFilterChange, onSelectAll, onSelectNone, page, setZoomLevel, showPagingControls, totalPages]);
+  const listBindings = useMemo(
+    () => [
+      // "/" focuses search
+      {
+        id: "list.search",
+        keys: resolveKeybinding(keybindingOverrides, "list.search", "/"),
+        surface: "list" as const,
+        action: () => {
+          document.querySelector<HTMLInputElement>("input[data-list-search='true']")?.focus();
+        },
+      },
+      // View switching
+      ...(onDisplayModeChange && availableDisplayModes
+        ? [
+            ...(availableDisplayModes.includes("grid")
+              ? [
+                  {
+                    id: "list.view.grid",
+                    keys: "v g",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("grid"),
+                  },
+                ]
+              : []),
+            ...(availableDisplayModes.includes("list")
+              ? [
+                  {
+                    id: "list.view.list",
+                    keys: "v l",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("list"),
+                  },
+                ]
+              : []),
+            ...(availableDisplayModes.includes("wall")
+              ? [
+                  {
+                    id: "list.view.wall",
+                    keys: "v w",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("wall"),
+                  },
+                ]
+              : []),
+            ...(availableDisplayModes.includes("tagger")
+              ? [
+                  {
+                    id: "list.view.tagger",
+                    keys: "v t",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("tagger"),
+                  },
+                ]
+              : []),
+            ...(availableDisplayModes.includes("graph")
+              ? [
+                  {
+                    id: "list.view.graph",
+                    keys: "v h",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("graph"),
+                  },
+                ]
+              : []),
+            ...(availableDisplayModes.includes("byGroup")
+              ? [
+                  {
+                    id: "list.view.group",
+                    keys: "v b",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("byGroup"),
+                  },
+                ]
+              : []),
+            ...(availableDisplayModes.includes("feed")
+              ? [
+                  {
+                    id: "list.view.feed",
+                    keys: "v f",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("feed"),
+                  },
+                ]
+              : []),
+            ...(availableDisplayModes.includes("vertical")
+              ? [
+                  {
+                    id: "list.view.vertical",
+                    keys: "v k",
+                    surface: "list" as const,
+                    action: () => onDisplayModeChange("vertical"),
+                  },
+                ]
+              : []),
+          ]
+        : []),
+      // Selection
+      ...(onSelectAll ? [{ id: "list.select.all", keys: "s a", surface: "list" as const, action: onSelectAll }] : []),
+      ...(onSelectNone
+        ? [{ id: "list.select.none", keys: "s n", surface: "list" as const, action: onSelectNone }]
+        : []),
+      ...(onInvertSelection
+        ? [{ id: "list.select.invert", keys: "s i", surface: "list" as const, action: onInvertSelection }]
+        : []),
+      // Pagination
+      ...(showPagingControls
+        ? [
+            { id: "list.page.previous", keys: "ArrowLeft", surface: "list" as const, action: () => goTo(page - 1) },
+            { id: "list.page.next", keys: "ArrowRight", surface: "list" as const, action: () => goTo(page + 1) },
+            {
+              id: "list.page.back10",
+              keys: "Shift+ArrowLeft",
+              surface: "list" as const,
+              action: () => goTo(page - 10),
+            },
+            {
+              id: "list.page.forward10",
+              keys: "Shift+ArrowRight",
+              surface: "list" as const,
+              action: () => goTo(page + 10),
+            },
+            { id: "list.page.first", keys: "Ctrl+Home", surface: "list" as const, action: () => goTo(1) },
+            { id: "list.page.last", keys: "Ctrl+End", surface: "list" as const, action: () => goTo(totalPages) },
+          ]
+        : []),
+      // Filter dialog
+      ...(mergedCriteriaDefinitions && onObjectFilterChange
+        ? [
+            {
+              id: "list.filters",
+              keys: "",
+              surface: "list" as const,
+              action: () => {
+                setFilterDialogPreselect(undefined);
+                setFilterDialogExpressionPath(undefined);
+                setFilterDialogInitialView("simple");
+                setFilterDialogOpenAtRoot(true);
+                setFilterDialogOpen(true);
+              },
+            },
+          ]
+        : []),
+      // Zoom
+      {
+        id: "list.zoom.in",
+        keys: "+",
+        surface: "list" as const,
+        action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v + 0.25)),
+      },
+      {
+        id: "list.zoom.out",
+        keys: "-",
+        surface: "list" as const,
+        action: () => setZoomLevel((v) => clampEntityCardSizeLevel(cardSizeEntityType, v - 0.25)),
+      },
+    ],
+    [
+      availableDisplayModes,
+      cardSizeEntityType,
+      goTo,
+      keybindingOverrides,
+      mergedCriteriaDefinitions,
+      onDisplayModeChange,
+      onInvertSelection,
+      onObjectFilterChange,
+      onSelectAll,
+      onSelectNone,
+      page,
+      setZoomLevel,
+      showPagingControls,
+      totalPages,
+    ],
+  );
 
   useKeySequence(listBindings);
 
   useDocumentTitle(title, manageDocumentTitle);
 
   useEffect(() => {
-    if (infinitePageSize || resolvedLoadState.status === "pending" || resolvedLoadState.status === "error" || page <= totalPages) {
+    if (
+      infinitePageSize ||
+      resolvedLoadState.status === "pending" ||
+      resolvedLoadState.status === "error" ||
+      page <= totalPages
+    ) {
       return;
     }
 
@@ -1082,14 +1454,18 @@ export function ListPage({
               ? "Loading…"
               : resolvedLoadState.status === "error"
                 ? "Unavailable"
-                : totalCount > 0 ? `${start}-${end} of ${totalCount.toLocaleString()}` : "0 items"}
+                : totalCount > 0
+                  ? `${start}-${end} of ${totalCount.toLocaleString()}`
+                  : "0 items"}
           </span>
           <span className="text-xs text-muted sm:hidden">
             {resolvedLoadState.status === "pending" || summaryLoading
               ? "…"
               : resolvedLoadState.status === "error"
                 ? "—"
-                : totalCount > 0 ? totalCount.toLocaleString() : "0"}
+                : totalCount > 0
+                  ? totalCount.toLocaleString()
+                  : "0"}
           </span>
           {!summaryLoading && metadataByline}
         </div>
@@ -1132,7 +1508,13 @@ export function ListPage({
         {mergedCriteriaDefinitions && onObjectFilterChange && (
           <FilterButton
             activeCount={countActiveObjectFilters(mergedCriteriaDefinitions, editorObjectFilter)}
-            onClick={() => { setFilterDialogPreselect(undefined); setFilterDialogExpressionPath(undefined); setFilterDialogInitialView("simple"); setFilterDialogOpenAtRoot(true); setFilterDialogOpen(true); }}
+            onClick={() => {
+              setFilterDialogPreselect(undefined);
+              setFilterDialogExpressionPath(undefined);
+              setFilterDialogInitialView("simple");
+              setFilterDialogOpenAtRoot(true);
+              setFilterDialogOpen(true);
+            }}
           />
         )}
 
@@ -1222,7 +1604,13 @@ export function ListPage({
             infinitePageSize={infinitePageSize}
             infinitePageSizeOnly={infinitePageSizeOnly}
             maxPageSize={maxPageSize}
-            onChange={(nextPerPage) => onFilterChange({ ...filter, perPage: maxPageSize == null ? nextPerPage : Math.min(nextPerPage, maxPageSize), page: 1 })}
+            onChange={(nextPerPage) =>
+              onFilterChange({
+                ...filter,
+                perPage: maxPageSize == null ? nextPerPage : Math.min(nextPerPage, maxPageSize),
+                page: 1,
+              })
+            }
           />
 
           {/* Zoom slider (standard card size slider) */}
@@ -1276,76 +1664,122 @@ export function ListPage({
             onPointerMove={wakeAutoScrollControls}
             onFocusCapture={wakeAutoScrollControls}
           >
-            {!autoScrollControlsAwake && <div className="absolute right-0 h-12 w-1.5 rounded-l-full bg-accent/70 shadow-lg" aria-hidden="true" />}
-            <div className={`flex flex-col items-center gap-2 rounded-xl border border-border bg-card/95 px-2 py-2 shadow-2xl backdrop-blur transition-all duration-300 ${autoScrollControlsAwake ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-2 opacity-0"}`}>
-            <button
-              type="button"
-              onClick={() => {
-                wakeAutoScrollControls();
-                setAutoScrollEnabled((current) => !current);
-              }}
-              className={`${toolbarIconButtonClass} ${autoScrollEnabled ? "bg-background/60 text-accent shadow-sm" : ""}`}
-              aria-label={autoScrollEnabled ? "Pause auto-scroll" : "Start auto-scroll"}
-              title={autoScrollEnabled ? "Pause auto-scroll" : "Start auto-scroll"}
+            {!autoScrollControlsAwake && (
+              <div className="absolute right-0 h-12 w-1.5 rounded-l-full bg-accent/70 shadow-lg" aria-hidden="true" />
+            )}
+            <div
+              className={`flex flex-col items-center gap-2 rounded-xl border border-border bg-card/95 px-2 py-2 shadow-2xl backdrop-blur transition-all duration-300 ${autoScrollControlsAwake ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-2 opacity-0"}`}
             >
-              {autoScrollEnabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            </button>
-            <input
-              type="range"
-              min={10}
-              max={360}
-              step={10}
-              value={autoScrollSpeed}
-              onChange={(event) => {
-                wakeAutoScrollControls();
-                setAutoScrollSpeed(Number(event.target.value));
-              }}
-              className="h-24 w-1 accent-accent [writing-mode:vertical-lr]"
-              aria-label="Floating auto-scroll speed"
-              title={`Auto-scroll speed: ${autoScrollSpeed}px/s`}
-            />
-            <span className="text-[10px] text-muted tabular-nums [writing-mode:vertical-lr]">{autoScrollSpeed}px/s</span>
+              <button
+                type="button"
+                onClick={() => {
+                  wakeAutoScrollControls();
+                  setAutoScrollEnabled((current) => !current);
+                }}
+                className={`${toolbarIconButtonClass} ${autoScrollEnabled ? "bg-background/60 text-accent shadow-sm" : ""}`}
+                aria-label={autoScrollEnabled ? "Pause auto-scroll" : "Start auto-scroll"}
+                title={autoScrollEnabled ? "Pause auto-scroll" : "Start auto-scroll"}
+              >
+                {autoScrollEnabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              </button>
+              <input
+                type="range"
+                min={10}
+                max={360}
+                step={10}
+                value={autoScrollSpeed}
+                onChange={(event) => {
+                  wakeAutoScrollControls();
+                  setAutoScrollSpeed(Number(event.target.value));
+                }}
+                className="h-24 w-1 accent-accent [writing-mode:vertical-lr]"
+                aria-label="Floating auto-scroll speed"
+                title={`Auto-scroll speed: ${autoScrollSpeed}px/s`}
+              />
+              <span className="text-[10px] text-muted tabular-nums [writing-mode:vertical-lr]">
+                {autoScrollSpeed}px/s
+              </span>
             </div>
           </div>
         </div>
       )}
 
       {/* Active filter tags (criterion badges) */}
-      {objectFilter && onObjectFilterChange && mergedCriteriaDefinitions && Object.keys(editorObjectFilter).length > 0 && (
-        <ActiveObjectFilterChips
-          criteriaDefinitions={mergedCriteriaDefinitions}
-          objectFilter={editorObjectFilter}
-          customFilterSections={mergedCustomFilterSections}
-          onEdit={(target) => {
-            const key = getFilterChipTargetKey(target);
-            setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
-            const criterion = mergedCriteriaDefinitions.find((item) => item.id === key || item.filterKey === key || item.secondaryFilterKey === key || item.auxiliaryToggleKey === key);
-            const customSection = target.kind === "root" ? mergedCustomFilterSections?.find((section) => section.filterKey === key) : undefined;
-            setFilterDialogPreselect(target.kind === "expression" ? (target.criterionId ? { criterionId: target.criterionId, relatedFacet: target.relatedFacet ?? (target.nestedCriterionId ? "criterion" : "mode"), nestedCriterionId: target.nestedCriterionId } : undefined) : target.kind === "related"
-              ? { criterionId: criterion?.id ?? key, relatedFacet: target.facet, nestedCriterionId: target.nestedCriterionId }
-              : customSection?.id ?? criterion?.id ?? key);
-            setFilterDialogInitialView(key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple");
-            setFilterDialogOpenAtRoot(false);
-            setFilterDialogOpen(true);
-          }}
-          onRemove={(target) => {
-            const key = getFilterChipTargetKey(target);
-            if (pageKey) {
-              trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", criteriaKeys: [key] } });
+      {objectFilter &&
+        onObjectFilterChange &&
+        mergedCriteriaDefinitions &&
+        Object.keys(editorObjectFilter).length > 0 && (
+          <ActiveObjectFilterChips
+            criteriaDefinitions={mergedCriteriaDefinitions}
+            objectFilter={editorObjectFilter}
+            customFilterSections={mergedCustomFilterSections}
+            onEdit={(target) => {
+              const key = getFilterChipTargetKey(target);
+              setFilterDialogExpressionPath(target.kind === "expression" ? target.path : undefined);
+              const criterion = mergedCriteriaDefinitions.find(
+                (item) =>
+                  item.id === key ||
+                  item.filterKey === key ||
+                  item.secondaryFilterKey === key ||
+                  item.auxiliaryToggleKey === key,
+              );
+              const customSection =
+                target.kind === "root"
+                  ? mergedCustomFilterSections?.find((section) => section.filterKey === key)
+                  : undefined;
+              setFilterDialogPreselect(
+                target.kind === "expression"
+                  ? target.criterionId
+                    ? {
+                        criterionId: target.criterionId,
+                        relatedFacet: target.relatedFacet ?? (target.nestedCriterionId ? "criterion" : "mode"),
+                        nestedCriterionId: target.nestedCriterionId,
+                      }
+                    : undefined
+                  : target.kind === "related"
+                    ? {
+                        criterionId: criterion?.id ?? key,
+                        relatedFacet: target.facet,
+                        nestedCriterionId: target.nestedCriterionId,
+                      }
+                    : (customSection?.id ?? criterion?.id ?? key),
+              );
+              setFilterDialogInitialView(
+                key === "_filterExpression" && target.kind !== "expression" ? "advanced" : "simple",
+              );
+              setFilterDialogOpenAtRoot(false);
+              setFilterDialogOpen(true);
+            }}
+            onRemove={(target) => {
+              const key = getFilterChipTargetKey(target);
+              if (pageKey) {
+                trackInteraction({
+                  hostType: "collection",
+                  kind: "filterClear",
+                  meta: { pageKey, source: "filterChip", criteriaKeys: [key] },
+                });
+              }
+              const next = removeObjectFilterChipTarget(editorObjectFilter, mergedCriteriaDefinitions, target);
+              onObjectFilterChange(collapseExtensionCriteria(next, objectFilter));
+              onFilterChange({ ...filter, page: 1 });
+            }}
+            onClearAll={
+              showClearAllObjectFilters
+                ? () => {
+                    if (pageKey) {
+                      trackInteraction({
+                        hostType: "collection",
+                        kind: "filterClear",
+                        meta: { pageKey, source: "filterChip", clearedAll: true },
+                      });
+                    }
+                    onObjectFilterChange({});
+                    onFilterChange({ ...filter, page: 1 });
+                  }
+                : undefined
             }
-            const next = removeObjectFilterChipTarget(editorObjectFilter, mergedCriteriaDefinitions, target);
-            onObjectFilterChange(collapseExtensionCriteria(next, objectFilter));
-            onFilterChange({ ...filter, page: 1 });
-          }}
-          onClearAll={showClearAllObjectFilters ? () => {
-            if (pageKey) {
-              trackInteraction({ hostType: "collection", kind: "filterClear", meta: { pageKey, source: "filterChip", clearedAll: true } });
-            }
-            onObjectFilterChange({});
-            onFilterChange({ ...filter, page: 1 });
-          } : undefined}
-        />
-      )}
+          />
+        )}
 
       {/* A full-width `<pageKey>-list-row` slot below the toolbar — separate from the toolbar-end slots, which
           sit in the right-aligned operations group and cannot host a row. Empty (no extension) renders nothing. */}
@@ -1359,14 +1793,34 @@ export function ListPage({
             {selectionMetadata}
           </div>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            {onSelectAll && <button onClick={onSelectAll} disabled={selectAllPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">{selectAllPending ? "Selecting..." : selectAllLabel}</button>}
+            {onSelectAll && (
+              <button
+                onClick={onSelectAll}
+                disabled={selectAllPending}
+                className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {selectAllPending ? "Selecting..." : selectAllLabel}
+              </button>
+            )}
             {onSelectAllMatching && (
-              <button onClick={onSelectAllMatching} disabled={selectAllMatchingPending} className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60">
+              <button
+                onClick={onSelectAllMatching}
+                disabled={selectAllMatchingPending}
+                className="text-xs text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+              >
                 {selectAllMatchingPending ? "Selecting..." : selectAllMatchingLabel}
               </button>
             )}
-            {onInvertSelection && <button onClick={onInvertSelection} className="text-xs text-secondary hover:text-foreground">Invert</button>}
-            {onSelectNone && <button onClick={onSelectNone} className="text-xs text-secondary hover:text-foreground">Deselect all</button>}
+            {onInvertSelection && (
+              <button onClick={onInvertSelection} className="text-xs text-secondary hover:text-foreground">
+                Invert
+              </button>
+            )}
+            {onSelectNone && (
+              <button onClick={onSelectNone} className="text-xs text-secondary hover:text-foreground">
+                Deselect all
+              </button>
+            )}
             {selectionActions}
           </div>
           <div className="hidden sm:block" aria-hidden="true" />
@@ -1376,11 +1830,11 @@ export function ListPage({
       {/* Results */}
       <QueryState
         state={resolvedLoadState}
-        loading={(
+        loading={
           <div role="status" aria-label={`Loading ${title}`} className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
           </div>
-        )}
+        }
         errorTitle={`Could not load ${title}`}
         errorClassName="mx-1 mt-3"
       >
@@ -1391,7 +1845,10 @@ export function ListPage({
             </div>
           )}
           <ListPageCardSizeContext.Provider value={{ cardMinWidthPx, zoomLevel }}>
-            <div className="list-page-content pt-3" style={{ "--card-min-width": `${cardMinWidthPx}px` } as React.CSSProperties}>
+            <div
+              className="list-page-content pt-3"
+              style={{ "--card-min-width": `${cardMinWidthPx}px` } as React.CSSProperties}
+            >
               {children}
               {infinitePageSize && infiniteScroll && !contentOwnsInfiniteLoading && (
                 <InfiniteScrollSentinel
@@ -1416,7 +1873,13 @@ export function ListPage({
       {mergedCriteriaDefinitions && onObjectFilterChange && (
         <FilterDialog
           open={filterDialogOpen}
-          onClose={() => { setFilterDialogOpen(false); setFilterDialogPreselect(undefined); setFilterDialogInitialView("simple"); setFilterDialogExpressionPath(undefined); setFilterDialogOpenAtRoot(false); }}
+          onClose={() => {
+            setFilterDialogOpen(false);
+            setFilterDialogPreselect(undefined);
+            setFilterDialogInitialView("simple");
+            setFilterDialogExpressionPath(undefined);
+            setFilterDialogOpenAtRoot(false);
+          }}
           criteria={mergedCriteriaDefinitions}
           activeFilter={editorObjectFilter}
           customSections={mergedCustomFilterSections}

@@ -36,7 +36,12 @@ describe("SortableList", () => {
   it("does not make the entire row natively draggable", () => {
     renderList();
     expect(screen.getByText("First").closest("[data-sortable-index]")).not.toHaveAttribute("draggable");
-    expect(screen.getAllByRole("button", { name: "Pick up item to reorder" })[0]).toHaveStyle({ display: "inline-flex", minWidth: "44px", minHeight: "44px", touchAction: "none" });
+    expect(screen.getAllByRole("button", { name: "Pick up item to reorder" })[0]).toHaveStyle({
+      display: "inline-flex",
+      minWidth: "44px",
+      minHeight: "44px",
+      touchAction: "none",
+    });
   });
 
   it("keeps keyboard reordering available from the handle", () => {

@@ -119,7 +119,11 @@ function RegisteredPlayer({
       render: (context) => {
         if (crashActionRef.current) throw new Error("player action crashed");
         actionContext = context as ExpectedPlayerContext;
-        return <button data-testid="media-player-test-action" onClick={actionClickMock}>Extension action</button>;
+        return (
+          <button data-testid="media-player-test-action" onClick={actionClickMock}>
+            Extension action
+          </button>
+        );
       },
     });
     const unregisterOverlay = registerSlot({
@@ -482,10 +486,12 @@ describe("VideoPlayer extension slots", () => {
 
     act(() => releaseOverlay());
     await waitFor(() => {
-      expect(playbackTrackerMock.setTarget).toHaveBeenLastCalledWith(expect.objectContaining({
-        hostType: "video",
-        hostId: 17,
-      }));
+      expect(playbackTrackerMock.setTarget).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          hostType: "video",
+          hostId: 17,
+        }),
+      );
     });
   });
 
@@ -555,10 +561,12 @@ describe("VideoPlayer extension slots", () => {
     video.currentTime = 0.5;
     fireEvent.timeUpdate(video);
     fireEvent.pause(video);
-    expect(playbackTrackerMock.recordInterval).toHaveBeenCalledWith(expect.objectContaining({
-      startSec: 0,
-      endSec: 0.5,
-    }));
+    expect(playbackTrackerMock.recordInterval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startSec: 0,
+        endSec: 0.5,
+      }),
+    );
 
     Object.defineProperty(video, "paused", { configurable: true, value: true });
     playMock.mockClear();
@@ -595,10 +603,12 @@ describe("VideoPlayer extension slots", () => {
     video.currentTime = 0.75;
     fireEvent.timeUpdate(video);
     fireEvent.pause(video);
-    expect(playbackTrackerMock.recordInterval).toHaveBeenCalledWith(expect.objectContaining({
-      startSec: 0,
-      endSec: 0.75,
-    }));
+    expect(playbackTrackerMock.recordInterval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startSec: 0,
+        endSec: 0.75,
+      }),
+    );
 
     Object.defineProperty(video, "paused", { configurable: true, value: true });
     playMock.mockClear();

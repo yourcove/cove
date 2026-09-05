@@ -81,20 +81,30 @@ describe("ExtensionRuntimeReconciler", () => {
     const alphaAction = () => "alpha";
     const betaAction = () => "beta";
     const bundles = new Map<string, TestBundleModule>([
-      [alpha.jsBundleUrl, {
-        default: {
-          components: { Panel: AlphaPanel },
-          actionHandlers: { run: alphaAction },
-          onLoad: () => { events.push("load:alpha"); },
+      [
+        alpha.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: AlphaPanel },
+            actionHandlers: { run: alphaAction },
+            onLoad: () => {
+              events.push("load:alpha");
+            },
+          },
         },
-      }],
-      [beta.jsBundleUrl, {
-        default: {
-          components: { Panel: BetaPanel },
-          actionHandlers: { run: betaAction },
-          onLoad: () => { events.push("load:beta"); },
+      ],
+      [
+        beta.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: BetaPanel },
+            actionHandlers: { run: betaAction },
+            onLoad: () => {
+              events.push("load:beta");
+            },
+          },
         },
-      }],
+      ],
     ]);
     const registrations = createRegistrationAdapter(events);
     const importBundle = createBundleImporter(bundles, events);
@@ -145,20 +155,34 @@ describe("ExtensionRuntimeReconciler", () => {
     const PanelV1 = () => null;
     const PanelV2 = () => null;
     const bundles = new Map<string, TestBundleModule>([
-      [alphaV1.jsBundleUrl, {
-        default: {
-          components: { Panel: PanelV1 },
-          onLoad: () => { events.push("load:alpha:v1"); },
-          onUnload: () => { events.push("unload:alpha:v1"); },
+      [
+        alphaV1.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: PanelV1 },
+            onLoad: () => {
+              events.push("load:alpha:v1");
+            },
+            onUnload: () => {
+              events.push("unload:alpha:v1");
+            },
+          },
         },
-      }],
-      [alphaV2.jsBundleUrl, {
-        default: {
-          components: { Panel: PanelV2 },
-          onLoad: () => { events.push("load:alpha:v2"); },
-          onUnload: () => { events.push("unload:alpha:v2"); },
+      ],
+      [
+        alphaV2.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: PanelV2 },
+            onLoad: () => {
+              events.push("load:alpha:v2");
+            },
+            onUnload: () => {
+              events.push("unload:alpha:v2");
+            },
+          },
         },
-      }],
+      ],
     ]);
     const registrations = createRegistrationAdapter(events);
     const importBundle = createBundleImporter(bundles, events);
@@ -184,7 +208,8 @@ describe("ExtensionRuntimeReconciler", () => {
     const sharedUrl = "/api/extensions/assets/alpha/ui.mjs?v=preserved-timestamp";
     const PanelV1 = () => null;
     const PanelV2 = () => null;
-    const importBundle = vi.fn()
+    const importBundle = vi
+      .fn()
       .mockResolvedValueOnce({ default: { components: { Panel: PanelV1 } } })
       .mockResolvedValueOnce({ default: { components: { Panel: PanelV2 } } });
     const registrations = createRegistrationAdapter(events);
@@ -212,26 +237,37 @@ describe("ExtensionRuntimeReconciler", () => {
     const alphaV2Unload = vi.fn();
     const brokenUnload = vi.fn();
     const bundles = new Map<string, TestBundleModule>([
-      [alphaV1.jsBundleUrl, {
-        default: {
-          components: { Panel: PanelV1 },
-          onLoad: alphaV1Load,
-          onUnload: alphaV1Unload,
+      [
+        alphaV1.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: PanelV1 },
+            onLoad: alphaV1Load,
+            onUnload: alphaV1Unload,
+          },
         },
-      }],
-      [alphaV2.jsBundleUrl, {
-        default: {
-          components: { Panel: PanelV2 },
-          onUnload: alphaV2Unload,
+      ],
+      [
+        alphaV2.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: PanelV2 },
+            onUnload: alphaV2Unload,
+          },
         },
-      }],
-      [broken.jsBundleUrl, {
-        default: {
-          components: { Panel: () => null },
-          onLoad: () => { throw new Error("broken onLoad"); },
-          onUnload: brokenUnload,
+      ],
+      [
+        broken.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: () => null },
+            onLoad: () => {
+              throw new Error("broken onLoad");
+            },
+            onUnload: brokenUnload,
+          },
         },
-      }],
+      ],
     ]);
     const registrations = createRegistrationAdapter(events);
     const reconciler = createExtensionRuntimeReconciler({
@@ -289,20 +325,26 @@ describe("ExtensionRuntimeReconciler", () => {
     const alphaUnload = vi.fn();
     const betaUnload = vi.fn();
     const bundles = new Map<string, TestBundleModule>([
-      [alpha.jsBundleUrl, {
-        default: {
-          components: { Panel: () => null },
-          actionHandlers: { run: () => "alpha" },
-          onUnload: alphaUnload,
+      [
+        alpha.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: () => null },
+            actionHandlers: { run: () => "alpha" },
+            onUnload: alphaUnload,
+          },
         },
-      }],
-      [beta.jsBundleUrl, {
-        default: {
-          components: { Panel: () => null },
-          actionHandlers: { run: () => "beta" },
-          onUnload: betaUnload,
+      ],
+      [
+        beta.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: () => null },
+            actionHandlers: { run: () => "beta" },
+            onUnload: betaUnload,
+          },
         },
-      }],
+      ],
     ]);
     const registrations = createRegistrationAdapter(events);
     const reconciler = createExtensionRuntimeReconciler({
@@ -325,19 +367,24 @@ describe("ExtensionRuntimeReconciler", () => {
   it("rolls back registrations and lifecycle state when onLoad fails", async () => {
     const events: string[] = [];
     const broken = descriptor("broken", 1);
-    const onUnload = vi.fn(() => { events.push("unload:broken"); });
+    const onUnload = vi.fn(() => {
+      events.push("unload:broken");
+    });
     const bundles = new Map<string, TestBundleModule>([
-      [broken.jsBundleUrl, {
-        default: {
-          components: { Panel: () => null },
-          actionHandlers: { run: () => "broken" },
-          onLoad: async () => {
-            events.push("load:broken");
-            throw new Error("onLoad failed");
+      [
+        broken.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: () => null },
+            actionHandlers: { run: () => "broken" },
+            onLoad: async () => {
+              events.push("load:broken");
+              throw new Error("onLoad failed");
+            },
+            onUnload,
           },
-          onUnload,
         },
-      }],
+      ],
     ]);
     const registrations = createRegistrationAdapter(events);
     const reconciler = createExtensionRuntimeReconciler({
@@ -365,13 +412,16 @@ describe("ExtensionRuntimeReconciler", () => {
     const alpha = descriptor("alpha", 1);
     const onUnload = vi.fn();
     const bundles = new Map<string, TestBundleModule>([
-      [alpha.jsBundleUrl, {
-        default: {
-          components: { Panel: () => null },
-          actionHandlers: { run: () => "alpha" },
-          onUnload,
+      [
+        alpha.jsBundleUrl,
+        {
+          default: {
+            components: { Panel: () => null },
+            actionHandlers: { run: () => "alpha" },
+            onUnload,
+          },
         },
-      }],
+      ],
     ]);
     const registrations = createRegistrationAdapter(events);
     const reconciler = createExtensionRuntimeReconciler({

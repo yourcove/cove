@@ -37,57 +37,92 @@ const READ_PERMISSION_GRANTS: Record<string, string> = {
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
-function emit() { for (const l of listeners) l(); }
+function emit() {
+  for (const l of listeners) l();
+}
 
 export const authStore = {
   getAccessToken(): string | null {
-    try { return localStorage.getItem(ACCESS_KEY); } catch { return null; }
+    try {
+      return localStorage.getItem(ACCESS_KEY);
+    } catch {
+      return null;
+    }
   },
   getRefreshToken(): string | null {
-    try { return localStorage.getItem(REFRESH_KEY); } catch { return null; }
+    try {
+      return localStorage.getItem(REFRESH_KEY);
+    } catch {
+      return null;
+    }
   },
   getUser(): AuthUser | null {
     try {
       const raw = localStorage.getItem(USER_KEY);
-      return raw ? JSON.parse(raw) as AuthUser : null;
-    } catch { return null; }
+      return raw ? (JSON.parse(raw) as AuthUser) : null;
+    } catch {
+      return null;
+    }
   },
   getShareToken(): string | null {
-    try { return sessionStorage.getItem(SHARE_TOKEN_KEY); } catch { return null; }
+    try {
+      return sessionStorage.getItem(SHARE_TOKEN_KEY);
+    } catch {
+      return null;
+    }
   },
   getSharePassword(): string | null {
-    try { return sessionStorage.getItem(SHARE_PASSWORD_KEY); } catch { return null; }
+    try {
+      return sessionStorage.getItem(SHARE_PASSWORD_KEY);
+    } catch {
+      return null;
+    }
   },
   setTokens(access: string | null, refresh: string | null) {
     try {
-      if (access) localStorage.setItem(ACCESS_KEY, access); else localStorage.removeItem(ACCESS_KEY);
-      if (refresh) localStorage.setItem(REFRESH_KEY, refresh); else localStorage.removeItem(REFRESH_KEY);
-    } catch { /* ignore */ }
+      if (access) localStorage.setItem(ACCESS_KEY, access);
+      else localStorage.removeItem(ACCESS_KEY);
+      if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
+      else localStorage.removeItem(REFRESH_KEY);
+    } catch {
+      /* ignore */
+    }
     emit();
   },
   setUser(user: AuthUser | null) {
     try {
-      if (user) localStorage.setItem(USER_KEY, JSON.stringify(user)); else localStorage.removeItem(USER_KEY);
-    } catch { /* ignore */ }
+      if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+      else localStorage.removeItem(USER_KEY);
+    } catch {
+      /* ignore */
+    }
     emit();
   },
   setShareToken(token: string | null) {
     try {
-      if (token) sessionStorage.setItem(SHARE_TOKEN_KEY, token); else sessionStorage.removeItem(SHARE_TOKEN_KEY);
-    } catch { /* ignore */ }
+      if (token) sessionStorage.setItem(SHARE_TOKEN_KEY, token);
+      else sessionStorage.removeItem(SHARE_TOKEN_KEY);
+    } catch {
+      /* ignore */
+    }
     emit();
   },
   setSharePassword(password: string | null) {
     try {
-      if (password) sessionStorage.setItem(SHARE_PASSWORD_KEY, password); else sessionStorage.removeItem(SHARE_PASSWORD_KEY);
-    } catch { /* ignore */ }
+      if (password) sessionStorage.setItem(SHARE_PASSWORD_KEY, password);
+      else sessionStorage.removeItem(SHARE_PASSWORD_KEY);
+    } catch {
+      /* ignore */
+    }
     emit();
   },
   clearShareCredentials() {
     try {
       sessionStorage.removeItem(SHARE_TOKEN_KEY);
       sessionStorage.removeItem(SHARE_PASSWORD_KEY);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     emit();
   },
   clear() {
@@ -97,17 +132,25 @@ export const authStore = {
       localStorage.removeItem(USER_KEY);
       sessionStorage.removeItem(SHARE_TOKEN_KEY);
       sessionStorage.removeItem(SHARE_PASSWORD_KEY);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     emit();
   },
   subscribe(fn: Listener): () => void {
     listeners.add(fn);
-    return () => { listeners.delete(fn); };
+    return () => {
+      listeners.delete(fn);
+    };
   },
 };
 
 // Wildcard-aware permission check matching the server's CovePrincipal.Has().
-export function hasPermission(perms: string[] | undefined | null, key: string, readGrantedEntityKinds?: string[] | null): boolean {
+export function hasPermission(
+  perms: string[] | undefined | null,
+  key: string,
+  readGrantedEntityKinds?: string[] | null,
+): boolean {
   if (!perms || perms.length === 0) return false;
   if (perms.includes("*")) return true;
   if (perms.includes(key)) return true;

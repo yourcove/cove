@@ -43,7 +43,9 @@ export function AuthBootstrapPage() {
         </div>
         <form onSubmit={onSubmit} className="space-y-3">
           <div className="space-y-1">
-            <label htmlFor="bootstrap-username" className="text-sm text-muted-foreground">Username</label>
+            <label htmlFor="bootstrap-username" className="text-sm text-muted-foreground">
+              Username
+            </label>
             <input
               id="bootstrap-username"
               type="text"
@@ -57,7 +59,9 @@ export function AuthBootstrapPage() {
             />
           </div>
           <div className="space-y-1">
-            <label htmlFor="bootstrap-password" className="text-sm text-muted-foreground">Password</label>
+            <label htmlFor="bootstrap-password" className="text-sm text-muted-foreground">
+              Password
+            </label>
             <input
               id="bootstrap-password"
               type="password"
@@ -70,7 +74,9 @@ export function AuthBootstrapPage() {
             />
           </div>
           <div className="space-y-1">
-            <label htmlFor="bootstrap-confirm" className="text-sm text-muted-foreground">Confirm password</label>
+            <label htmlFor="bootstrap-confirm" className="text-sm text-muted-foreground">
+              Confirm password
+            </label>
             <input
               id="bootstrap-confirm"
               type="password"
@@ -82,7 +88,11 @@ export function AuthBootstrapPage() {
               className="w-full rounded border border-border bg-background px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
-          {error ? <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">{error}</div> : null}
+          {error ? (
+            <div role="alert" className="text-sm text-red-500 bg-red-500/10 rounded px-3 py-2">
+              {error}
+            </div>
+          ) : null}
           <button
             type="submit"
             disabled={submitting || !username.trim() || !password || !confirmPassword}

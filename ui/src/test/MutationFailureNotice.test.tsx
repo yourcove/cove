@@ -6,7 +6,13 @@ import { createAppQueryClient } from "../queryClient";
 import { resetMutationFailureForTests } from "../state/mutationFailure";
 import { reportServerResponse, resetServerAvailabilityForTests } from "../state/serverAvailability";
 
-function FailingAction({ rollsBack = false, suppressNotice = false }: { rollsBack?: boolean; suppressNotice?: boolean }) {
+function FailingAction({
+  rollsBack = false,
+  suppressNotice = false,
+}: {
+  rollsBack?: boolean;
+  suppressNotice?: boolean;
+}) {
   const mutation = useMutation({
     mutationFn: async () => {
       throw new Error("API Error 502: simulated gateway failure");

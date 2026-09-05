@@ -22,11 +22,38 @@ describe("query load state", () => {
     const error = new Error("API request timed out");
     const retry = vi.fn();
 
-    expect(resolveQueryLoadState({ data: undefined, isPending: true, error, isEmpty: () => true, retry })).toEqual({ status: "pending" });
-    expect(resolveQueryLoadState({ data: undefined, isPending: false, error, isEmpty: () => true, retry })).toEqual({ status: "error", error, retry });
-    expect(resolveQueryLoadState({ data: { items: [] }, isPending: false, error: null, isEmpty: (data) => data.items.length === 0 })).toEqual({ status: "empty", data: { items: [] } });
-    expect(resolveQueryLoadState({ data: { items: [1] }, isPending: false, error: null, isEmpty: (data) => data.items.length === 0 })).toEqual({ status: "success", data: { items: [1] } });
-    expect(resolveQueryLoadState({ data: { items: [1] }, isPending: false, error, isEmpty: (data) => data.items.length === 0 }).status).toBe("success");
+    expect(resolveQueryLoadState({ data: undefined, isPending: true, error, isEmpty: () => true, retry })).toEqual({
+      status: "pending",
+    });
+    expect(resolveQueryLoadState({ data: undefined, isPending: false, error, isEmpty: () => true, retry })).toEqual({
+      status: "error",
+      error,
+      retry,
+    });
+    expect(
+      resolveQueryLoadState({
+        data: { items: [] },
+        isPending: false,
+        error: null,
+        isEmpty: (data) => data.items.length === 0,
+      }),
+    ).toEqual({ status: "empty", data: { items: [] } });
+    expect(
+      resolveQueryLoadState({
+        data: { items: [1] },
+        isPending: false,
+        error: null,
+        isEmpty: (data) => data.items.length === 0,
+      }),
+    ).toEqual({ status: "success", data: { items: [1] } });
+    expect(
+      resolveQueryLoadState({
+        data: { items: [1] },
+        isPending: false,
+        error,
+        isEmpty: (data) => data.items.length === 0,
+      }).status,
+    ).toBe("success");
   });
 });
 
@@ -41,7 +68,14 @@ describe("ListQueryState", () => {
       children: <div>content state</div>,
     };
     const { rerender } = render(
-      <ListQueryState isLoading loadError={error} isEmpty loading={states.loading} empty={states.empty} onRetry={onRetry}>
+      <ListQueryState
+        isLoading
+        loadError={error}
+        isEmpty
+        loading={states.loading}
+        empty={states.empty}
+        onRetry={onRetry}
+      >
         {states.children}
       </ListQueryState>,
     );
@@ -52,7 +86,14 @@ describe("ListQueryState", () => {
     expect(screen.queryByText("content state")).not.toBeInTheDocument();
 
     rerender(
-      <ListQueryState isLoading={false} loadError={error} isEmpty loading={states.loading} empty={states.empty} onRetry={onRetry}>
+      <ListQueryState
+        isLoading={false}
+        loadError={error}
+        isEmpty
+        loading={states.loading}
+        empty={states.empty}
+        onRetry={onRetry}
+      >
         {states.children}
       </ListQueryState>,
     );
@@ -64,7 +105,14 @@ describe("ListQueryState", () => {
     expect(onRetry).toHaveBeenCalledOnce();
 
     rerender(
-      <ListQueryState isLoading={false} loadError={null} isEmpty loading={states.loading} empty={states.empty} onRetry={onRetry}>
+      <ListQueryState
+        isLoading={false}
+        loadError={null}
+        isEmpty
+        loading={states.loading}
+        empty={states.empty}
+        onRetry={onRetry}
+      >
         {states.children}
       </ListQueryState>,
     );
@@ -73,7 +121,14 @@ describe("ListQueryState", () => {
     expect(screen.queryByText("content state")).not.toBeInTheDocument();
 
     rerender(
-      <ListQueryState isLoading={false} loadError={null} isEmpty={false} loading={states.loading} empty={states.empty} onRetry={onRetry}>
+      <ListQueryState
+        isLoading={false}
+        loadError={null}
+        isEmpty={false}
+        loading={states.loading}
+        empty={states.empty}
+        onRetry={onRetry}
+      >
         {states.children}
       </ListQueryState>,
     );
@@ -84,7 +139,14 @@ describe("ListQueryState", () => {
   it("keeps a persistent header mounted across query states", () => {
     const header = <input aria-label="List search" />;
     const { rerender } = render(
-      <ListQueryState header={header} isLoading={false} loadError={null} isEmpty={false} loading={<div>loading</div>} empty={<div>empty</div>}>
+      <ListQueryState
+        header={header}
+        isLoading={false}
+        loadError={null}
+        isEmpty={false}
+        loading={<div>loading</div>}
+        empty={<div>empty</div>}
+      >
         <div>content</div>
       </ListQueryState>,
     );
@@ -92,7 +154,14 @@ describe("ListQueryState", () => {
     search.focus();
 
     rerender(
-      <ListQueryState header={header} isLoading loadError={null} isEmpty={false} loading={<div>loading</div>} empty={<div>empty</div>}>
+      <ListQueryState
+        header={header}
+        isLoading
+        loadError={null}
+        isEmpty={false}
+        loading={<div>loading</div>}
+        empty={<div>empty</div>}
+      >
         <div>content</div>
       </ListQueryState>,
     );

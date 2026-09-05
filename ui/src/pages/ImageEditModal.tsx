@@ -9,9 +9,18 @@ import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
 import { EntityReferenceMultiSelector, EntityReferenceValue } from "../components/EntityReferenceSelector";
-import { PerformerContextTagEditor, buildPerformerContextTagIds, syncPerformerContextTags } from "../components/PerformerContextTags";
+import {
+  PerformerContextTagEditor,
+  buildPerformerContextTagIds,
+  syncPerformerContextTags,
+} from "../components/PerformerContextTags";
 import { FileBackedCreateSource, type CreateSourceMode } from "../components/FileBackedCreateSource";
-import { createFromUrlWithOptionalDownload, mergeUrlLists, NoDownloaderFoundError, type UrlDownloadMode } from "../utils/createFromUrlDownload";
+import {
+  createFromUrlWithOptionalDownload,
+  mergeUrlLists,
+  NoDownloaderFoundError,
+  type UrlDownloadMode,
+} from "../utils/createFromUrlDownload";
 import { useFileBackedCreatePreferences } from "../hooks/useFileBackedCreatePreferences";
 import { ImageSourceDownloadDialog } from "../components/ImageSourceDownloadDialog";
 
@@ -49,7 +58,11 @@ interface ImageMetadataModalProps {
   open: boolean;
   onClose: () => void;
   initialState: ImageFormState;
-  onSubmit: (data: ImageCreate, contextTagIdsByPerformer: Record<number, number[]>, selectedPerformerIds: number[]) => void;
+  onSubmit: (
+    data: ImageCreate,
+    contextTagIdsByPerformer: Record<number, number[]>,
+    selectedPerformerIds: number[],
+  ) => void;
   isPending: boolean;
   error: Error | null;
   image?: Image;
@@ -67,10 +80,26 @@ interface ImageMetadataModalProps {
   scrapeMetadata?: boolean;
   onScrapeMetadataChange?: (value: boolean) => void;
   noDownloaderFound?: boolean;
-  onCreateWithoutDownload?: (data: ImageCreate, contextTagIdsByPerformer: Record<number, number[]>, selectedPerformerIds: number[]) => void;
+  onCreateWithoutDownload?: (
+    data: ImageCreate,
+    contextTagIdsByPerformer: Record<number, number[]>,
+    selectedPerformerIds: number[],
+  ) => void;
   onDismissNoDownloader?: () => void;
-  onCreateFromFile?: (filePath: string, data: ImageCreate, contextTagIdsByPerformer: Record<number, number[]>, selectedPerformerIds: number[]) => void;
-  onCreateFromUrl?: (url: string, data: ImageCreate, contextTagIdsByPerformer: Record<number, number[]>, selectedPerformerIds: number[], downloadMode: UrlDownloadMode, scrapeMetadata: boolean) => void;
+  onCreateFromFile?: (
+    filePath: string,
+    data: ImageCreate,
+    contextTagIdsByPerformer: Record<number, number[]>,
+    selectedPerformerIds: number[],
+  ) => void;
+  onCreateFromUrl?: (
+    url: string,
+    data: ImageCreate,
+    contextTagIdsByPerformer: Record<number, number[]>,
+    selectedPerformerIds: number[],
+    downloadMode: UrlDownloadMode,
+    scrapeMetadata: boolean,
+  ) => void;
   renderMode?: "modal" | "panel";
 }
 
@@ -124,14 +153,44 @@ function cloneFormState(state: ImageFormState): ImageFormState {
     urls: [...state.urls],
     selectedTagIds: [...state.selectedTagIds],
     selectedPerformerIds: [...state.selectedPerformerIds],
-    contextTagIdsByPerformer: Object.fromEntries(Object.entries(state.contextTagIdsByPerformer).map(([performerId, tagIds]) => [performerId, [...tagIds]])),
+    contextTagIdsByPerformer: Object.fromEntries(
+      Object.entries(state.contextTagIdsByPerformer).map(([performerId, tagIds]) => [performerId, [...tagIds]]),
+    ),
     selectedGalleryIds: [...state.selectedGalleryIds],
     selectedGroups: state.selectedGroups.map((group) => ({ ...group })),
     customFields: { ...state.customFields },
   };
 }
 
-function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPending, error, image, resetSignal, createAnother, onCreateAnotherChange, sourceMode = "metadata", onSourceModeChange, filePath = "", onFilePathChange, url = "", onUrlChange, urlDownloadMode = "now", onUrlDownloadModeChange, scrapeMetadata = false, onScrapeMetadataChange, noDownloaderFound = false, onCreateWithoutDownload, onDismissNoDownloader, onCreateFromFile, onCreateFromUrl, renderMode = "modal" }: ImageMetadataModalProps) {
+function ImageMetadataModal({
+  title,
+  open,
+  onClose,
+  initialState,
+  onSubmit,
+  isPending,
+  error,
+  image,
+  resetSignal,
+  createAnother,
+  onCreateAnotherChange,
+  sourceMode = "metadata",
+  onSourceModeChange,
+  filePath = "",
+  onFilePathChange,
+  url = "",
+  onUrlChange,
+  urlDownloadMode = "now",
+  onUrlDownloadModeChange,
+  scrapeMetadata = false,
+  onScrapeMetadataChange,
+  noDownloaderFound = false,
+  onCreateWithoutDownload,
+  onDismissNoDownloader,
+  onCreateFromFile,
+  onCreateFromUrl,
+  renderMode = "modal",
+}: ImageMetadataModalProps) {
   const [form, setForm] = useState<ImageFormState>(() => cloneFormState(initialState));
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   useEffect(() => {
@@ -159,10 +218,9 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       return isEdit ? trimmed : trimmed || undefined;
     };
     const clearFields = isEdit
-      ? [
-          !form.date && "date",
-          form.studioId === undefined && "studioId",
-        ].filter((field): field is string => Boolean(field))
+      ? [!form.date && "date", form.studioId === undefined && "studioId"].filter((field): field is string =>
+          Boolean(field),
+        )
       : undefined;
     return {
       title: text(form.title),
@@ -177,7 +235,11 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       performerIds: form.selectedPerformerIds,
       galleryIds: form.selectedGalleryIds,
       groupIds: form.selectedGroups,
-      customFields: image ? form.customFields : Object.keys(form.customFields).length > 0 ? form.customFields : undefined,
+      customFields: image
+        ? form.customFields
+        : Object.keys(form.customFields).length > 0
+          ? form.customFields
+          : undefined,
       clearFields,
     };
   };
@@ -192,7 +254,15 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
 
     if (sourceMode === "url" && onCreateFromUrl) {
       const requestedUrl = url.trim();
-      if (requestedUrl) onCreateFromUrl(requestedUrl, payload, form.contextTagIdsByPerformer, form.selectedPerformerIds, urlDownloadMode, scrapeMetadata);
+      if (requestedUrl)
+        onCreateFromUrl(
+          requestedUrl,
+          payload,
+          form.contextTagIdsByPerformer,
+          form.selectedPerformerIds,
+          urlDownloadMode,
+          scrapeMetadata,
+        );
       return;
     }
 
@@ -203,14 +273,20 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
     const requestedUrl = url.trim();
     if (requestedUrl && onCreateWithoutDownload) {
       const payload = buildPayload();
-      onCreateWithoutDownload({ ...payload, urls: mergeUrlLists(payload.urls, [requestedUrl]) }, form.contextTagIdsByPerformer, form.selectedPerformerIds);
+      onCreateWithoutDownload(
+        { ...payload, urls: mergeUrlLists(payload.urls, [requestedUrl]) },
+        form.contextTagIdsByPerformer,
+        form.selectedPerformerIds,
+      );
     }
   };
 
   const setSelectedGroupIds = (groupIds: number[]) => {
     setForm({
       ...form,
-      selectedGroups: groupIds.map((groupId) => form.selectedGroups.find((group) => group.groupId === groupId) ?? { groupId, videoIndex: 0 }),
+      selectedGroups: groupIds.map(
+        (groupId) => form.selectedGroups.find((group) => group.groupId === groupId) ?? { groupId, videoIndex: 0 },
+      ),
     });
   };
 
@@ -238,114 +314,185 @@ function ImageMetadataModal({ title, open, onClose, initialState, onSubmit, isPe
       ) : null}
 
       <>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Title" fieldProvenance={image?.fieldProvenance} fieldKey="title">
-          <TextInput value={form.title} onChange={(value) => setForm({ ...form, title: value })} placeholder="Image title" />
-        </Field>
-        <Field label="Date" fieldProvenance={image?.fieldProvenance} fieldKey="date">
-          <IsoDateInput
-            value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Title" fieldProvenance={image?.fieldProvenance} fieldKey="title">
+            <TextInput
+              value={form.title}
+              onChange={(value) => setForm({ ...form, title: value })}
+              placeholder="Image title"
+            />
+          </Field>
+          <Field label="Date" fieldProvenance={image?.fieldProvenance} fieldKey="date">
+            <IsoDateInput
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Studio Code" fieldProvenance={image?.fieldProvenance} fieldKey="code">
+            <TextInput
+              value={form.code}
+              onChange={(value) => setForm({ ...form, code: value })}
+              placeholder="Image code"
+            />
+          </Field>
+          <Field label="Photographer" fieldProvenance={image?.fieldProvenance} fieldKey="photographer">
+            <TextInput
+              value={form.photographer}
+              onChange={(value) => setForm({ ...form, photographer: value })}
+              placeholder="Photographer name"
+            />
+          </Field>
+        </div>
+
+        <Field label="Details" fieldProvenance={image?.fieldProvenance} fieldKey="details">
+          <TextArea
+            value={form.details}
+            onChange={(value) => setForm({ ...form, details: value })}
+            placeholder="Image description"
           />
         </Field>
-      </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Studio Code" fieldProvenance={image?.fieldProvenance} fieldKey="code">
-          <TextInput value={form.code} onChange={(value) => setForm({ ...form, code: value })} placeholder="Image code" />
-        </Field>
-        <Field label="Photographer" fieldProvenance={image?.fieldProvenance} fieldKey="photographer">
-          <TextInput value={form.photographer} onChange={(value) => setForm({ ...form, photographer: value })} placeholder="Photographer name" />
-        </Field>
-      </div>
-
-      <Field label="Details" fieldProvenance={image?.fieldProvenance} fieldKey="details">
-        <TextArea value={form.details} onChange={(value) => setForm({ ...form, details: value })} placeholder="Image description" />
-      </Field>
-
-      {renderMode === "panel" || !showRating ? (
-        <Field label="Studio" fieldProvenance={image?.fieldProvenance} fieldKey={["studio", "studioId"]}>
-          <StudioSelector value={form.studioId} onChange={(studioId) => setForm({ ...form, studioId })} />
-        </Field>
-      ) : (
-        <div className="grid grid-cols-2 gap-4">
-          <RatingField value={form.rating} onChange={(value) => setForm({ ...form, rating: value })} fieldProvenance={image?.fieldProvenance} />
+        {renderMode === "panel" || !showRating ? (
           <Field label="Studio" fieldProvenance={image?.fieldProvenance} fieldKey={["studio", "studioId"]}>
             <StudioSelector value={form.studioId} onChange={(studioId) => setForm({ ...form, studioId })} />
           </Field>
-        </div>
-      )}
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            <RatingField
+              value={form.rating}
+              onChange={(value) => setForm({ ...form, rating: value })}
+              fieldProvenance={image?.fieldProvenance}
+            />
+            <Field label="Studio" fieldProvenance={image?.fieldProvenance} fieldKey={["studio", "studioId"]}>
+              <StudioSelector value={form.studioId} onChange={(studioId) => setForm({ ...form, studioId })} />
+            </Field>
+          </div>
+        )}
 
-      <Field label="URLs" fieldProvenance={image?.fieldProvenance} fieldKey="urls">
-        <StringListEditor values={form.urls} onChange={(value) => setForm({ ...form, urls: value })} placeholder="https://..." addLabel="Add URL" inputType="url" />
-      </Field>
-
-      <Field label="Tags" fieldProvenance={image?.fieldProvenance} fieldKey="tags">
-        <EntityReferenceMultiSelector entityType="tag" values={form.selectedTagIds} onChange={(selectedTagIds) => setForm({ ...form, selectedTagIds })} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} seedOptions={tagSeedOptions} />
-      </Field>
-
-      <Field label="Performers" fieldProvenance={image?.fieldProvenance} fieldKey="performers">
-        <EntityReferenceMultiSelector entityType="performer" values={form.selectedPerformerIds} onChange={(selectedPerformerIds) => setForm({ ...form, selectedPerformerIds })} placeholder="Search performers..." seedOptions={performerSeedOptions} />
-      </Field>
-
-      {form.selectedPerformerIds.length > 0 ? (
-        <Field label="Performer Occurrence Tags" fieldProvenance={image?.fieldProvenance} fieldKey="contextTags">
-          <PerformerContextTagEditor
-            performerIds={form.selectedPerformerIds}
-            contextTagIdsByPerformer={form.contextTagIdsByPerformer}
-            onChange={(performerId, tagIds) => setForm({
-              ...form,
-              contextTagIdsByPerformer: { ...form.contextTagIdsByPerformer, [performerId]: tagIds },
-            })}
+        <Field label="URLs" fieldProvenance={image?.fieldProvenance} fieldKey="urls">
+          <StringListEditor
+            values={form.urls}
+            onChange={(value) => setForm({ ...form, urls: value })}
+            placeholder="https://..."
+            addLabel="Add URL"
+            inputType="url"
           />
         </Field>
-      ) : null}
 
-      {/* Galleries */}
-      <Field label="Galleries" fieldProvenance={image?.fieldProvenance} fieldKey="galleries">
-        <EntityReferenceMultiSelector entityType="gallery" values={form.selectedGalleryIds} onChange={(selectedGalleryIds) => setForm({ ...form, selectedGalleryIds })} placeholder="Search galleries..." />
-      </Field>
+        <Field label="Tags" fieldProvenance={image?.fieldProvenance} fieldKey="tags">
+          <EntityReferenceMultiSelector
+            entityType="tag"
+            values={form.selectedTagIds}
+            onChange={(selectedTagIds) => setForm({ ...form, selectedTagIds })}
+            placeholder="Search tags..."
+            selectedProvenanceById={tagProvenanceById}
+            seedOptions={tagSeedOptions}
+          />
+        </Field>
 
-      <Field label="Groups" fieldProvenance={image?.fieldProvenance} fieldKey="groups">
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {form.selectedGroups.map((selectedGroup) => {
-            return (
-              <span key={selectedGroup.groupId} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-900 text-orange-300">
-                <EntityReferenceValue entityType="group" value={selectedGroup.groupId} />
-                <button onClick={() => setForm({ ...form, selectedGroups: form.selectedGroups.filter((item) => item.groupId !== selectedGroup.groupId) })} className="hover:text-white">×</button>
-              </span>
-            );
-          })}
-        </div>
-        <EntityReferenceMultiSelector entityType="group" values={form.selectedGroups.map((group) => group.groupId)} onChange={setSelectedGroupIds} placeholder="Search groups..." />
-      </Field>
+        <Field label="Performers" fieldProvenance={image?.fieldProvenance} fieldKey="performers">
+          <EntityReferenceMultiSelector
+            entityType="performer"
+            values={form.selectedPerformerIds}
+            onChange={(selectedPerformerIds) => setForm({ ...form, selectedPerformerIds })}
+            placeholder="Search performers..."
+            seedOptions={performerSeedOptions}
+          />
+        </Field>
 
-      <Field label="Custom Fields" fieldProvenance={image?.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={form.customFields} onChange={(v) => setForm({ ...form, customFields: v })} onValidityChange={setCustomFieldsValid} entityType="image" />
-      </Field>
+        {form.selectedPerformerIds.length > 0 ? (
+          <Field label="Performer Occurrence Tags" fieldProvenance={image?.fieldProvenance} fieldKey="contextTags">
+            <PerformerContextTagEditor
+              performerIds={form.selectedPerformerIds}
+              contextTagIdsByPerformer={form.contextTagIdsByPerformer}
+              onChange={(performerId, tagIds) =>
+                setForm({
+                  ...form,
+                  contextTagIdsByPerformer: { ...form.contextTagIdsByPerformer, [performerId]: tagIds },
+                })
+              }
+            />
+          </Field>
+        ) : null}
 
-      {error && (
-        <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 mb-4 text-sm">
-          {error.message}
-        </div>
-      )}
+        {/* Galleries */}
+        <Field label="Galleries" fieldProvenance={image?.fieldProvenance} fieldKey="galleries">
+          <EntityReferenceMultiSelector
+            entityType="gallery"
+            values={form.selectedGalleryIds}
+            onChange={(selectedGalleryIds) => setForm({ ...form, selectedGalleryIds })}
+            placeholder="Search galleries..."
+          />
+        </Field>
 
-      {onCreateAnotherChange ? (
-        <CreateModalActions
-          loading={isPending}
-          disabled={!customFieldsValid}
-          onCancel={onClose}
-          onSave={handleSave}
-          createAnother={createAnother ?? false}
-          onCreateAnotherChange={onCreateAnotherChange}
-        />
-      ) : (
-        <div className="flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
-          <SaveButton loading={isPending} disabled={!customFieldsValid} onClick={handleSave} />
-        </div>
-      )}
+        <Field label="Groups" fieldProvenance={image?.fieldProvenance} fieldKey="groups">
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {form.selectedGroups.map((selectedGroup) => {
+              return (
+                <span
+                  key={selectedGroup.groupId}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-900 text-orange-300"
+                >
+                  <EntityReferenceValue entityType="group" value={selectedGroup.groupId} />
+                  <button
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        selectedGroups: form.selectedGroups.filter((item) => item.groupId !== selectedGroup.groupId),
+                      })
+                    }
+                    className="hover:text-white"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+          <EntityReferenceMultiSelector
+            entityType="group"
+            values={form.selectedGroups.map((group) => group.groupId)}
+            onChange={setSelectedGroupIds}
+            placeholder="Search groups..."
+          />
+        </Field>
+
+        <Field label="Custom Fields" fieldProvenance={image?.fieldProvenance} fieldKey="customFields">
+          <CustomFieldsEditor
+            value={form.customFields}
+            onChange={(v) => setForm({ ...form, customFields: v })}
+            onValidityChange={setCustomFieldsValid}
+            entityType="image"
+          />
+        </Field>
+
+        {error && (
+          <div className="bg-red-900/50 border border-red-700 text-red-300 rounded p-2 mb-4 text-sm">
+            {error.message}
+          </div>
+        )}
+
+        {onCreateAnotherChange ? (
+          <CreateModalActions
+            loading={isPending}
+            disabled={!customFieldsValid}
+            onCancel={onClose}
+            onSave={handleSave}
+            createAnother={createAnother ?? false}
+            onCreateAnotherChange={onCreateAnotherChange}
+          />
+        ) : (
+          <div className="flex justify-end gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">
+              Cancel
+            </button>
+            <SaveButton loading={isPending} disabled={!customFieldsValid} onClick={handleSave} />
+          </div>
+        )}
       </>
     </>
   );
@@ -366,9 +513,23 @@ export function ImageEditPanel({ image, onSaved }: { image: Image; onSaved?: () 
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: async ({ data, contextTagIdsByPerformer, selectedPerformerIds }: { data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
+    mutationFn: async ({
+      data,
+      contextTagIdsByPerformer,
+      selectedPerformerIds,
+    }: {
+      data: ImageCreate;
+      contextTagIdsByPerformer: Record<number, number[]>;
+      selectedPerformerIds: number[];
+    }) => {
       await images.update(image.id, data);
-      await syncPerformerContextTags("image", image.id, image.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
+      await syncPerformerContextTags(
+        "image",
+        image.id,
+        image.contextTagApplications ?? [],
+        contextTagIdsByPerformer,
+        selectedPerformerIds,
+      );
       return images.get(image.id);
     },
     onSuccess: () => {
@@ -384,7 +545,9 @@ export function ImageEditPanel({ image, onSaved }: { image: Image; onSaved?: () 
       open
       onClose={() => onSaved?.()}
       initialState={toFormState(image)}
-      onSubmit={(data, contextTagIdsByPerformer, selectedPerformerIds) => mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })}
+      onSubmit={(data, contextTagIdsByPerformer, selectedPerformerIds) =>
+        mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })
+      }
       isPending={mutation.isPending}
       error={mutation.error as Error | null}
       image={image}
@@ -398,9 +561,23 @@ export function ImageEditModal({ image, open, onClose }: ImageEditProps) {
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: async ({ data, contextTagIdsByPerformer, selectedPerformerIds }: { data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
+    mutationFn: async ({
+      data,
+      contextTagIdsByPerformer,
+      selectedPerformerIds,
+    }: {
+      data: ImageCreate;
+      contextTagIdsByPerformer: Record<number, number[]>;
+      selectedPerformerIds: number[];
+    }) => {
       await images.update(image.id, data);
-      await syncPerformerContextTags("image", image.id, image.contextTagApplications ?? [], contextTagIdsByPerformer, selectedPerformerIds);
+      await syncPerformerContextTags(
+        "image",
+        image.id,
+        image.contextTagApplications ?? [],
+        contextTagIdsByPerformer,
+        selectedPerformerIds,
+      );
       return images.get(image.id);
     },
     onSuccess: () => {
@@ -416,7 +593,9 @@ export function ImageEditModal({ image, open, onClose }: ImageEditProps) {
       open={open}
       onClose={onClose}
       initialState={toFormState(image)}
-      onSubmit={(data, contextTagIdsByPerformer, selectedPerformerIds) => mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })}
+      onSubmit={(data, contextTagIdsByPerformer, selectedPerformerIds) =>
+        mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })
+      }
       isPending={mutation.isPending}
       error={mutation.error as Error | null}
       image={image}
@@ -431,9 +610,15 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
   const [sourceMode, setSourceMode] = useState<CreateSourceMode>("metadata");
   const [filePath, setFilePath] = useState("");
   const [url, setUrl] = useState("");
-  const { urlDownloadMode, setUrlDownloadMode, scrapeMetadata, setScrapeMetadata } = useFileBackedCreatePreferences("Image");
+  const { urlDownloadMode, setUrlDownloadMode, scrapeMetadata, setScrapeMetadata } =
+    useFileBackedCreatePreferences("Image");
   const [noDownloaderFound, setNoDownloaderFound] = useState(false);
-  const [sourceDownload, setSourceDownload] = useState<{ sourceUrl: string; data: ImageCreate; matches: DownloaderMatch[]; autoApplyMetadata: boolean } | null>(null);
+  const [sourceDownload, setSourceDownload] = useState<{
+    sourceUrl: string;
+    data: ImageCreate;
+    matches: DownloaderMatch[];
+    autoApplyMetadata: boolean;
+  } | null>(null);
 
   const handleCreated = (created: Image) => {
     queryClient.invalidateQueries({ queryKey: ["images"] });
@@ -451,7 +636,15 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
 
   const mutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: async ({ data, contextTagIdsByPerformer, selectedPerformerIds }: { data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
+    mutationFn: async ({
+      data,
+      contextTagIdsByPerformer,
+      selectedPerformerIds,
+    }: {
+      data: ImageCreate;
+      contextTagIdsByPerformer: Record<number, number[]>;
+      selectedPerformerIds: number[];
+    }) => {
       const created = await images.create(data);
       if (!created?.id) {
         return created;
@@ -465,7 +658,17 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
 
   const fileMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: async ({ path, data, contextTagIdsByPerformer, selectedPerformerIds }: { path: string; data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[] }) => {
+    mutationFn: async ({
+      path,
+      data,
+      contextTagIdsByPerformer,
+      selectedPerformerIds,
+    }: {
+      path: string;
+      data: ImageCreate;
+      contextTagIdsByPerformer: Record<number, number[]>;
+      selectedPerformerIds: number[];
+    }) => {
       const created = await images.createFromFile({ filePath: path });
       if (!created?.id) {
         return created;
@@ -480,10 +683,25 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
 
   const urlMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: async ({ requestedUrl, data, contextTagIdsByPerformer, selectedPerformerIds, downloadMode, scrapeMetadata }: { requestedUrl: string; data: ImageCreate; contextTagIdsByPerformer: Record<number, number[]>; selectedPerformerIds: number[]; downloadMode: UrlDownloadMode; scrapeMetadata: boolean }) => {
+    mutationFn: async ({
+      requestedUrl,
+      data,
+      contextTagIdsByPerformer,
+      selectedPerformerIds,
+      downloadMode,
+      scrapeMetadata,
+    }: {
+      requestedUrl: string;
+      data: ImageCreate;
+      contextTagIdsByPerformer: Record<number, number[]>;
+      selectedPerformerIds: number[];
+      downloadMode: UrlDownloadMode;
+      scrapeMetadata: boolean;
+    }) => {
       if (downloadMode === "now") {
-        const matches = (await system.matchDownloaders({ url: requestedUrl }))
-          .filter((match) => match.supportedEntity.toLowerCase() === "image");
+        const matches = (await system.matchDownloaders({ url: requestedUrl })).filter(
+          (match) => match.supportedEntity.toLowerCase() === "image",
+        );
 
         if (matches.length > 1) {
           setSourceDownload({ sourceUrl: requestedUrl, data, matches, autoApplyMetadata: scrapeMetadata });
@@ -495,7 +713,14 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
         }
       }
 
-      const created = await createFromUrlWithOptionalDownload({ requestedUrl, data, entity: "Image", downloadMode, scrapeMetadata, create: images.create });
+      const created = await createFromUrlWithOptionalDownload({
+        requestedUrl,
+        data,
+        entity: "Image",
+        downloadMode,
+        scrapeMetadata,
+        create: images.create,
+      });
       if (!created?.id) {
         return created;
       }
@@ -524,12 +749,17 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
   };
 
   const handleCreateWithoutDownload = (data: ImageCreate) => {
-    mutation.mutate({ data, contextTagIdsByPerformer: EMPTY_FORM_STATE.contextTagIdsByPerformer, selectedPerformerIds: EMPTY_FORM_STATE.selectedPerformerIds });
+    mutation.mutate({
+      data,
+      contextTagIdsByPerformer: EMPTY_FORM_STATE.contextTagIdsByPerformer,
+      selectedPerformerIds: EMPTY_FORM_STATE.selectedPerformerIds,
+    });
   };
 
-  const visibleError = (mutation.error ?? fileMutation.error ?? urlMutation.error) instanceof NoDownloaderFoundError
-    ? null
-    : (mutation.error ?? fileMutation.error ?? urlMutation.error) as Error | null;
+  const visibleError =
+    (mutation.error ?? fileMutation.error ?? urlMutation.error) instanceof NoDownloaderFoundError
+      ? null
+      : ((mutation.error ?? fileMutation.error ?? urlMutation.error) as Error | null);
 
   return (
     <>
@@ -538,7 +768,9 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
         open={open}
         onClose={onClose}
         initialState={EMPTY_FORM_STATE}
-        onSubmit={(data, contextTagIdsByPerformer, selectedPerformerIds) => mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })}
+        onSubmit={(data, contextTagIdsByPerformer, selectedPerformerIds) =>
+          mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })
+        }
         isPending={mutation.isPending || fileMutation.isPending || urlMutation.isPending}
         error={visibleError}
         resetSignal={resetSignal}
@@ -555,10 +787,30 @@ export function ImageCreateModal({ open, onClose, onCreated }: ImageCreateProps)
         scrapeMetadata={scrapeMetadata}
         onScrapeMetadataChange={setScrapeMetadata}
         noDownloaderFound={noDownloaderFound}
-        onCreateWithoutDownload={(data, contextTagIdsByPerformer, selectedPerformerIds) => mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })}
+        onCreateWithoutDownload={(data, contextTagIdsByPerformer, selectedPerformerIds) =>
+          mutation.mutate({ data, contextTagIdsByPerformer, selectedPerformerIds })
+        }
         onDismissNoDownloader={() => setNoDownloaderFound(false)}
-        onCreateFromFile={(path, data, contextTagIdsByPerformer, selectedPerformerIds) => fileMutation.mutate({ path, data, contextTagIdsByPerformer, selectedPerformerIds })}
-        onCreateFromUrl={(requestedUrl, data, contextTagIdsByPerformer, selectedPerformerIds, downloadMode, scrapeMetadata) => urlMutation.mutate({ requestedUrl, data, contextTagIdsByPerformer, selectedPerformerIds, downloadMode, scrapeMetadata })}
+        onCreateFromFile={(path, data, contextTagIdsByPerformer, selectedPerformerIds) =>
+          fileMutation.mutate({ path, data, contextTagIdsByPerformer, selectedPerformerIds })
+        }
+        onCreateFromUrl={(
+          requestedUrl,
+          data,
+          contextTagIdsByPerformer,
+          selectedPerformerIds,
+          downloadMode,
+          scrapeMetadata,
+        ) =>
+          urlMutation.mutate({
+            requestedUrl,
+            data,
+            contextTagIdsByPerformer,
+            selectedPerformerIds,
+            downloadMode,
+            scrapeMetadata,
+          })
+        }
       />
       {sourceDownload ? (
         <ImageSourceDownloadDialog

@@ -31,7 +31,15 @@ export function LabeledControl({ label, children }: { label: string; children: R
   );
 }
 
-export function ModifierSelector({ modifiers, selected, onSelect }: { modifiers: CriterionModifier[]; selected: CriterionModifier; onSelect: (m: CriterionModifier) => void }) {
+export function ModifierSelector({
+  modifiers,
+  selected,
+  onSelect,
+}: {
+  modifiers: CriterionModifier[];
+  selected: CriterionModifier;
+  onSelect: (m: CriterionModifier) => void;
+}) {
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     const currentButton = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-modifier]");
@@ -52,24 +60,24 @@ export function ModifierSelector({ modifiers, selected, onSelect }: { modifiers:
     <div className="space-y-2" role="group" aria-label="Match">
       <div className="text-sm font-medium text-secondary">Match</div>
       <div className="flex flex-wrap gap-2" onKeyDown={handleKeyDown}>
-      {modifiers.map((m) => (
-        <button
-          type="button"
-          key={m}
-          data-modifier={m}
-          aria-pressed={m === selected}
-          aria-keyshortcuts="ArrowLeft ArrowRight"
-          tabIndex={m === selected ? 0 : -1}
-          onClick={() => onSelect(m)}
-          className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${
-            m === selected
-              ? "bg-accent text-white border-accent"
-              : "border-border text-secondary hover:text-foreground hover:border-accent/50"
-          }`}
-        >
-          {MODIFIER_LABELS[m]}
-        </button>
-      ))}
+        {modifiers.map((m) => (
+          <button
+            type="button"
+            key={m}
+            data-modifier={m}
+            aria-pressed={m === selected}
+            aria-keyshortcuts="ArrowLeft ArrowRight"
+            tabIndex={m === selected ? 0 : -1}
+            onClick={() => onSelect(m)}
+            className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${
+              m === selected
+                ? "bg-accent text-white border-accent"
+                : "border-border text-secondary hover:text-foreground hover:border-accent/50"
+            }`}
+          >
+            {MODIFIER_LABELS[m]}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -83,7 +91,9 @@ function formatDurationInputValue(value?: number) {
   const h = Math.floor((value ?? 0) / 3600);
   const m = Math.floor(((value ?? 0) % 3600) / 60);
   const s = (value ?? 0) % 60;
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function parseDurationInputValue(value: string) {
@@ -91,15 +101,24 @@ function parseDurationInputValue(value: string) {
   if (trimmed === "") return undefined;
   const parts = trimmed.split(":").map(Number);
   if (parts.some((part) => !Number.isFinite(part))) return undefined;
-  const seconds = parts.length === 3
-    ? parts[0] * 3600 + parts[1] * 60 + parts[2]
-    : parts.length === 2
-      ? parts[0] * 60 + parts[1]
-      : parts[0];
+  const seconds =
+    parts.length === 3
+      ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+      : parts.length === 2
+        ? parts[0] * 60 + parts[1]
+        : parts[0];
   return seconds >= 0 ? seconds : undefined;
 }
 
-export function DurationInput({ value, onChange, ariaLabel }: { value?: number; onChange: (v: number | undefined) => void; ariaLabel?: string }) {
+export function DurationInput({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value?: number;
+  onChange: (v: number | undefined) => void;
+  ariaLabel?: string;
+}) {
   const [inputText, setInputText] = useState(() => formatDurationInputValue(value));
   const descriptionId = useId();
 
@@ -127,12 +146,24 @@ export function DurationInput({ value, onChange, ariaLabel }: { value?: number; 
         aria-describedby={humanValue ? descriptionId : undefined}
         className="min-h-11 w-28 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
       />
-      {humanValue ? <span id={descriptionId} aria-live="polite" className="text-xs font-normal text-muted">{humanValue}</span> : null}
+      {humanValue ? (
+        <span id={descriptionId} aria-live="polite" className="text-xs font-normal text-muted">
+          {humanValue}
+        </span>
+      ) : null}
     </span>
   );
 }
 
-export function PercentInput({ value, onChange, ariaLabel }: { value?: number; onChange: (v: number | undefined) => void; ariaLabel?: string }) {
+export function PercentInput({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value?: number;
+  onChange: (v: number | undefined) => void;
+  ariaLabel?: string;
+}) {
   return (
     <label className="relative inline-flex w-24 items-center">
       <input
@@ -197,7 +228,9 @@ export function ResolutionSelect({ value, onChange }: { value: number; onChange:
       className="min-h-11 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
     >
       {RESOLUTION_FILTER_OPTIONS.map((o) => (
-        <option key={o.value} value={o.value}>{o.label}</option>
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
       ))}
     </select>
   );

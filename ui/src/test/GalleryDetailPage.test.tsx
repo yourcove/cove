@@ -3,14 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GalleryDetailPage } from "../pages/GalleryDetailPage";
 
-const {
-  mockGalleries,
-  mockImages,
-  mockVideos,
-  mockEntityImages,
-  mockSetRating,
-  mockGoBack,
-} = vi.hoisted(() => ({
+const { mockGalleries, mockImages, mockVideos, mockEntityImages, mockSetRating, mockGoBack } = vi.hoisted(() => ({
   mockGalleries: {
     get: vi.fn(),
     getLikeCount: vi.fn(),
@@ -215,9 +208,12 @@ describe("GalleryDetailPage", () => {
   });
 
   it("applies the saved gallery image page size", async () => {
-    localStorage.setItem("cove-default-filter-gallery-images", JSON.stringify({
-      findFilter: { sort: "path", direction: "asc", perPage: 20 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-gallery-images",
+      JSON.stringify({
+        findFilter: { sort: "path", direction: "asc", perPage: 20 },
+      }),
+    );
     mockGalleries.get.mockResolvedValue(buildGallery());
     mockImages.find.mockResolvedValue({ items: [{ id: 91, title: "Cover Frame" }], totalCount: 78 });
     mockVideos.find.mockResolvedValue({ items: [], totalCount: 0 });
@@ -230,12 +226,18 @@ describe("GalleryDetailPage", () => {
   });
 
   it("applies the saved gallery video page size", async () => {
-    localStorage.setItem("cove-default-filter-videos", JSON.stringify({
-      findFilter: { sort: "date", direction: "desc", perPage: 20 },
-    }));
-    localStorage.setItem("cove-default-filter-gallery-videos", JSON.stringify({
-      findFilter: { sort: "date", direction: "desc", perPage: 40 },
-    }));
+    localStorage.setItem(
+      "cove-default-filter-videos",
+      JSON.stringify({
+        findFilter: { sort: "date", direction: "desc", perPage: 20 },
+      }),
+    );
+    localStorage.setItem(
+      "cove-default-filter-gallery-videos",
+      JSON.stringify({
+        findFilter: { sort: "date", direction: "desc", perPage: 40 },
+      }),
+    );
     mockGalleries.get.mockResolvedValue(buildGallery({ videoCount: 1 }));
     mockImages.find.mockResolvedValue({ items: [{ id: 91, title: "Cover Frame" }], totalCount: 1 });
     mockVideos.find.mockResolvedValue({ items: [{ id: 4, title: "Video One" }], totalCount: 1 });

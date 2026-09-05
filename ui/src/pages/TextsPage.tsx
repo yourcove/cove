@@ -21,7 +21,12 @@ import { FileBackedCreateSource, type CreateSourceMode } from "../components/Fil
 import { StudioSelector } from "../components/StudioSelector";
 import { StringListEditor } from "../components/StringListEditor";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
-import { createFromUrlWithOptionalDownload, mergeUrlLists, NoDownloaderFoundError, type UrlDownloadMode } from "../utils/createFromUrlDownload";
+import {
+  createFromUrlWithOptionalDownload,
+  mergeUrlLists,
+  NoDownloaderFoundError,
+  type UrlDownloadMode,
+} from "../utils/createFromUrlDownload";
 import { useFileBackedCreatePreferences } from "../hooks/useFileBackedCreatePreferences";
 import { SourceDownloadDialog } from "../components/SourceDownloadDialog";
 import { TEXT_CRITERIA } from "../components/filterCriteriaCatalogs";
@@ -45,7 +50,11 @@ export function TextsPage({ onNavigate }: Props) {
     return {
       filter: savedFilter?.findFilter ?? { page: 1, perPage: 40, sort: "date", direction: "desc" },
       objectFilter: savedFilter?.objectFilter ?? {},
-      displayMode: resolveSavedDisplayMode(savedFilter?.uiOptions, ["grid", "list", "tagger"] as const, "grid") as DisplayMode,
+      displayMode: resolveSavedDisplayMode(
+        savedFilter?.uiOptions,
+        ["grid", "list", "tagger"] as const,
+        "grid",
+      ) as DisplayMode,
     };
   }, []);
 
@@ -64,21 +73,32 @@ export function TextsPage({ onNavigate }: Props) {
     queryKey: ["texts", filter, objectFilter],
     filter,
     chunkSize: defaultState.filter.perPage ?? 40,
-    queryPage: (nextFilter) => hasObjectFilter
-      ? texts.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as TextFilterCriteria })
-      : texts.find(nextFilter),
+    queryPage: (nextFilter) =>
+      hasObjectFilter
+        ? texts.findFiltered({ findFilter: nextFilter, objectFilter: objectFilter as TextFilterCriteria })
+        : texts.find(nextFilter),
   });
 
   const items = listData.items;
   const totalCount = listData.totalCount;
   const isLoading = listData.isLoading;
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }), [listData.infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, { preserveOnItemsChange: listData.infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: listData.infiniteFilterKey, objectFilter }),
+    [listData.infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(items, {
+    preserveOnItemsChange: listData.infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const aggregateFilter = useMemo(() => ({ q: filter.q, page: 1, perPage: 0 }), [filter.q]);
   const { data: filteredAggregate, isLoading: filteredAggregateLoading } = useQuery({
     queryKey: ["texts", "aggregate", aggregateFilter, objectFilter],
-    queryFn: () => texts.aggregate({ findFilter: aggregateFilter, objectFilter: hasObjectFilter ? objectFilter as TextFilterCriteria : undefined }),
+    queryFn: () =>
+      texts.aggregate({
+        findFilter: aggregateFilter,
+        objectFilter: hasObjectFilter ? (objectFilter as TextFilterCriteria) : undefined,
+      }),
   });
   const selectedIdList = useMemo(() => [...selectedIds].map(Number).sort((left, right) => left - right), [selectedIds]);
   const { data: selectedAggregate, isLoading: selectedAggregateLoading } = useQuery({
@@ -101,47 +121,66 @@ export function TextsPage({ onNavigate }: Props) {
 
   return (
     <>
-    {showCreate ? <TextCreateModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => onNavigate({ page: "text", id })} /> : null}
-    <ListPage
-      title="Texts"
-      metadataByline={<MediaAggregateMetadata fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />}
-      pageKey="texts"
-      filterMode="texts"
-      filter={filter}
-      onFilterChange={setFilter}
-      totalCount={totalCount}
-      isLoading={isLoading}
-      error={listData.loadError}
-      onRetry={() => { void listData.refetch(); }}
-      searchPlaceholder="Search text, tags, performers..."
-      sortOptions={SORT_OPTIONS}
-      multiSortKeys={TEXT_MULTI_SORT_KEYS}
-      displayMode={displayMode}
-      onDisplayModeChange={setDisplayMode}
-      availableDisplayModes={["grid", "list", "tagger"]}
-      allowInfinitePageSize
-      showPagingControls={!listData.infinitePageSize}
-      selectAllPending={listData.infinitePageSize ? selectAllMatchingPending : false}
-      onSelectAllMatching={listData.infinitePageSize ? selectAll : undefined}
-      selectAllMatchingLabel="Select shown"
-      infiniteScroll={listData.infiniteScroll}
-      onNew={canWriteText ? () => setShowCreate(true) : undefined}
-      criteriaDefinitions={TEXT_CRITERIA}
-      objectFilter={objectFilter}
-      onObjectFilterChange={setObjectFilter}
-      selectedIds={selectedIds}
-      selectionMetadata={<MediaAggregateMetadata fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />}
-      onSelectAll={listData.infinitePageSize ? handleSelectAllMatching : selectAll}
-      onSelectNone={selectNone}
-      onInvertSelection={invertSelection}
-      selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} />}
-    >
-      {items.length === 0 && !isLoading ? (
-        <div className="rounded-lg border border-dashed border-border bg-card/70 px-6 py-10 text-sm text-muted">
-          No text documents matched the current filter.
-        </div>
-      ) : (
-        displayMode === "tagger" ? (
+      {showCreate ? (
+        <TextCreateModal
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          onCreated={(id) => onNavigate({ page: "text", id })}
+        />
+      ) : null}
+      <ListPage
+        title="Texts"
+        metadataByline={
+          <MediaAggregateMetadata fileSize={filteredAggregate?.fileSize} loading={filteredAggregateLoading} />
+        }
+        pageKey="texts"
+        filterMode="texts"
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={totalCount}
+        isLoading={isLoading}
+        error={listData.loadError}
+        onRetry={() => {
+          void listData.refetch();
+        }}
+        searchPlaceholder="Search text, tags, performers..."
+        sortOptions={SORT_OPTIONS}
+        multiSortKeys={TEXT_MULTI_SORT_KEYS}
+        displayMode={displayMode}
+        onDisplayModeChange={setDisplayMode}
+        availableDisplayModes={["grid", "list", "tagger"]}
+        allowInfinitePageSize
+        showPagingControls={!listData.infinitePageSize}
+        selectAllPending={listData.infinitePageSize ? selectAllMatchingPending : false}
+        onSelectAllMatching={listData.infinitePageSize ? selectAll : undefined}
+        selectAllMatchingLabel="Select shown"
+        infiniteScroll={listData.infiniteScroll}
+        onNew={canWriteText ? () => setShowCreate(true) : undefined}
+        criteriaDefinitions={TEXT_CRITERIA}
+        objectFilter={objectFilter}
+        onObjectFilterChange={setObjectFilter}
+        selectedIds={selectedIds}
+        selectionMetadata={
+          <MediaAggregateMetadata fileSize={selectedAggregate?.fileSize} loading={selectedAggregateLoading} />
+        }
+        onSelectAll={listData.infinitePageSize ? handleSelectAllMatching : selectAll}
+        onSelectNone={selectNone}
+        onInvertSelection={invertSelection}
+        selectionActions={
+          <BulkSelectionActions
+            entityType="texts"
+            selectedIds={selectedIds}
+            onDone={selectNone}
+            textItems={items}
+            downloadItems={items}
+          />
+        }
+      >
+        {items.length === 0 && !isLoading ? (
+          <div className="rounded-lg border border-dashed border-border bg-card/70 px-6 py-10 text-sm text-muted">
+            No text documents matched the current filter.
+          </div>
+        ) : displayMode === "tagger" ? (
           <ScraperEntityTagger
             entityType="text"
             label="Text"
@@ -155,44 +194,71 @@ export function TextsPage({ onNavigate }: Props) {
             queryKey="texts"
           />
         ) : displayMode === "list" ? (
-          <RelatedEntityListView entityType="texts" items={items} displayMode="list" selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={listData.infinitePageSize} hasNextPage={listData.infiniteQuery.hasNextPage} isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage} loadMore={listData.loadMore} />
+          <RelatedEntityListView
+            entityType="texts"
+            items={items}
+            displayMode="list"
+            selectedIds={selectedIds}
+            selecting={selecting}
+            onToggle={toggle}
+            onNavigate={onNavigate}
+            infinitePageSize={listData.infinitePageSize}
+            hasNextPage={listData.infiniteQuery.hasNextPage}
+            isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+            loadMore={listData.loadMore}
+          />
         ) : (
-        <VirtualizedEntityGrid
-          items={items}
-          getItemKey={(text) => text.id}
-          minCardWidth="var(--card-min-width, 300px)"
-          estimateRowHeight={220}
-          infinitePageSize={listData.infinitePageSize}
-          hasNextPage={listData.infiniteQuery.hasNextPage}
-          isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
-          loadMore={listData.loadMore}
-          renderItem={(text) => (
-            <TextTile
-              text={text}
-              engagement={textEngagement.get(text.id)}
-              selected={selectedIds.has(text.id)}
-              selecting={selecting}
-              onSelect={(toggleOptions) => toggle(text.id, toggleOptions)}
-              onClick={(toggleOptions) => selecting ? toggle(text.id, toggleOptions) : onNavigate({ page: "text", id: text.id })}
-              onNavigate={onNavigate}
-            />
-          )}
-        />
-        )
-      )}
-    </ListPage>
+          <VirtualizedEntityGrid
+            items={items}
+            getItemKey={(text) => text.id}
+            minCardWidth="var(--card-min-width, 300px)"
+            estimateRowHeight={220}
+            infinitePageSize={listData.infinitePageSize}
+            hasNextPage={listData.infiniteQuery.hasNextPage}
+            isFetchingNextPage={listData.infiniteQuery.isFetchingNextPage}
+            loadMore={listData.loadMore}
+            renderItem={(text) => (
+              <TextTile
+                text={text}
+                engagement={textEngagement.get(text.id)}
+                selected={selectedIds.has(text.id)}
+                selecting={selecting}
+                onSelect={(toggleOptions) => toggle(text.id, toggleOptions)}
+                onClick={(toggleOptions) =>
+                  selecting ? toggle(text.id, toggleOptions) : onNavigate({ page: "text", id: text.id })
+                }
+                onNavigate={onNavigate}
+              />
+            )}
+          />
+        )}
+      </ListPage>
     </>
   );
 }
 
-function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
+function TextCreateModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (id: number) => void;
+}) {
   const queryClient = useQueryClient();
   const [sourceMode, setSourceMode] = useState<CreateSourceMode>("metadata");
   const [filePath, setFilePath] = useState("");
   const [url, setUrl] = useState("");
-  const { urlDownloadMode, setUrlDownloadMode, scrapeMetadata, setScrapeMetadata } = useFileBackedCreatePreferences("Text");
+  const { urlDownloadMode, setUrlDownloadMode, scrapeMetadata, setScrapeMetadata } =
+    useFileBackedCreatePreferences("Text");
   const [noDownloaderFound, setNoDownloaderFound] = useState(false);
-  const [sourceDownload, setSourceDownload] = useState<{ sourceUrl: string; data: TextCreate; matches: DownloaderMatch[]; autoApplyMetadata: boolean } | null>(null);
+  const [sourceDownload, setSourceDownload] = useState<{
+    sourceUrl: string;
+    data: TextCreate;
+    matches: DownloaderMatch[];
+    autoApplyMetadata: boolean;
+  } | null>(null);
   const [title, setTitle] = useState("");
   const [code, setCode] = useState("");
   const [date, setDate] = useState("");
@@ -252,10 +318,21 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
 
   const downloadMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: async ({ requestedUrl, data, downloadMode, scrapeMetadata }: { requestedUrl: string; data: TextCreate; downloadMode: UrlDownloadMode; scrapeMetadata: boolean }) => {
+    mutationFn: async ({
+      requestedUrl,
+      data,
+      downloadMode,
+      scrapeMetadata,
+    }: {
+      requestedUrl: string;
+      data: TextCreate;
+      downloadMode: UrlDownloadMode;
+      scrapeMetadata: boolean;
+    }) => {
       if (downloadMode === "now") {
-        const matches = (await system.matchDownloaders({ url: requestedUrl }))
-          .filter((match) => match.supportedEntity.toLowerCase() === "text");
+        const matches = (await system.matchDownloaders({ url: requestedUrl })).filter(
+          (match) => match.supportedEntity.toLowerCase() === "text",
+        );
 
         if (matches.length > 1) {
           setSourceDownload({ sourceUrl: requestedUrl, data, matches, autoApplyMetadata: scrapeMetadata });
@@ -267,7 +344,14 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
         }
       }
 
-      return createFromUrlWithOptionalDownload({ requestedUrl, data, entity: "Text", downloadMode, scrapeMetadata, create: texts.create });
+      return createFromUrlWithOptionalDownload({
+        requestedUrl,
+        data,
+        entity: "Text",
+        downloadMode,
+        scrapeMetadata,
+        create: texts.create,
+      });
     },
     onSuccess: (created) => {
       if (!created) return;
@@ -302,7 +386,8 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
     }
     if (sourceMode === "url") {
       const requestedUrl = url.trim();
-      if (requestedUrl) downloadMutation.mutate({ requestedUrl, data: buildPayload(), downloadMode: urlDownloadMode, scrapeMetadata });
+      if (requestedUrl)
+        downloadMutation.mutate({ requestedUrl, data: buildPayload(), downloadMode: urlDownloadMode, scrapeMetadata });
       return;
     }
     createMutation.mutate(buildPayload());
@@ -314,49 +399,114 @@ function TextCreateModal({ open, onClose, onCreated }: { open: boolean; onClose:
 
   return (
     <>
-    <EditModal title="Create Text" open={open} onClose={onClose}>
-      <FileBackedCreateSource mode={sourceMode} onModeChange={handleSourceModeChange} filePath={filePath} onFilePathChange={setFilePath} url={url} onUrlChange={handleUrlChange} urlDownloadMode={urlDownloadMode} onUrlDownloadModeChange={setUrlDownloadMode} scrapeMetadata={scrapeMetadata} onScrapeMetadataChange={setScrapeMetadata} noDownloaderFound={noDownloaderFound} onCreateWithoutDownload={handleCreateWithoutDownload} onDismissNoDownloader={() => setNoDownloaderFound(false)} modes={["metadata", "file", "url"]} filePlaceholder="C:\\Media\\document.txt" urlPlaceholder="https://example.com/document.txt" />
+      <EditModal title="Create Text" open={open} onClose={onClose}>
+        <FileBackedCreateSource
+          mode={sourceMode}
+          onModeChange={handleSourceModeChange}
+          filePath={filePath}
+          onFilePathChange={setFilePath}
+          url={url}
+          onUrlChange={handleUrlChange}
+          urlDownloadMode={urlDownloadMode}
+          onUrlDownloadModeChange={setUrlDownloadMode}
+          scrapeMetadata={scrapeMetadata}
+          onScrapeMetadataChange={setScrapeMetadata}
+          noDownloaderFound={noDownloaderFound}
+          onCreateWithoutDownload={handleCreateWithoutDownload}
+          onDismissNoDownloader={() => setNoDownloaderFound(false)}
+          modes={["metadata", "file", "url"]}
+          filePlaceholder="C:\\Media\\document.txt"
+          urlPlaceholder="https://example.com/document.txt"
+        />
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Title"><TextInput value={title} onChange={setTitle} placeholder="Text title" /></Field>
-        <Field label="Date"><IsoDateInput value={date} onChange={(event) => setDate(event.target.value)} className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none" /></Field>
-      </div>
-      <Field label="Studio Code"><TextInput value={code} onChange={setCode} placeholder="Text code" /></Field>
-      <Field label="Details"><TextArea value={details} onChange={setDetails} placeholder="Text notes" rows={3} /></Field>
-      <Field label="Studio"><StudioSelector value={studioId} onChange={setStudioId} /></Field>
-      <Field label="URLs"><StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" /></Field>
-      <Field label="Custom Fields"><CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="text" /></Field>
-      {visibleError ? (
-        <div className="mb-4 rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">
-          {visibleError.message}
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Title">
+            <TextInput value={title} onChange={setTitle} placeholder="Text title" />
+          </Field>
+          <Field label="Date">
+            <IsoDateInput
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+            />
+          </Field>
         </div>
+        <Field label="Studio Code">
+          <TextInput value={code} onChange={setCode} placeholder="Text code" />
+        </Field>
+        <Field label="Details">
+          <TextArea value={details} onChange={setDetails} placeholder="Text notes" rows={3} />
+        </Field>
+        <Field label="Studio">
+          <StudioSelector value={studioId} onChange={setStudioId} />
+        </Field>
+        <Field label="URLs">
+          <StringListEditor
+            values={urls}
+            onChange={setUrls}
+            placeholder="https://..."
+            addLabel="Add URL"
+            inputType="url"
+          />
+        </Field>
+        <Field label="Custom Fields">
+          <CustomFieldsEditor
+            value={customFields}
+            onChange={setCustomFields}
+            onValidityChange={setCustomFieldsValid}
+            entityType="text"
+          />
+        </Field>
+        {visibleError ? (
+          <div className="mb-4 rounded border border-red-700 bg-red-900/50 p-2 text-sm text-red-300">
+            {visibleError.message}
+          </div>
+        ) : null}
+        <CreateModalActions
+          loading={pending}
+          disabled={!customFieldsValid}
+          onCancel={onClose}
+          onSave={handleSave}
+          createAnother={createAnother}
+          onCreateAnotherChange={setCreateAnother}
+        />
+      </EditModal>
+      {sourceDownload ? (
+        <SourceDownloadDialog
+          open
+          entity="Text"
+          sourceUrl={sourceDownload.sourceUrl}
+          matches={sourceDownload.matches}
+          baseTitle={sourceDownload.data.title}
+          metadata={sourceDownload.data}
+          autoApplyMetadata={sourceDownload.autoApplyMetadata}
+          onClose={() => setSourceDownload(null)}
+          onQueued={() => {
+            queryClient.invalidateQueries({ queryKey: ["jobs"] });
+            queryClient.invalidateQueries({ queryKey: ["texts"] });
+            setSourceDownload(null);
+            resetForm();
+            if (!createAnother) onClose();
+          }}
+        />
       ) : null}
-      <CreateModalActions loading={pending} disabled={!customFieldsValid} onCancel={onClose} onSave={handleSave} createAnother={createAnother} onCreateAnotherChange={setCreateAnother} />
-    </EditModal>
-    {sourceDownload ? (
-      <SourceDownloadDialog
-        open
-        entity="Text"
-        sourceUrl={sourceDownload.sourceUrl}
-        matches={sourceDownload.matches}
-        baseTitle={sourceDownload.data.title}
-        metadata={sourceDownload.data}
-        autoApplyMetadata={sourceDownload.autoApplyMetadata}
-        onClose={() => setSourceDownload(null)}
-        onQueued={() => {
-          queryClient.invalidateQueries({ queryKey: ["jobs"] });
-          queryClient.invalidateQueries({ queryKey: ["texts"] });
-          setSourceDownload(null);
-          resetForm();
-          if (!createAnother) onClose();
-        }}
-      />
-    ) : null}
     </>
   );
 }
 
-function TextListTable({ texts: items, selectedIds, selecting, onToggle, onNavigate }: { texts: TextDocument[]; selectedIds: Set<number>; selecting: boolean; onToggle: MultiSelectToggleHandler; onNavigate: (route: any) => void }) {
+function TextListTable({
+  texts: items,
+  selectedIds,
+  selecting,
+  onToggle,
+  onNavigate,
+}: {
+  texts: TextDocument[];
+  selectedIds: Set<number>;
+  selecting: boolean;
+  onToggle: MultiSelectToggleHandler;
+  onNavigate: (route: any) => void;
+}) {
   const numberFormat = new Intl.NumberFormat();
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -378,30 +528,57 @@ function TextListTable({ texts: items, selectedIds, selecting, onToggle, onNavig
             const primaryFile = pickPrimaryTextFile(text);
             const preview = primaryFile?.excerptText?.trim() || text.details?.trim();
             return (
-              <tr key={text.id} onClick={(event) => selecting ? onToggle(text.id, toggleOptionsFromEvent(event)) : onNavigate({ page: "text", id: text.id })} className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(text.id) ? "bg-accent/10" : ""}`}>
+              <tr
+                key={text.id}
+                onClick={(event) =>
+                  selecting
+                    ? onToggle(text.id, toggleOptionsFromEvent(event))
+                    : onNavigate({ page: "text", id: text.id })
+                }
+                className={`cursor-pointer hover:bg-surface/70 ${selectedIds.has(text.id) ? "bg-accent/10" : ""}`}
+              >
                 <td className="px-3 py-2">
                   <input
                     type="checkbox"
                     checked={selectedIds.has(text.id)}
-	                    onChange={() => {}}
-	                    onClick={(event) => { event.stopPropagation(); onToggle(text.id, toggleOptionsFromEvent(event)); }}
+                    onChange={() => {}}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggle(text.id, toggleOptionsFromEvent(event));
+                    }}
                     className="rounded border-border bg-card"
                     aria-label={`Select ${title}`}
                   />
                 </td>
                 <td className="min-w-[18rem] px-3 py-2">
                   <div className="font-medium text-foreground">{title}</div>
-                  {preview ? <div className="mt-0.5 line-clamp-1 max-w-xl text-xs text-secondary">{preview}</div> : null}
-                  {text.files.length === 0 && text.urls.length > 0 ? <div className="mt-1 text-xs text-cyan-300">Download available</div> : null}
+                  {preview ? (
+                    <div className="mt-0.5 line-clamp-1 max-w-xl text-xs text-secondary">{preview}</div>
+                  ) : null}
+                  {text.files.length === 0 && text.urls.length > 0 ? (
+                    <div className="mt-1 text-xs text-cyan-300">Download available</div>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2 text-secondary">
-                  <EntityReferencePopovers studio={{ id: text.studioId, name: text.studioName }} onNavigate={onNavigate} />
+                  <EntityReferencePopovers
+                    studio={{ id: text.studioId, name: text.studioName }}
+                    onNavigate={onNavigate}
+                  />
                 </td>
-                <td className="px-3 py-2 text-secondary">{text.maxWordCount ? numberFormat.format(text.maxWordCount) : ""}</td>
-                <td className="px-3 py-2 text-secondary">{text.maxPageCount ? numberFormat.format(text.maxPageCount) : ""}</td>
+                <td className="px-3 py-2 text-secondary">
+                  {text.maxWordCount ? numberFormat.format(text.maxWordCount) : ""}
+                </td>
+                <td className="px-3 py-2 text-secondary">
+                  {text.maxPageCount ? numberFormat.format(text.maxPageCount) : ""}
+                </td>
                 <td className="px-3 py-2 text-secondary">{text.fileCount}</td>
                 <td className="px-3 py-2 text-secondary">
-                  <EntityReferencePopovers performers={text.performers} tags={text.tags} groups={text.groups} onNavigate={onNavigate} />
+                  <EntityReferencePopovers
+                    performers={text.performers}
+                    tags={text.tags}
+                    groups={text.groups}
+                    onNavigate={onNavigate}
+                  />
                 </td>
               </tr>
             );

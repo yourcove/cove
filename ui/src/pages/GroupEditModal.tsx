@@ -8,7 +8,11 @@ import { CustomFieldsEditor, buildTagProvenanceById } from "../components/shared
 import { StringListEditor } from "../components/StringListEditor";
 import { StudioSelector } from "../components/StudioSelector";
 import { EntityReferenceMultiSelector } from "../components/EntityReferenceSelector";
-import { DynamicGroupFilterEditor, FILTER_DYNAMIC_SOURCE_KEY, defaultDynamicGroupFilterQueryJson } from "../components/DynamicGroupFilterEditor";
+import {
+  DynamicGroupFilterEditor,
+  FILTER_DYNAMIC_SOURCE_KEY,
+  defaultDynamicGroupFilterQueryJson,
+} from "../components/DynamicGroupFilterEditor";
 
 interface Props {
   group: Group;
@@ -66,8 +70,9 @@ export function GroupEditModal({ group, open, onClose }: Props) {
 
   useEffect(() => {
     if (!open || group.querySourceKey || !dynamicSources?.length) return;
-    const fallbackKey = dynamicSources.find((source) => source.key === FILTER_DYNAMIC_SOURCE_KEY)?.key ?? dynamicSources[0].key;
-    setQuerySourceKey((current) => current === FILTER_DYNAMIC_SOURCE_KEY ? fallbackKey : current);
+    const fallbackKey =
+      dynamicSources.find((source) => source.key === FILTER_DYNAMIC_SOURCE_KEY)?.key ?? dynamicSources[0].key;
+    setQuerySourceKey((current) => (current === FILTER_DYNAMIC_SOURCE_KEY ? fallbackKey : current));
   }, [dynamicSources, group.id, group.querySourceKey, open]);
 
   useEffect(() => {
@@ -99,7 +104,10 @@ export function GroupEditModal({ group, open, onClose }: Props) {
       queryClient.invalidateQueries({ queryKey: ["group", group.id] });
       queryClient.invalidateQueries({ queryKey: ["groups"] });
       queryClient.invalidateQueries({ queryKey: ["group-containinggroups", group.id] });
-      const changedParentIds = new Set([...(containingGroups ?? []).map((parent) => parent.id), ...selectedParentGroupIds]);
+      const changedParentIds = new Set([
+        ...(containingGroups ?? []).map((parent) => parent.id),
+        ...selectedParentGroupIds,
+      ]);
       for (const parentId of changedParentIds) {
         queryClient.invalidateQueries({ queryKey: ["group-subgroups", parentId] });
       }
@@ -163,7 +171,12 @@ export function GroupEditModal({ group, open, onClose }: Props) {
         </Field>
         <Field label="Video Browsing" fieldProvenance={group.fieldProvenance} fieldKey="showInVideoLists">
           <label className="inline-flex items-center gap-2 text-sm text-foreground">
-            <input type="checkbox" checked={showInVideoLists} onChange={(event) => setShowInVideoLists(event.target.checked)} className="h-4 w-4 accent-accent" />
+            <input
+              type="checkbox"
+              checked={showInVideoLists}
+              onChange={(event) => setShowInVideoLists(event.target.checked)}
+              className="h-4 w-4 accent-accent"
+            />
             Show in video browsing
           </label>
         </Field>
@@ -183,7 +196,9 @@ export function GroupEditModal({ group, open, onClose }: Props) {
               className="w-full rounded border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
             >
               {(dynamicSources ?? []).map((source) => (
-                <option key={source.key} value={source.key}>{source.displayName}</option>
+                <option key={source.key} value={source.key}>
+                  {source.displayName}
+                </option>
               ))}
             </select>
           </Field>
@@ -207,7 +222,11 @@ export function GroupEditModal({ group, open, onClose }: Props) {
         </Field>
       </div>
 
-      <Field label="Description" fieldProvenance={group.fieldProvenance} fieldKey={["description", "details", "synopsis"]}>
+      <Field
+        label="Description"
+        fieldProvenance={group.fieldProvenance}
+        fieldKey={["description", "details", "synopsis"]}
+      >
         <TextArea value={description} onChange={setDescription} placeholder="Group description" rows={4} />
       </Field>
 
@@ -216,24 +235,49 @@ export function GroupEditModal({ group, open, onClose }: Props) {
       </Field>
 
       <Field label="URLs" fieldProvenance={group.fieldProvenance} fieldKey="urls">
-        <StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" />
+        <StringListEditor
+          values={urls}
+          onChange={setUrls}
+          placeholder="https://..."
+          addLabel="Add URL"
+          inputType="url"
+        />
       </Field>
 
       <Field label="Parent Groups" fieldProvenance={group.fieldProvenance} fieldKey="containingGroups">
-        <EntityReferenceMultiSelector entityType="group" values={selectedParentGroupIds} onChange={setSelectedParentGroupIds} placeholder="Search parent groups..." excludeIds={[group.id]} />
+        <EntityReferenceMultiSelector
+          entityType="group"
+          values={selectedParentGroupIds}
+          onChange={setSelectedParentGroupIds}
+          placeholder="Search parent groups..."
+          excludeIds={[group.id]}
+        />
       </Field>
 
       {/* Tags */}
       <Field label="Tags" fieldProvenance={group.fieldProvenance} fieldKey="tags">
-        <EntityReferenceMultiSelector entityType="tag" values={selectedTagIds} onChange={setSelectedTagIds} placeholder="Search tags..." selectedProvenanceById={tagProvenanceById} />
+        <EntityReferenceMultiSelector
+          entityType="tag"
+          values={selectedTagIds}
+          onChange={setSelectedTagIds}
+          placeholder="Search tags..."
+          selectedProvenanceById={tagProvenanceById}
+        />
       </Field>
 
       <Field label="Custom Fields" fieldProvenance={group.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="group" />
+        <CustomFieldsEditor
+          value={customFields}
+          onChange={setCustomFields}
+          onValidityChange={setCustomFieldsValid}
+          entityType="group"
+        />
       </Field>
 
       <div className="flex justify-end gap-3 mt-4">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
+        <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white">
+          Cancel
+        </button>
         <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>
@@ -241,12 +285,17 @@ export function GroupEditModal({ group, open, onClose }: Props) {
 }
 
 function splitAliases(value?: string) {
-  return value
-    ?.split(/[\r\n,]+/)
-    .map((alias) => alias.trim())
-    .filter(Boolean) ?? [];
+  return (
+    value
+      ?.split(/[\r\n,]+/)
+      .map((alias) => alias.trim())
+      .filter(Boolean) ?? []
+  );
 }
 
 function joinAliases(values: string[]) {
-  return values.map((alias) => alias.trim()).filter(Boolean).join(", ");
+  return values
+    .map((alias) => alias.trim())
+    .filter(Boolean)
+    .join(", ");
 }

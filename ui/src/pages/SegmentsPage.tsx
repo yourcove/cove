@@ -104,7 +104,10 @@ function isPreferredSegmentDisplayProfile(candidate: SegmentDisplayProfile, curr
   return candidate.id < current.id;
 }
 
-async function fetchAllSegmentPages<TItem>(queryPage: (page: number, perPage: number) => Promise<{ items: TItem[]; totalCount: number }>, chunkSize = 1000) {
+async function fetchAllSegmentPages<TItem>(
+  queryPage: (page: number, perPage: number) => Promise<{ items: TItem[]; totalCount: number }>,
+  chunkSize = 1000,
+) {
   const items: TItem[] = [];
   let page = 1;
   let totalCount: number | undefined;
@@ -130,18 +133,24 @@ export function SegmentsPage({ onNavigate }: Props) {
     return {
       filter: saved?.findFilter ?? DEFAULT_SEGMENT_FILTER,
       objectFilter: saved?.objectFilter ?? {},
-      displayMode: savedDisplayMode === "list" ? "list" as DisplayMode : "grid" as DisplayMode,
-      profileId: Number.isInteger(routeProfileId) && routeProfileId > 0 ? routeProfileId : typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined,
+      displayMode: savedDisplayMode === "list" ? ("list" as DisplayMode) : ("grid" as DisplayMode),
+      profileId:
+        Number.isInteger(routeProfileId) && routeProfileId > 0
+          ? routeProfileId
+          : typeof saved?.uiOptions?.profileId === "number"
+            ? saved.uiOptions.profileId
+            : undefined,
     };
   }, [initialContentView]);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, replaceState } = useListUrlState({
-    resetKey: "segments",
-    defaultFilter: defaultState.filter,
-    defaultObjectFilter: defaultState.objectFilter,
-    defaultDisplayMode: defaultState.displayMode,
-    allowedDisplayModes: ["grid", "list"] as const,
-    allowInfinitePageSize: true,
-  });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, replaceState } =
+    useListUrlState({
+      resetKey: "segments",
+      defaultFilter: defaultState.filter,
+      defaultObjectFilter: defaultState.objectFilter,
+      defaultDisplayMode: defaultState.displayMode,
+      allowedDisplayModes: ["grid", "list"] as const,
+      allowInfinitePageSize: true,
+    });
   const { hasPermission } = useAuth();
   const canReadVideos = canReadEntity("video", hasPermission);
   const canWriteGroups = canWriteEntity("group", hasPermission);
@@ -152,12 +161,22 @@ export function SegmentsPage({ onNavigate }: Props) {
   const [contentView, setContentView] = useState<SegmentsPageContentView>(initialContentView);
   const [rawSegmentIds, setRawSegmentIds] = useState<number[]>(() => readRawSegmentIdsFromUrl());
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const [selectedMatchingItems, setSelectedMatchingItems] = useState<{ view: SegmentsPageContentView; spans: DerivedSpanItem[]; raw: RawSegmentItem[] } | null>(null);
+  const [selectedMatchingItems, setSelectedMatchingItems] = useState<{
+    view: SegmentsPageContentView;
+    spans: DerivedSpanItem[];
+    raw: RawSegmentItem[];
+  } | null>(null);
 
   const videoTitle = readStringCriterion(objectFilter.videoTitleCriterion);
   const videoSelection = readVideoSelectionCriterion(objectFilter.videosCriterion);
-  const videoTagIds = useMemo(() => readMultiIdCriterionIds(objectFilter.videoTagsCriterion), [objectFilter.videoTagsCriterion]);
-  const videoTagDepth = useMemo(() => readMultiIdCriterionDepth(objectFilter.videoTagsCriterion), [objectFilter.videoTagsCriterion]);
+  const videoTagIds = useMemo(
+    () => readMultiIdCriterionIds(objectFilter.videoTagsCriterion),
+    [objectFilter.videoTagsCriterion],
+  );
+  const videoTagDepth = useMemo(
+    () => readMultiIdCriterionDepth(objectFilter.videoTagsCriterion),
+    [objectFilter.videoTagsCriterion],
+  );
   const derivedSpanQueryFilter = useMemo(
     () => readDerivedSpanQueryFilter(objectFilter.derivedSpanQuery),
     [objectFilter.derivedSpanQuery],
@@ -166,10 +185,22 @@ export function SegmentsPage({ onNavigate }: Props) {
     () => readRawSegmentFilter(objectFilter.rawSegmentFilters),
     [objectFilter.rawSegmentFilters],
   );
-  const rawTagIds = useMemo(() => readMultiIdCriterionIds(objectFilter.rawTagsCriterion), [objectFilter.rawTagsCriterion]);
-  const rawTagDepth = useMemo(() => readMultiIdCriterionDepth(objectFilter.rawTagsCriterion), [objectFilter.rawTagsCriterion]);
-  const rawPerformerIds = useMemo(() => readMultiIdCriterionIds(objectFilter.rawPerformersCriterion), [objectFilter.rawPerformersCriterion]);
-  const rawFaceIds = useMemo(() => readMultiIdCriterionIds(objectFilter.rawFacesCriterion), [objectFilter.rawFacesCriterion]);
+  const rawTagIds = useMemo(
+    () => readMultiIdCriterionIds(objectFilter.rawTagsCriterion),
+    [objectFilter.rawTagsCriterion],
+  );
+  const rawTagDepth = useMemo(
+    () => readMultiIdCriterionDepth(objectFilter.rawTagsCriterion),
+    [objectFilter.rawTagsCriterion],
+  );
+  const rawPerformerIds = useMemo(
+    () => readMultiIdCriterionIds(objectFilter.rawPerformersCriterion),
+    [objectFilter.rawPerformersCriterion],
+  );
+  const rawFaceIds = useMemo(
+    () => readMultiIdCriterionIds(objectFilter.rawFacesCriterion),
+    [objectFilter.rawFacesCriterion],
+  );
   const rawKind = readStringCriterion(objectFilter.rawKindCriterion);
   const rawSourceKey = readStringCriterion(objectFilter.rawSourceCriterion);
   const rawTitle = readStringCriterionValue(objectFilter.rawTitleCriterion);
@@ -184,34 +215,57 @@ export function SegmentsPage({ onNavigate }: Props) {
   const rawEndSec = readNumberCriterion(objectFilter.rawEndSecCriterion);
   const rawConfidence = readNumberCriterion(objectFilter.rawConfidenceCriterion);
   const rawDuration = readNumberCriterion(objectFilter.rawDurationCriterion);
-  const combinedRawSegmentFilter = useMemo(() => ({
-    ...rawSegmentFilter,
-    titleCriterion: rawTitle,
-    hostType: rawHostType || undefined,
-    sourceRunCriterion: rawSourceRun,
-    colorHintCriterion: rawColorHint,
-    hasImage: rawHasImage?.value,
-    hasPayload: rawHasPayload?.value,
-    createdAtCriterion: rawCreatedAt,
-    updatedAtCriterion: rawUpdatedAt,
-    startSecCriterion: rawStartSec,
-    endSecCriterion: rawEndSec,
-    tagIds: Array.from(new Set([...rawSegmentFilter.tagIds, ...rawTagIds])),
-    tagDepth: rawTagDepth,
-    performerIds: Array.from(new Set([...rawSegmentFilter.performerIds, ...rawPerformerIds])),
-    faceIds: Array.from(new Set([...rawSegmentFilter.faceIds, ...rawFaceIds])),
-    kind: rawSegmentFilter.kind ?? (rawKind || undefined),
-    sourceKey: rawSegmentFilter.sourceKey ?? (rawSourceKey || undefined),
-    confidenceCriterion: rawConfidence ?? rawSegmentFilter.confidenceCriterion,
-    durationCriterion: rawDuration ?? rawSegmentFilter.durationCriterion,
-    minConfidence: rawSegmentFilter.minConfidence,
-    minDurationSec: rawSegmentFilter.minDurationSec,
-  }), [rawColorHint, rawConfidence, rawCreatedAt, rawDuration, rawEndSec, rawFaceIds, rawHasImage?.value, rawHasPayload?.value, rawHostType, rawKind, rawPerformerIds, rawSegmentFilter, rawSourceKey, rawSourceRun, rawStartSec, rawTagDepth, rawTagIds, rawTitle, rawUpdatedAt]);
+  const combinedRawSegmentFilter = useMemo(
+    () => ({
+      ...rawSegmentFilter,
+      titleCriterion: rawTitle,
+      hostType: rawHostType || undefined,
+      sourceRunCriterion: rawSourceRun,
+      colorHintCriterion: rawColorHint,
+      hasImage: rawHasImage?.value,
+      hasPayload: rawHasPayload?.value,
+      createdAtCriterion: rawCreatedAt,
+      updatedAtCriterion: rawUpdatedAt,
+      startSecCriterion: rawStartSec,
+      endSecCriterion: rawEndSec,
+      tagIds: Array.from(new Set([...rawSegmentFilter.tagIds, ...rawTagIds])),
+      tagDepth: rawTagDepth,
+      performerIds: Array.from(new Set([...rawSegmentFilter.performerIds, ...rawPerformerIds])),
+      faceIds: Array.from(new Set([...rawSegmentFilter.faceIds, ...rawFaceIds])),
+      kind: rawSegmentFilter.kind ?? (rawKind || undefined),
+      sourceKey: rawSegmentFilter.sourceKey ?? (rawSourceKey || undefined),
+      confidenceCriterion: rawConfidence ?? rawSegmentFilter.confidenceCriterion,
+      durationCriterion: rawDuration ?? rawSegmentFilter.durationCriterion,
+      minConfidence: rawSegmentFilter.minConfidence,
+      minDurationSec: rawSegmentFilter.minDurationSec,
+    }),
+    [
+      rawColorHint,
+      rawConfidence,
+      rawCreatedAt,
+      rawDuration,
+      rawEndSec,
+      rawFaceIds,
+      rawHasImage?.value,
+      rawHasPayload?.value,
+      rawHostType,
+      rawKind,
+      rawPerformerIds,
+      rawSegmentFilter,
+      rawSourceKey,
+      rawSourceRun,
+      rawStartSec,
+      rawTagDepth,
+      rawTagIds,
+      rawTitle,
+      rawUpdatedAt,
+    ],
+  );
   const derivedSpanQueryActive = isDerivedSpanQueryFilterActive(objectFilter.derivedSpanQuery);
   const q = filter.q?.trim() ?? "";
   const infinitePageSize = filter.perPage === 0;
   const defaultPerPage = defaultState.filter.perPage ?? 24;
-  const perPage = infinitePageSize ? defaultPerPage : filter.perPage ?? defaultPerPage;
+  const perPage = infinitePageSize ? defaultPerPage : (filter.perPage ?? defaultPerPage);
   const pageNumber = filter.page ?? 1;
   const sort = filter.sort ?? "updated_at";
   const direction = filter.direction ?? "desc";
@@ -229,18 +283,28 @@ export function SegmentsPage({ onNavigate }: Props) {
     queryFn: () => segmentLibrary.distinctKinds(),
     staleTime: 60_000,
   });
-  const segmentCriteria = useMemo(() => createSegmentCriteria({
-    sourceOptions: [
-      { value: "derived", label: "Derived" },
-      ...(sourceOptionsQuery.data ?? []).map((option) => ({ value: option.value, label: `${option.value} (${option.count})` })),
-    ],
-    kindOptions: [
-      { value: "union", label: "Union" },
-      { value: "intersection", label: "Intersection" },
-      { value: "difference", label: "Difference" },
-      ...(kindOptionsQuery.data ?? []).map((option) => ({ value: option.value, label: `${option.value} (${option.count})` })),
-    ],
-  }), [kindOptionsQuery.data, sourceOptionsQuery.data]);
+  const segmentCriteria = useMemo(
+    () =>
+      createSegmentCriteria({
+        sourceOptions: [
+          { value: "derived", label: "Derived" },
+          ...(sourceOptionsQuery.data ?? []).map((option) => ({
+            value: option.value,
+            label: `${option.value} (${option.count})`,
+          })),
+        ],
+        kindOptions: [
+          { value: "union", label: "Union" },
+          { value: "intersection", label: "Intersection" },
+          { value: "difference", label: "Difference" },
+          ...(kindOptionsQuery.data ?? []).map((option) => ({
+            value: option.value,
+            label: `${option.value} (${option.count})`,
+          })),
+        ],
+      }),
+    [kindOptionsQuery.data, sourceOptionsQuery.data],
+  );
 
   useEffect(() => {
     const syncContentView = () => {
@@ -265,7 +329,9 @@ export function SegmentsPage({ onNavigate }: Props) {
       params.delete("segmentsView");
     }
 
-    const normalizedRawIds = Array.from(new Set((nextRawSegmentIds ?? []).filter((value) => Number.isInteger(value) && value > 0)));
+    const normalizedRawIds = Array.from(
+      new Set((nextRawSegmentIds ?? []).filter((value) => Number.isInteger(value) && value > 0)),
+    );
     if (normalizedRawIds.length > 0) {
       params.set("rawIds", normalizedRawIds.join(","));
     } else {
@@ -275,19 +341,22 @@ export function SegmentsPage({ onNavigate }: Props) {
     navigateToUrl(buildCurrentUrl(window.location.pathname, params), { replace: true });
   }, []);
 
-  const switchContentView = useCallback((nextView: SegmentsPageContentView, nextRawSegmentIds?: number[]) => {
-    if (nextView === contentView && nextRawSegmentIds == null) return;
+  const switchContentView = useCallback(
+    (nextView: SegmentsPageContentView, nextRawSegmentIds?: number[]) => {
+      if (nextView === contentView && nextRawSegmentIds == null) return;
 
-    const saved = getDefaultFilter(segmentFilterMode(nextView));
-    const savedDisplayMode = saved?.uiOptions?.displayMode;
-    replaceState({
-      filter: { ...(saved?.findFilter ?? DEFAULT_SEGMENT_FILTER), page: 1 },
-      objectFilter: saved?.objectFilter ?? {},
-      displayMode: savedDisplayMode === "list" ? "list" : "grid",
-    });
-    setActiveProfileId(typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined);
-    updateContentView(nextView, nextRawSegmentIds);
-  }, [contentView, replaceState, updateContentView]);
+      const saved = getDefaultFilter(segmentFilterMode(nextView));
+      const savedDisplayMode = saved?.uiOptions?.displayMode;
+      replaceState({
+        filter: { ...(saved?.findFilter ?? DEFAULT_SEGMENT_FILTER), page: 1 },
+        objectFilter: saved?.objectFilter ?? {},
+        displayMode: savedDisplayMode === "list" ? "list" : "grid",
+      });
+      setActiveProfileId(typeof saved?.uiOptions?.profileId === "number" ? saved.uiOptions.profileId : undefined);
+      updateContentView(nextView, nextRawSegmentIds);
+    },
+    [contentView, replaceState, updateContentView],
+  );
 
   const profilesQuery = useQuery({
     queryKey: ["segment-display-profiles"],
@@ -314,11 +383,13 @@ export function SegmentsPage({ onNavigate }: Props) {
   }, [activeProfileId, availableProfiles]);
 
   const selectedVideoQueries = useQueries({
-    queries: !isRawView ? videoSelection.includeIds.map((videoId) => ({
-      queryKey: ["video", videoId],
-      queryFn: () => videos.get(videoId),
-      staleTime: 60_000,
-    })) : [],
+    queries: !isRawView
+      ? videoSelection.includeIds.map((videoId) => ({
+          queryKey: ["video", videoId],
+          queryFn: () => videos.get(videoId),
+          staleTime: 60_000,
+        }))
+      : [],
   });
 
   const selectedVideosLoading = selectedVideoQueries.some((query) => query.isLoading);
@@ -329,11 +400,13 @@ export function SegmentsPage({ onNavigate }: Props) {
   );
 
   const performerFaceQueries = useQueries({
-    queries: !isRawView ? selectedPerformerIds.map((performerId) => ({
-      queryKey: ["segments-page", "performer-faces", performerId],
-      queryFn: () => faces.list({ performerId, merged: false, page: 1, perPage: 200 }),
-      staleTime: 60_000,
-    })) : [],
+    queries: !isRawView
+      ? selectedPerformerIds.map((performerId) => ({
+          queryKey: ["segments-page", "performer-faces", performerId],
+          queryFn: () => faces.list({ performerId, merged: false, page: 1, perPage: 200 }),
+          staleTime: 60_000,
+        }))
+      : [],
   });
 
   const performerFaceIdsByPerformer = useMemo(() => {
@@ -353,161 +426,209 @@ export function SegmentsPage({ onNavigate }: Props) {
     [derivedSpanQueryFilter],
   );
   const performerFaceQueriesLoading = performerFaceQueries.some((query) => query.isLoading);
-  const derivedQueryEnabled = !isRawView && activeProfileId != null && (!derivedSpanQueryActive || !performerFaceQueriesLoading) && (videoSelection.includeIds.length === 0 || !selectedVideosLoading);
+  const derivedQueryEnabled =
+    !isRawView &&
+    activeProfileId != null &&
+    (!derivedSpanQueryActive || !performerFaceQueriesLoading) &&
+    (videoSelection.includeIds.length === 0 || !selectedVideosLoading);
   const rawQueryEnabled = isRawView;
 
-  const queryDerivedSpansPage = useCallback(async (page: number, pageSize: number) => {
-    if (activeProfileId == null) {
-      return { items: [], totalCount: 0, page, perPage: pageSize };
-    }
+  const queryDerivedSpansPage = useCallback(
+    async (page: number, pageSize: number) => {
+      if (activeProfileId == null) {
+        return { items: [], totalCount: 0, page, perPage: pageSize };
+      }
 
-    const response = await segmentSpans.search({
-      profile: activeProfileId,
-      derivedQuery: appliedQuery != null ? {
-        operator: appliedQuery.operator,
-        operands: appliedQuery.operands,
-        mergeGapSec: appliedQuery.mergeGapSec,
-        minDurationSec: appliedQuery.minDurationSec,
-      } : undefined,
-      page,
-      perPage: pageSize,
-      sort,
+      const response = await segmentSpans.search({
+        profile: activeProfileId,
+        derivedQuery:
+          appliedQuery != null
+            ? {
+                operator: appliedQuery.operator,
+                operands: appliedQuery.operands,
+                mergeGapSec: appliedQuery.mergeGapSec,
+                minDurationSec: appliedQuery.minDurationSec,
+              }
+            : undefined,
+        page,
+        perPage: pageSize,
+        sort,
+        direction,
+        seed,
+        q: q || undefined,
+        videoTitle: videoTitle || undefined,
+        videoTagIds: videoTagIds.length > 0 ? videoTagIds : undefined,
+        videoTagDepth,
+        videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds : undefined,
+        excludeVideoIds: videoSelection.excludeIds.length > 0 ? videoSelection.excludeIds : undefined,
+        tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds : undefined,
+        tagDepth: combinedRawSegmentFilter.tagDepth,
+        kind: combinedRawSegmentFilter.kind,
+        sourceKey: combinedRawSegmentFilter.sourceKey,
+        sourceCategory: combinedRawSegmentFilter.sourceCategory,
+        title: combinedRawSegmentFilter.titleCriterion?.value,
+        titleModifier: combinedRawSegmentFilter.titleCriterion?.modifier,
+        hostType: combinedRawSegmentFilter.hostType,
+        sourceRunId: combinedRawSegmentFilter.sourceRunCriterion?.value,
+        sourceRunIdModifier: combinedRawSegmentFilter.sourceRunCriterion?.modifier,
+        colorHint: combinedRawSegmentFilter.colorHintCriterion?.value,
+        colorHintModifier: combinedRawSegmentFilter.colorHintCriterion?.modifier,
+        hasImage: combinedRawSegmentFilter.hasImage,
+        hasPayload: combinedRawSegmentFilter.hasPayload,
+        startSec: combinedRawSegmentFilter.startSecCriterion?.value,
+        startSec2: combinedRawSegmentFilter.startSecCriterion?.value2,
+        startSecModifier: combinedRawSegmentFilter.startSecCriterion?.modifier,
+        endSec: combinedRawSegmentFilter.endSecCriterion?.value,
+        endSec2: combinedRawSegmentFilter.endSecCriterion?.value2,
+        endSecModifier: combinedRawSegmentFilter.endSecCriterion?.modifier,
+        createdAt: combinedRawSegmentFilter.createdAtCriterion?.value,
+        createdAt2: combinedRawSegmentFilter.createdAtCriterion?.value2,
+        createdAtModifier: combinedRawSegmentFilter.createdAtCriterion?.modifier,
+        updatedAt: combinedRawSegmentFilter.updatedAtCriterion?.value,
+        updatedAt2: combinedRawSegmentFilter.updatedAtCriterion?.value2,
+        updatedAtModifier: combinedRawSegmentFilter.updatedAtCriterion?.modifier,
+        refIds: combinedRawSegmentFilter.faceIds.length > 0 ? combinedRawSegmentFilter.faceIds : undefined,
+        performerIds:
+          combinedRawSegmentFilter.performerIds.length > 0 ? combinedRawSegmentFilter.performerIds : undefined,
+        confidence: combinedRawSegmentFilter.confidenceCriterion?.value,
+        confidence2: combinedRawSegmentFilter.confidenceCriterion?.value2,
+        confidenceModifier: combinedRawSegmentFilter.confidenceCriterion?.modifier,
+        durationSec: combinedRawSegmentFilter.durationCriterion?.value,
+        durationSec2: combinedRawSegmentFilter.durationCriterion?.value2,
+        durationModifier: combinedRawSegmentFilter.durationCriterion?.modifier,
+      });
+
+      return {
+        items: response.items.map<DerivedSpanItem>((item) => ({
+          id: `${item.videoId}:${item.span.spanKey}`,
+          key: `${item.videoId}:${item.span.spanKey}`,
+          kind: derivedQueryDescriptor ? "derivedQuery" : "profile",
+          videoId: item.videoId,
+          videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
+          videoUpdatedAt: item.videoUpdatedAt,
+          span: item.span,
+          profileId: item.profileId,
+          derivedQuery:
+            appliedQuery != null
+              ? {
+                  operator: appliedQuery.operator,
+                  operands: appliedQuery.operands,
+                  mergeGapSec: appliedQuery.mergeGapSec,
+                  minDurationSec: appliedQuery.minDurationSec,
+                }
+              : undefined,
+          derivedQueryDescriptor,
+        })),
+        // The search endpoint reports totalCount=-1 when it served the page via early termination. Map it
+        // to a value that lets the infinite loader's getNextPageParam continue iff there's more (the exact
+        // total for display comes from the separate cached count query).
+        totalCount:
+          response.totalCount >= 0
+            ? response.totalCount
+            : response.hasMore
+              ? page * pageSize + 1
+              : (page - 1) * pageSize + response.items.length,
+        page: response.page,
+        perPage: response.perPage,
+      };
+    },
+    [
+      activeProfileId,
+      appliedQuery,
+      combinedRawSegmentFilter,
+      derivedQueryDescriptor,
       direction,
+      q,
+      videoSelection.excludeIds,
+      videoSelection.includeIds,
+      videoTagDepth,
+      videoTagIds,
+      videoTitle,
+      sort,
+    ],
+  );
+
+  const queryRawSegmentsPage = useCallback(
+    async (page: number, pageSize: number) => {
+      const response = await segmentLibrary.list({
+        q: q || undefined,
+        ids: rawSegmentIds.length > 0 ? rawSegmentIds.join(",") : undefined,
+        videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds.join(",") : undefined,
+        excludeVideoIds: videoSelection.excludeIds.length > 0 ? videoSelection.excludeIds.join(",") : undefined,
+        videoTitle: videoTitle || undefined,
+        videoTagIds: videoTagIds.length > 0 ? videoTagIds.join(",") : undefined,
+        videoTagDepth,
+        tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds.join(",") : undefined,
+        tagDepth: combinedRawSegmentFilter.tagDepth,
+        kind: combinedRawSegmentFilter.kind,
+        sourceKey: combinedRawSegmentFilter.sourceKey,
+        sourceCategory: combinedRawSegmentFilter.sourceCategory,
+        title: combinedRawSegmentFilter.titleCriterion?.value,
+        titleModifier: combinedRawSegmentFilter.titleCriterion?.modifier,
+        hostType: combinedRawSegmentFilter.hostType,
+        sourceRunId: combinedRawSegmentFilter.sourceRunCriterion?.value,
+        sourceRunIdModifier: combinedRawSegmentFilter.sourceRunCriterion?.modifier,
+        colorHint: combinedRawSegmentFilter.colorHintCriterion?.value,
+        colorHintModifier: combinedRawSegmentFilter.colorHintCriterion?.modifier,
+        hasImage: combinedRawSegmentFilter.hasImage,
+        hasPayload: combinedRawSegmentFilter.hasPayload,
+        startSec: combinedRawSegmentFilter.startSecCriterion?.value,
+        startSec2: combinedRawSegmentFilter.startSecCriterion?.value2,
+        startSecModifier: combinedRawSegmentFilter.startSecCriterion?.modifier,
+        endSec: combinedRawSegmentFilter.endSecCriterion?.value,
+        endSec2: combinedRawSegmentFilter.endSecCriterion?.value2,
+        endSecModifier: combinedRawSegmentFilter.endSecCriterion?.modifier,
+        createdAt: combinedRawSegmentFilter.createdAtCriterion?.value,
+        createdAt2: combinedRawSegmentFilter.createdAtCriterion?.value2,
+        createdAtModifier: combinedRawSegmentFilter.createdAtCriterion?.modifier,
+        updatedAt: combinedRawSegmentFilter.updatedAtCriterion?.value,
+        updatedAt2: combinedRawSegmentFilter.updatedAtCriterion?.value2,
+        updatedAtModifier: combinedRawSegmentFilter.updatedAtCriterion?.modifier,
+        refIds: combinedRawSegmentFilter.faceIds.length > 0 ? combinedRawSegmentFilter.faceIds.join(",") : undefined,
+        performerIds:
+          combinedRawSegmentFilter.performerIds.length > 0
+            ? combinedRawSegmentFilter.performerIds.join(",")
+            : undefined,
+        minConfidence: combinedRawSegmentFilter.minConfidence,
+        minDurationSec: combinedRawSegmentFilter.minDurationSec,
+        confidence: combinedRawSegmentFilter.confidenceCriterion?.value,
+        confidence2: combinedRawSegmentFilter.confidenceCriterion?.value2,
+        confidenceModifier: combinedRawSegmentFilter.confidenceCriterion?.modifier,
+        durationSec: combinedRawSegmentFilter.durationCriterion?.value,
+        durationSec2: combinedRawSegmentFilter.durationCriterion?.value2,
+        durationModifier: combinedRawSegmentFilter.durationCriterion?.modifier,
+        sort,
+        direction,
+        page,
+        perPage: pageSize,
+      });
+
+      return {
+        items: response.items.map((item) => ({
+          ...item,
+          key: `segment:${item.id}`,
+          videoId: item.hostId,
+          videoTitle: item.hostTitle?.trim() || `Video #${item.hostId}`,
+        })),
+        totalCount: response.totalCount,
+        page: response.page,
+        perPage: response.perPage,
+      };
+    },
+    [
+      combinedRawSegmentFilter,
+      direction,
+      q,
+      rawSegmentIds,
       seed,
-      q: q || undefined,
-      videoTitle: videoTitle || undefined,
-      videoTagIds: videoTagIds.length > 0 ? videoTagIds : undefined,
+      videoSelection.excludeIds,
+      videoSelection.includeIds,
       videoTagDepth,
-      videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds : undefined,
-      excludeVideoIds: videoSelection.excludeIds.length > 0 ? videoSelection.excludeIds : undefined,
-      tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds : undefined,
-      tagDepth: combinedRawSegmentFilter.tagDepth,
-      kind: combinedRawSegmentFilter.kind,
-      sourceKey: combinedRawSegmentFilter.sourceKey,
-      sourceCategory: combinedRawSegmentFilter.sourceCategory,
-      title: combinedRawSegmentFilter.titleCriterion?.value,
-      titleModifier: combinedRawSegmentFilter.titleCriterion?.modifier,
-      hostType: combinedRawSegmentFilter.hostType,
-      sourceRunId: combinedRawSegmentFilter.sourceRunCriterion?.value,
-      sourceRunIdModifier: combinedRawSegmentFilter.sourceRunCriterion?.modifier,
-      colorHint: combinedRawSegmentFilter.colorHintCriterion?.value,
-      colorHintModifier: combinedRawSegmentFilter.colorHintCriterion?.modifier,
-      hasImage: combinedRawSegmentFilter.hasImage,
-      hasPayload: combinedRawSegmentFilter.hasPayload,
-      startSec: combinedRawSegmentFilter.startSecCriterion?.value,
-      startSec2: combinedRawSegmentFilter.startSecCriterion?.value2,
-      startSecModifier: combinedRawSegmentFilter.startSecCriterion?.modifier,
-      endSec: combinedRawSegmentFilter.endSecCriterion?.value,
-      endSec2: combinedRawSegmentFilter.endSecCriterion?.value2,
-      endSecModifier: combinedRawSegmentFilter.endSecCriterion?.modifier,
-      createdAt: combinedRawSegmentFilter.createdAtCriterion?.value,
-      createdAt2: combinedRawSegmentFilter.createdAtCriterion?.value2,
-      createdAtModifier: combinedRawSegmentFilter.createdAtCriterion?.modifier,
-      updatedAt: combinedRawSegmentFilter.updatedAtCriterion?.value,
-      updatedAt2: combinedRawSegmentFilter.updatedAtCriterion?.value2,
-      updatedAtModifier: combinedRawSegmentFilter.updatedAtCriterion?.modifier,
-      refIds: combinedRawSegmentFilter.faceIds.length > 0 ? combinedRawSegmentFilter.faceIds : undefined,
-      performerIds: combinedRawSegmentFilter.performerIds.length > 0 ? combinedRawSegmentFilter.performerIds : undefined,
-      confidence: combinedRawSegmentFilter.confidenceCriterion?.value,
-      confidence2: combinedRawSegmentFilter.confidenceCriterion?.value2,
-      confidenceModifier: combinedRawSegmentFilter.confidenceCriterion?.modifier,
-      durationSec: combinedRawSegmentFilter.durationCriterion?.value,
-      durationSec2: combinedRawSegmentFilter.durationCriterion?.value2,
-      durationModifier: combinedRawSegmentFilter.durationCriterion?.modifier,
-    });
-
-    return {
-      items: response.items.map<DerivedSpanItem>((item) => ({
-        id: `${item.videoId}:${item.span.spanKey}`,
-        key: `${item.videoId}:${item.span.spanKey}`,
-        kind: derivedQueryDescriptor ? "derivedQuery" : "profile",
-        videoId: item.videoId,
-        videoTitle: item.videoTitle ?? `Video #${item.videoId}`,
-        videoUpdatedAt: item.videoUpdatedAt,
-        span: item.span,
-        profileId: item.profileId,
-        derivedQuery: appliedQuery != null ? {
-          operator: appliedQuery.operator,
-          operands: appliedQuery.operands,
-          mergeGapSec: appliedQuery.mergeGapSec,
-          minDurationSec: appliedQuery.minDurationSec,
-        } : undefined,
-        derivedQueryDescriptor,
-      })),
-      // The search endpoint reports totalCount=-1 when it served the page via early termination. Map it
-      // to a value that lets the infinite loader's getNextPageParam continue iff there's more (the exact
-      // total for display comes from the separate cached count query).
-      totalCount: response.totalCount >= 0
-        ? response.totalCount
-        : (response.hasMore ? page * pageSize + 1 : (page - 1) * pageSize + response.items.length),
-      page: response.page,
-      perPage: response.perPage,
-    };
-  }, [activeProfileId, appliedQuery, combinedRawSegmentFilter, derivedQueryDescriptor, direction, q, videoSelection.excludeIds, videoSelection.includeIds, videoTagDepth, videoTagIds, videoTitle, sort]);
-
-  const queryRawSegmentsPage = useCallback(async (page: number, pageSize: number) => {
-    const response = await segmentLibrary.list({
-      q: q || undefined,
-      ids: rawSegmentIds.length > 0 ? rawSegmentIds.join(",") : undefined,
-      videoIds: videoSelection.includeIds.length > 0 ? videoSelection.includeIds.join(",") : undefined,
-      excludeVideoIds: videoSelection.excludeIds.length > 0 ? videoSelection.excludeIds.join(",") : undefined,
-      videoTitle: videoTitle || undefined,
-      videoTagIds: videoTagIds.length > 0 ? videoTagIds.join(",") : undefined,
-      videoTagDepth,
-      tagIds: combinedRawSegmentFilter.tagIds.length > 0 ? combinedRawSegmentFilter.tagIds.join(",") : undefined,
-      tagDepth: combinedRawSegmentFilter.tagDepth,
-      kind: combinedRawSegmentFilter.kind,
-      sourceKey: combinedRawSegmentFilter.sourceKey,
-      sourceCategory: combinedRawSegmentFilter.sourceCategory,
-      title: combinedRawSegmentFilter.titleCriterion?.value,
-      titleModifier: combinedRawSegmentFilter.titleCriterion?.modifier,
-      hostType: combinedRawSegmentFilter.hostType,
-      sourceRunId: combinedRawSegmentFilter.sourceRunCriterion?.value,
-      sourceRunIdModifier: combinedRawSegmentFilter.sourceRunCriterion?.modifier,
-      colorHint: combinedRawSegmentFilter.colorHintCriterion?.value,
-      colorHintModifier: combinedRawSegmentFilter.colorHintCriterion?.modifier,
-      hasImage: combinedRawSegmentFilter.hasImage,
-      hasPayload: combinedRawSegmentFilter.hasPayload,
-      startSec: combinedRawSegmentFilter.startSecCriterion?.value,
-      startSec2: combinedRawSegmentFilter.startSecCriterion?.value2,
-      startSecModifier: combinedRawSegmentFilter.startSecCriterion?.modifier,
-      endSec: combinedRawSegmentFilter.endSecCriterion?.value,
-      endSec2: combinedRawSegmentFilter.endSecCriterion?.value2,
-      endSecModifier: combinedRawSegmentFilter.endSecCriterion?.modifier,
-      createdAt: combinedRawSegmentFilter.createdAtCriterion?.value,
-      createdAt2: combinedRawSegmentFilter.createdAtCriterion?.value2,
-      createdAtModifier: combinedRawSegmentFilter.createdAtCriterion?.modifier,
-      updatedAt: combinedRawSegmentFilter.updatedAtCriterion?.value,
-      updatedAt2: combinedRawSegmentFilter.updatedAtCriterion?.value2,
-      updatedAtModifier: combinedRawSegmentFilter.updatedAtCriterion?.modifier,
-      refIds: combinedRawSegmentFilter.faceIds.length > 0 ? combinedRawSegmentFilter.faceIds.join(",") : undefined,
-      performerIds: combinedRawSegmentFilter.performerIds.length > 0 ? combinedRawSegmentFilter.performerIds.join(",") : undefined,
-      minConfidence: combinedRawSegmentFilter.minConfidence,
-      minDurationSec: combinedRawSegmentFilter.minDurationSec,
-      confidence: combinedRawSegmentFilter.confidenceCriterion?.value,
-      confidence2: combinedRawSegmentFilter.confidenceCriterion?.value2,
-      confidenceModifier: combinedRawSegmentFilter.confidenceCriterion?.modifier,
-      durationSec: combinedRawSegmentFilter.durationCriterion?.value,
-      durationSec2: combinedRawSegmentFilter.durationCriterion?.value2,
-      durationModifier: combinedRawSegmentFilter.durationCriterion?.modifier,
+      videoTagIds,
+      videoTitle,
       sort,
-      direction,
-      page,
-      perPage: pageSize,
-    });
-
-    return {
-      items: response.items.map((item) => ({
-        ...item,
-        key: `segment:${item.id}`,
-        videoId: item.hostId,
-        videoTitle: item.hostTitle?.trim() || `Video #${item.hostId}`,
-      })),
-      totalCount: response.totalCount,
-      page: response.page,
-      perPage: response.perPage,
-    };
-  }, [combinedRawSegmentFilter, direction, q, rawSegmentIds, seed, videoSelection.excludeIds, videoSelection.includeIds, videoTagDepth, videoTagIds, videoTitle, sort]);
+    ],
+  );
 
   const segmentsWindowQuery = useDerivedSpansQuery({
     activeProfileId,
@@ -585,14 +706,45 @@ export function SegmentsPage({ onNavigate }: Props) {
   });
 
   const derivedInfiniteQuery = usePaginatedInfiniteQuery<DerivedSpanItem>({
-    queryKey: ["segments-page", "search", "infinite", activeProfileId, q, videoTitle, videoTagIds.join(","), videoTagDepth, sort, direction, seed, videoSelection.includeIds.join(","), videoSelection.excludeIds.join(","), appliedQuery ?? null, combinedRawSegmentFilter],
+    queryKey: [
+      "segments-page",
+      "search",
+      "infinite",
+      activeProfileId,
+      q,
+      videoTitle,
+      videoTagIds.join(","),
+      videoTagDepth,
+      sort,
+      direction,
+      seed,
+      videoSelection.includeIds.join(","),
+      videoSelection.excludeIds.join(","),
+      appliedQuery ?? null,
+      combinedRawSegmentFilter,
+    ],
     queryFn: queryDerivedSpansPage,
     enabled: derivedQueryEnabled && infinitePageSize,
     chunkSize: defaultPerPage,
   });
 
   const rawInfiniteQuery = usePaginatedInfiniteQuery<RawSegmentItem>({
-    queryKey: ["segments-page", "raw", "infinite", q, videoTitle, videoTagIds.join(","), videoTagDepth, sort, direction, seed, videoSelection.includeIds.join(","), videoSelection.excludeIds.join(","), rawSegmentIds.join(","), combinedRawSegmentFilter],
+    queryKey: [
+      "segments-page",
+      "raw",
+      "infinite",
+      q,
+      videoTitle,
+      videoTagIds.join(","),
+      videoTagDepth,
+      sort,
+      direction,
+      seed,
+      videoSelection.includeIds.join(","),
+      videoSelection.excludeIds.join(","),
+      rawSegmentIds.join(","),
+      combinedRawSegmentFilter,
+    ],
     queryFn: queryRawSegmentsPage,
     enabled: rawQueryEnabled && infinitePageSize,
     chunkSize: defaultPerPage,
@@ -609,51 +761,85 @@ export function SegmentsPage({ onNavigate }: Props) {
     if (derivedInfiniteQuery.hasNextPage && !derivedInfiniteQuery.isFetchingNextPage) {
       void derivedInfiniteQuery.fetchNextPage();
     }
-  }, [derivedInfiniteQuery.fetchNextPage, derivedInfiniteQuery.hasNextPage, derivedInfiniteQuery.isFetchingNextPage, isRawView, rawInfiniteQuery.fetchNextPage, rawInfiniteQuery.hasNextPage, rawInfiniteQuery.isFetchingNextPage]);
+  }, [
+    derivedInfiniteQuery.fetchNextPage,
+    derivedInfiniteQuery.hasNextPage,
+    derivedInfiniteQuery.isFetchingNextPage,
+    isRawView,
+    rawInfiniteQuery.fetchNextPage,
+    rawInfiniteQuery.hasNextPage,
+    rawInfiniteQuery.isFetchingNextPage,
+  ]);
 
-  const spanItems = infinitePageSize ? derivedInfiniteQuery.items : segmentsWindowQuery.data?.items ?? [];
-  const rawItems = infinitePageSize ? rawInfiniteQuery.items : rawSegmentsQuery.data?.items ?? [];
+  const spanItems = infinitePageSize ? derivedInfiniteQuery.items : (segmentsWindowQuery.data?.items ?? []);
+  const rawItems = infinitePageSize ? rawInfiniteQuery.items : (rawSegmentsQuery.data?.items ?? []);
   const items = isRawView ? rawItems : spanItems;
   // Spans: prefer the exact cached count; until it arrives, fall back to the page response's own total
   // (exact when the whole scope was resolved, -1 on the fast path) and finally to a provisional total
   // that keeps the pager's "next" enabled while there's more. The exact value replaces it on arrival.
-  const spansPageTotal = infinitePageSize ? derivedInfiniteQuery.totalCount : (segmentsWindowQuery.data?.totalCount ?? 0);
+  const spansPageTotal = infinitePageSize
+    ? derivedInfiniteQuery.totalCount
+    : (segmentsWindowQuery.data?.totalCount ?? 0);
   const spansHasMore = !infinitePageSize && (segmentsWindowQuery.data?.hasMore ?? false);
-  const spansTotalCount = spansCountQuery.data?.totalCount
-    ?? (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
+  const spansTotalCount =
+    spansCountQuery.data?.totalCount ??
+    (spansPageTotal >= 0 ? spansPageTotal : pageNumber * perPage + (spansHasMore ? perPage : 0));
   const totalCount = isRawView
-    ? (infinitePageSize ? rawInfiniteQuery.totalCount : rawSegmentsQuery.data?.totalCount ?? 0)
+    ? infinitePageSize
+      ? rawInfiniteQuery.totalCount
+      : (rawSegmentsQuery.data?.totalCount ?? 0)
     : spansTotalCount;
   const selectionItems: Array<{ id: string | number }> = items;
 
-  const isLoading = (!isRawView && profilesQuery.isLoading)
-    || (!isRawView && videoSelection.includeIds.length > 0
-      ? selectedVideosLoading
-      : false)
-    || (!isRawView && performerFaceQueriesLoading)
-    || (isRawView
-      ? (infinitePageSize ? rawInfiniteQuery.isLoading : rawSegmentsQuery.isLoading)
-      : (infinitePageSize ? derivedInfiniteQuery.isLoading : segmentsWindowQuery.isLoading));
+  const isLoading =
+    (!isRawView && profilesQuery.isLoading) ||
+    (!isRawView && videoSelection.includeIds.length > 0 ? selectedVideosLoading : false) ||
+    (!isRawView && performerFaceQueriesLoading) ||
+    (isRawView
+      ? infinitePageSize
+        ? rawInfiniteQuery.isLoading
+        : rawSegmentsQuery.isLoading
+      : infinitePageSize
+        ? derivedInfiniteQuery.isLoading
+        : segmentsWindowQuery.isLoading);
   const prerequisiteError = !isRawView
-    ? [profilesQuery, ...selectedVideoQueries, ...performerFaceQueries]
+    ? ([profilesQuery, ...selectedVideoQueries, ...performerFaceQueries]
         .map((query) => getLoadError(query.data, query.error))
-        .find((error) => error != null) ?? null
+        .find((error) => error != null) ?? null)
     : null;
   const activeListError = isRawView
-    ? (infinitePageSize ? getLoadError(rawInfiniteQuery.data, rawInfiniteQuery.error) : getLoadError(rawSegmentsQuery.data, rawSegmentsQuery.error))
-    : (infinitePageSize ? getLoadError(derivedInfiniteQuery.data, derivedInfiniteQuery.error) : getLoadError(segmentsWindowQuery.data, segmentsWindowQuery.error));
+    ? infinitePageSize
+      ? getLoadError(rawInfiniteQuery.data, rawInfiniteQuery.error)
+      : getLoadError(rawSegmentsQuery.data, rawSegmentsQuery.error)
+    : infinitePageSize
+      ? getLoadError(derivedInfiniteQuery.data, derivedInfiniteQuery.error)
+      : getLoadError(segmentsWindowQuery.data, segmentsWindowQuery.error);
   const firstQueryError = prerequisiteError ?? activeListError ?? undefined;
 
   const retryFailedQueries = useCallback(() => {
     if (profilesQuery.isError) void profilesQuery.refetch();
-    selectedVideoQueries.forEach((query) => { if (query.isError) void query.refetch(); });
-    performerFaceQueries.forEach((query) => { if (query.isError) void query.refetch(); });
+    selectedVideoQueries.forEach((query) => {
+      if (query.isError) void query.refetch();
+    });
+    performerFaceQueries.forEach((query) => {
+      if (query.isError) void query.refetch();
+    });
     if (isRawView) {
       void (infinitePageSize ? rawInfiniteQuery.refetch() : rawSegmentsQuery.refetch());
     } else {
       void (infinitePageSize ? derivedInfiniteQuery.refetch() : segmentsWindowQuery.refetch());
     }
-  }, [derivedInfiniteQuery, infinitePageSize, isRawView, performerFaceQueries, profilesQuery, rawInfiniteQuery, rawSegmentsQuery, segmentsWindowQuery, selectedVideoQueries]);
+  }, [
+    derivedInfiniteQuery,
+    infinitePageSize,
+    isRawView,
+    performerFaceQueries,
+    profilesQuery,
+    rawInfiniteQuery,
+    rawSegmentsQuery,
+    segmentsWindowQuery,
+    selectedVideoQueries,
+  ]);
 
   useEffect(() => {
     if (infinitePageSize) {
@@ -675,28 +861,55 @@ export function SegmentsPage({ onNavigate }: Props) {
     });
   }, [filter, infinitePageSize, pageNumber, perPage, setFilter, totalCount]);
 
-  const selectionResetKey = useMemo(() => JSON.stringify({ contentView, filter: { ...filter, page: undefined }, objectFilter, activeProfileId, appliedQuery, rawSegmentIds }), [activeProfileId, appliedQuery, contentView, filter, objectFilter, rawSegmentIds]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(selectionItems, { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () =>
+      JSON.stringify({
+        contentView,
+        filter: { ...filter, page: undefined },
+        objectFilter,
+        activeProfileId,
+        appliedQuery,
+        rawSegmentIds,
+      }),
+    [activeProfileId, appliedQuery, contentView, filter, objectFilter, rawSegmentIds],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone, invertSelection } = useMultiSelect(selectionItems, {
+    preserveOnItemsChange: infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const spanSelectionItems = selectedMatchingItems?.view === "spans" ? selectedMatchingItems.spans : spanItems;
   const rawSelectionItems = selectedMatchingItems?.view === "raw" ? selectedMatchingItems.raw : rawItems;
-  const selectedEntries = useMemo<AddToGroupEntry[]>(() => spanSelectionItems
-    .filter((item) => selectedIds.has(item.id))
-    .map((item) => ({
-      key: item.key,
-      videoId: item.videoId,
-      spanKey: item.span.spanKey,
-      title: buildSpanTitle(item.span, item.videoTitle),
-      profileId: item.profileId,
-      derivedQuery: item.derivedQuery,
-    })), [selectedIds, spanSelectionItems]);
-  const selectedRawSegments = useMemo(() => rawSelectionItems.filter((item) => selectedIds.has(item.id)), [rawSelectionItems, selectedIds]);
-  const selectedDuration = useMemo(() => isRawView
-    ? selectedRawSegments.reduce((total, item) => total + Math.max(0, (item.endSec ?? item.startSec) - item.startSec), 0)
-    : spanSelectionItems
+  const selectedEntries = useMemo<AddToGroupEntry[]>(
+    () =>
+      spanSelectionItems
         .filter((item) => selectedIds.has(item.id))
-        .reduce((total, item) => total + Math.max(0, item.span.endSec - item.span.startSec), 0),
-  [isRawView, selectedIds, selectedRawSegments, spanSelectionItems]);
+        .map((item) => ({
+          key: item.key,
+          videoId: item.videoId,
+          spanKey: item.span.spanKey,
+          title: buildSpanTitle(item.span, item.videoTitle),
+          profileId: item.profileId,
+          derivedQuery: item.derivedQuery,
+        })),
+    [selectedIds, spanSelectionItems],
+  );
+  const selectedRawSegments = useMemo(
+    () => rawSelectionItems.filter((item) => selectedIds.has(item.id)),
+    [rawSelectionItems, selectedIds],
+  );
+  const selectedDuration = useMemo(
+    () =>
+      isRawView
+        ? selectedRawSegments.reduce(
+            (total, item) => total + Math.max(0, (item.endSec ?? item.startSec) - item.startSec),
+            0,
+          )
+        : spanSelectionItems
+            .filter((item) => selectedIds.has(item.id))
+            .reduce((total, item) => total + Math.max(0, item.span.endSec - item.span.startSec), 0),
+    [isRawView, selectedIds, selectedRawSegments, spanSelectionItems],
+  );
   const handleSelectNone = useCallback(() => {
     setSelectedMatchingItems(null);
     selectNone();
@@ -755,7 +968,12 @@ export function SegmentsPage({ onNavigate }: Props) {
 
   return (
     <>
-      <AddToGroupDialog open={showAddToGroup} onClose={() => setShowAddToGroup(false)} items={selectedEntries} onAdded={handleSelectNone} />
+      <AddToGroupDialog
+        open={showAddToGroup}
+        onClose={() => setShowAddToGroup(false)}
+        items={selectedEntries}
+        onAdded={handleSelectNone}
+      />
       <ListPage
         title="Segments"
         pageKey="segments"
@@ -775,13 +993,19 @@ export function SegmentsPage({ onNavigate }: Props) {
         selectAllPending={infinitePageSize ? selectAllMatchingPending : false}
         onSelectAllMatching={infinitePageSize ? selectAll : undefined}
         selectAllMatchingLabel="Select shown"
-        infiniteScroll={infinitePageSize ? {
-          hasNextPage: isRawView ? rawInfiniteQuery.hasNextPage : derivedInfiniteQuery.hasNextPage,
-          isFetchingNextPage: isRawView ? rawInfiniteQuery.isFetchingNextPage : derivedInfiniteQuery.isFetchingNextPage,
-          onLoadMore: loadMoreSegments,
-          loadedCount: isRawView ? rawInfiniteQuery.loadedThroughCount : derivedInfiniteQuery.loadedThroughCount,
-          totalCount,
-        } : undefined}
+        infiniteScroll={
+          infinitePageSize
+            ? {
+                hasNextPage: isRawView ? rawInfiniteQuery.hasNextPage : derivedInfiniteQuery.hasNextPage,
+                isFetchingNextPage: isRawView
+                  ? rawInfiniteQuery.isFetchingNextPage
+                  : derivedInfiniteQuery.isFetchingNextPage,
+                onLoadMore: loadMoreSegments,
+                loadedCount: isRawView ? rawInfiniteQuery.loadedThroughCount : derivedInfiniteQuery.loadedThroughCount,
+                totalCount,
+              }
+            : undefined
+        }
         criteriaDefinitions={segmentCriteria}
         objectFilter={objectFilter}
         onObjectFilterChange={setObjectFilter}
@@ -790,10 +1014,12 @@ export function SegmentsPage({ onNavigate }: Props) {
           setActiveProfileId(typeof options.profileId === "number" ? options.profileId : undefined);
         }}
         customFilterSections={customFilterSections}
-        metadataByline={<MediaAggregateMetadata
-          duration={isRawView ? rawAggregateQuery.data?.duration : spansCountQuery.data?.duration}
-          loading={isRawView ? rawAggregateQuery.isLoading : spansCountQuery.isLoading}
-        />}
+        metadataByline={
+          <MediaAggregateMetadata
+            duration={isRawView ? rawAggregateQuery.data?.duration : spansCountQuery.data?.duration}
+            loading={isRawView ? rawAggregateQuery.isLoading : spansCountQuery.isLoading}
+          />
+        }
         renderOperations={() => (
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg border border-border bg-card/70 p-1 text-xs">
@@ -813,7 +1039,11 @@ export function SegmentsPage({ onNavigate }: Props) {
               </button>
             </div>
             <label
-              title={isRawView ? "Raw view shows segments as observed; profiles and derived queries do not apply." : undefined}
+              title={
+                isRawView
+                  ? "Raw view shows segments as observed; profiles and derived queries do not apply."
+                  : undefined
+              }
               className="flex items-center gap-2 rounded-lg border border-border bg-card/70 px-2.5 py-1.5 text-xs text-muted"
             >
               <span className="font-semibold uppercase tracking-wide">Profile</span>
@@ -825,7 +1055,8 @@ export function SegmentsPage({ onNavigate }: Props) {
               >
                 {availableProfiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
-                    {profile.name}{profile.isDefault ? " (Default)" : ""}
+                    {profile.name}
+                    {profile.isDefault ? " (Default)" : ""}
                   </option>
                 ))}
               </select>
@@ -845,7 +1076,11 @@ export function SegmentsPage({ onNavigate }: Props) {
                 disabled={rawDeleteMutation.isPending}
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-red-400 hover:bg-red-900/20 hover:text-red-300 disabled:opacity-60"
               >
-                {rawDeleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                {rawDeleteMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
                 Delete
               </button>
             ) : null}
@@ -865,7 +1100,9 @@ export function SegmentsPage({ onNavigate }: Props) {
       >
         {firstQueryError ? (
           <div className="mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            {isRawView ? `Raw segments failed to load: ${firstQueryError.message}` : `Derived query failed: ${firstQueryError.message}`}
+            {isRawView
+              ? `Raw segments failed to load: ${firstQueryError.message}`
+              : `Derived query failed: ${firstQueryError.message}`}
           </div>
         ) : null}
         <SegmentsPageList

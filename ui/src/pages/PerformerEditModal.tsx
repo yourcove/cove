@@ -35,9 +35,7 @@ export const CIRCUMCISED_OPTIONS = [
 ];
 
 type SelectedTagOption = SelectableTag;
-type TagAutocompleteValue =
-  | { kind: "tag"; tag: SelectedTagOption }
-  | { kind: "create"; query: string };
+type TagAutocompleteValue = { kind: "tag"; tag: SelectedTagOption } | { kind: "create"; query: string };
 
 function buildSelectedTagLookup(tags: Performer["tags"]): Record<number, SelectedTagOption> {
   return Object.fromEntries(tags.map((tag) => [tag.id, tag])) as Record<number, SelectedTagOption>;
@@ -70,14 +68,20 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   const [urls, setUrls] = useState(performer.urls.length > 0 ? performer.urls : [""]);
   const [aliases, setAliases] = useState(performer.aliases.length > 0 ? performer.aliases : [""]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(performer.tags.map((t) => t.id));
-  const [selectedTagsById, setSelectedTagsById] = useState<Record<number, SelectedTagOption>>(() => buildSelectedTagLookup(performer.tags));
+  const [selectedTagsById, setSelectedTagsById] = useState<Record<number, SelectedTagOption>>(() =>
+    buildSelectedTagLookup(performer.tags),
+  );
   const [tagSearch, setTagSearch] = useState("");
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({ ...(performer.customFields ?? {}) });
   const [customFieldsValid, setCustomFieldsValid] = useState(true);
   const [remoteIds, setRemoteIds] = useState<RemoteIdValue[]>(performer.remoteIds.map((remoteId) => ({ ...remoteId })));
   const trimmedTagSearch = tagSearch.trim();
 
-  const { data: tagResults, isLoading: tagResultsLoading, isPlaceholderData: tagResultsPlaceholder } = useQuery({
+  const {
+    data: tagResults,
+    isLoading: tagResultsLoading,
+    isPlaceholderData: tagResultsPlaceholder,
+  } = useQuery({
     queryKey: ["performer-tags-search", trimmedTagSearch],
     queryFn: () => tagsApi.find({ q: trimmedTagSearch, perPage: 20, sort: "name", direction: "asc" }),
     enabled: trimmedTagSearch.length > 0,
@@ -188,11 +192,12 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
 
   const filteredTags = tagResults?.items.filter((tag) => !selectedTagIds.includes(tag.id)) ?? [];
   const tagExactMatchExists = useMemo(
-    () => trimmedTagSearch && tagResults?.items.some((tag) => tag.name.toLowerCase() === trimmedTagSearch.toLowerCase()),
+    () =>
+      trimmedTagSearch && tagResults?.items.some((tag) => tag.name.toLowerCase() === trimmedTagSearch.toLowerCase()),
     [tagResults?.items, trimmedTagSearch],
   );
   const addTag = (tag: SelectedTagOption) => {
-    setSelectedTagIds((current) => current.includes(tag.id) ? current : [...current, tag.id]);
+    setSelectedTagIds((current) => (current.includes(tag.id) ? current : [...current, tag.id]));
     setSelectedTagsById((current) => ({ ...current, [tag.id]: tag }));
     setTagSearch("");
   };
@@ -241,194 +246,221 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
   return (
     <EditModal title="Edit Performer" open={open} onClose={handleClose}>
       <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Name *" fieldProvenance={performer.fieldProvenance} fieldKey="name">
-          <TextInput value={name} onChange={setName} placeholder="Performer name" />
-        </Field>
-        <Field label="Disambiguation" fieldProvenance={performer.fieldProvenance} fieldKey="disambiguation">
-          <TextInput value={disambiguation} onChange={setDisambiguation} placeholder="e.g. (2020s)" />
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Gender" fieldProvenance={performer.fieldProvenance} fieldKey="gender">
-          <select
-            value={gender}
-            onChange={(e) => setGender(e.target.value)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          >
-            <option value="">—</option>
-            {GENDER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Birthdate" fieldProvenance={performer.fieldProvenance} fieldKey="birthdate">
-          <IsoDateInput
-            value={birthdate}
-            onChange={(e) => setBirthdate(e.target.value)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          />
-        </Field>
-        <Field label="Death Date" fieldProvenance={performer.fieldProvenance} fieldKey="deathDate">
-          <IsoDateInput
-            value={deathDate}
-            onChange={(e) => setDeathDate(e.target.value)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Country" fieldProvenance={performer.fieldProvenance} fieldKey="country">
-            <CountrySelect value={country} onChange={setCountry} />
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Name *" fieldProvenance={performer.fieldProvenance} fieldKey="name">
+            <TextInput value={name} onChange={setName} placeholder="Performer name" />
+          </Field>
+          <Field label="Disambiguation" fieldProvenance={performer.fieldProvenance} fieldKey="disambiguation">
+            <TextInput value={disambiguation} onChange={setDisambiguation} placeholder="e.g. (2020s)" />
           </Field>
         </div>
-      </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Field label="Ethnicity" fieldProvenance={performer.fieldProvenance} fieldKey="ethnicity">
-          <TextInput value={ethnicity} onChange={setEthnicity} />
-        </Field>
-        <Field label="Eye Color" fieldProvenance={performer.fieldProvenance} fieldKey="eyeColor">
-          <TextInput value={eyeColor} onChange={setEyeColor} />
-        </Field>
-        <Field label="Hair Color" fieldProvenance={performer.fieldProvenance} fieldKey="hairColor">
-          <TextInput value={hairColor} onChange={setHairColor} />
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4">
-        <Field label="Height (cm)" fieldProvenance={performer.fieldProvenance} fieldKey="heightCm">
-          <NumberInput value={heightCm} onChange={setHeightCm} min={50} max={250} />
-        </Field>
-        <Field label="Weight (kg)" fieldProvenance={performer.fieldProvenance} fieldKey="weight">
-          <NumberInput value={weight} onChange={setWeight} min={20} max={300} />
-        </Field>
-        <Field label="Measurements" fieldProvenance={performer.fieldProvenance} fieldKey="measurements">
-          <TextInput value={measurements} onChange={setMeasurements} placeholder="34D-24-34" />
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Tattoos" fieldProvenance={performer.fieldProvenance} fieldKey="tattoos">
-          <TextInput value={tattoos} onChange={setTattoos} />
-        </Field>
-        <Field label="Piercings" fieldProvenance={performer.fieldProvenance} fieldKey="piercings">
-          <TextInput value={piercings} onChange={setPiercings} />
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4">
-        <Field label="Fake Tits" fieldProvenance={performer.fieldProvenance} fieldKey="fakeTits">
-          <TextInput value={fakeTits} onChange={setFakeTits} placeholder="e.g. Augmented" />
-        </Field>
-        <Field label="Penis Length (cm)" fieldProvenance={performer.fieldProvenance} fieldKey="penisLength">
-          <NumberInput value={penisLength} onChange={setPenisLength} min={0} max={50} />
-        </Field>
-        <Field label="Circumcised" fieldProvenance={performer.fieldProvenance} fieldKey="circumcised">
-          <select
-            value={circumcised}
-            onChange={(e) => setCircumcised(e.target.value)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          >
-            <option value="">—</option>
-            {CIRCUMCISED_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Career Start" fieldProvenance={performer.fieldProvenance} fieldKey="careerStart">
-          <IsoDateInput
-            value={careerStart}
-            onChange={(e) => setCareerStart(e.target.value)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          />
-        </Field>
-        <Field label="Career End" fieldProvenance={performer.fieldProvenance} fieldKey="careerEnd">
-          <IsoDateInput
-            value={careerEnd}
-            onChange={(e) => setCareerEnd(e.target.value)}
-            className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
-          />
-        </Field>
-      </div>
-
-      <Field label="Details" fieldProvenance={performer.fieldProvenance} fieldKey="details">
-        <TextArea value={details} onChange={setDetails} placeholder="Bio / notes" rows={2} />
-      </Field>
-
-      <div className="grid grid-cols-2 gap-4">
-        <InteractiveRatingField value={rating} onChange={setRating} label="Rating" fieldProvenance={performer.fieldProvenance} />
-        <Field label="Aliases" fieldProvenance={performer.fieldProvenance} fieldKey="aliases">
-          <StringListEditor values={aliases} onChange={setAliases} placeholder="Alias" addLabel="Add Alias" />
-        </Field>
-      </div>
-
-      <Field label="URLs" fieldProvenance={performer.fieldProvenance} fieldKey="urls">
-        <StringListEditor values={urls} onChange={setUrls} placeholder="https://..." addLabel="Add URL" inputType="url" />
-      </Field>
-
-      {/* Tags */}
-      <Field label="Tags" fieldProvenance={performer.fieldProvenance} fieldKey="tags">
-        <SelectedTagChips tags={selectedTags} onRemove={(tag) => setSelectedTagIds((current) => current.filter((id) => id !== tag.id))} className="mb-2 flex flex-wrap gap-1.5" provenanceById={tagProvenanceById} />
-        <input
-          ref={tagAutocomplete.inputRef}
-          {...tagAutocomplete.inputProps}
-          type="text"
-          value={tagSearch}
-          placeholder="Search tags..."
-          className="w-full bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-accent mb-1"
-        />
-        {trimmedTagSearch && tagAutocomplete.isOpen && (
-          <div
-            ref={tagAutocomplete.listboxRef}
-            {...tagAutocomplete.listboxProps}
-            className="max-h-32 overflow-y-auto bg-card rounded border border-border"
-          >
-            {tagResultsLoading ? (
-              <div className="px-3 py-1.5 text-sm text-secondary">Loading...</div>
-            ) : filteredTags.length === 0 && !showTagCreateOption ? (
-              <div className="px-3 py-1.5 text-sm text-secondary">No tags found</div>
-            ) : null}
-            {filteredTags.map((tag, index) => (
-              <button
-                key={tag.id}
-                {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[index])}
-                type="button"
-                className={`block w-full px-3 py-1.5 text-left text-sm ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
-              >
-                {tag.name}
-              </button>
-            ))}
-            {showTagCreateOption ? (
-              <button
-                {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[tagAutocompleteItems.length - 1])}
-                type="button"
-                disabled={tagCreateMutation.isPending}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
-              >
-                {tagCreateMutation.isPending ? (
-                  <span className="text-secondary">Creating...</span>
-                ) : (
-                  <>
-                    <Plus className="h-3 w-3" />
-                    <span>Create &ldquo;{trimmedTagSearch}&rdquo;</span>
-                  </>
-                )}
-              </button>
-            ) : null}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Gender" fieldProvenance={performer.fieldProvenance} fieldKey="gender">
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+            >
+              <option value="">—</option>
+              {GENDER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Birthdate" fieldProvenance={performer.fieldProvenance} fieldKey="birthdate">
+            <IsoDateInput
+              value={birthdate}
+              onChange={(e) => setBirthdate(e.target.value)}
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+            />
+          </Field>
+          <Field label="Death Date" fieldProvenance={performer.fieldProvenance} fieldKey="deathDate">
+            <IsoDateInput
+              value={deathDate}
+              onChange={(e) => setDeathDate(e.target.value)}
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+            />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Country" fieldProvenance={performer.fieldProvenance} fieldKey="country">
+              <CountrySelect value={country} onChange={setCountry} />
+            </Field>
           </div>
-        )}
-      </Field>
+        </div>
 
-      <Field label="Remote IDs" fieldProvenance={performer.fieldProvenance} fieldKey="remoteIds">
-        <RemoteIdsEditor value={remoteIds} onChange={setRemoteIds} />
-      </Field>
-      <Field label="Custom Fields" fieldProvenance={performer.fieldProvenance} fieldKey="customFields">
-        <CustomFieldsEditor value={customFields} onChange={setCustomFields} onValidityChange={setCustomFieldsValid} entityType="performer" />
-      </Field>
+        <div className="grid grid-cols-3 gap-4">
+          <Field label="Ethnicity" fieldProvenance={performer.fieldProvenance} fieldKey="ethnicity">
+            <TextInput value={ethnicity} onChange={setEthnicity} />
+          </Field>
+          <Field label="Eye Color" fieldProvenance={performer.fieldProvenance} fieldKey="eyeColor">
+            <TextInput value={eyeColor} onChange={setEyeColor} />
+          </Field>
+          <Field label="Hair Color" fieldProvenance={performer.fieldProvenance} fieldKey="hairColor">
+            <TextInput value={hairColor} onChange={setHairColor} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <Field label="Height (cm)" fieldProvenance={performer.fieldProvenance} fieldKey="heightCm">
+            <NumberInput value={heightCm} onChange={setHeightCm} min={50} max={250} />
+          </Field>
+          <Field label="Weight (kg)" fieldProvenance={performer.fieldProvenance} fieldKey="weight">
+            <NumberInput value={weight} onChange={setWeight} min={20} max={300} />
+          </Field>
+          <Field label="Measurements" fieldProvenance={performer.fieldProvenance} fieldKey="measurements">
+            <TextInput value={measurements} onChange={setMeasurements} placeholder="34D-24-34" />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Tattoos" fieldProvenance={performer.fieldProvenance} fieldKey="tattoos">
+            <TextInput value={tattoos} onChange={setTattoos} />
+          </Field>
+          <Field label="Piercings" fieldProvenance={performer.fieldProvenance} fieldKey="piercings">
+            <TextInput value={piercings} onChange={setPiercings} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <Field label="Fake Tits" fieldProvenance={performer.fieldProvenance} fieldKey="fakeTits">
+            <TextInput value={fakeTits} onChange={setFakeTits} placeholder="e.g. Augmented" />
+          </Field>
+          <Field label="Penis Length (cm)" fieldProvenance={performer.fieldProvenance} fieldKey="penisLength">
+            <NumberInput value={penisLength} onChange={setPenisLength} min={0} max={50} />
+          </Field>
+          <Field label="Circumcised" fieldProvenance={performer.fieldProvenance} fieldKey="circumcised">
+            <select
+              value={circumcised}
+              onChange={(e) => setCircumcised(e.target.value)}
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+            >
+              <option value="">—</option>
+              {CIRCUMCISED_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Career Start" fieldProvenance={performer.fieldProvenance} fieldKey="careerStart">
+            <IsoDateInput
+              value={careerStart}
+              onChange={(e) => setCareerStart(e.target.value)}
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+            />
+          </Field>
+          <Field label="Career End" fieldProvenance={performer.fieldProvenance} fieldKey="careerEnd">
+            <IsoDateInput
+              value={careerEnd}
+              onChange={(e) => setCareerEnd(e.target.value)}
+              className="w-full bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
+            />
+          </Field>
+        </div>
+
+        <Field label="Details" fieldProvenance={performer.fieldProvenance} fieldKey="details">
+          <TextArea value={details} onChange={setDetails} placeholder="Bio / notes" rows={2} />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-4">
+          <InteractiveRatingField
+            value={rating}
+            onChange={setRating}
+            label="Rating"
+            fieldProvenance={performer.fieldProvenance}
+          />
+          <Field label="Aliases" fieldProvenance={performer.fieldProvenance} fieldKey="aliases">
+            <StringListEditor values={aliases} onChange={setAliases} placeholder="Alias" addLabel="Add Alias" />
+          </Field>
+        </div>
+
+        <Field label="URLs" fieldProvenance={performer.fieldProvenance} fieldKey="urls">
+          <StringListEditor
+            values={urls}
+            onChange={setUrls}
+            placeholder="https://..."
+            addLabel="Add URL"
+            inputType="url"
+          />
+        </Field>
+
+        {/* Tags */}
+        <Field label="Tags" fieldProvenance={performer.fieldProvenance} fieldKey="tags">
+          <SelectedTagChips
+            tags={selectedTags}
+            onRemove={(tag) => setSelectedTagIds((current) => current.filter((id) => id !== tag.id))}
+            className="mb-2 flex flex-wrap gap-1.5"
+            provenanceById={tagProvenanceById}
+          />
+          <input
+            ref={tagAutocomplete.inputRef}
+            {...tagAutocomplete.inputProps}
+            type="text"
+            value={tagSearch}
+            placeholder="Search tags..."
+            className="w-full bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-accent mb-1"
+          />
+          {trimmedTagSearch && tagAutocomplete.isOpen && (
+            <div
+              ref={tagAutocomplete.listboxRef}
+              {...tagAutocomplete.listboxProps}
+              className="max-h-32 overflow-y-auto bg-card rounded border border-border"
+            >
+              {tagResultsLoading ? (
+                <div className="px-3 py-1.5 text-sm text-secondary">Loading...</div>
+              ) : filteredTags.length === 0 && !showTagCreateOption ? (
+                <div className="px-3 py-1.5 text-sm text-secondary">No tags found</div>
+              ) : null}
+              {filteredTags.map((tag, index) => (
+                <button
+                  key={tag.id}
+                  {...tagAutocomplete.getOptionProps<HTMLButtonElement>(tagAutocompleteItems[index])}
+                  type="button"
+                  className={`block w-full px-3 py-1.5 text-left text-sm ${tagAutocomplete.activeKey === tagAutocompleteItems[index].key ? "bg-accent text-white" : "text-foreground hover:bg-card"}`}
+                >
+                  {tag.name}
+                </button>
+              ))}
+              {showTagCreateOption ? (
+                <button
+                  {...tagAutocomplete.getOptionProps<HTMLButtonElement>(
+                    tagAutocompleteItems[tagAutocompleteItems.length - 1],
+                  )}
+                  type="button"
+                  disabled={tagCreateMutation.isPending}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:opacity-50 ${tagAutocomplete.activeKey === tagAutocompleteItems[tagAutocompleteItems.length - 1].key ? "bg-accent text-white" : "text-accent hover:bg-card"}`}
+                >
+                  {tagCreateMutation.isPending ? (
+                    <span className="text-secondary">Creating...</span>
+                  ) : (
+                    <>
+                      <Plus className="h-3 w-3" />
+                      <span>Create &ldquo;{trimmedTagSearch}&rdquo;</span>
+                    </>
+                  )}
+                </button>
+              ) : null}
+            </div>
+          )}
+        </Field>
+
+        <Field label="Remote IDs" fieldProvenance={performer.fieldProvenance} fieldKey="remoteIds">
+          <RemoteIdsEditor value={remoteIds} onChange={setRemoteIds} />
+        </Field>
+        <Field label="Custom Fields" fieldProvenance={performer.fieldProvenance} fieldKey="customFields">
+          <CustomFieldsEditor
+            value={customFields}
+            onChange={setCustomFields}
+            onValidityChange={setCustomFieldsValid}
+            entityType="performer"
+          />
+        </Field>
       </div>
 
       {mutation.error && (
@@ -438,7 +470,9 @@ export function PerformerEditModal({ performer, open, onClose }: Props) {
       )}
 
       <div className="flex justify-end gap-3">
-        <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
+        <button onClick={handleClose} className="px-4 py-2 text-sm text-secondary hover:text-white">
+          Cancel
+        </button>
         <SaveButton loading={mutation.isPending} disabled={!customFieldsValid} onClick={handleSave} />
       </div>
     </EditModal>

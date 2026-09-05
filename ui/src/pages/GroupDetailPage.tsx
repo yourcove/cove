@@ -1,14 +1,83 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { audios, entityEngagement, entityImages, groups, images, metadata, videos, segmentLibrary, texts } from "../api/client";
-import type { AffinityHostType, Audio, BoolCriterion, DateCriterion, EntityEngagement, FindFilter, Group, GroupItem, GroupItemKind, Image, IntCriterion, MultiIdCriterion, Video, VideoFilterCriteria, SegmentDerivedQueryDescriptor, SegmentRecord, SegmentSpanDerivedQuery, StringCriterion, TextDocument, TimestampCriterion } from "../api/types";
-import { formatDate, formatDuration, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Building2, ExternalLink, FileText, Film, Fingerprint, FolderOpen, GripVertical, Headphones, Images, Layers, Link as LinkIcon, Loader2, Merge, MoreVertical, Pencil, Play, Plus, Tag, Trash2, Unlink, User, X } from "lucide-react";
+import {
+  audios,
+  entityEngagement,
+  entityImages,
+  groups,
+  images,
+  metadata,
+  videos,
+  segmentLibrary,
+  texts,
+} from "../api/client";
+import type {
+  AffinityHostType,
+  Audio,
+  BoolCriterion,
+  DateCriterion,
+  EntityEngagement,
+  FindFilter,
+  Group,
+  GroupItem,
+  GroupItemKind,
+  Image,
+  IntCriterion,
+  MultiIdCriterion,
+  Video,
+  VideoFilterCriteria,
+  SegmentDerivedQueryDescriptor,
+  SegmentRecord,
+  SegmentSpanDerivedQuery,
+  StringCriterion,
+  TextDocument,
+  TimestampCriterion,
+} from "../api/types";
+import {
+  formatDate,
+  formatDuration,
+  TagBadge,
+  CustomFieldsDisplay,
+  FieldProvenanceHover,
+  resolveTagProvenance,
+} from "../components/shared";
+import {
+  Building2,
+  ExternalLink,
+  FileText,
+  Film,
+  Fingerprint,
+  FolderOpen,
+  GripVertical,
+  Headphones,
+  Images,
+  Layers,
+  Link as LinkIcon,
+  Loader2,
+  Merge,
+  MoreVertical,
+  Pencil,
+  Play,
+  Plus,
+  Tag,
+  Trash2,
+  Unlink,
+  User,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GroupEditModal } from "./GroupEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NarrativeText } from "../components/NarrativeText";
 import { ExtensionSlot } from "../router/RouteRegistry";
-import { AudioTile, EntityTileFrame, GroupTile, ImageTile, VideoCard, SegmentTile, TextTile } from "../components/EntityCards";
+import {
+  AudioTile,
+  EntityTileFrame,
+  GroupTile,
+  ImageTile,
+  VideoCard,
+  SegmentTile,
+  TextTile,
+} from "../components/EntityCards";
 import { CompilationPlayer } from "../components/CompilationPlayer";
 import { DetailSkeleton } from "../components/DetailSkeleton";
 import { QuickViewDialog } from "../components/QuickViewDialog";
@@ -16,7 +85,11 @@ import { DetailListPagination, DetailListToolbar } from "../components/DetailLis
 import { ListLoadError } from "../components/ListLoadError";
 import { VIDEO_CRITERIA } from "../components/filterCriteriaCatalogs";
 import type { CriterionDefinition } from "../components/filterCriteriaTypes";
-import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
+import {
+  EntityHeroLayout,
+  HERO_ACTION_BUTTON_CLASS,
+  HERO_PRIMARY_ACTION_BUTTON_CLASS,
+} from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { EntityDetailTabs } from "../components/EntityDetailTabs";
@@ -84,19 +157,32 @@ const GROUP_ITEM_CRITERIA: CriterionDefinition[] = [
   { id: "title", label: "Title", type: "string", filterKey: "titleCriterion" },
   { id: "code", label: "Code", type: "string", filterKey: "codeCriterion" },
   { id: "details", label: "Details", type: "string", filterKey: "detailsCriterion" },
-  { id: "kind", label: "Type", type: "enum", filterKey: "kindCriterion", modifiers: ["EQUALS", "NOT_EQUALS"], options: [
-    { value: "video", label: "Videos" },
-    { value: "image", label: "Images" },
-    { value: "audio", label: "Audio" },
-    { value: "text", label: "Texts" },
-    { value: "segment", label: "Segments" },
-  ] },
+  {
+    id: "kind",
+    label: "Type",
+    type: "enum",
+    filterKey: "kindCriterion",
+    modifiers: ["EQUALS", "NOT_EQUALS"],
+    options: [
+      { value: "video", label: "Videos" },
+      { value: "image", label: "Images" },
+      { value: "audio", label: "Audio" },
+      { value: "text", label: "Texts" },
+      { value: "segment", label: "Segments" },
+    ],
+  },
   { id: "rating", label: "Rating", type: "rating", filterKey: "ratingCriterion" },
   { id: "organized", label: "Organized", type: "bool", filterKey: "organizedCriterion" },
   { id: "path", label: "Path", type: "path", filterKey: "pathCriterion" },
   { id: "url", label: "URL", type: "string", filterKey: "urlCriterion" },
   { id: "date", label: "Date", type: "date", filterKey: "dateCriterion" },
-  { id: "performers", label: "Performers", type: "multiId", entityType: "performers", filterKey: "performersCriterion" },
+  {
+    id: "performers",
+    label: "Performers",
+    type: "multiId",
+    entityType: "performers",
+    filterKey: "performersCriterion",
+  },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion" },
   { id: "performerCount", label: "Performer Count", type: "number", filterKey: "performerCountCriterion" },
@@ -118,7 +204,12 @@ const GROUP_ITEM_CRITERIA: CriterionDefinition[] = [
 ];
 
 export function GroupDetailPage({ id, onNavigate }: Props) {
-  const { data: group, isLoading, error: groupError, refetch: retryGroup } = useQuery({
+  const {
+    data: group,
+    isLoading,
+    error: groupError,
+    refetch: retryGroup,
+  } = useQuery({
     queryKey: ["group", id],
     queryFn: () => groups.get(id),
   });
@@ -133,10 +224,14 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   const opsMenuRef = useRef<HTMLDivElement | null>(null);
   const getCompilationItemOrderRef = useRef<() => Promise<string[]>>(async () => []);
   const [activeTab, setActiveTab] = useState<TabKey>("items");
-  const { allTabs: groupTabs, renderExtensionTab } = useExtensionTabs("group", [
-    { key: "items", label: "Items" },
-    { key: "subGroups", label: "Sub-Groups" },
-  ], id);
+  const { allTabs: groupTabs, renderExtensionTab } = useExtensionTabs(
+    "group",
+    [
+      { key: "items", label: "Items" },
+      { key: "subGroups", label: "Sub-Groups" },
+    ],
+    id,
+  );
   const [videoFilter, setVideoFilter] = useState<FindFilter>({ page: 1, perPage: 24, direction: "asc", sort: "date" });
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "groups" }, onNavigate);
@@ -147,7 +242,12 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   const canReadStudios = canReadEntity("studio", hasPermission);
   const canReadTags = canReadEntity("tag", hasPermission);
   const canEngageGroup = canReadGroups && (user?.kind === "user" || user?.kind === "system");
-  const { data: groupItemsData, isLoading: groupItemsLoading, error: groupItemsError, refetch: retryGroupItems } = useQuery({
+  const {
+    data: groupItemsData,
+    isLoading: groupItemsLoading,
+    error: groupItemsError,
+    refetch: retryGroupItems,
+  } = useQuery({
     queryKey: ["group-items", id],
     queryFn: () => groups.items.list(id),
     enabled: canReadGroups && !!group && group.kind !== "dynamic",
@@ -169,8 +269,9 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
     enabled: canReadVideos,
   });
   const hasPlaybackItems = (playbackManifest?.items.length ?? 0) > 0;
-  const hasCompilationItems = groupItems.some((item) => item.kind === "videoRange")
-    || playbackManifest?.items.some((item) => item.startSec > 0 || item.endSec != null) === true;
+  const hasCompilationItems =
+    groupItems.some((item) => item.kind === "videoRange") ||
+    playbackManifest?.items.some((item) => item.startSec > 0 || item.endSec != null) === true;
 
   useDocumentTitle(group?.name);
 
@@ -198,16 +299,22 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       ...tab,
       count:
         tab.key === "items"
-          ? group?.kind === "dynamic" ? group.itemCount ?? groupItems.length : groupItems.length + (group?.subGroupCount ?? 0)
+          ? group?.kind === "dynamic"
+            ? (group.itemCount ?? groupItems.length)
+            : groupItems.length + (group?.subGroupCount ?? 0)
           : tab.key === "subGroups"
             ? group?.subGroupCount
             : undefined,
     }));
 
-    return filterItemsByPermission(countedTabs, {
-      items: canReadVideos || canReadGroups ? "groups.read" : "__denied__",
-      subGroups: "groups.read",
-    }, hasPermission).filter((tab) => tab.key !== "items" || canReadVideos || canReadGroups);
+    return filterItemsByPermission(
+      countedTabs,
+      {
+        items: canReadVideos || canReadGroups ? "groups.read" : "__denied__",
+        subGroups: "groups.read",
+      },
+      hasPermission,
+    ).filter((tab) => tab.key !== "items" || canReadVideos || canReadGroups);
   }, [canReadGroups, canReadVideos, group?.subGroupCount, groupItems.length, groupTabs, hasPermission]);
 
   useEffect(() => {
@@ -229,7 +336,16 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
   }
 
   if (groupLoadError) {
-    return <ListLoadError error={groupLoadError} onRetry={() => { void retryGroup(); }} title="Could not load group" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={groupLoadError}
+        onRetry={() => {
+          void retryGroup();
+        }}
+        title="Could not load group"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!group) {
@@ -246,7 +362,9 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       groupItems={groupItems}
       groupItemsLoading={groupItemsLoading}
       groupItemsLoadError={groupItemsLoadError}
-      retryGroupItems={() => { void retryGroupItems(); }}
+      retryGroupItems={() => {
+        void retryGroupItems();
+      }}
       canReadVideos={canReadVideos}
       canReadGroups={canReadGroups}
       canWriteGroup={canWriteGroup}
@@ -286,8 +404,16 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
         entityId={group.id}
         coverKey={coverFace}
         currentImageUrl={coverFace === "front" ? group.frontImagePath : group.backImagePath}
-        onUpload={(file) => coverFace === "front" ? entityImages.uploadGroupFrontImage(group.id, file) : entityImages.uploadGroupBackImage(group.id, file)}
-        onDelete={() => coverFace === "front" ? entityImages.deleteGroupFrontImage(group.id) : entityImages.deleteGroupBackImage(group.id)}
+        onUpload={(file) =>
+          coverFace === "front"
+            ? entityImages.uploadGroupFrontImage(group.id, file)
+            : entityImages.uploadGroupBackImage(group.id, file)
+        }
+        onDelete={() =>
+          coverFace === "front"
+            ? entityImages.deleteGroupFrontImage(group.id)
+            : entityImages.deleteGroupBackImage(group.id)
+        }
         onClose={() => setCoverOpen(false)}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ["group", group.id] });
@@ -324,25 +450,58 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
       <EntityHeroLayout
         entityType="group"
         entityId={group.id}
-        title={<FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="name">{group.name}</FieldProvenanceHover>}
-        description={group.description ? <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey={["synopsis", "description", "details"]} block><NarrativeText>{group.description}</NarrativeText></FieldProvenanceHover> : undefined}
+        title={
+          <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="name">
+            {group.name}
+          </FieldProvenanceHover>
+        }
+        description={
+          group.description ? (
+            <FieldProvenanceHover
+              fieldProvenance={group.fieldProvenance}
+              fieldKey={["synopsis", "description", "details"]}
+              block
+            >
+              <NarrativeText>{group.description}</NarrativeText>
+            </FieldProvenanceHover>
+          ) : undefined
+        }
         favorite={groupFavorite}
         favoritePending={groupFavoritePending}
         onFavoriteToggle={canEngageGroup ? () => setGroupFavorite(!groupFavorite) : undefined}
-        aliases={group.aliases ? <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="aliases">{group.aliases}</FieldProvenanceHover> : undefined}
+        aliases={
+          group.aliases ? (
+            <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="aliases">
+              {group.aliases}
+            </FieldProvenanceHover>
+          ) : undefined
+        }
         metaRow={
           <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
-            {group.date ? <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="date"><span>{formatDate(group.date)}</span></FieldProvenanceHover> : null}
-            {group.director ? <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="director"><span>Director: {group.director}</span></FieldProvenanceHover> : null}
+            {group.date ? (
+              <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="date">
+                <span>{formatDate(group.date)}</span>
+              </FieldProvenanceHover>
+            ) : null}
+            {group.director ? (
+              <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="director">
+                <span>Director: {group.director}</span>
+              </FieldProvenanceHover>
+            ) : null}
             {group.studioName && group.studioId ? (
               canReadStudios ? (
                 <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="studio">
-                  <button onClick={() => onNavigate({ page: "studio", id: group.studioId })} className="text-accent hover:underline">
+                  <button
+                    onClick={() => onNavigate({ page: "studio", id: group.studioId })}
+                    className="text-accent hover:underline"
+                  >
                     {group.studioName}
                   </button>
                 </FieldProvenanceHover>
               ) : (
-                <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="studio"><span>{group.studioName}</span></FieldProvenanceHover>
+                <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="studio">
+                  <span>{group.studioName}</span>
+                </FieldProvenanceHover>
               )
             ) : null}
           </div>
@@ -359,11 +518,23 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
         imageContainerClassName="relative flex flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card shadow-xl shadow-black/35"
         imageClassName="h-auto w-auto max-h-72 max-w-[20rem] object-contain md:max-h-96 md:max-w-[24rem]"
         imageFallbackClassName="h-72 w-56 items-center justify-center bg-card text-muted md:h-96 md:w-72"
-        onImageClick={canWriteGroup ? (imageSlot) => { setCoverFace(imageSlot === "alternate" ? "back" : "front"); setCoverOpen(true); } : undefined}
+        onImageClick={
+          canWriteGroup
+            ? (imageSlot) => {
+                setCoverFace(imageSlot === "alternate" ? "back" : "front");
+                setCoverOpen(true);
+              }
+            : undefined
+        }
         imageFallback={<Layers className="h-14 w-14" />}
         counts={[
           ...countMetrics,
-          { key: "containing", label: "Containing", value: group.containingGroupCount, icon: <LinkIcon className="h-4 w-4" /> },
+          {
+            key: "containing",
+            label: "Containing",
+            value: group.containingGroupCount,
+            icon: <LinkIcon className="h-4 w-4" />,
+          },
         ]}
         actions={
           <>
@@ -371,7 +542,13 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
             {hasPlaybackItems ? (
               <button
                 type="button"
-                onClick={async () => onNavigate({ page: "compilation", id, compilationItemOrder: await getCompilationItemOrderRef.current() })}
+                onClick={async () =>
+                  onNavigate({
+                    page: "compilation",
+                    id,
+                    compilationItemOrder: await getCompilationItemOrderRef.current(),
+                  })
+                }
                 className={`${HERO_ACTION_BUTTON_CLASS} text-secondary`}
                 title={hasCompilationItems ? "Standalone Compilation" : "Standalone Player"}
               >
@@ -400,51 +577,78 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
                 >
                   <MoreVertical className="h-4 w-4" />
                 </button>
-                <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-44 p-1">
-                    {canAddSubGroup ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowOpsMenu(false);
-                          setActiveTab("items");
-                          setAddSubGroupRequestId((value) => value + 1);
-                        }}
-                        className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-foreground transition hover:bg-surface"
-                        role="menuitem"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Add sub-group
-                      </button>
-                    ) : null}
-                    {canAddSubGroup && canDeleteGroup ? <div className="my-1 border-t border-border" /> : null}
-                    {canDeleteGroup ? (
+                <FloatingActionMenu
+                  open={showOpsMenu}
+                  anchorRef={opsMenuRef}
+                  onClose={() => setShowOpsMenu(false)}
+                  className="min-w-44 p-1"
+                >
+                  {canAddSubGroup ? (
                     <button
                       type="button"
-                      onClick={() => { setShowOpsMenu(false); setConfirmDelete(true); }}
+                      onClick={() => {
+                        setShowOpsMenu(false);
+                        setActiveTab("items");
+                        setAddSubGroupRequestId((value) => value + 1);
+                      }}
+                      className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-foreground transition hover:bg-surface"
+                      role="menuitem"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add sub-group
+                    </button>
+                  ) : null}
+                  {canAddSubGroup && canDeleteGroup ? <div className="my-1 border-t border-border" /> : null}
+                  {canDeleteGroup ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowOpsMenu(false);
+                        setConfirmDelete(true);
+                      }}
                       className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-red-200 transition hover:bg-red-500/10"
                       role="menuitem"
                     >
                       <Trash2 className="h-4 w-4" />
                       Delete group
                     </button>
-                    ) : null}
+                  ) : null}
                 </FloatingActionMenu>
               </div>
             ) : null}
           </>
         }
-        heroContent={(
+        heroContent={
           <>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <div className="shrink-0">
-                <InteractiveRating value={groupRating} onChange={(value) => setGroupRating(value)} readOnly={!canEngageGroup} />
+                <InteractiveRating
+                  value={groupRating}
+                  onChange={(value) => setGroupRating(value)}
+                  readOnly={!canEngageGroup}
+                />
               </div>
-              <AspectRatingsPanel hostType="group" hostId={id} canRate={canEngageGroup} showHeading={false} variant="inline" className="min-w-0" />
+              <AspectRatingsPanel
+                hostType="group"
+                hostId={id}
+                canRate={canEngageGroup}
+                showHeading={false}
+                variant="inline"
+                className="min-w-0"
+              />
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-              <InfoItem icon={<Layers className="h-4 w-4" />} label="Kind" value={group.kind === "dynamic" ? "Dynamic" : "Static"} />
-              <InfoItem icon={<Film className="h-4 w-4" />} label="Items" value={(group.itemCount ?? group.videoCount + group.subGroupCount).toLocaleString()} />
+              <InfoItem
+                icon={<Layers className="h-4 w-4" />}
+                label="Kind"
+                value={group.kind === "dynamic" ? "Dynamic" : "Static"}
+              />
+              <InfoItem
+                icon={<Film className="h-4 w-4" />}
+                label="Items"
+                value={(group.itemCount ?? group.videoCount + group.subGroupCount).toLocaleString()}
+              />
               <InfoItem label="Created" value={formatDate(group.createdAt)} />
               <InfoItem label="Updated" value={formatDate(group.updatedAt)} />
             </div>
@@ -453,9 +657,21 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
               <FieldProvenanceHover fieldProvenance={group.fieldProvenance} fieldKey="urls" block className="mt-4">
                 <div className="flex flex-wrap gap-2">
                   {group.urls.map((url, index) => (
-                    <a key={index} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover">
+                    <a
+                      key={index}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-accent hover:border-accent/60 hover:text-accent-hover"
+                    >
                       <ExternalLink className="h-3 w-3" />
-                      {(() => { try { return new URL(url).hostname.replace("www.", ""); } catch { return url; } })()}
+                      {(() => {
+                        try {
+                          return new URL(url).hostname.replace("www.", "");
+                        } catch {
+                          return url;
+                        }
+                      })()}
                     </a>
                   ))}
                 </div>
@@ -465,7 +681,13 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
             {canReadTags && group.tags.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {group.tags.map((tag) => (
-                  <TagBadge key={tag.id} name={tag.name} tag={tag} provenance={resolveTagProvenance(tag, group.fieldProvenance)} onClick={() => onNavigate({ page: "tag", id: tag.id })} />
+                  <TagBadge
+                    key={tag.id}
+                    name={tag.name}
+                    tag={tag}
+                    provenance={resolveTagProvenance(tag, group.fieldProvenance)}
+                    onClick={() => onNavigate({ page: "tag", id: tag.id })}
+                  />
                 ))}
               </div>
             ) : null}
@@ -473,9 +695,14 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
             <CustomFieldsDisplay customFields={group.customFields} entityType="group" />
             <ExtensionSlot slot="group-detail-sidebar-bottom" context={{ group, onNavigate }} />
           </>
-        )}
+        }
       >
-        <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-0" />
+        <EntityDetailTabs
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={(key) => setActiveTab(key as TabKey)}
+          className="mt-0"
+        />
         <div className="py-6">
           {activeContent}
           <ExtensionSlot slot="group-detail-main-bottom" context={{ group, onNavigate }} />
@@ -508,7 +735,21 @@ type MixedGroupItem =
   | { source: "item"; id: string; item: GroupItem; orderIndex: number; kind: GroupItemKind }
   | { source: "subgroup"; id: string; group: Group; orderIndex: number; kind: "group" };
 
-function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, groupItemsLoading, groupItemsLoadError, retryGroupItems, canReadVideos, canReadGroups, canWriteGroup, addSubGroupRequestId, getCompilationItemOrderRef }: {
+function GroupItemsPanel({
+  group,
+  filter,
+  setFilter,
+  onNavigate,
+  groupItems,
+  groupItemsLoading,
+  groupItemsLoadError,
+  retryGroupItems,
+  canReadVideos,
+  canReadGroups,
+  canWriteGroup,
+  addSubGroupRequestId,
+  getCompilationItemOrderRef,
+}: {
   group: Group;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
@@ -545,7 +786,12 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   const [searchTerm, setSearchTerm] = useState("");
   const [confirmSelectionAction, setConfirmSelectionAction] = useState<"remove" | "delete" | null>(null);
   const { hasPermission } = useAuth();
-  const { data: subGroupsData, isLoading: subGroupsLoading, error: subGroupsError, refetch: retrySubGroups } = useQuery({
+  const {
+    data: subGroupsData,
+    isLoading: subGroupsLoading,
+    error: subGroupsError,
+    refetch: retrySubGroups,
+  } = useQuery({
     queryKey: ["group-subgroups", group.id],
     queryFn: () => groups.subGroups(group.id),
     enabled: canReadGroups,
@@ -568,42 +814,70 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
 
   const staticMixedItems = useMemo(
     () => buildMixedGroupItems(groupItems ?? [], subGroups, isDynamic),
-    [groupItems, isDynamic, subGroups]
+    [groupItems, isDynamic, subGroups],
   );
   const staticMixedItemsKey = useMemo(
-    () => staticMixedItems.map((item) => `${item.id}:${item.orderIndex}:${item.source === "item" ? item.item.updatedAt : item.group.updatedAt}`).join("|"),
-    [staticMixedItems]
+    () =>
+      staticMixedItems
+        .map(
+          (item) =>
+            `${item.id}:${item.orderIndex}:${item.source === "item" ? item.item.updatedAt : item.group.updatedAt}`,
+        )
+        .join("|"),
+    [staticMixedItems],
   );
-  const queryMixedItemsPage = useCallback(async (nextFilter: FindFilter) => {
-    const pageItems = async (items: MixedGroupItem[]) => {
-      const hostData = requiresHostMetadata(nextFilter, itemObjectFilter)
-        ? await fetchMixedItemHostData(queryClient, items)
-        : undefined;
-      const engagementData = requiresEngagementMetadata(nextFilter, itemObjectFilter)
-        ? await fetchMixedItemEngagementData(queryClient, items)
-        : undefined;
-      const pathCaseSensitive = hasPathContainmentCriterion(itemObjectFilter)
-        ? (await queryClient.fetchQuery({ queryKey: ["filesystem-policy"], queryFn: metadata.filesystemPolicy })
-            .catch(() => ({ caseSensitive: true }))).caseSensitive
-        : true;
-      return pageMixedGroupItems(items, nextFilter, itemObjectFilter, hostData, engagementData, pathCaseSensitive);
-    };
+  const queryMixedItemsPage = useCallback(
+    async (nextFilter: FindFilter) => {
+      const pageItems = async (items: MixedGroupItem[]) => {
+        const hostData = requiresHostMetadata(nextFilter, itemObjectFilter)
+          ? await fetchMixedItemHostData(queryClient, items)
+          : undefined;
+        const engagementData = requiresEngagementMetadata(nextFilter, itemObjectFilter)
+          ? await fetchMixedItemEngagementData(queryClient, items)
+          : undefined;
+        const pathCaseSensitive = hasPathContainmentCriterion(itemObjectFilter)
+          ? (
+              await queryClient
+                .fetchQuery({ queryKey: ["filesystem-policy"], queryFn: metadata.filesystemPolicy })
+                .catch(() => ({ caseSensitive: true }))
+            ).caseSensitive
+          : true;
+        return pageMixedGroupItems(items, nextFilter, itemObjectFilter, hostData, engagementData, pathCaseSensitive);
+      };
 
-    if (isDynamic) {
-      if (!requiresFullDynamicItemResolution(nextFilter, itemObjectFilter)) {
-        const page = await groups.items.page(group.id, normalizeGroupItemPageFilter(nextFilter));
-        return { ...page, items: page.items.map(toMixedGroupItem) };
+      if (isDynamic) {
+        if (!requiresFullDynamicItemResolution(nextFilter, itemObjectFilter)) {
+          const page = await groups.items.page(group.id, normalizeGroupItemPageFilter(nextFilter));
+          return { ...page, items: page.items.map(toMixedGroupItem) };
+        }
+
+        const allItemsPage = await queryClient.fetchQuery({
+          queryKey: [
+            "group-items-page-all",
+            "unbounded-v2",
+            group.id,
+            group.updatedAt,
+            group.queryJson,
+            group.querySourceKey,
+          ],
+          queryFn: () => groups.items.page(group.id, { page: 1, perPage: 0, sort: "order", direction: "asc" }),
+        });
+        return pageItems(allItemsPage.items.map(toMixedGroupItem));
       }
 
-      const allItemsPage = await queryClient.fetchQuery({
-        queryKey: ["group-items-page-all", "unbounded-v2", group.id, group.updatedAt, group.queryJson, group.querySourceKey],
-        queryFn: () => groups.items.page(group.id, { page: 1, perPage: 0, sort: "order", direction: "asc" }),
-      });
-      return pageItems(allItemsPage.items.map(toMixedGroupItem));
-    }
-
-    return pageItems(staticMixedItems);
-  }, [group.id, group.queryJson, group.querySourceKey, group.updatedAt, isDynamic, itemObjectFilter, queryClient, staticMixedItems]);
+      return pageItems(staticMixedItems);
+    },
+    [
+      group.id,
+      group.queryJson,
+      group.querySourceKey,
+      group.updatedAt,
+      isDynamic,
+      itemObjectFilter,
+      queryClient,
+      staticMixedItems,
+    ],
+  );
   const {
     data: mixedData,
     isLoading: mixedItemsLoading,
@@ -615,7 +889,15 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     fetchAllIds,
     loadMore,
   } = useDetailListQuery<MixedGroupItem>({
-    queryKey: ["group-mixed-items", group.id, group.updatedAt, group.queryJson, group.querySourceKey, staticMixedItemsKey, itemObjectFilter],
+    queryKey: [
+      "group-mixed-items",
+      group.id,
+      group.updatedAt,
+      group.queryJson,
+      group.querySourceKey,
+      staticMixedItemsKey,
+      itemObjectFilter,
+    ],
     filter: mixedFilter,
     queryFn: queryMixedItemsPage,
     enabled: canReadGroups && (isDynamic || (!groupItemsLoading && !subGroupsLoading)),
@@ -625,32 +907,53 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     const allItemsPage = await queryMixedItemsPage({ ...mixedFilter, page: 1, perPage: 0 });
     return allItemsPage.items
       .filter((item): item is Extract<MixedGroupItem, { source: "item" }> => item.source === "item")
-      .map((item) => isDynamic
-        ? `${(item.item.hostType || item.item.kind).toLowerCase()}:${getMixedItemHostIdValue(item)}`
-        : `item:${item.item.id}`);
+      .map((item) =>
+        isDynamic
+          ? `${(item.item.hostType || item.item.kind).toLowerCase()}:${getMixedItemHostIdValue(item)}`
+          : `item:${item.item.id}`,
+      );
   }, [isDynamic, mixedFilter, queryMixedItemsPage]);
   useEffect(() => {
     getCompilationItemOrderRef.current = getCompilationItemOrder;
   }, [getCompilationItemOrder, getCompilationItemOrderRef]);
   const totalItemCount = mixedData?.totalCount ?? 0;
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items: displayedMixedItems, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [itemObjectFilter, group.id] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items: displayedMixedItems,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [itemObjectFilter, group.id],
+  });
   const selectedCount = selectedIds.size;
   const hydratedItems = useGroupItemEntities(displayedMixedItems);
-  const canReorderMixedItems = !isDynamic
-    && canWriteGroup
-    && displayedMixedItems.length > 1
-    && !mixedFilter.q
-    && !infinitePageSize
-    && Object.keys(itemObjectFilter).length === 0
-    && (mixedFilter.sort ?? "order") === "order"
-    && (mixedFilter.page ?? 1) === 1;
+  const canReorderMixedItems =
+    !isDynamic &&
+    canWriteGroup &&
+    displayedMixedItems.length > 1 &&
+    !mixedFilter.q &&
+    !infinitePageSize &&
+    Object.keys(itemObjectFilter).length === 0 &&
+    (mixedFilter.sort ?? "order") === "order" &&
+    (mixedFilter.page ?? 1) === 1;
   const existingSubGroupIds = new Set(subGroups.map((subGroup) => subGroup.id));
   // Built-in groups (Save for Later, Watch History, Continue Watching) can't participate in
   // parent/child relations, so keep them out of the sub-group picker.
-  const availableGroupResults = (searchResults?.items ?? []).filter((candidate) => candidate.id !== group.id && !existingSubGroupIds.has(candidate.id) && !isProtectedBuiltInGroup(candidate.querySourceKey));
-  const loadedSelectedItems = useMemo(() => displayedMixedItems.filter((item) => selectedIds.has(item.id)), [displayedMixedItems, selectedIds]);
-  const selectedDeletableKinds = useMemo(() => getSelectedDeletableKinds(loadedSelectedItems, hasPermission), [hasPermission, loadedSelectedItems]);
-  const canDeleteSelectedItems = selectedCount > 0 && (selectedDeletableKinds.size > 0 || canDeleteAnyMixedHostType(hasPermission));
+  const availableGroupResults = (searchResults?.items ?? []).filter(
+    (candidate) =>
+      candidate.id !== group.id &&
+      !existingSubGroupIds.has(candidate.id) &&
+      !isProtectedBuiltInGroup(candidate.querySourceKey),
+  );
+  const loadedSelectedItems = useMemo(
+    () => displayedMixedItems.filter((item) => selectedIds.has(item.id)),
+    [displayedMixedItems, selectedIds],
+  );
+  const selectedDeletableKinds = useMemo(
+    () => getSelectedDeletableKinds(loadedSelectedItems, hasPermission),
+    [hasPermission, loadedSelectedItems],
+  );
+  const canDeleteSelectedItems =
+    selectedCount > 0 && (selectedDeletableKinds.size > 0 || canDeleteAnyMixedHostType(hasPermission));
 
   useEffect(() => {
     if (infinitePageSize) return;
@@ -663,15 +966,18 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     setMixedFilter({ ...mixedFilter, page: totalPages });
   }, [infinitePageSize, mixedFilter.page, mixedFilter.perPage, totalItemCount]);
 
-  const getSelectedItemsByIds = useCallback(async (ids: Set<string>) => {
-    const loadedItemsById = new Map(displayedMixedItems.map((item) => [item.id, item]));
-    if ([...ids].every((id) => loadedItemsById.has(id))) {
-      return [...ids].map((id) => loadedItemsById.get(id)).filter((item): item is MixedGroupItem => item != null);
-    }
+  const getSelectedItemsByIds = useCallback(
+    async (ids: Set<string>) => {
+      const loadedItemsById = new Map(displayedMixedItems.map((item) => [item.id, item]));
+      if ([...ids].every((id) => loadedItemsById.has(id))) {
+        return [...ids].map((id) => loadedItemsById.get(id)).filter((item): item is MixedGroupItem => item != null);
+      }
 
-    const allItemsPage = await queryMixedItemsPage({ ...mixedFilter, page: 1, perPage: 0 });
-    return allItemsPage.items.filter((item) => ids.has(item.id));
-  }, [displayedMixedItems, mixedFilter, queryMixedItemsPage]);
+      const allItemsPage = await queryMixedItemsPage({ ...mixedFilter, page: 1, perPage: 0 });
+      return allItemsPage.items.filter((item) => ids.has(item.id));
+    },
+    [displayedMixedItems, mixedFilter, queryMixedItemsPage],
+  );
 
   const invalidateGroupItems = () => {
     queryClient.invalidateQueries({ queryKey: ["group-items", group.id] });
@@ -694,12 +1000,20 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
         }
       }
     },
-    onSuccess: () => { setConfirmSelectionAction(null); selectNone(); invalidateGroupItems(); },
+    onSuccess: () => {
+      setConfirmSelectionAction(null);
+      selectNone();
+      invalidateGroupItems();
+    },
   });
   const deleteSelectedHostsMutation = useMutation({
     meta: { suppressGlobalError: true },
-    mutationFn: async (keys: string[]) => deleteSelectedGroupHosts(await getSelectedItemsByIds(new Set(keys)), hasPermission),
-    onSuccess: () => { setConfirmSelectionAction(null); selectNone(); },
+    mutationFn: async (keys: string[]) =>
+      deleteSelectedGroupHosts(await getSelectedItemsByIds(new Set(keys)), hasPermission),
+    onSuccess: () => {
+      setConfirmSelectionAction(null);
+      selectNone();
+    },
   });
 
   const reorderItemMutation = useMutation({
@@ -760,7 +1074,8 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
     },
     onError: (_error, _nextItems, context) => {
       if (context?.previousItems) queryClient.setQueryData(["group-items", group.id], context.previousItems);
-      if (context?.previousSubGroups) queryClient.setQueryData(["group-subgroups", group.id], context.previousSubGroups);
+      if (context?.previousSubGroups)
+        queryClient.setQueryData(["group-subgroups", group.id], context.previousSubGroups);
     },
     onSettled: invalidateGroupItems,
   });
@@ -783,7 +1098,9 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
         onConfirm={() => removeFromGroupMutation.mutate([...selectedIds])}
         onCancel={() => setConfirmSelectionAction(null)}
         isPending={removeFromGroupMutation.isPending}
-        errorMessage={removeFromGroupMutation.error instanceof Error ? removeFromGroupMutation.error.message : undefined}
+        errorMessage={
+          removeFromGroupMutation.error instanceof Error ? removeFromGroupMutation.error.message : undefined
+        }
       />
       <ConfirmDialog
         open={confirmSelectionAction === "delete"}
@@ -793,7 +1110,9 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
         onConfirm={() => deleteSelectedHostsMutation.mutate([...selectedIds])}
         onCancel={() => setConfirmSelectionAction(null)}
         isPending={deleteSelectedHostsMutation.isPending}
-        errorMessage={deleteSelectedHostsMutation.error instanceof Error ? deleteSelectedHostsMutation.error.message : undefined}
+        errorMessage={
+          deleteSelectedHostsMutation.error instanceof Error ? deleteSelectedHostsMutation.error.message : undefined
+        }
       />
     </>
   );
@@ -803,7 +1122,16 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
   }
 
   if (prerequisiteError) {
-    return <ListLoadError error={prerequisiteError} onRetry={() => { retryGroupItems(); void retrySubGroups(); }} className="mt-3" />;
+    return (
+      <ListLoadError
+        error={prerequisiteError}
+        onRetry={() => {
+          retryGroupItems();
+          void retrySubGroups();
+        }}
+        className="mt-3"
+      />
+    );
   }
 
   const toolbar = (
@@ -834,65 +1162,131 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
       filterDefaultKey={`groupitems-${group.id}`}
       defaultFilterResolved
       allowInfinitePageSize
-      selectionActions={(
+      selectionActions={
         <>
           {canWriteGroup && !isDynamic ? (
-            <button type="button" onClick={() => setConfirmSelectionAction("remove")} disabled={removeFromGroupMutation.isPending} className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-orange-400 transition hover:bg-orange-900/20 hover:text-orange-300 disabled:opacity-60">
-              {removeFromGroupMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlink className="h-3 w-3" />}
+            <button
+              type="button"
+              onClick={() => setConfirmSelectionAction("remove")}
+              disabled={removeFromGroupMutation.isPending}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-orange-400 transition hover:bg-orange-900/20 hover:text-orange-300 disabled:opacity-60"
+            >
+              {removeFromGroupMutation.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Unlink className="h-3 w-3" />
+              )}
               Remove from group
             </button>
           ) : null}
           {canDeleteSelectedItems ? (
-            <button type="button" onClick={() => setConfirmSelectionAction("delete")} disabled={deleteSelectedHostsMutation.isPending} className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-red-400 transition hover:bg-red-900/20 hover:text-red-300 disabled:opacity-60">
-              {deleteSelectedHostsMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            <button
+              type="button"
+              onClick={() => setConfirmSelectionAction("delete")}
+              disabled={deleteSelectedHostsMutation.isPending}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-red-400 transition hover:bg-red-900/20 hover:text-red-300 disabled:opacity-60"
+            >
+              {deleteSelectedHostsMutation.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3" />
+              )}
               Delete
             </button>
           ) : null}
         </>
-      )}
+      }
     />
   );
 
-  const addSubGroupDialog = showAddDialog && canWriteGroup && !isDynamic && canReadGroups ? (
-    <div className="mx-auto mb-4 max-w-7xl rounded-xl border border-border bg-card p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Search groups to add..."
-          className="flex-1 rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-          autoFocus
-        />
-        <button type="button" onClick={() => { setShowAddDialog(false); setSearchTerm(""); }} className="rounded p-1.5 text-muted hover:bg-surface"><X className="h-4 w-4" /></button>
-      </div>
-      {availableGroupResults.length > 0 ? (
-        <div className="max-h-48 space-y-1 overflow-y-auto">
-          {availableGroupResults.map((candidate) => (
-            <button key={candidate.id} type="button" onClick={() => addSubGroupMutation.mutate(candidate.id)} disabled={addSubGroupMutation.isPending} className="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm text-foreground hover:bg-surface disabled:opacity-50">
-              <span>{candidate.name}</span>
-              <Plus className="h-3.5 w-3.5 text-muted" />
-            </button>
-          ))}
+  const addSubGroupDialog =
+    showAddDialog && canWriteGroup && !isDynamic && canReadGroups ? (
+      <div className="mx-auto mb-4 max-w-7xl rounded-xl border border-border bg-card p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search groups to add..."
+            className="flex-1 rounded border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+            autoFocus
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setShowAddDialog(false);
+              setSearchTerm("");
+            }}
+            className="rounded p-1.5 text-muted hover:bg-surface"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-      ) : searchTerm.trim().length > 0 ? (
-        <p className="py-4 text-center text-sm text-muted">No groups found</p>
-      ) : (
-        <p className="py-4 text-center text-sm text-muted">Type to search for groups</p>
-      )}
-    </div>
-  ) : null;
+        {availableGroupResults.length > 0 ? (
+          <div className="max-h-48 space-y-1 overflow-y-auto">
+            {availableGroupResults.map((candidate) => (
+              <button
+                key={candidate.id}
+                type="button"
+                onClick={() => addSubGroupMutation.mutate(candidate.id)}
+                disabled={addSubGroupMutation.isPending}
+                className="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm text-foreground hover:bg-surface disabled:opacity-50"
+              >
+                <span>{candidate.name}</span>
+                <Plus className="h-3.5 w-3.5 text-muted" />
+              </button>
+            ))}
+          </div>
+        ) : searchTerm.trim().length > 0 ? (
+          <p className="py-4 text-center text-sm text-muted">No groups found</p>
+        ) : (
+          <p className="py-4 text-center text-sm text-muted">Type to search for groups</p>
+        )}
+      </div>
+    ) : null;
 
   if (mixedItemsLoadError) {
-    return <ListLoadError error={mixedItemsLoadError} onRetry={() => { void retryMixedItems(); }} className="mt-3" />;
+    return (
+      <ListLoadError
+        error={mixedItemsLoadError}
+        onRetry={() => {
+          void retryMixedItems();
+        }}
+        className="mt-3"
+      />
+    );
   }
 
   if (staticMixedItems.length === 0 && !isDynamic && canReadVideos) {
-    return <>{selectionDialogs}{addSubGroupDialog}<GroupVideosPanel groupId={group.id} filter={filter} setFilter={setFilter} onNavigate={onNavigate} groupItems={groupItems} groupItemsLoading={groupItemsLoading} canWriteGroup={canWriteGroup} /></>;
+    return (
+      <>
+        {selectionDialogs}
+        {addSubGroupDialog}
+        <GroupVideosPanel
+          groupId={group.id}
+          filter={filter}
+          setFilter={setFilter}
+          onNavigate={onNavigate}
+          groupItems={groupItems}
+          groupItemsLoading={groupItemsLoading}
+          canWriteGroup={canWriteGroup}
+        />
+      </>
+    );
   }
 
   if (totalItemCount === 0) {
-    return <>{selectionDialogs}{toolbar}{addSubGroupDialog}<EmptyPanel icon={<Layers className="h-12 w-12" />} message={isDynamic ? "No items currently resolve for this dynamic group" : "No items in this group"} /></>;
+    return (
+      <>
+        {selectionDialogs}
+        {toolbar}
+        {addSubGroupDialog}
+        <EmptyPanel
+          icon={<Layers className="h-12 w-12" />}
+          message={isDynamic ? "No items currently resolve for this dynamic group" : "No items in this group"}
+        />
+      </>
+    );
   }
 
   if (viewMode === "list") {
@@ -912,7 +1306,12 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
             className="space-y-2"
             renderItem={({ item, measureRef }) => (
               <div ref={measureRef}>
-                <GroupItemRow item={item} onNavigate={onNavigate} selected={selectedIds.has(item.id)} onToggleSelect={() => toggle(item.id)} />
+                <GroupItemRow
+                  item={item}
+                  onNavigate={onNavigate}
+                  selected={selectedIds.has(item.id)}
+                  onToggleSelect={() => toggle(item.id)}
+                />
               </div>
             )}
           />
@@ -924,11 +1323,24 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
             disabled={!canReorderMixedItems || reorderMixedMutation.isPending || reorderItemMutation.isPending}
             className="space-y-2"
             renderItem={(item, { dragHandleProps, isDragging, isOver }) => (
-              <GroupItemRow item={item} onNavigate={onNavigate} selected={selectedIds.has(item.id)} onToggleSelect={() => toggle(item.id)} dragHandleProps={canReorderMixedItems ? dragHandleProps : undefined} isDragging={isDragging} isOver={isOver} />
+              <GroupItemRow
+                item={item}
+                onNavigate={onNavigate}
+                selected={selectedIds.has(item.id)}
+                onToggleSelect={() => toggle(item.id)}
+                dragHandleProps={canReorderMixedItems ? dragHandleProps : undefined}
+                isDragging={isDragging}
+                isOver={isOver}
+              />
             )}
           />
         )}
-        <DetailListPagination filter={mixedFilter} onFilterChange={setMixedFilter} totalCount={totalItemCount} allowInfinitePageSize />
+        <DetailListPagination
+          filter={mixedFilter}
+          onFilterChange={setMixedFilter}
+          totalCount={totalItemCount}
+          allowInfinitePageSize
+        />
       </div>
     );
   }
@@ -952,9 +1364,23 @@ function GroupItemsPanel({ group, filter, setFilter, onNavigate, groupItems, gro
         hasNextPage={infiniteQuery.hasNextPage}
         isFetchingNextPage={infiniteQuery.isFetchingNextPage}
         loadMore={loadMore}
-        renderItem={(item) => <GroupItemGridCard item={item} hydrated={hydratedItems.get(item.id)} onNavigate={onNavigate} selected={selectedIds.has(item.id)} onToggleSelect={() => toggle(item.id)} selecting={selectedCount > 0} />}
+        renderItem={(item) => (
+          <GroupItemGridCard
+            item={item}
+            hydrated={hydratedItems.get(item.id)}
+            onNavigate={onNavigate}
+            selected={selectedIds.has(item.id)}
+            onToggleSelect={() => toggle(item.id)}
+            selecting={selectedCount > 0}
+          />
+        )}
       />
-      <DetailListPagination filter={mixedFilter} onFilterChange={setMixedFilter} totalCount={totalItemCount} allowInfinitePageSize />
+      <DetailListPagination
+        filter={mixedFilter}
+        onFilterChange={setMixedFilter}
+        totalCount={totalItemCount}
+        allowInfinitePageSize
+      />
     </div>
   );
 }
@@ -976,23 +1402,43 @@ function buildMixedGroupItems(groupItems: GroupItem[], subGroups: Group[], isDyn
   return items;
 }
 
-function pageMixedGroupItems(items: MixedGroupItem[], filter: FindFilter, objectFilter: Record<string, unknown>, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap, pathCaseSensitive = true) {
+function pageMixedGroupItems(
+  items: MixedGroupItem[],
+  filter: FindFilter,
+  objectFilter: Record<string, unknown>,
+  hostData?: HydratedGroupItemMap,
+  engagementData?: GroupItemEngagementMap,
+  pathCaseSensitive = true,
+) {
   const query = filter.q?.trim().toLowerCase();
   const searchedItems = query
     ? items.filter((item) => {
         const metadata = getMixedItemMetadata(item, hostData, engagementData);
         const hostId = metadata.hostId;
-        return metadata.title.toLowerCase().includes(query)
-          || (metadata.code?.toLowerCase().includes(query) ?? false)
-          || (metadata.details?.toLowerCase().includes(query) ?? false)
-          || metadata.paths.some((path) => path.toLowerCase().includes(query))
-          || metadata.urls.some((url) => url.toLowerCase().includes(query))
-          || labelForGroupItemKind(metadata.kind as GroupItemKind).toLowerCase().includes(query)
-          || (hostId != null && String(hostId).includes(query));
+        return (
+          metadata.title.toLowerCase().includes(query) ||
+          (metadata.code?.toLowerCase().includes(query) ?? false) ||
+          (metadata.details?.toLowerCase().includes(query) ?? false) ||
+          metadata.paths.some((path) => path.toLowerCase().includes(query)) ||
+          metadata.urls.some((url) => url.toLowerCase().includes(query)) ||
+          labelForGroupItemKind(metadata.kind as GroupItemKind)
+            .toLowerCase()
+            .includes(query) ||
+          (hostId != null && String(hostId).includes(query))
+        );
       })
     : items;
-  const filteredItems = searchedItems.filter((item) => matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData, pathCaseSensitive));
-  const sortedItems = sortMixedGroupItems(filteredItems, filter.sort, filter.direction, filter.seed, hostData, engagementData);
+  const filteredItems = searchedItems.filter((item) =>
+    matchesGroupItemObjectFilter(item, objectFilter, hostData, engagementData, pathCaseSensitive),
+  );
+  const sortedItems = sortMixedGroupItems(
+    filteredItems,
+    filter.sort,
+    filter.direction,
+    filter.seed,
+    hostData,
+    engagementData,
+  );
   const page = Math.max(1, filter.page ?? 1);
   const infinitePageSize = (filter.perPage ?? 40) <= 0;
   const perPage = infinitePageSize ? Math.max(sortedItems.length, 1) : Math.max(1, filter.perPage ?? 40);
@@ -1056,9 +1502,11 @@ const HOST_METADATA_FILTER_KEYS = new Set([
 ]);
 
 function requiresHostMetadata(filter: FindFilter, objectFilter: Record<string, unknown>) {
-  return Boolean(filter.q?.trim())
-    || HOST_METADATA_SORTS.has(filter.sort ?? "")
-    || Object.keys(objectFilter).some((key) => HOST_METADATA_FILTER_KEYS.has(key));
+  return (
+    Boolean(filter.q?.trim()) ||
+    HOST_METADATA_SORTS.has(filter.sort ?? "") ||
+    Object.keys(objectFilter).some((key) => HOST_METADATA_FILTER_KEYS.has(key))
+  );
 }
 
 function requiresEngagementMetadata(filter: FindFilter, objectFilter: Record<string, unknown>) {
@@ -1112,18 +1560,24 @@ interface MixedGroupItemMetadata {
 }
 
 async function fetchMixedItemHostData(queryClient: ReturnType<typeof useQueryClient>, items: MixedGroupItem[]) {
-  const entries = await Promise.all(items.map(async (item) => {
-    if (item.source !== "item" || !isHydratableGroupItemKind(item.kind)) return null;
-    const query = createGroupItemEntityQuery(item);
-    if (!query.enabled) return null;
+  const entries = await Promise.all(
+    items.map(async (item) => {
+      if (item.source !== "item" || !isHydratableGroupItemKind(item.kind)) return null;
+      const query = createGroupItemEntityQuery(item);
+      if (!query.enabled) return null;
 
-    try {
-      const data = await queryClient.fetchQuery({ queryKey: query.queryKey, queryFn: query.queryFn, staleTime: query.staleTime });
-      return [item.id, data] as const;
-    } catch {
-      return null;
-    }
-  }));
+      try {
+        const data = await queryClient.fetchQuery({
+          queryKey: query.queryKey,
+          queryFn: query.queryFn,
+          staleTime: query.staleTime,
+        });
+        return [item.id, data] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
 
   return new Map(entries.filter((entry): entry is readonly [string, HydratedGroupItemData] => entry != null));
 }
@@ -1138,18 +1592,20 @@ async function fetchMixedItemEngagementData(queryClient: ReturnType<typeof useQu
     idsByType.set(host.hostType, ids);
   }
 
-  const batches = await Promise.all([...idsByType.entries()].map(async ([hostType, ids]) => {
-    const hostIds = [...ids].sort((left, right) => left - right);
-    try {
-      return await queryClient.fetchQuery({
-        queryKey: ["group-item-engagement", hostType, hostIds.join(",")],
-        queryFn: () => entityEngagement.batch({ hostType, hostIds }),
-        staleTime: 60000,
-      });
-    } catch {
-      return [];
-    }
-  }));
+  const batches = await Promise.all(
+    [...idsByType.entries()].map(async ([hostType, ids]) => {
+      const hostIds = [...ids].sort((left, right) => left - right);
+      try {
+        return await queryClient.fetchQuery({
+          queryKey: ["group-item-engagement", hostType, hostIds.join(",")],
+          queryFn: () => entityEngagement.batch({ hostType, hostIds }),
+          staleTime: 60000,
+        });
+      } catch {
+        return [];
+      }
+    }),
+  );
 
   const map = new Map<string, EntityEngagement>();
   [...idsByType.keys()].forEach((hostType, index) => {
@@ -1160,7 +1616,11 @@ async function fetchMixedItemEngagementData(queryClient: ReturnType<typeof useQu
   return map;
 }
 
-function getMixedItemMetadata(item: MixedGroupItem, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap): MixedGroupItemMetadata {
+function getMixedItemMetadata(
+  item: MixedGroupItem,
+  hostData?: HydratedGroupItemMap,
+  engagementData?: GroupItemEngagementMap,
+): MixedGroupItemMetadata {
   const host = groupItemHost(item);
   const hostId = getMixedItemHostIdValue(item);
   const data = hostData?.get(item.id);
@@ -1178,8 +1638,8 @@ function getMixedItemMetadata(item: MixedGroupItem, hostData?: HydratedGroupItem
     tagIds: [],
     performerIds: [],
     studioIds: [],
-    startSec: item.source === "item" ? item.item.startSec ?? undefined : undefined,
-    endSec: item.source === "item" ? item.item.endSec ?? undefined : undefined,
+    startSec: item.source === "item" ? (item.item.startSec ?? undefined) : undefined,
+    endSec: item.source === "item" ? (item.item.endSec ?? undefined) : undefined,
   };
 
   if (item.source === "subgroup") {
@@ -1198,9 +1658,10 @@ function getMixedItemMetadata(item: MixedGroupItem, hostData?: HydratedGroupItem
   switch (data?.type) {
     case "video": {
       const video = data.video;
-      const duration = String(item.kind).toLowerCase() === "videorange" && (item.item.startSec != null || item.item.endSec != null)
-        ? Math.max(0, (item.item.endSec ?? video.files[0]?.duration ?? 0) - (item.item.startSec ?? 0))
-        : maxNumber(video.files.map((file) => file.duration));
+      const duration =
+        String(item.kind).toLowerCase() === "videorange" && (item.item.startSec != null || item.item.endSec != null)
+          ? Math.max(0, (item.item.endSec ?? video.files[0]?.duration ?? 0) - (item.item.startSec ?? 0))
+          : maxNumber(video.files.map((file) => file.duration));
       return {
         ...base,
         title: item.item.title || video.title || base.title,
@@ -1295,7 +1756,14 @@ function getMixedItemMetadata(item: MixedGroupItem, hostData?: HydratedGroupItem
       const segment = data.segment;
       return {
         ...base,
-        title: item.item.title || segment.title || segment.tagName || segment.performerName || segment.refLabel || segment.kind || base.title,
+        title:
+          item.item.title ||
+          segment.title ||
+          segment.tagName ||
+          segment.performerName ||
+          segment.refLabel ||
+          segment.kind ||
+          base.title,
         createdAt: segment.createdAt,
         updatedAt: segment.updatedAt,
         tagIds: segment.tagId ? [segment.tagId] : [],
@@ -1367,19 +1835,39 @@ function maxNumber(values: Array<number | null | undefined>) {
 
 function groupItemHost(item: MixedGroupItem) {
   if (item.source === "subgroup") {
-    return { title: item.group.name, subtitle: `${item.group.videoCount} video${item.group.videoCount === 1 ? "" : "s"}`, kind: "group" as GroupItemKind, route: { page: "group", id: item.group.id } };
+    return {
+      title: item.group.name,
+      subtitle: `${item.group.videoCount} video${item.group.videoCount === 1 ? "" : "s"}`,
+      kind: "group" as GroupItemKind,
+      route: { page: "group", id: item.group.id },
+    };
   }
 
   const groupItem = item.item;
   const hostType = (groupItem.hostType || groupItem.kind).toLowerCase();
   const hostId = groupItem.hostId || groupItem.videoId || groupItem.imageId || groupItem.childGroupId;
-  const title = groupItem.title || groupItem.videoTitle || groupItem.imageTitle || groupItem.childGroupName || `${labelForGroupItemKind(groupItem.kind)} #${hostId ?? groupItem.id}`;
+  const title =
+    groupItem.title ||
+    groupItem.videoTitle ||
+    groupItem.imageTitle ||
+    groupItem.childGroupName ||
+    `${labelForGroupItemKind(groupItem.kind)} #${hostId ?? groupItem.id}`;
   const route = routeForGroupItem(groupItem, hostType, hostId ?? null);
-  const subtitle = String(groupItem.kind).toLowerCase() === "videorange" ? formatDurationRange(groupItem.startSec, groupItem.endSec) : labelForGroupItemKind(groupItem.kind);
+  const subtitle =
+    String(groupItem.kind).toLowerCase() === "videorange"
+      ? formatDurationRange(groupItem.startSec, groupItem.endSec)
+      : labelForGroupItemKind(groupItem.kind);
   return { title, subtitle, kind: groupItem.kind, route };
 }
 
-function sortMixedGroupItems(items: MixedGroupItem[], sort?: string, direction?: FindFilter["direction"], seed?: number, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap) {
+function sortMixedGroupItems(
+  items: MixedGroupItem[],
+  sort?: string,
+  direction?: FindFilter["direction"],
+  seed?: number,
+  hostData?: HydratedGroupItemMap,
+  engagementData?: GroupItemEngagementMap,
+) {
   if (sort === "random") {
     return sortSeededRandom(items, (item) => item.id, seed, direction === "desc");
   }
@@ -1416,7 +1904,9 @@ function sortMixedGroupItems(items: MixedGroupItem[], sort?: string, direction?:
         comparison = compareOptionalStrings(leftMeta.urls[0], rightMeta.urls[0]);
         break;
       case "studio":
-        comparison = compareOptionalStrings(leftMeta.studioName, rightMeta.studioName) || compareOptionalNumbers(leftMeta.studioIds[0], rightMeta.studioIds[0]);
+        comparison =
+          compareOptionalStrings(leftMeta.studioName, rightMeta.studioName) ||
+          compareOptionalNumbers(leftMeta.studioIds[0], rightMeta.studioIds[0]);
         break;
       case "tag_count":
         comparison = compareOptionalNumbers(leftMeta.tagCount, rightMeta.tagCount);
@@ -1505,38 +1995,50 @@ function boolSortValue(value?: boolean) {
   return value == null ? undefined : value ? 1 : 0;
 }
 
-function matchesGroupItemObjectFilter(item: MixedGroupItem, objectFilter: Record<string, unknown>, hostData?: HydratedGroupItemMap, engagementData?: GroupItemEngagementMap, pathCaseSensitive = true) {
+function matchesGroupItemObjectFilter(
+  item: MixedGroupItem,
+  objectFilter: Record<string, unknown>,
+  hostData?: HydratedGroupItemMap,
+  engagementData?: GroupItemEngagementMap,
+  pathCaseSensitive = true,
+) {
   if (Object.keys(objectFilter).length === 0) return true;
 
   const metadata = getMixedItemMetadata(item, hostData, engagementData);
-  return matchesStringCriterion(metadata.title, objectFilter.titleCriterion as StringCriterion | undefined)
-    && matchesStringCriterion(metadata.code, objectFilter.codeCriterion as StringCriterion | undefined)
-    && matchesStringCriterion(metadata.details, objectFilter.detailsCriterion as StringCriterion | undefined)
-    && matchesStringCriterion(metadata.kind, objectFilter.kindCriterion as StringCriterion | undefined)
-    && matchesNumberCriterion(metadata.rating, objectFilter.ratingCriterion as IntCriterion | undefined)
-    && matchesBoolCriterion(metadata.organized, objectFilter.organizedCriterion as BoolCriterion | undefined)
-    && matchesStringCollectionCriterion(metadata.paths, objectFilter.pathCriterion as StringCriterion | undefined, pathCaseSensitive)
-    && matchesStringCollectionCriterion(metadata.urls, objectFilter.urlCriterion as StringCriterion | undefined)
-    && matchesDateCriterion(metadata.date, objectFilter.dateCriterion as DateCriterion | undefined)
-    && matchesMultiIdCriterion(metadata.performerIds, objectFilter.performersCriterion as MultiIdCriterion | undefined)
-    && matchesMultiIdCriterion(metadata.tagIds, objectFilter.tagsCriterion as MultiIdCriterion | undefined)
-    && matchesMultiIdCriterion(metadata.studioIds, objectFilter.studiosCriterion as MultiIdCriterion | undefined)
-    && matchesNumberCriterion(metadata.performerCount, objectFilter.performerCountCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.tagCount, objectFilter.tagCountCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.fileCount, objectFilter.fileCountCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.duration, objectFilter.durationCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.wordCount, objectFilter.wordCountCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.pageCount, objectFilter.pageCountCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(item.orderIndex + 1, objectFilter.itemNumberCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.hostId, objectFilter.hostIdCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.startSec, objectFilter.rangeStartCriterion as IntCriterion | undefined)
-    && matchesNumberCriterion(metadata.endSec, objectFilter.rangeEndCriterion as IntCriterion | undefined)
-    && matchesStringCriterion(metadata.sourceKey, objectFilter.sourceKeyCriterion as StringCriterion | undefined)
-    && matchesStringCriterion(metadata.segmentKind, objectFilter.segmentKindCriterion as StringCriterion | undefined)
-    && matchesNumberCriterion(metadata.confidence, objectFilter.confidenceCriterion as IntCriterion | undefined)
-    && matchesTimestampCriterion(metadata.addedAt, objectFilter.addedAtCriterion as TimestampCriterion | undefined)
-    && matchesTimestampCriterion(metadata.createdAt, objectFilter.createdAtCriterion as TimestampCriterion | undefined)
-    && matchesTimestampCriterion(metadata.updatedAt, objectFilter.updatedAtCriterion as TimestampCriterion | undefined);
+  return (
+    matchesStringCriterion(metadata.title, objectFilter.titleCriterion as StringCriterion | undefined) &&
+    matchesStringCriterion(metadata.code, objectFilter.codeCriterion as StringCriterion | undefined) &&
+    matchesStringCriterion(metadata.details, objectFilter.detailsCriterion as StringCriterion | undefined) &&
+    matchesStringCriterion(metadata.kind, objectFilter.kindCriterion as StringCriterion | undefined) &&
+    matchesNumberCriterion(metadata.rating, objectFilter.ratingCriterion as IntCriterion | undefined) &&
+    matchesBoolCriterion(metadata.organized, objectFilter.organizedCriterion as BoolCriterion | undefined) &&
+    matchesStringCollectionCriterion(
+      metadata.paths,
+      objectFilter.pathCriterion as StringCriterion | undefined,
+      pathCaseSensitive,
+    ) &&
+    matchesStringCollectionCriterion(metadata.urls, objectFilter.urlCriterion as StringCriterion | undefined) &&
+    matchesDateCriterion(metadata.date, objectFilter.dateCriterion as DateCriterion | undefined) &&
+    matchesMultiIdCriterion(metadata.performerIds, objectFilter.performersCriterion as MultiIdCriterion | undefined) &&
+    matchesMultiIdCriterion(metadata.tagIds, objectFilter.tagsCriterion as MultiIdCriterion | undefined) &&
+    matchesMultiIdCriterion(metadata.studioIds, objectFilter.studiosCriterion as MultiIdCriterion | undefined) &&
+    matchesNumberCriterion(metadata.performerCount, objectFilter.performerCountCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.tagCount, objectFilter.tagCountCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.fileCount, objectFilter.fileCountCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.duration, objectFilter.durationCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.wordCount, objectFilter.wordCountCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.pageCount, objectFilter.pageCountCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(item.orderIndex + 1, objectFilter.itemNumberCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.hostId, objectFilter.hostIdCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.startSec, objectFilter.rangeStartCriterion as IntCriterion | undefined) &&
+    matchesNumberCriterion(metadata.endSec, objectFilter.rangeEndCriterion as IntCriterion | undefined) &&
+    matchesStringCriterion(metadata.sourceKey, objectFilter.sourceKeyCriterion as StringCriterion | undefined) &&
+    matchesStringCriterion(metadata.segmentKind, objectFilter.segmentKindCriterion as StringCriterion | undefined) &&
+    matchesNumberCriterion(metadata.confidence, objectFilter.confidenceCriterion as IntCriterion | undefined) &&
+    matchesTimestampCriterion(metadata.addedAt, objectFilter.addedAtCriterion as TimestampCriterion | undefined) &&
+    matchesTimestampCriterion(metadata.createdAt, objectFilter.createdAtCriterion as TimestampCriterion | undefined) &&
+    matchesTimestampCriterion(metadata.updatedAt, objectFilter.updatedAtCriterion as TimestampCriterion | undefined)
+  );
 }
 
 function matchesStringCriterion(value: string | undefined, criterion?: StringCriterion, pathCaseSensitive = true) {
@@ -1551,16 +2053,26 @@ function matchesStringCriterion(value: string | undefined, criterion?: StringCri
   const expectedPrefix = expectedPath.endsWith("/") ? expectedPath : `${expectedPath}/`;
 
   switch (modifier) {
-    case "IS_NULL": return normalized.length === 0;
-    case "NOT_NULL": return normalized.length > 0;
-    case "NOT_EQUALS": return normalized !== expected;
-    case "INCLUDES": return normalized.includes(expected);
-    case "EXCLUDES": return !normalized.includes(expected);
-    case "MATCHES_REGEX": return matchesRegex(value ?? "", criterion.value ?? "");
-    case "NOT_MATCHES_REGEX": return !matchesRegex(value ?? "", criterion.value ?? "");
-    case "UNDER_PATH": return normalizedPath === expectedPath || normalizedPath.startsWith(expectedPrefix);
-    case "NOT_UNDER_PATH": return normalizedPath !== expectedPath && !normalizedPath.startsWith(expectedPrefix);
-    default: return normalized === expected;
+    case "IS_NULL":
+      return normalized.length === 0;
+    case "NOT_NULL":
+      return normalized.length > 0;
+    case "NOT_EQUALS":
+      return normalized !== expected;
+    case "INCLUDES":
+      return normalized.includes(expected);
+    case "EXCLUDES":
+      return !normalized.includes(expected);
+    case "MATCHES_REGEX":
+      return matchesRegex(value ?? "", criterion.value ?? "");
+    case "NOT_MATCHES_REGEX":
+      return !matchesRegex(value ?? "", criterion.value ?? "");
+    case "UNDER_PATH":
+      return normalizedPath === expectedPath || normalizedPath.startsWith(expectedPrefix);
+    case "NOT_UNDER_PATH":
+      return normalizedPath !== expectedPath && !normalizedPath.startsWith(expectedPrefix);
+    default:
+      return normalized === expected;
   }
 }
 
@@ -1577,7 +2089,12 @@ function matchesStringCollectionCriterion(values: string[], criterion?: StringCr
   const modifier = criterion.modifier ?? "EQUALS";
   if (modifier === "IS_NULL") return values.length === 0 || values.every((value) => !value.trim());
   if (modifier === "NOT_NULL") return values.some((value) => value.trim().length > 0);
-  if (modifier === "NOT_EQUALS" || modifier === "EXCLUDES" || modifier === "NOT_MATCHES_REGEX" || modifier === "NOT_UNDER_PATH") {
+  if (
+    modifier === "NOT_EQUALS" ||
+    modifier === "EXCLUDES" ||
+    modifier === "NOT_MATCHES_REGEX" ||
+    modifier === "NOT_UNDER_PATH"
+  ) {
     return values.length === 0 || values.every((value) => matchesStringCriterion(value, criterion, pathCaseSensitive));
   }
   return values.some((value) => matchesStringCriterion(value, criterion, pathCaseSensitive));
@@ -1600,14 +2117,34 @@ function matchesNumberCriterion(value: number | undefined, criterion?: IntCriter
   const expected2 = criterion.value2;
 
   switch (modifier) {
-    case "IS_NULL": return value == null;
-    case "NOT_NULL": return value != null;
-    case "NOT_EQUALS": return value !== expected;
-    case "GREATER_THAN": return value != null && expected != null && value > expected;
-    case "LESS_THAN": return value != null && expected != null && value < expected;
-    case "BETWEEN": return value != null && expected != null && expected2 != null && value >= Math.min(expected, expected2) && value <= Math.max(expected, expected2);
-    case "NOT_BETWEEN": return value == null || expected == null || expected2 == null || value < Math.min(expected, expected2) || value > Math.max(expected, expected2);
-    default: return value === expected;
+    case "IS_NULL":
+      return value == null;
+    case "NOT_NULL":
+      return value != null;
+    case "NOT_EQUALS":
+      return value !== expected;
+    case "GREATER_THAN":
+      return value != null && expected != null && value > expected;
+    case "LESS_THAN":
+      return value != null && expected != null && value < expected;
+    case "BETWEEN":
+      return (
+        value != null &&
+        expected != null &&
+        expected2 != null &&
+        value >= Math.min(expected, expected2) &&
+        value <= Math.max(expected, expected2)
+      );
+    case "NOT_BETWEEN":
+      return (
+        value == null ||
+        expected == null ||
+        expected2 == null ||
+        value < Math.min(expected, expected2) ||
+        value > Math.max(expected, expected2)
+      );
+    default:
+      return value === expected;
   }
 }
 
@@ -1623,13 +2160,19 @@ function matchesMultiIdCriterion(values: number[], criterion?: MultiIdCriterion)
   const modifier = criterion.modifier ?? "INCLUDES";
 
   switch (modifier) {
-    case "IS_NULL": return values.length === 0;
-    case "NOT_NULL": return values.length > 0;
+    case "IS_NULL":
+      return values.length === 0;
+    case "NOT_NULL":
+      return values.length > 0;
     case "EXCLUDES":
-    case "NOT_EQUALS": return selected.every((id) => !valueSet.has(id));
-    case "INCLUDES_ALL": return selected.every((id) => valueSet.has(id));
-    case "EXCLUDES_ALL": return !selected.every((id) => valueSet.has(id));
-    default: return selected.length === 0 || selected.some((id) => valueSet.has(id));
+    case "NOT_EQUALS":
+      return selected.every((id) => !valueSet.has(id));
+    case "INCLUDES_ALL":
+      return selected.every((id) => valueSet.has(id));
+    case "EXCLUDES_ALL":
+      return !selected.every((id) => valueSet.has(id));
+    default:
+      return selected.length === 0 || selected.some((id) => valueSet.has(id));
   }
 }
 
@@ -1652,11 +2195,13 @@ function getSelectedDeletableKinds(items: MixedGroupItem[], hasPermission: (perm
 }
 
 function canDeleteAnyMixedHostType(hasPermission: (permission: string) => boolean) {
-  return canDeleteEntity("video", hasPermission)
-    || canDeleteEntity("image", hasPermission)
-    || canDeleteEntity("audio", hasPermission)
-    || canDeleteEntity("text", hasPermission)
-    || canDeleteEntity("group", hasPermission);
+  return (
+    canDeleteEntity("video", hasPermission) ||
+    canDeleteEntity("image", hasPermission) ||
+    canDeleteEntity("audio", hasPermission) ||
+    canDeleteEntity("text", hasPermission) ||
+    canDeleteEntity("group", hasPermission)
+  );
 }
 
 function getMixedItemHostIdValue(item: MixedGroupItem) {
@@ -1704,7 +2249,9 @@ async function deleteSelectedGroupHosts(items: MixedGroupItem[], hasPermission: 
   ]);
 }
 
-function getMixedItemHost(item: MixedGroupItem): { kind: GroupItemKind; hostId: number; permissionKind: "video" | "image" | "audio" | "text" | "group" } | null {
+function getMixedItemHost(
+  item: MixedGroupItem,
+): { kind: GroupItemKind; hostId: number; permissionKind: "video" | "image" | "audio" | "text" | "group" } | null {
   if (item.source === "subgroup") {
     return { kind: "group", hostId: item.group.id, permissionKind: "group" };
   }
@@ -1736,12 +2283,17 @@ function routeForGroupItem(item: GroupItem, hostType: string, hostId: number | n
   if (item.childGroupId) return { page: "group", id: item.childGroupId };
   // Only seek when the item carries a real position (spans/ranges). A plain video item has no
   // startSec, so omit seekTo and let the video page resume from engagement rather than restart at 0.
-  if (item.videoId) return item.startSec && item.startSec > 0
-    ? { page: "video", id: item.videoId, seekTo: item.startSec }
-    : { page: "video", id: item.videoId };
+  if (item.videoId)
+    return item.startSec && item.startSec > 0
+      ? { page: "video", id: item.videoId, seekTo: item.startSec }
+      : { page: "video", id: item.videoId };
   if (item.imageId) return { page: "image", id: item.imageId };
   if (!hostId) return null;
-  if (["audio", "text", "gallery", "performer", "studio", "tag", "face", "group", "image", "video", "segment"].includes(hostType)) {
+  if (
+    ["audio", "text", "gallery", "performer", "studio", "tag", "face", "group", "image", "video", "segment"].includes(
+      hostType,
+    )
+  ) {
     return { page: hostType === "text" ? "text" : hostType, id: hostId };
   }
   return null;
@@ -1749,34 +2301,57 @@ function routeForGroupItem(item: GroupItem, hostType: string, hostId: number | n
 
 function labelForGroupItemKind(kind: GroupItemKind) {
   switch (String(kind).toLowerCase()) {
-    case "videorange": return "Video Range";
-    case "image": return "Image";
-    case "audio": return "Audio";
-    case "text": return "Text";
-    case "group": return "Group";
-    case "performer": return "Performer";
-    case "studio": return "Studio";
-    case "tag": return "Tag";
-    case "gallery": return "Gallery";
-    case "face": return "Face";
-    case "segment": return "Segment";
-    default: return "Video";
+    case "videorange":
+      return "Video Range";
+    case "image":
+      return "Image";
+    case "audio":
+      return "Audio";
+    case "text":
+      return "Text";
+    case "group":
+      return "Group";
+    case "performer":
+      return "Performer";
+    case "studio":
+      return "Studio";
+    case "tag":
+      return "Tag";
+    case "gallery":
+      return "Gallery";
+    case "face":
+      return "Face";
+    case "segment":
+      return "Segment";
+    default:
+      return "Video";
   }
 }
 
 function GroupItemKindIcon({ kind, className = "h-4 w-4" }: { kind: GroupItemKind; className?: string }) {
   switch (String(kind).toLowerCase()) {
-    case "image": return <Images className={className} />;
-    case "audio": return <Headphones className={className} />;
-    case "text": return <FileText className={className} />;
-    case "group": return <Layers className={className} />;
-    case "performer": return <User className={className} />;
-    case "studio": return <Building2 className={className} />;
-    case "tag": return <Tag className={className} />;
-    case "gallery": return <FolderOpen className={className} />;
-    case "face": return <Fingerprint className={className} />;
-    case "segment": return <Merge className={className} />;
-    default: return <Film className={className} />;
+    case "image":
+      return <Images className={className} />;
+    case "audio":
+      return <Headphones className={className} />;
+    case "text":
+      return <FileText className={className} />;
+    case "group":
+      return <Layers className={className} />;
+    case "performer":
+      return <User className={className} />;
+    case "studio":
+      return <Building2 className={className} />;
+    case "tag":
+      return <Tag className={className} />;
+    case "gallery":
+      return <FolderOpen className={className} />;
+    case "face":
+      return <Fingerprint className={className} />;
+    case "segment":
+      return <Merge className={className} />;
+    default:
+      return <Film className={className} />;
   }
 }
 
@@ -1789,14 +2364,16 @@ type HydratedGroupItemData =
   | { type: "group"; group: Group };
 
 type HydratedGroupItemState =
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "ready"; data: HydratedGroupItemData };
+  { status: "loading" } | { status: "error" } | { status: "ready"; data: HydratedGroupItemData };
 
 function useGroupItemEntities(items: MixedGroupItem[]) {
   const queryItems = useMemo(
-    () => items.filter((item): item is Extract<MixedGroupItem, { source: "item" }> => item.source === "item" && isHydratableGroupItemKind(item.kind)),
-    [items]
+    () =>
+      items.filter(
+        (item): item is Extract<MixedGroupItem, { source: "item" }> =>
+          item.source === "item" && isHydratableGroupItemKind(item.kind),
+      ),
+    [items],
   );
   const queries = useQueries({
     queries: queryItems.map((item) => createGroupItemEntityQuery(item)),
@@ -1823,13 +2400,14 @@ function useGroupItemEntities(items: MixedGroupItem[]) {
 
 function createGroupItemEntityQuery(item: Extract<MixedGroupItem, { source: "item" }>) {
   const normalizedKind = String(item.kind).toLowerCase();
-  const hostId = normalizedKind === "video" || normalizedKind === "videorange"
-    ? item.item.videoId ?? item.item.hostId
-    : normalizedKind === "image"
-      ? item.item.imageId ?? item.item.hostId
-      : normalizedKind === "group"
-        ? item.item.childGroupId ?? item.item.hostId
-        : item.item.hostId;
+  const hostId =
+    normalizedKind === "video" || normalizedKind === "videorange"
+      ? (item.item.videoId ?? item.item.hostId)
+      : normalizedKind === "image"
+        ? (item.item.imageId ?? item.item.hostId)
+        : normalizedKind === "group"
+          ? (item.item.childGroupId ?? item.item.hostId)
+          : item.item.hostId;
 
   return {
     queryKey: ["group-item-host", item.kind, hostId],
@@ -1864,8 +2442,8 @@ function applyVideoItemOverrides(video: Video, item: Extract<MixedGroupItem, { s
   return {
     ...video,
     title: item.item.title || video.title,
-    clipStartSec: item.kind === "videoRange" ? item.item.startSec ?? video.clipStartSec : video.clipStartSec,
-    clipEndSec: item.kind === "videoRange" ? item.item.endSec ?? video.clipEndSec : video.clipEndSec,
+    clipStartSec: item.kind === "videoRange" ? (item.item.startSec ?? video.clipStartSec) : video.clipStartSec,
+    clipEndSec: item.kind === "videoRange" ? (item.item.endSec ?? video.clipEndSec) : video.clipEndSec,
   } satisfies Video;
 }
 
@@ -1877,7 +2455,15 @@ function GroupItemCardShell({ children }: { children: React.ReactNode }) {
   return <div className="group relative h-full">{children}</div>;
 }
 
-function GroupItemRow({ item, onNavigate, selected, onToggleSelect, dragHandleProps, isDragging, isOver }: {
+function GroupItemRow({
+  item,
+  onNavigate,
+  selected,
+  onToggleSelect,
+  dragHandleProps,
+  isDragging,
+  isOver,
+}: {
   item: MixedGroupItem;
   onNavigate: (r: any) => void;
   selected: boolean;
@@ -1888,26 +2474,72 @@ function GroupItemRow({ item, onNavigate, selected, onToggleSelect, dragHandlePr
 }) {
   const host = groupItemHost(item);
   return (
-    <div className={`flex items-center gap-3 rounded-xl border bg-card/80 px-4 py-3 transition-colors ${selected ? "border-accent ring-1 ring-accent" : isDragging ? "border-accent opacity-40" : isOver ? "border-accent bg-accent/5" : "border-border"}`}>
-      {dragHandleProps ? <span {...dragHandleProps} className="inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing"><GripVertical className="h-4 w-4" /></span> : null}
-      <button type="button" onClick={onToggleSelect} className={`h-5 w-5 rounded border ${selected ? "border-accent bg-accent" : "border-border"}`} aria-label={selected ? "Deselect item" : "Select item"} />
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-surface text-muted"><GroupItemKindIcon kind={host.kind} /></div>
+    <div
+      className={`flex items-center gap-3 rounded-xl border bg-card/80 px-4 py-3 transition-colors ${selected ? "border-accent ring-1 ring-accent" : isDragging ? "border-accent opacity-40" : isOver ? "border-accent bg-accent/5" : "border-border"}`}
+    >
+      {dragHandleProps ? (
+        <span
+          {...dragHandleProps}
+          className="inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={onToggleSelect}
+        className={`h-5 w-5 rounded border ${selected ? "border-accent bg-accent" : "border-border"}`}
+        aria-label={selected ? "Deselect item" : "Select item"}
+      />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-surface text-muted">
+        <GroupItemKindIcon kind={host.kind} />
+      </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-foreground">{host.title}</div>
-        <div className="mt-1 flex flex-wrap gap-2 text-xs text-secondary"><span>#{item.orderIndex + 1}</span><span>{host.subtitle}</span></div>
+        <div className="mt-1 flex flex-wrap gap-2 text-xs text-secondary">
+          <span>#{item.orderIndex + 1}</span>
+          <span>{host.subtitle}</span>
+        </div>
       </div>
-      {host.route ? <button type="button" onClick={() => onNavigate(host.route)} className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1.5 text-sm text-foreground transition hover:border-accent"><ExternalLink className="h-4 w-4" />Open</button> : null}
+      {host.route ? (
+        <button
+          type="button"
+          onClick={() => onNavigate(host.route)}
+          className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1.5 text-sm text-foreground transition hover:border-accent"
+        >
+          <ExternalLink className="h-4 w-4" />
+          Open
+        </button>
+      ) : null}
     </div>
   );
 }
 
-function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelect, selecting }: { item: MixedGroupItem; hydrated?: HydratedGroupItemState; onNavigate: (r: any) => void; selected: boolean; onToggleSelect: () => void; selecting?: boolean }) {
+function GroupItemGridCard({
+  item,
+  hydrated,
+  onNavigate,
+  selected,
+  onToggleSelect,
+  selecting,
+}: {
+  item: MixedGroupItem;
+  hydrated?: HydratedGroupItemState;
+  onNavigate: (r: any) => void;
+  selected: boolean;
+  onToggleSelect: () => void;
+  selecting?: boolean;
+}) {
   const host = groupItemHost(item);
   const route = host.route ?? { page: "group", id: item.source === "subgroup" ? item.group.id : item.item.groupId };
   // Per-item engagement so each card shows its rating banner. getEngagementHost resolves the correct
   // host type/id from the raw item (null for non-rateable kinds like segments, which disables it).
   const engagementHost = getEngagementHost(item);
-  const { engagement: engagementRaw } = useEntityEngagement(engagementHost?.hostType ?? "video", engagementHost?.hostId ?? 0, { enabled: !!engagementHost });
+  const { engagement: engagementRaw } = useEntityEngagement(
+    engagementHost?.hostType ?? "video",
+    engagementHost?.hostId ?? 0,
+    { enabled: !!engagementHost },
+  );
   const engagement = engagementRaw ?? undefined;
 
   if (item.source === "subgroup") {
@@ -1915,7 +2547,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       <GroupTile
         group={item.group}
         engagement={engagement}
-        onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
+        onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
         onNavigate={onNavigate}
         selected={selected}
         onSelect={onToggleSelect}
@@ -1933,7 +2565,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
             <VideoCard
               video={video}
               engagement={engagement}
-              onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
+              onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
               onNavigate={onNavigate}
               selected={selected}
               onSelect={onToggleSelect}
@@ -1949,7 +2581,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
             <ImageTile
               image={image}
               engagement={engagement}
-              onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
+              onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
               onNavigate={onNavigate}
               selected={selected}
               onSelect={onToggleSelect}
@@ -1965,7 +2597,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
             <AudioTile
               audio={audio}
               engagement={engagement}
-              onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
+              onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
               onNavigate={onNavigate}
               selected={selected}
               onSelect={onToggleSelect}
@@ -1981,7 +2613,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
             <TextTile
               text={text}
               engagement={engagement}
-              onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
+              onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
               onNavigate={onNavigate}
               selected={selected}
               onSelect={onToggleSelect}
@@ -1996,7 +2628,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
           <GroupItemCardShell>
             <SegmentTile
               segment={segment}
-              onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
+              onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
               selected={selected}
               onSelect={onToggleSelect}
               selecting={selecting}
@@ -2009,7 +2641,7 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
           <GroupTile
             group={hydrated.data.group}
             engagement={engagement}
-            onClick={() => selecting ? onToggleSelect() : onNavigate(route)}
+            onClick={() => (selecting ? onToggleSelect() : onNavigate(route))}
             onNavigate={onNavigate}
             selected={selected}
             onSelect={onToggleSelect}
@@ -2035,12 +2667,12 @@ function GroupItemGridCard({ item, hydrated, onNavigate, selected, onToggleSelec
       selecting={selecting || selected}
       mediaClassName="aspect-[4/3] bg-surface/70"
       media={<GroupItemKindIcon kind={host.kind} className="h-10 w-10 text-muted" />}
-      body={(
+      body={
         <>
           <p className="card-title line-clamp-2 font-semibold text-foreground group-hover:text-accent">{host.title}</p>
           <p className="truncate text-xs text-secondary">{host.subtitle}</p>
         </>
-      )}
+      }
     />
   );
 }
@@ -2057,7 +2689,15 @@ function InfoItem({ icon, label, value }: { icon?: React.ReactNode; label: strin
   );
 }
 
-function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, groupItemsLoading, canWriteGroup }: {
+function GroupVideosPanel({
+  groupId,
+  filter,
+  setFilter,
+  onNavigate,
+  groupItems,
+  groupItemsLoading,
+  canWriteGroup,
+}: {
   groupId: number;
   filter: FindFilter;
   setFilter: (filter: FindFilter) => void;
@@ -2072,13 +2712,27 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [objectFilter, setObjectFilter] = useState<Record<string, unknown>>({});
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter
-    ? videos.findFiltered({
-        findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
-      })
-    : videos.find(nextFilter, { groupId: String(groupId) }), [groupId, hasObjectFilter, objectFilter]);
-  const { data: groupVideos, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
+  const queryPage = useCallback(
+    (nextFilter: FindFilter) =>
+      hasObjectFilter
+        ? videos.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "groupsCriterion", groupId),
+          })
+        : videos.find(nextFilter, { groupId: String(groupId) }),
+    [groupId, hasObjectFilter, objectFilter],
+  );
+  const {
+    data: groupVideos,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Video>({
     queryKey: ["group-videos", groupId, objectFilter],
     filter,
     queryFn: queryPage,
@@ -2117,7 +2771,13 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
     },
   });
   const items = groupVideos?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds, resetKeyParts: [objectFilter] });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+    resetKeyParts: [objectFilter],
+  });
   const selecting = selectedIds.size > 0;
   const toolbar = (
     <DetailListToolbar
@@ -2139,7 +2799,16 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
       onSelectAllMatching={selectShown}
       selectAllMatchingLabel="Select shown"
       onSelectNone={selectNone}
-      selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "group", id: groupId }} />}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="videos"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          videoItems={items}
+          onNavigate={onNavigate}
+          removeFromParent={{ type: "group", id: groupId }}
+        />
+      }
       criteriaDefinitions={VIDEO_CRITERIA}
       objectFilter={objectFilter}
       onObjectFilterChange={setObjectFilter}
@@ -2150,23 +2819,38 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
     />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
 
   if (groupItemsLoading) {
     return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading group items..." />;
   }
 
   if (groupItems && groupItems.length > 0) {
-    const orderedItems = [...groupItems].sort((left, right) => left.orderIndex - right.orderIndex || left.id - right.id);
+    const orderedItems = [...groupItems].sort(
+      (left, right) => left.orderIndex - right.orderIndex || left.id - right.id,
+    );
 
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
           <div>
             <div className="text-sm font-semibold text-foreground">Group Items</div>
-            <div className="mt-1 text-sm text-secondary">This tab now reads the ordered playback items directly from the new group item API.</div>
+            <div className="mt-1 text-sm text-secondary">
+              This tab now reads the ordered playback items directly from the new group item API.
+            </div>
           </div>
-          <div className="text-xs text-muted">{orderedItems.length} item{orderedItems.length === 1 ? "" : "s"}</div>
+          <div className="text-xs text-muted">
+            {orderedItems.length} item{orderedItems.length === 1 ? "" : "s"}
+          </div>
         </div>
 
         <SortableList
@@ -2178,11 +2862,16 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
           renderItem={(item, { dragHandleProps, isDragging, isOver }) => {
             const label = item.title || item.videoTitle || `Video #${item.videoId}`;
             return (
-              <div className={`rounded-xl border bg-card/80 p-4 transition-colors ${isDragging ? "border-accent opacity-40" : isOver ? "border-accent bg-accent/5" : "border-border"}`}>
+              <div
+                className={`rounded-xl border bg-card/80 p-4 transition-colors ${isDragging ? "border-accent opacity-40" : isOver ? "border-accent bg-accent/5" : "border-border"}`}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
                     {canWriteGroup ? (
-                      <span {...dragHandleProps} className="mt-0.5 inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing">
+                      <span
+                        {...dragHandleProps}
+                        className="mt-0.5 inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing"
+                      >
                         <GripVertical className="h-4 w-4" />
                       </span>
                     ) : null}
@@ -2190,7 +2879,9 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
                       <div className="text-sm font-medium text-foreground">{label}</div>
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-secondary">
                         <span>#{item.orderIndex + 1}</span>
-                        <span>{item.kind === "videoRange" ? formatDurationRange(item.startSec, item.endSec) : "Full video"}</span>
+                        <span>
+                          {item.kind === "videoRange" ? formatDurationRange(item.startSec, item.endSec) : "Full video"}
+                        </span>
                         {item.sourceSpanKey ? <span>Span snapshot</span> : null}
                       </div>
                     </div>
@@ -2198,9 +2889,13 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => onNavigate(item.startSec && item.startSec > 0
-                        ? { page: "video", id: item.videoId, seekTo: item.startSec }
-                        : { page: "video", id: item.videoId })}
+                      onClick={() =>
+                        onNavigate(
+                          item.startSec && item.startSec > 0
+                            ? { page: "video", id: item.videoId, seekTo: item.startSec }
+                            : { page: "video", id: item.videoId },
+                        )
+                      }
                       className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
                     >
                       <ExternalLink className="h-4 w-4" />
@@ -2209,13 +2904,15 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
                     {item.sourceSpanKey ? (
                       <button
                         type="button"
-                        onClick={() => onNavigate({
-                          page: "video-span",
-                          id: item.videoId,
-                          spanKey: item.sourceSpanKey,
-                          profileId: item.sourceProfileId,
-                          derivedQueryDescriptor: parseGroupItemDerivedQueryDescriptor(item.sourceQueryJson),
-                        })}
+                        onClick={() =>
+                          onNavigate({
+                            page: "video-span",
+                            id: item.videoId,
+                            spanKey: item.sourceSpanKey,
+                            profileId: item.sourceProfileId,
+                            derivedQueryDescriptor: parseGroupItemDerivedQueryDescriptor(item.sourceQueryJson),
+                          })
+                        }
                         className="rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:border-accent"
                       >
                         Open segment
@@ -2245,13 +2942,40 @@ function GroupVideosPanel({ groupId, filter, setFilter, onNavigate, groupItems, 
   }
 
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
-  if (!groupVideos || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos in this group" /></>;
+  if (!groupVideos || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos in this group" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <ContextualVideoListView items={items} filter={filter} totalCount={groupVideos.totalCount} queryPage={queryPage} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={groupVideos.totalCount} allowInfinitePageSize />
+      <ContextualVideoListView
+        items={items}
+        filter={filter}
+        totalCount={groupVideos.totalCount}
+        queryPage={queryPage}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        onVideoQuickView={setQuickViewId}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={groupVideos.totalCount}
+        allowInfinitePageSize
+      />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -2266,7 +2990,12 @@ function parseGroupItemDerivedQueryDescriptor(sourceQueryJson?: string): Segment
 
   try {
     const parsed = JSON.parse(sourceQueryJson) as SegmentSpanDerivedQuery;
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.operands) || typeof parsed.operator !== "string") {
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !Array.isArray(parsed.operands) ||
+      typeof parsed.operator !== "string"
+    ) {
       return undefined;
     }
 
@@ -2279,8 +3008,12 @@ function parseGroupItemDerivedQueryDescriptor(sourceQueryJson?: string): Segment
         .map((operand) => ({
           sourceKey: operand.sourceKey,
           kind: operand.kind,
-          tagIds: Array.isArray(operand.tagIds) ? operand.tagIds.filter((value): value is number => Number.isInteger(value) && value > 0) : undefined,
-          faceIds: Array.isArray(operand.refIds) ? operand.refIds.filter((value): value is number => Number.isInteger(value) && value > 0) : undefined,
+          tagIds: Array.isArray(operand.tagIds)
+            ? operand.tagIds.filter((value): value is number => Number.isInteger(value) && value > 0)
+            : undefined,
+          faceIds: Array.isArray(operand.refIds)
+            ? operand.refIds.filter((value): value is number => Number.isInteger(value) && value > 0)
+            : undefined,
           minConfidence: typeof operand.minConfidence === "number" ? operand.minConfidence : undefined,
         })),
     };
@@ -2288,9 +3021,22 @@ function parseGroupItemDerivedQueryDescriptor(sourceQueryJson?: string): Segment
     return undefined;
   }
 }
-function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: number; onNavigate: (r: any) => void; canWriteGroup: boolean }) {
+function GroupSubGroupsPanel({
+  groupId,
+  onNavigate,
+  canWriteGroup,
+}: {
+  groupId: number;
+  onNavigate: (r: any) => void;
+  canWriteGroup: boolean;
+}) {
   const queryClient = useQueryClient();
-  const { data: subGroups, isLoading, error, refetch } = useQuery({
+  const {
+    data: subGroups,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["group-subgroups", groupId],
     queryFn: () => groups.subGroups(groupId),
   });
@@ -2341,19 +3087,30 @@ function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: 
   const availableResults = (searchResults?.items ?? []).filter((g) => g.id !== groupId && !existingIds.has(g.id));
 
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading sub-groups..." />;
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void refetch(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void refetch();
+        }}
+        className="mt-3"
+      />
+    );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-muted uppercase tracking-wider">Sub-Groups</h3>
-        {canWriteGroup ? <button
-          onClick={() => setShowAddDialog(!showAddDialog)}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10 border border-border"
-        >
-          <Plus className="w-3 h-3" />
-          Add Sub-Group
-        </button> : null}
+        {canWriteGroup ? (
+          <button
+            onClick={() => setShowAddDialog(!showAddDialog)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:text-accent-hover hover:bg-accent/10 border border-border"
+          >
+            <Plus className="w-3 h-3" />
+            Add Sub-Group
+          </button>
+        ) : null}
       </div>
 
       {/* Add sub-group search */}
@@ -2368,7 +3125,15 @@ function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: 
               className="flex-1 bg-input border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-accent"
               autoFocus
             />
-            <button onClick={() => { setShowAddDialog(false); setSearchTerm(""); }} className="p-1.5 rounded hover:bg-surface text-muted"><X className="w-4 h-4" /></button>
+            <button
+              onClick={() => {
+                setShowAddDialog(false);
+                setSearchTerm("");
+              }}
+              className="p-1.5 rounded hover:bg-surface text-muted"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
           {availableResults.length > 0 ? (
             <div className="space-y-1 max-h-48 overflow-y-auto">
@@ -2400,21 +3165,35 @@ function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: 
           disabled={!canWriteGroup || reorderMut.isPending}
           className="space-y-2"
           renderItem={(g, { dragHandleProps, index, isDragging, isOver }) => (
-            <div className={`group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors ${isDragging ? "border-accent opacity-40" : isOver ? "border-accent bg-accent/5" : "border-border"}`}>
+            <div
+              className={`group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors ${isDragging ? "border-accent opacity-40" : isOver ? "border-accent bg-accent/5" : "border-border"}`}
+            >
               {canWriteGroup ? (
-                <span {...dragHandleProps} className="inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing">
+                <span
+                  {...dragHandleProps}
+                  className="inline-flex shrink-0 cursor-grab items-center text-muted active:cursor-grabbing"
+                >
                   <GripVertical className="h-4 w-4" />
                 </span>
               ) : null}
               <span className="w-6 text-center text-xs text-muted">{index + 1}</span>
-              <button onClick={() => onNavigate({ page: "group", id: g.id })} className="flex-1 text-left text-sm font-medium text-foreground hover:text-accent">{g.name}</button>
-              <span className="text-xs text-muted">{g.videoCount} videos</span>
-              {canWriteGroup ? <button
-                onClick={() => { if (confirm(`Remove "${g.name}" from sub-groups?`)) removeMut.mutate(g.id); }}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-900/20 text-muted hover:text-red-400"
+              <button
+                onClick={() => onNavigate({ page: "group", id: g.id })}
+                className="flex-1 text-left text-sm font-medium text-foreground hover:text-accent"
               >
-                <X className="w-3.5 h-3.5" />
-              </button> : null}
+                {g.name}
+              </button>
+              <span className="text-xs text-muted">{g.videoCount} videos</span>
+              {canWriteGroup ? (
+                <button
+                  onClick={() => {
+                    if (confirm(`Remove "${g.name}" from sub-groups?`)) removeMut.mutate(g.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-900/20 text-muted hover:text-red-400"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              ) : null}
             </div>
           )}
         />
@@ -2424,7 +3203,6 @@ function GroupSubGroupsPanel({ groupId, onNavigate, canWriteGroup }: { groupId: 
     </div>
   );
 }
-
 
 function LoadingPanel({ icon, message }: { icon: React.ReactNode; message: string }) {
   return (
@@ -2470,13 +3248,33 @@ function matchesTimestampCriterion(value: string | undefined, criterion?: Timest
   const modifier = criterion.modifier ?? "EQUALS";
 
   switch (modifier) {
-    case "IS_NULL": return !Number.isFinite(timestamp);
-    case "NOT_NULL": return Number.isFinite(timestamp);
-    case "NOT_EQUALS": return timestamp !== expected;
-    case "GREATER_THAN": return Number.isFinite(timestamp) && Number.isFinite(expected) && timestamp > expected;
-    case "LESS_THAN": return Number.isFinite(timestamp) && Number.isFinite(expected) && timestamp < expected;
-    case "BETWEEN": return Number.isFinite(timestamp) && Number.isFinite(expected) && Number.isFinite(expected2) && timestamp >= Math.min(expected, expected2) && timestamp <= Math.max(expected, expected2);
-    case "NOT_BETWEEN": return !Number.isFinite(timestamp) || !Number.isFinite(expected) || !Number.isFinite(expected2) || timestamp < Math.min(expected, expected2) || timestamp > Math.max(expected, expected2);
-    default: return timestamp === expected;
+    case "IS_NULL":
+      return !Number.isFinite(timestamp);
+    case "NOT_NULL":
+      return Number.isFinite(timestamp);
+    case "NOT_EQUALS":
+      return timestamp !== expected;
+    case "GREATER_THAN":
+      return Number.isFinite(timestamp) && Number.isFinite(expected) && timestamp > expected;
+    case "LESS_THAN":
+      return Number.isFinite(timestamp) && Number.isFinite(expected) && timestamp < expected;
+    case "BETWEEN":
+      return (
+        Number.isFinite(timestamp) &&
+        Number.isFinite(expected) &&
+        Number.isFinite(expected2) &&
+        timestamp >= Math.min(expected, expected2) &&
+        timestamp <= Math.max(expected, expected2)
+      );
+    case "NOT_BETWEEN":
+      return (
+        !Number.isFinite(timestamp) ||
+        !Number.isFinite(expected) ||
+        !Number.isFinite(expected2) ||
+        timestamp < Math.min(expected, expected2) ||
+        timestamp > Math.max(expected, expected2)
+      );
+    default:
+      return timestamp === expected;
   }
 }

@@ -68,8 +68,8 @@ function captureShareCredentialsFromUrl(): boolean {
 export function AuthProvider({ children, authEnabled }: { children: ReactNode; authEnabled: boolean }) {
   const [user, setUser] = useState<AuthUser | null>(() => authStore.getUser());
   const [loading, setLoading] = useState(true);
-  const effectivePermissions = authEnabled ? user?.permissions ?? [] : ["*"];
-  const effectiveReadGrantedKinds = authEnabled ? user?.readGrantedEntityKinds ?? [] : [];
+  const effectivePermissions = authEnabled ? (user?.permissions ?? []) : ["*"];
+  const effectiveReadGrantedKinds = authEnabled ? (user?.readGrantedEntityKinds ?? []) : [];
 
   const refreshMe = useCallback(async () => {
     let me = await fetchMe();
@@ -132,7 +132,10 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     const unsub = authStore.subscribe(() => {
       setUser(authStore.getUser());
     });
-    return () => { cancelled = true; unsub(); };
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [authEnabled, refreshMe]);
 
   // Listen for global "auth required" events (from authedFetch on hard 401)
@@ -145,69 +148,78 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
     return () => window.removeEventListener("cove-auth-required", handler);
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const res = await serverAwareFetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (!res.ok) {
-      let message = "Invalid credentials.";
-      try {
-        const body = await res.json() as { message?: string };
-        if (body?.message) message = body.message;
-      } catch { /* ignore */ }
-      return { ok: false, error: message };
-    }
-    const body = await res.json() as LoginResponse;
-    authStore.clearShareCredentials();
-    authStore.setTokens(body.token, body.refreshToken);
-    await refreshMe();
-    return { ok: true };
-  }, [refreshMe]);
-
-  const externalLoginRedeem = useCallback(async (code: string) => {
-    let res: Response;
-    try {
-      res = await serverAwareFetch("/api/auth/external/redeem", {
+  const login = useCallback(
+    async (username: string, password: string) => {
+      const res = await serverAwareFetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ username, password }),
       });
-    } catch {
-      return { ok: false, error: "External sign-in could not be completed." };
-    }
+      if (!res.ok) {
+        let message = "Invalid credentials.";
+        try {
+          const body = (await res.json()) as { message?: string };
+          if (body?.message) message = body.message;
+        } catch {
+          /* ignore */
+        }
+        return { ok: false, error: message };
+      }
+      const body = (await res.json()) as LoginResponse;
+      authStore.clearShareCredentials();
+      authStore.setTokens(body.token, body.refreshToken);
+      await refreshMe();
+      return { ok: true };
+    },
+    [refreshMe],
+  );
 
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: res.status === 401
-          ? "External sign-in expired or was already used."
-          : "External sign-in could not be completed.",
-      };
-    }
+  const externalLoginRedeem = useCallback(
+    async (code: string) => {
+      let res: Response;
+      try {
+        res = await serverAwareFetch("/api/auth/external/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+      } catch {
+        return { ok: false, error: "External sign-in could not be completed." };
+      }
 
-    let body: LoginResponse;
-    try {
-      body = await res.json() as LoginResponse;
-    } catch {
-      return { ok: false, error: "External sign-in could not be completed." };
-    }
+      if (!res.ok) {
+        return {
+          ok: false,
+          error:
+            res.status === 401
+              ? "External sign-in expired or was already used."
+              : "External sign-in could not be completed.",
+        };
+      }
 
-    if (!body.token || !body.refreshToken) {
-      return { ok: false, error: "External sign-in could not be completed." };
-    }
+      let body: LoginResponse;
+      try {
+        body = (await res.json()) as LoginResponse;
+      } catch {
+        return { ok: false, error: "External sign-in could not be completed." };
+      }
 
-    authStore.clearShareCredentials();
-    authStore.setTokens(body.token, body.refreshToken);
-    await refreshMe();
-    if (!authStore.getUser()) {
-      authStore.clear();
-      return { ok: false, error: "External sign-in could not be completed." };
-    }
+      if (!body.token || !body.refreshToken) {
+        return { ok: false, error: "External sign-in could not be completed." };
+      }
 
-    return { ok: true };
-  }, [refreshMe]);
+      authStore.clearShareCredentials();
+      authStore.setTokens(body.token, body.refreshToken);
+      await refreshMe();
+      if (!authStore.getUser()) {
+        authStore.clear();
+        return { ok: false, error: "External sign-in could not be completed." };
+      }
+
+      return { ok: true };
+    },
+    [refreshMe],
+  );
 
   const logout = useCallback(async () => {
     const refresh = authStore.getRefreshToken();
@@ -217,23 +229,38 @@ export function AuthProvider({ children, authEnabled }: { children: ReactNode; a
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken: refresh ?? "" }),
       });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     authStore.clear();
     setUser(null);
   }, []);
 
-  const value = useMemo<AuthContextValue>(() => ({
-    user,
-    permissions: effectivePermissions,
-    loading,
-    authEnabled,
-    ready: !authEnabled || !!user,
-    login,
-    externalLoginRedeem,
-    logout,
-    hasPermission: (k: string) => hasPermImpl(effectivePermissions, k, effectiveReadGrantedKinds),
-    refreshMe,
-  }), [user, effectivePermissions, effectiveReadGrantedKinds, loading, authEnabled, login, externalLoginRedeem, logout, refreshMe]);
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      permissions: effectivePermissions,
+      loading,
+      authEnabled,
+      ready: !authEnabled || !!user,
+      login,
+      externalLoginRedeem,
+      logout,
+      hasPermission: (k: string) => hasPermImpl(effectivePermissions, k, effectiveReadGrantedKinds),
+      refreshMe,
+    }),
+    [
+      user,
+      effectivePermissions,
+      effectiveReadGrantedKinds,
+      loading,
+      authEnabled,
+      login,
+      externalLoginRedeem,
+      logout,
+      refreshMe,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -245,7 +272,15 @@ export function useAuth(): AuthContextValue {
 }
 
 /** Conditionally renders children only when the current user has the given permission. */
-export function RequirePermission({ perm, fallback = null, children }: { perm: string; fallback?: ReactNode; children: ReactNode }) {
+export function RequirePermission({
+  perm,
+  fallback = null,
+  children,
+}: {
+  perm: string;
+  fallback?: ReactNode;
+  children: ReactNode;
+}) {
   const { hasPermission } = useAuth();
   return hasPermission(perm) ? <>{children}</> : <>{fallback}</>;
 }

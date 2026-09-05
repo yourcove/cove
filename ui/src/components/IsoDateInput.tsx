@@ -21,7 +21,17 @@ export function isValidPartialIsoDate(value: string): boolean {
   return day >= 1 && day <= daysInMonth;
 }
 
-export function IsoDateInput({ pickerType = "date", className = "", value, onChange, disabled, type: _type, inputMode: _inputMode, placeholder: _placeholder, ...props }: IsoDateInputProps) {
+export function IsoDateInput({
+  pickerType = "date",
+  className = "",
+  value,
+  onChange,
+  disabled,
+  type: _type,
+  inputMode: _inputMode,
+  placeholder: _placeholder,
+  ...props
+}: IsoDateInputProps) {
   const pickerRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLInputElement>(null);
   const placeholder = pickerType === "date" ? "yyyy-MM-dd" : "yyyy-MM-ddTHH:mm";
@@ -29,7 +39,9 @@ export function IsoDateInput({ pickerType = "date", className = "", value, onCha
 
   useEffect(() => {
     if (pickerType === "date" && textRef.current) {
-      textRef.current.setCustomValidity(typeof value !== "string" || isValidPartialIsoDate(value) ? "" : partialDateMessage);
+      textRef.current.setCustomValidity(
+        typeof value !== "string" || isValidPartialIsoDate(value) ? "" : partialDateMessage,
+      );
     }
   }, [pickerType, value]);
 

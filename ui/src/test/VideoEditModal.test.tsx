@@ -112,7 +112,9 @@ describe("VideoEditModal", () => {
     await user.type(captionsInput, "English, French");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.videosUpdate).toHaveBeenCalledWith(42, expect.objectContaining({ captions: "English, French" })));
+    await waitFor(() =>
+      expect(mocks.videosUpdate).toHaveBeenCalledWith(42, expect.objectContaining({ captions: "English, French" })),
+    );
     expect(mocks.tagApplicationsCreate).not.toHaveBeenCalled();
     expect(mocks.tagApplicationsDelete).not.toHaveBeenCalled();
   });
@@ -141,8 +143,13 @@ describe("VideoEditModal", () => {
     await user.clear(screen.getByDisplayValue("2026-05-01"));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.videosUpdate).toHaveBeenCalledWith(43, expect.objectContaining({
-      clearFields: ["date"],
-    })));
+    await waitFor(() =>
+      expect(mocks.videosUpdate).toHaveBeenCalledWith(
+        43,
+        expect.objectContaining({
+          clearFields: ["date"],
+        }),
+      ),
+    );
   });
 });

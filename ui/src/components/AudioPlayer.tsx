@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Gauge, Headphones, MonitorPlay, Pause, Play, SkipBack, SkipForward, SlidersHorizontal, Volume2, VolumeX } from "lucide-react";
+import {
+  Gauge,
+  Headphones,
+  MonitorPlay,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  SlidersHorizontal,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { createPlaybackTracker, trackInteraction, type PlaybackTrackingTarget } from "../utils/interactionTracking";
 import { usePlaybackPreferences } from "../utils/playbackPreferences";
 
@@ -183,9 +194,7 @@ class GranularPitchShifter {
     const data = buffer.getChannelData(0);
     for (let index = 0; index < length; index += 1) {
       const progress = index / (length - 1);
-      data[index] = shiftUp
-        ? this.modulationDepth * (1 - progress)
-        : this.modulationDepth * progress;
+      data[index] = shiftUp ? this.modulationDepth * (1 - progress) : this.modulationDepth * progress;
     }
 
     return buffer;
@@ -311,7 +320,12 @@ function ControlFlyout({
       >
         {icon}
       </button>
-      <div className={["fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-50 w-auto max-w-[calc(100vw-1.5rem)] pb-0 transition sm:absolute sm:bottom-full sm:left-auto sm:right-0 sm:w-64 sm:max-w-none sm:pb-2", open ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-1 opacity-0"].join(" ")}>
+      <div
+        className={[
+          "fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-50 w-auto max-w-[calc(100vw-1.5rem)] pb-0 transition sm:absolute sm:bottom-full sm:left-auto sm:right-0 sm:w-64 sm:max-w-none sm:pb-2",
+          open ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-1 opacity-0",
+        ].join(" ")}
+      >
         <div className="rounded-lg border border-border bg-surface p-3 text-foreground shadow-lg">
           <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-secondary">
             <span>{label}</span>
@@ -374,7 +388,11 @@ export function AudioPlayer({
   const pendingAutostartRef = useRef(false);
   const lastLoadedSourceRef = useRef<string | null>(null);
   const clipEndedHandled = useRef(false);
-  const pitchGraphRef = useRef<{ context: AudioContext; source: MediaElementAudioSourceNode; shifter: GranularPitchShifter } | null>(null);
+  const pitchGraphRef = useRef<{
+    context: AudioContext;
+    source: MediaElementAudioSourceNode;
+    shifter: GranularPitchShifter;
+  } | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [buffered, setBuffered] = useState(0);
@@ -432,37 +450,43 @@ export function AudioPlayer({
       autoplay: autostart ?? playbackTracking.autoplay,
       muted,
       playbackRate: rate,
-      route: typeof window === "undefined" ? playbackTracking.route : playbackTracking.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      route:
+        typeof window === "undefined"
+          ? playbackTracking.route
+          : (playbackTracking.route ?? `${window.location.pathname}${window.location.search}${window.location.hash}`),
     };
   }, [autostart, clip?.end, clip?.start, muted, playbackTracking, rate, trackingEnabled]);
   const trackingTargetSignature = useMemo(() => JSON.stringify(trackingTarget), [trackingTarget]);
 
-  const trackAudioInteraction = useCallback((kind: "pause" | "seek", meta: Record<string, unknown> = {}) => {
-    if (!trackingTarget) {
-      return;
-    }
+  const trackAudioInteraction = useCallback(
+    (kind: "pause" | "seek", meta: Record<string, unknown> = {}) => {
+      if (!trackingTarget) {
+        return;
+      }
 
-    trackInteraction({
-      hostType: trackingTarget.hostType as never,
-      hostId: trackingTarget.hostId,
-      kind,
-      meta: {
-        surface: trackingTarget.surface,
-        scopeKey: trackingTarget.scopeKey,
-        groupItemId: trackingTarget.groupItemId,
-        parentHostType: trackingTarget.parentHostType,
-        parentHostId: trackingTarget.parentHostId,
-        itemHostType: trackingTarget.itemHostType,
-        itemHostId: trackingTarget.itemHostId,
-        segmentId: trackingTarget.segmentId,
-        clipStartSec: trackingTarget.clipStartSec,
-        clipEndSec: trackingTarget.clipEndSec,
-        playbackRate: rate,
-        muted,
-        ...meta,
-      },
-    });
-  }, [muted, rate, trackingTarget]);
+      trackInteraction({
+        hostType: trackingTarget.hostType as never,
+        hostId: trackingTarget.hostId,
+        kind,
+        meta: {
+          surface: trackingTarget.surface,
+          scopeKey: trackingTarget.scopeKey,
+          groupItemId: trackingTarget.groupItemId,
+          parentHostType: trackingTarget.parentHostType,
+          parentHostId: trackingTarget.parentHostId,
+          itemHostType: trackingTarget.itemHostType,
+          itemHostId: trackingTarget.itemHostId,
+          segmentId: trackingTarget.segmentId,
+          clipStartSec: trackingTarget.clipStartSec,
+          clipEndSec: trackingTarget.clipEndSec,
+          playbackRate: rate,
+          muted,
+          ...meta,
+        },
+      });
+    },
+    [muted, rate, trackingTarget],
+  );
 
   const disposePitchGraph = useCallback(() => {
     const graph = pitchGraphRef.current;
@@ -506,31 +530,38 @@ export function AudioPlayer({
     }
   }, [nativeAudioOutput]);
 
-  useEffect(() => () => {
-    disposePitchGraph();
-  }, [disposePitchGraph]);
+  useEffect(
+    () => () => {
+      disposePitchGraph();
+    },
+    [disposePitchGraph],
+  );
 
-  const flushInterval = useCallback((state: string, mode: "default" | "keepalive" = "default") => {
-    const audio = audioRef.current;
-    if (!trackingTarget || !audio || intervalStart.current == null) {
-      return;
-    }
+  const flushInterval = useCallback(
+    (state: string, mode: "default" | "keepalive" = "default") => {
+      const audio = audioRef.current;
+      if (!trackingTarget || !audio || intervalStart.current == null) {
+        return;
+      }
 
-    const startSec = intervalStart.current;
-    const endSec = roundTime(lastSeenTime.current);
-    if (endSec <= startSec) {
-      return;
-    }
+      const startSec = intervalStart.current;
+      const endSec = roundTime(lastSeenTime.current);
+      if (endSec <= startSec) {
+        return;
+      }
 
-    playbackTracker.current.recordInterval({
-      startSec,
-      endSec,
-      mediaDurationSec: Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : Math.max(duration, endSec),
-      currentPositionSec: endSec,
-      state,
-      mode,
-    });
-  }, [duration, trackingTarget]);
+      playbackTracker.current.recordInterval({
+        startSec,
+        endSec,
+        mediaDurationSec:
+          Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : Math.max(duration, endSec),
+        currentPositionSec: endSec,
+        state,
+        mode,
+      });
+    },
+    [duration, trackingTarget],
+  );
 
   const startTrackedInterval = useCallback((time: number) => {
     intervalStart.current = time;
@@ -656,7 +687,19 @@ export function AudioPlayer({
     return () => {
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-  }, [clip?.end, clip?.start, disposePitchGraph, duration, ensurePitchGraph, format, nativeAudioOutput, pitchSemitones, rate, resumeTime, streamUrl]);
+  }, [
+    clip?.end,
+    clip?.start,
+    disposePitchGraph,
+    duration,
+    ensurePitchGraph,
+    format,
+    nativeAudioOutput,
+    pitchSemitones,
+    rate,
+    resumeTime,
+    streamUrl,
+  ]);
 
   useEffect(() => {
     if (!autostart) {
@@ -714,27 +757,41 @@ export function AudioPlayer({
     intervalStart.current = null;
   }, [flushInterval]);
 
-  const seekBy = useCallback((delta: number) => {
-    const audio = audioRef.current;
-    if (!audio) {
-      return;
-    }
+  const seekBy = useCallback(
+    (delta: number) => {
+      const audio = audioRef.current;
+      if (!audio) {
+        return;
+      }
 
-    audio.currentTime = clamp(audio.currentTime + delta, 0, Number.isFinite(audio.duration) ? audio.duration : Math.max(measuredDuration, 0));
-  }, [measuredDuration]);
+      audio.currentTime = clamp(
+        audio.currentTime + delta,
+        0,
+        Number.isFinite(audio.duration) ? audio.duration : Math.max(measuredDuration, 0),
+      );
+    },
+    [measuredDuration],
+  );
 
-  const setPlaybackTime = useCallback((nextTime: number) => {
-    const audio = audioRef.current;
-    if (!audio) {
-      return;
-    }
+  const setPlaybackTime = useCallback(
+    (nextTime: number) => {
+      const audio = audioRef.current;
+      if (!audio) {
+        return;
+      }
 
-    const clampedTime = clamp(nextTime, 0, Number.isFinite(audio.duration) ? audio.duration : Math.max(measuredDuration, 0));
-    audio.currentTime = clampedTime;
-    if (clip?.end == null || clampedTime < clip.end) {
-      clipEndedHandled.current = false;
-    }
-  }, [clip?.end, measuredDuration]);
+      const clampedTime = clamp(
+        nextTime,
+        0,
+        Number.isFinite(audio.duration) ? audio.duration : Math.max(measuredDuration, 0),
+      );
+      audio.currentTime = clampedTime;
+      if (clip?.end == null || clampedTime < clip.end) {
+        clipEndedHandled.current = false;
+      }
+    },
+    [clip?.end, measuredDuration],
+  );
 
   useEffect(() => {
     onSeekRegister?.((time: number) => {
@@ -768,7 +825,8 @@ export function AudioPlayer({
     audio?.webkitShowPlaybackTargetPicker?.();
   }, []);
 
-  const effectiveDuration = Number.isFinite(measuredDuration) && measuredDuration > 0 ? measuredDuration : Math.max(duration, currentTime, 0);
+  const effectiveDuration =
+    Number.isFinite(measuredDuration) && measuredDuration > 0 ? measuredDuration : Math.max(duration, currentTime, 0);
   const clipStart = clip?.start ?? 0;
   const clipEnd = clip?.end != null ? Math.max(clipStart, clip.end) : effectiveDuration;
   const seekProgress = effectiveDuration > 0 ? Math.min(100, (currentTime / effectiveDuration) * 100) : 0;
@@ -786,7 +844,8 @@ export function AudioPlayer({
         {...({ "x-webkit-airplay": "allow" } as Record<string, string>)}
         onPlay={() => {
           const audio = audioRef.current;
-          const graph = pitchGraphRef.current ?? (pitchSemitones !== 0 && !nativeAudioOutput ? ensurePitchGraph() : null);
+          const graph =
+            pitchGraphRef.current ?? (pitchSemitones !== 0 && !nativeAudioOutput ? ensurePitchGraph() : null);
           if (graph?.context.state === "suspended") {
             void graph.context.resume().catch(() => {});
           }
@@ -890,7 +949,9 @@ export function AudioPlayer({
                 <span className="truncate">{format || "audio"}</span>
                 {hasVideoTrack ? <MonitorPlay className="h-3.5 w-3.5 shrink-0 text-accent" /> : null}
               </div>
-              <h2 className="mt-0.5 truncate text-base font-semibold leading-snug text-foreground sm:text-lg">{title}</h2>
+              <h2 className="mt-0.5 truncate text-base font-semibold leading-snug text-foreground sm:text-lg">
+                {title}
+              </h2>
               {subtitle ? <p className="truncate text-xs text-secondary">{subtitle}</p> : null}
             </div>
           </div>
@@ -942,7 +1003,11 @@ export function AudioPlayer({
                 aria-label="Volume"
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-secondary">
-                <button type="button" onClick={() => commitVolume(volume, !muted)} className="text-accent transition hover:text-accent-hover">
+                <button
+                  type="button"
+                  onClick={() => commitVolume(volume, !muted)}
+                  className="text-accent transition hover:text-accent-hover"
+                >
                   {muted || volume === 0 ? "Unmute" : "Mute"}
                 </button>
                 <span>100%</span>
@@ -963,13 +1028,23 @@ export function AudioPlayer({
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-secondary">
                 <span>0.25x</span>
-                <button type="button" onClick={() => commitRate(1)} className="text-accent transition hover:text-accent-hover">1.0x</button>
+                <button
+                  type="button"
+                  onClick={() => commitRate(1)}
+                  className="text-accent transition hover:text-accent-hover"
+                >
+                  1.0x
+                </button>
                 <span>3.0x</span>
               </div>
             </ControlFlyout>
 
             {!nativeAudioOutput ? (
-              <ControlFlyout label="Pitch" value={formatPitch(pitchSemitones)} icon={<SlidersHorizontal className="h-4 w-4" />}>
+              <ControlFlyout
+                label="Pitch"
+                value={formatPitch(pitchSemitones)}
+                icon={<SlidersHorizontal className="h-4 w-4" />}
+              >
                 <input
                   type="range"
                   min={-12}
@@ -982,7 +1057,13 @@ export function AudioPlayer({
                 />
                 <div className="mt-2 flex items-center justify-between text-[11px] text-secondary">
                   <span>-12 st</span>
-                  <button type="button" onClick={() => commitPitch(0)} className="text-accent transition hover:text-accent-hover">0 st</button>
+                  <button
+                    type="button"
+                    onClick={() => commitPitch(0)}
+                    className="text-accent transition hover:text-accent-hover"
+                  >
+                    0 st
+                  </button>
                   <span>+12 st</span>
                 </div>
               </ControlFlyout>

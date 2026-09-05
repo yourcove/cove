@@ -5,10 +5,12 @@ export function normalizeStoredResumeTime(resumeTime: number | undefined, durati
     return undefined;
   }
 
-  if (typeof duration === "number"
-    && Number.isFinite(duration)
-    && duration > 0
-    && resumeTime >= Math.max(0, duration - COMPLETED_RESUME_TOLERANCE_SECONDS)) {
+  if (
+    typeof duration === "number" &&
+    Number.isFinite(duration) &&
+    duration > 0 &&
+    resumeTime >= Math.max(0, duration - COMPLETED_RESUME_TOLERANCE_SECONDS)
+  ) {
     return undefined;
   }
 

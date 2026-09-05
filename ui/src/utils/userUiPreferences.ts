@@ -1,7 +1,15 @@
 import { auth } from "../api/client";
 import { authStore } from "../auth/authStore";
 import type { AuthUser } from "../auth/authStore";
-import type { KeyboardShortcutPresetDocument, RatingSystemOptions, UserKeyboardShortcutPreferences, UserPlaybackPreferences, UserThemePreferences, UserTrackingPreferences, UserUiPreferences } from "../api/types";
+import type {
+  KeyboardShortcutPresetDocument,
+  RatingSystemOptions,
+  UserKeyboardShortcutPreferences,
+  UserPlaybackPreferences,
+  UserThemePreferences,
+  UserTrackingPreferences,
+  UserUiPreferences,
+} from "../api/types";
 import { normalizeShortcutSequence } from "../keyboard/keybindings";
 
 const SAVE_DEBOUNCE_MS = 250;
@@ -10,7 +18,9 @@ let pendingSaveTimer: number | null = null;
 let pendingPreferences: UserUiPreferences | null = null;
 let pendingUserId: string | null = null;
 
-function normalizeKeybindingOverrides(overrides: Record<string, string> | null | undefined): Record<string, string> | null {
+function normalizeKeybindingOverrides(
+  overrides: Record<string, string> | null | undefined,
+): Record<string, string> | null {
   if (!overrides) {
     return null;
   }
@@ -37,20 +47,22 @@ function normalizeThemePreferences(theme: UserThemePreferences | null | undefine
     : null;
   const styleOptions = theme.styleOptions
     ? Object.fromEntries(
-      Object.entries(theme.styleOptions)
-        .map(([styleId, options]): [string, Record<string, string>] => [
-          styleId,
-          Object.fromEntries(Object.entries(options).filter(([key, value]) => key.trim() && value.trim())),
-        ])
-        .filter(([styleId, options]) => styleId.length > 0 && Object.keys(options).length > 0),
-    )
+        Object.entries(theme.styleOptions)
+          .map(([styleId, options]): [string, Record<string, string>] => [
+            styleId,
+            Object.fromEntries(Object.entries(options).filter(([key, value]) => key.trim() && value.trim())),
+          ])
+          .filter(([styleId, options]) => styleId.length > 0 && Object.keys(options).length > 0),
+      )
     : null;
 
-  if (!activeThemeId
-    && (!activeComponentStyles || activeComponentStyles.length === 0)
-    && !activeLayoutStyle
-    && (!customThemeColors || Object.keys(customThemeColors).length === 0)
-    && (!styleOptions || Object.keys(styleOptions).length === 0)) {
+  if (
+    !activeThemeId &&
+    (!activeComponentStyles || activeComponentStyles.length === 0) &&
+    !activeLayoutStyle &&
+    (!customThemeColors || Object.keys(customThemeColors).length === 0) &&
+    (!styleOptions || Object.keys(styleOptions).length === 0)
+  ) {
     return null;
   }
 
@@ -73,12 +85,13 @@ function normalizeRatingSystemOptions(options: RatingSystemOptions | null | unde
     return null;
   }
 
-  const starPrecision = options.starPrecision === "half"
-    || options.starPrecision === "quarter"
-    || options.starPrecision === "tenth"
-    || options.starPrecision === "full"
-    ? options.starPrecision
-    : "full";
+  const starPrecision =
+    options.starPrecision === "half" ||
+    options.starPrecision === "quarter" ||
+    options.starPrecision === "tenth" ||
+    options.starPrecision === "full"
+      ? options.starPrecision
+      : "full";
 
   return { type, starPrecision };
 }
@@ -95,11 +108,12 @@ function normalizeTrackingPreferences(
   tracking: UserTrackingPreferences | null | undefined,
   legacyTrackingEnabled?: unknown,
 ): UserTrackingPreferences | null {
-  const enabled = typeof tracking?.enabled === "boolean"
-    ? tracking.enabled
-    : typeof legacyTrackingEnabled === "boolean"
-      ? legacyTrackingEnabled
-      : null;
+  const enabled =
+    typeof tracking?.enabled === "boolean"
+      ? tracking.enabled
+      : typeof legacyTrackingEnabled === "boolean"
+        ? legacyTrackingEnabled
+        : null;
   const minViewSeconds = clampNumber(tracking?.minViewSeconds, 0, 86_400);
   const viewCompletionRatio = clampNumber(tracking?.viewCompletionRatio, 0.01, 1);
   const minImageDetailViewSeconds = clampNumber(tracking?.minImageDetailViewSeconds, 0, 86_400);
@@ -107,13 +121,15 @@ function normalizeTrackingPreferences(
   const sessionIdleTimeoutSec = clampNumber(tracking?.sessionIdleTimeoutSec, 10, 86_400);
   const dwellPositiveSec = clampNumber(tracking?.dwellPositiveSec, 1, 86_400);
 
-  if (enabled == null
-    && minViewSeconds == null
-    && viewCompletionRatio == null
-    && minImageDetailViewSeconds == null
-    && minDerivedLikeSessionSeconds == null
-    && sessionIdleTimeoutSec == null
-    && dwellPositiveSec == null) {
+  if (
+    enabled == null &&
+    minViewSeconds == null &&
+    viewCompletionRatio == null &&
+    minImageDetailViewSeconds == null &&
+    minDerivedLikeSessionSeconds == null &&
+    sessionIdleTimeoutSec == null &&
+    dwellPositiveSec == null
+  ) {
     return null;
   }
 
@@ -128,24 +144,29 @@ function normalizeTrackingPreferences(
   };
 }
 
-function normalizePlaybackPreferences(preferences: UserPlaybackPreferences | null | undefined): UserPlaybackPreferences | null {
+function normalizePlaybackPreferences(
+  preferences: UserPlaybackPreferences | null | undefined,
+): UserPlaybackPreferences | null {
   const skipSeconds = clampNumber(preferences?.skipSeconds, 1, 300);
   return skipSeconds == null ? null : { skipSeconds: Math.round(skipSeconds) };
 }
 
-function normalizeKeyboardShortcutPreferences(preferences: UserKeyboardShortcutPreferences | null | undefined): UserKeyboardShortcutPreferences | null {
+function normalizeKeyboardShortcutPreferences(
+  preferences: UserKeyboardShortcutPreferences | null | undefined,
+): UserKeyboardShortcutPreferences | null {
   if (!preferences) return null;
   const activePresetId = preferences.activePresetId?.trim() || null;
   const showChordHints = typeof preferences.showChordHints === "boolean" ? preferences.showChordHints : null;
-  const personalPresets = (preferences.personalPresets ?? []).filter((preset): preset is KeyboardShortcutPresetDocument => (
-    preset?.schemaVersion === 1
-    && typeof preset.id === "string"
-    && preset.id.trim().length > 0
-    && typeof preset.name === "string"
-    && preset.name.trim().length > 0
-    && (preset.unmappedActions === "action-defaults" || preset.unmappedActions === "unbound")
-    && !!preset.bindings
-  ));
+  const personalPresets = (preferences.personalPresets ?? []).filter(
+    (preset): preset is KeyboardShortcutPresetDocument =>
+      preset?.schemaVersion === 1 &&
+      typeof preset.id === "string" &&
+      preset.id.trim().length > 0 &&
+      typeof preset.name === "string" &&
+      preset.name.trim().length > 0 &&
+      (preset.unmappedActions === "action-defaults" || preset.unmappedActions === "unbound") &&
+      !!preset.bindings,
+  );
   if (!activePresetId && personalPresets.length === 0 && showChordHints == null) return null;
   return { activePresetId, personalPresets, showChordHints };
 }
@@ -154,23 +175,36 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
   const theme = normalizeThemePreferences(preferences?.theme);
   const ratingSystemOptions = normalizeRatingSystemOptions(preferences?.ratingSystemOptions);
   const legacyTrackingEnabledKey = "record" + "PlaybackHistory";
-  const legacyTrackingEnabled = preferences && typeof preferences === "object"
-    ? (preferences as Record<string, unknown>)[legacyTrackingEnabledKey]
-    : undefined;
+  const legacyTrackingEnabled =
+    preferences && typeof preferences === "object"
+      ? (preferences as Record<string, unknown>)[legacyTrackingEnabledKey]
+      : undefined;
   const tracking = normalizeTrackingPreferences(preferences?.tracking, legacyTrackingEnabled);
   const includeCompilationGroups = preferences?.videos?.includeCompilationGroups;
-  const videos = typeof includeCompilationGroups === "boolean"
-    ? {
-        ...(typeof includeCompilationGroups === "boolean" ? { includeCompilationGroups } : {}),
-      }
-    : null;
+  const videos =
+    typeof includeCompilationGroups === "boolean"
+      ? {
+          ...(typeof includeCompilationGroups === "boolean" ? { includeCompilationGroups } : {}),
+        }
+      : null;
   const playback = normalizePlaybackPreferences(preferences?.playback);
   const keybindingOverrides = normalizeKeybindingOverrides(preferences?.keybindingOverrides);
   const keyboardShortcuts = normalizeKeyboardShortcutPreferences(preferences?.keyboardShortcuts);
   const homePageContent = preferences?.homePageContent?.trim() ? preferences.homePageContent : null;
   const defaultFilters = normalizeDefaultFilters(preferences?.defaultFilters);
   const renderMarkdown = typeof preferences?.renderMarkdown === "boolean" ? preferences.renderMarkdown : null;
-  if (!theme && !ratingSystemOptions && !tracking && !videos && !playback && !keybindingOverrides && !keyboardShortcuts && !homePageContent && !defaultFilters && renderMarkdown == null) {
+  if (
+    !theme &&
+    !ratingSystemOptions &&
+    !tracking &&
+    !videos &&
+    !playback &&
+    !keybindingOverrides &&
+    !keyboardShortcuts &&
+    !homePageContent &&
+    !defaultFilters &&
+    renderMarkdown == null
+  ) {
     return null;
   }
 
@@ -188,7 +222,9 @@ function normalizeUiPreferences(preferences: UserUiPreferences | null | undefine
   };
 }
 
-function normalizeDefaultFilters(defaultFilters: Record<string, string> | null | undefined): Record<string, string> | null {
+function normalizeDefaultFilters(
+  defaultFilters: Record<string, string> | null | undefined,
+): Record<string, string> | null {
   if (!defaultFilters) {
     return null;
   }
@@ -202,7 +238,9 @@ function normalizeDefaultFilters(defaultFilters: Record<string, string> | null |
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
-export function supportsServerBackedUiPreferences(user: AuthUser | null | undefined): user is AuthUser & { kind: "user" | "system" } {
+export function supportsServerBackedUiPreferences(
+  user: AuthUser | null | undefined,
+): user is AuthUser & { kind: "user" | "system" } {
   return user?.kind === "user" || user?.kind === "system";
 }
 

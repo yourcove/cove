@@ -39,22 +39,22 @@ export function BoolEditor({ value, onChange }: { value?: BoolCriterion; onChang
     <div className="space-y-2" role="group" aria-label="Value">
       <div className="text-sm font-medium text-secondary">Value</div>
       <div className="flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        aria-pressed={value?.value === true}
-        onClick={() => onChange({ value: true })}
-        className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${value?.value === true ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
-      >
-        True
-      </button>
-      <button
-        type="button"
-        aria-pressed={value?.value === false}
-        onClick={() => onChange({ value: false })}
-        className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${value?.value === false ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
-      >
-        False
-      </button>
+        <button
+          type="button"
+          aria-pressed={value?.value === true}
+          onClick={() => onChange({ value: true })}
+          className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${value?.value === true ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
+        >
+          True
+        </button>
+        <button
+          type="button"
+          aria-pressed={value?.value === false}
+          onClick={() => onChange({ value: false })}
+          className={`min-h-9 rounded-lg border px-3 py-1.5 text-sm ${value?.value === false ? "bg-accent text-white border-accent" : "border-border text-secondary hover:text-foreground"}`}
+        >
+          False
+        </button>
       </div>
     </div>
   );
@@ -136,11 +136,21 @@ export function NumberEditor({
       {!isNull && (
         <div className="grid gap-3 sm:grid-cols-2">
           {type === "duration" ? (
-            <LabeledControl label={isBetween ? "Minimum" : "Value"}><DurationInput value={value?.value} onChange={(v) => update({ value: v })} ariaLabel={isBetween ? "Minimum" : "Value"} /></LabeledControl>
+            <LabeledControl label={isBetween ? "Minimum" : "Value"}>
+              <DurationInput
+                value={value?.value}
+                onChange={(v) => update({ value: v })}
+                ariaLabel={isBetween ? "Minimum" : "Value"}
+              />
+            </LabeledControl>
           ) : type === "resolution" ? (
-            <LabeledControl label="Value"><ResolutionSelect value={value?.value ?? 0} onChange={(v) => update({ value: v })} /></LabeledControl>
+            <LabeledControl label="Value">
+              <ResolutionSelect value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
+            </LabeledControl>
           ) : type === "careerLength" ? (
-            <LabeledControl label={isBetween ? "Minimum" : "Value"}><CareerLengthInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} /></LabeledControl>
+            <LabeledControl label={isBetween ? "Minimum" : "Value"}>
+              <CareerLengthInput value={value?.value ?? 0} onChange={(v) => update({ value: v })} />
+            </LabeledControl>
           ) : (
             <LabeledControl label={isBetween ? "Minimum" : "Value"}>
               {numberInput(value?.value, (v) => update({ value: v }), isBetween ? "Minimum" : "Value")}
@@ -149,9 +159,13 @@ export function NumberEditor({
           {isBetween && (
             <div>
               {type === "duration" ? (
-                <LabeledControl label="Maximum"><DurationInput value={value?.value2} onChange={(v) => update({ value2: v })} ariaLabel="Maximum" /></LabeledControl>
+                <LabeledControl label="Maximum">
+                  <DurationInput value={value?.value2} onChange={(v) => update({ value2: v })} ariaLabel="Maximum" />
+                </LabeledControl>
               ) : type === "careerLength" ? (
-                <LabeledControl label="Maximum"><CareerLengthInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} /></LabeledControl>
+                <LabeledControl label="Maximum">
+                  <CareerLengthInput value={value?.value2 ?? 0} onChange={(v) => update({ value2: v })} />
+                </LabeledControl>
               ) : (
                 <LabeledControl label="Maximum">
                   {numberInput(value?.value2, (v) => update({ value2: v }), "Maximum")}
@@ -176,7 +190,6 @@ export function NumberEditor({
     </div>
   );
 }
-
 
 function RatingStarInput({
   displayValue,
@@ -206,15 +219,16 @@ function RatingStarInput({
           }}
           onMouseLeave={() => setHoverValue(null)}
           onClick={(e) => {
-            const next = e.detail === 0
-              ? star
-              : (() => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                const segments = Math.max(1, Math.ceil(ratio / step));
-                const frac = Math.min(1, Number((segments * step).toFixed(2)));
-                return star - 1 + frac;
-              })();
+            const next =
+              e.detail === 0
+                ? star
+                : (() => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                    const segments = Math.max(1, Math.ceil(ratio / step));
+                    const frac = Math.min(1, Number((segments * step).toFixed(2)));
+                    return star - 1 + frac;
+                  })();
             onChangeDisplay(next === displayValue ? 0 : next);
           }}
           className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg text-accent transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -235,13 +249,7 @@ function RatingStarInput({
   );
 }
 
-function RatingFilterInput({
-  rawValue,
-  onChangeRaw,
-}: {
-  rawValue: number;
-  onChangeRaw: (v: number) => void;
-}) {
+function RatingFilterInput({ rawValue, onChangeRaw }: { rawValue: number; onChangeRaw: (v: number) => void }) {
   const options = useRatingOptions();
   const displayValue = convertToRatingFormat(rawValue || undefined, options) ?? 0;
   const max = getRatingMax(options);
@@ -281,7 +289,15 @@ function RatingFilterInput({
   );
 }
 
-export function RatingFilterEditor({ value, onChange, modifiers }: { value?: IntCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+export function RatingFilterEditor({
+  value,
+  onChange,
+  modifiers,
+}: {
+  value?: IntCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+}) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
@@ -310,13 +326,25 @@ export function RatingFilterEditor({ value, onChange, modifiers }: { value?: Int
 
 // ===== String Editor =====
 
-export function StringEditor({ value, onChange, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+export function StringEditor({
+  value,
+  onChange,
+  modifiers,
+}: {
+  value?: StringCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+}) {
   const modifier = value?.modifier ?? "EQUALS";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
 
   return (
     <div className="space-y-2">
-      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })} />
+      <ModifierSelector
+        modifiers={modifiers}
+        selected={modifier}
+        onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })}
+      />
       {!isNull && (
         <LabeledControl label="Value">
           <input
@@ -333,20 +361,39 @@ export function StringEditor({ value, onChange, modifiers }: { value?: StringCri
   );
 }
 
-export function CountryEditor({ value, onChange, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+export function CountryEditor({
+  value,
+  onChange,
+  modifiers,
+}: {
+  value?: StringCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+}) {
   const modifier = value?.modifier ?? "EQUALS";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
   const useSelector = modifier === "EQUALS" || modifier === "NOT_EQUALS";
 
   return (
     <div className="space-y-2">
-      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(nextModifier) => onChange({ value: value?.value ?? "", modifier: nextModifier })} />
+      <ModifierSelector
+        modifiers={modifiers}
+        selected={modifier}
+        onSelect={(nextModifier) => onChange({ value: value?.value ?? "", modifier: nextModifier })}
+      />
       {!isNull ? (
         <LabeledControl label="Value">
           {useSelector ? (
             <CountrySelect value={value?.value ?? ""} onChange={(country) => onChange({ value: country, modifier })} />
           ) : (
-            <input aria-label="Value" type="text" value={value?.value ?? ""} onChange={(event) => onChange({ value: event.target.value, modifier })} className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm" placeholder="Enter a stored code or custom value" />
+            <input
+              aria-label="Value"
+              type="text"
+              value={value?.value ?? ""}
+              onChange={(event) => onChange({ value: event.target.value, modifier })}
+              className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
+              placeholder="Enter a stored code or custom value"
+            />
           )}
         </LabeledControl>
       ) : null}
@@ -354,7 +401,15 @@ export function CountryEditor({ value, onChange, modifiers }: { value?: StringCr
   );
 }
 
-export function PathEditor({ value, onChange, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+export function PathEditor({
+  value,
+  onChange,
+  modifiers,
+}: {
+  value?: StringCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+}) {
   const modifier = value?.modifier ?? "UNDER_PATH";
   const isNull = NULL_VALUE_MODIFIERS.has(modifier);
   const rootsQuery = useQuery({
@@ -455,7 +510,9 @@ export function RemoteIdFilterEditor({
       <ModifierSelector
         modifiers={modifiers}
         selected={modifier}
-        onSelect={(nextModifier) => onChange({ value: value?.value ?? "", endpoint: selectedEndpoint, modifier: nextModifier })}
+        onSelect={(nextModifier) =>
+          onChange({ value: value?.value ?? "", endpoint: selectedEndpoint, modifier: nextModifier })
+        }
       />
       <select
         aria-label="Metadata Service"
@@ -465,7 +522,9 @@ export function RemoteIdFilterEditor({
       >
         <option value="">Any metadata service</option>
         {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
         ))}
       </select>
       {!isNull && (
@@ -505,10 +564,16 @@ export function HashEditor({
         className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm"
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
         ))}
       </select>
-      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(nextModifier) => onChange({ type: hashType, value: value?.value ?? "", modifier: nextModifier })} />
+      <ModifierSelector
+        modifiers={modifiers}
+        selected={modifier}
+        onSelect={(nextModifier) => onChange({ type: hashType, value: value?.value ?? "", modifier: nextModifier })}
+      />
       {!isNull && (
         <LabeledControl label="Value">
           <input
@@ -527,13 +592,27 @@ export function HashEditor({
 
 // ===== Enum Editor =====
 
-export function EnumEditor({ value, onChange, options, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; options: { value: string; label: string }[]; modifiers: CriterionModifier[] }) {
+export function EnumEditor({
+  value,
+  onChange,
+  options,
+  modifiers,
+}: {
+  value?: StringCriterion;
+  onChange: (v: unknown) => void;
+  options: { value: string; label: string }[];
+  modifiers: CriterionModifier[];
+}) {
   const modifier = value?.modifier ?? "EQUALS";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
 
   return (
     <div className="space-y-2">
-      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })} />
+      <ModifierSelector
+        modifiers={modifiers}
+        selected={modifier}
+        onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })}
+      />
       {!isNull && (
         <select
           value={value?.value ?? ""}
@@ -542,7 +621,9 @@ export function EnumEditor({ value, onChange, options, modifiers }: { value?: St
         >
           <option value="">Select...</option>
           {options.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
           ))}
         </select>
       )}
@@ -550,14 +631,23 @@ export function EnumEditor({ value, onChange, options, modifiers }: { value?: St
   );
 }
 
-export function MultiEnumEditor({ value, onChange, options }: { value?: StringCriterion; onChange: (v: unknown) => void; options: { value: string; label: string }[] }) {
-  const selectionMode = value?.modifier === "NOT_MATCHES_REGEX"
-    ? "exclude"
-    : value?.modifier === "IS_NULL"
-    ? "isNull"
-    : value?.modifier === "NOT_NULL"
-    ? "notNull"
-    : "include";
+export function MultiEnumEditor({
+  value,
+  onChange,
+  options,
+}: {
+  value?: StringCriterion;
+  onChange: (v: unknown) => void;
+  options: { value: string; label: string }[];
+}) {
+  const selectionMode =
+    value?.modifier === "NOT_MATCHES_REGEX"
+      ? "exclude"
+      : value?.modifier === "IS_NULL"
+        ? "isNull"
+        : value?.modifier === "NOT_NULL"
+          ? "notNull"
+          : "include";
   const selectedValues = useMemo(() => {
     const storedValues = (value as { _selectedValues?: string[] } | undefined)?._selectedValues;
     if (Array.isArray(storedValues) && storedValues.length > 0) {
@@ -591,7 +681,9 @@ export function MultiEnumEditor({ value, onChange, options }: { value?: StringCr
       return;
     }
 
-    const escapedValues = nextSelectedValues.map((selectedValue) => selectedValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const escapedValues = nextSelectedValues.map((selectedValue) =>
+      selectedValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    );
     onChange({
       value: escapedValues.length > 0 ? `^(?:${escapedValues.join("|")})$` : "",
       modifier: nextMode === "exclude" ? "NOT_MATCHES_REGEX" : "MATCHES_REGEX",
@@ -609,12 +701,14 @@ export function MultiEnumEditor({ value, onChange, options }: { value?: StringCr
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Match mode">
-        {([
-          ["include", "Any Of"],
-          ["exclude", "None Of"],
-          ["isNull", "No Value"],
-          ["notNull", "Has Value"],
-        ] as const).map(([mode, label]) => (
+        {(
+          [
+            ["include", "Any Of"],
+            ["exclude", "None Of"],
+            ["isNull", "No Value"],
+            ["notNull", "Has Value"],
+          ] as const
+        ).map(([mode, label]) => (
           <button
             key={mode}
             onClick={() => buildCriterion(selectedValues, mode)}
@@ -634,7 +728,10 @@ export function MultiEnumEditor({ value, onChange, options }: { value?: StringCr
             const checked = selectedValues.includes(option.value);
 
             return (
-              <label key={option.value} className="flex min-h-9 items-center gap-2 rounded-lg border border-border bg-input px-3 py-1.5 text-sm text-foreground">
+              <label
+                key={option.value}
+                className="flex min-h-9 items-center gap-2 rounded-lg border border-border bg-input px-3 py-1.5 text-sm text-foreground"
+              >
                 <input
                   type="checkbox"
                   checked={checked}
@@ -653,14 +750,26 @@ export function MultiEnumEditor({ value, onChange, options }: { value?: StringCr
 
 // ===== Date Editor =====
 
-export function DateEditor({ value, onChange, modifiers }: { value?: DateCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+export function DateEditor({
+  value,
+  onChange,
+  modifiers,
+}: {
+  value?: DateCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+}) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
 
   return (
     <div className="space-y-2">
-      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })} />
+      <ModifierSelector
+        modifiers={modifiers}
+        selected={modifier}
+        onSelect={(m) => onChange({ value: value?.value ?? "", modifier: m })}
+      />
       {!isNull && (
         <div className={`grid gap-3 ${isBetween ? "sm:grid-cols-2" : ""}`}>
           <LabeledControl label={isBetween ? "Minimum" : "Value"}>
@@ -698,11 +807,20 @@ function getDefaultLocalTimestampValue() {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function TimestampEditor({ value, onChange, modifiers }: { value?: TimestampCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+export function TimestampEditor({
+  value,
+  onChange,
+  modifiers,
+}: {
+  value?: TimestampCriterion;
+  onChange: (v: unknown) => void;
+  modifiers: CriterionModifier[];
+}) {
   const modifier = value?.modifier ?? "EQUALS";
   const isBetween = modifier === "BETWEEN" || modifier === "NOT_BETWEEN";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
-  const ensureTimestampValue = (current?: string) => (current && current.length > 0 ? current : getDefaultLocalTimestampValue());
+  const ensureTimestampValue = (current?: string) =>
+    current && current.length > 0 ? current : getDefaultLocalTimestampValue();
 
   return (
     <div className="space-y-2">

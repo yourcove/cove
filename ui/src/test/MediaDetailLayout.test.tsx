@@ -136,12 +136,9 @@ describe("MediaDetailLayout", () => {
     );
 
     await waitFor(() => {
-      expect(getActiveManualContexts()).toEqual(expect.arrayContaining([
-        "detail-tab:related",
-        "tab:related",
-        "panel:related-media",
-        "feature:example.detail",
-      ]));
+      expect(getActiveManualContexts()).toEqual(
+        expect.arrayContaining(["detail-tab:related", "tab:related", "panel:related-media", "feature:example.detail"]),
+      );
     });
   });
 

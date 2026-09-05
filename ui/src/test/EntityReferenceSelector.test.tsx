@@ -181,12 +181,7 @@ describe("EntityReferenceMultiSelector", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <EntityReferenceMultiSelector
-          entityType="tag"
-          values={[1, 2]}
-          lockedIds={[2]}
-          onChange={vi.fn()}
-        />
+        <EntityReferenceMultiSelector entityType="tag" values={[1, 2]} lockedIds={[2]} onChange={vi.fn()} />
       </QueryClientProvider>,
     );
 
@@ -226,9 +221,7 @@ describe("EntityReferenceMultiSelector", () => {
     const nextSearch = new Promise<{ items: Array<{ id: number; name: string }> }>((resolve) => {
       resolveNextSearch = resolve;
     });
-    mocks.tagsFind
-      .mockResolvedValueOnce({ items: [{ id: 1, name: "Massage" }] })
-      .mockReturnValueOnce(nextSearch);
+    mocks.tagsFind.mockResolvedValueOnce({ items: [{ id: 1, name: "Massage" }] }).mockReturnValueOnce(nextSearch);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
@@ -239,11 +232,24 @@ describe("EntityReferenceMultiSelector", () => {
 
     const input = screen.getByPlaceholderText("Search tags...");
     vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
-      x: 20, y: 100, left: 20, top: 100, right: 220, bottom: 140,
-      width: 200, height: 40, toJSON: () => ({}),
+      x: 20,
+      y: 100,
+      left: 20,
+      top: 100,
+      right: 220,
+      bottom: 140,
+      width: 200,
+      height: 40,
+      toJSON: () => ({}),
     });
     vi.stubGlobal("scrollY", 480);
-    vi.stubGlobal("visualViewport", { pageLeft: 0, pageTop: 500, height: 300, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    vi.stubGlobal("visualViewport", {
+      pageLeft: 0,
+      pageTop: 500,
+      height: 300,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
     await user.type(input, "m");
     const firstResult = await screen.findByRole("option", { name: /Massage/i });
     const dropdown = firstResult.parentElement;
@@ -303,9 +309,11 @@ describe("EntityReferenceMultiSelector", () => {
 
   it("waits for the initial search before offering creation for an exact match", async () => {
     let resolveSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
-    mocks.tagsFind.mockReturnValue(new Promise((resolve) => {
-      resolveSearch = resolve;
-    }));
+    mocks.tagsFind.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSearch = resolve;
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
@@ -327,11 +335,11 @@ describe("EntityReferenceMultiSelector", () => {
   it("clears a highlighted create option when placeholder results prove an exact match", async () => {
     const user = userEvent.setup();
     let resolveNextSearch!: (value: { items: Array<{ id: number; name: string }> }) => void;
-    mocks.tagsFind
-      .mockResolvedValueOnce({ items: [{ id: 1, name: "Existing" }] })
-      .mockReturnValueOnce(new Promise((resolve) => {
+    mocks.tagsFind.mockResolvedValueOnce({ items: [{ id: 1, name: "Existing" }] }).mockReturnValueOnce(
+      new Promise((resolve) => {
         resolveNextSearch = resolve;
-      }));
+      }),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
@@ -501,14 +509,28 @@ describe("EntityReferenceSelector", () => {
       value: fullscreenRoot,
     });
     vi.spyOn(fullscreenRoot, "getBoundingClientRect").mockReturnValue({
-      x: 100, y: 200, left: 100, top: 200, right: 900, bottom: 800,
-      width: 800, height: 600, toJSON: () => ({}),
+      x: 100,
+      y: 200,
+      left: 100,
+      top: 200,
+      right: 900,
+      bottom: 800,
+      width: 800,
+      height: 600,
+      toJSON: () => ({}),
     });
 
     const input = screen.getByPlaceholderText("Search tags...");
     vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
-      x: 120, y: 240, left: 120, top: 240, right: 320, bottom: 280,
-      width: 200, height: 40, toJSON: () => ({}),
+      x: 120,
+      y: 240,
+      left: 120,
+      top: 240,
+      right: 320,
+      bottom: 280,
+      width: 200,
+      height: 40,
+      toJSON: () => ({}),
     });
     await user.type(input, "full");
 

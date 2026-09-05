@@ -34,7 +34,12 @@ export function RemoteRefreshButtons({
   const serverByDomain = new Map(servers.map((server) => [registrableDomain(server.endpoint), server]));
   const matches = (remoteIds ?? [])
     .map((remote) => ({ remote, server: serverByDomain.get(registrableDomain(remote.endpoint)) }))
-    .filter((entry): entry is { remote: { endpoint: string; remoteId: string }; server: { endpoint: string; name?: string } } => !!entry.server);
+    .filter(
+      (
+        entry,
+      ): entry is { remote: { endpoint: string; remoteId: string }; server: { endpoint: string; name?: string } } =>
+        !!entry.server,
+    );
   if (matches.length === 0) return null;
 
   return (
@@ -47,7 +52,11 @@ export function RemoteRefreshButtons({
           className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-xs text-secondary transition-colors hover:border-accent hover:text-foreground disabled:opacity-60"
           title={`Fetch the existing ${server.name || server.endpoint} entry (${remote.remoteId}) for this item`}
         >
-          {busyEndpoint === remote.endpoint ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          {busyEndpoint === remote.endpoint ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
           Refresh from {server.name || server.endpoint}
         </button>
       ))}
@@ -96,16 +105,20 @@ function handleSpecialQueryStrings(input: string): string {
   }
   const yyyymmdd = output.search(yyyymmddRegex);
   if (yyyymmdd !== -1) {
-    return output.slice(0, yyyymmdd).replace(/-/g, " ")
-      + output.slice(yyyymmdd, yyyymmdd + 10).replace(/\./g, "-")
-      + output.slice(yyyymmdd + 10).replace(/-/g, " ");
+    return (
+      output.slice(0, yyyymmdd).replace(/-/g, " ") +
+      output.slice(yyyymmdd, yyyymmdd + 10).replace(/\./g, "-") +
+      output.slice(yyyymmdd + 10).replace(/-/g, " ")
+    );
   }
   const javcodeIndex = output.search(javcodeRegex);
   if (javcodeIndex !== -1) {
     const javcodeLength = output.match(javcodeRegex)![1].length;
-    return output.slice(0, javcodeIndex).replace(/-/g, " ")
-      + output.slice(javcodeIndex, javcodeIndex + javcodeLength)
-      + output.slice(javcodeIndex + javcodeLength).replace(/-/g, " ");
+    return (
+      output.slice(0, javcodeIndex).replace(/-/g, " ") +
+      output.slice(javcodeIndex, javcodeIndex + javcodeLength) +
+      output.slice(javcodeIndex + javcodeLength).replace(/-/g, " ")
+    );
   }
   return output.replace(/-/g, " ");
 }
@@ -167,7 +180,9 @@ export function TaggerToolbar({
           className="bg-input border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent"
         >
           {sources.map((source) => (
-            <option key={source.value} value={source.value}>{source.label}</option>
+            <option key={source.value} value={source.value}>
+              {source.label}
+            </option>
           ))}
         </select>
       </div>
@@ -183,21 +198,33 @@ export function TaggerToolbar({
         </button>
       )}
 
-      {showRunAll && (
-        batchSearching ? (
-          <button type="button" onClick={onCancelBatch} className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-500">
+      {showRunAll &&
+        (batchSearching ? (
+          <button
+            type="button"
+            onClick={onCancelBatch}
+            className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-500"
+          >
             <X className="w-3.5 h-3.5" />
             Cancel
           </button>
         ) : (
           <div className="flex items-stretch">
-            <button type="button" onClick={() => onRunAll()} className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-accent text-white hover:bg-accent-hover ${runAllOptions?.length ? "rounded-l" : "rounded"}`}>
+            <button
+              type="button"
+              onClick={() => onRunAll()}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-accent text-white hover:bg-accent-hover ${runAllOptions?.length ? "rounded-l" : "rounded"}`}
+            >
               <CloudDownload className="w-3.5 h-3.5" />
               {runAllLabel}
             </button>
             {runAllOptions?.length ? (
               <details className="relative">
-                <summary role="button" className="flex h-full list-none items-center rounded-r border-l border-white/20 bg-accent px-1.5 text-white hover:bg-accent-hover cursor-pointer" aria-label="Choose scrape strategy">
+                <summary
+                  role="button"
+                  className="flex h-full list-none items-center rounded-r border-l border-white/20 bg-accent px-1.5 text-white hover:bg-accent-hover cursor-pointer"
+                  aria-label="Choose scrape strategy"
+                >
                   <ChevronDown className="w-3.5 h-3.5" />
                 </summary>
                 <div className="absolute left-0 z-30 mt-1 w-72 overflow-hidden rounded border border-border bg-card shadow-xl">
@@ -219,8 +246,7 @@ export function TaggerToolbar({
               </details>
             ) : null}
           </div>
-        )
-      )}
+        ))}
 
       <span className="ml-auto text-xs text-muted">{countLabel}</span>
 
@@ -264,7 +290,8 @@ export function TaggerSettingsPanel({
             <h3 className="text-sm font-bold text-foreground italic">Blacklist</h3>
             <BlacklistEditor items={blacklist} onChange={onBlacklistChange} />
             <p className="text-[10px] text-muted">
-              Blacklist items are excluded from queries. They are case-insensitive regular expressions. Escape special characters with a backslash: <code className="text-pink-400">{`[\\.^$.|?*+()`}</code>
+              Blacklist items are excluded from queries. They are case-insensitive regular expressions. Escape special
+              characters with a backslash: <code className="text-pink-400">{`[\\.^$.|?*+()`}</code>
             </p>
           </div>
         )}
@@ -295,7 +322,12 @@ export function BlacklistEditor({ items, onChange }: { items: string[]; onChange
           type="text"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addItem(); } }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addItem();
+            }
+          }}
           className="flex-1 bg-input border border-border rounded px-2 py-1.5 text-xs text-foreground outline-none focus:border-accent font-mono"
         />
         <button
@@ -309,7 +341,10 @@ export function BlacklistEditor({ items, onChange }: { items: string[]; onChange
       </div>
       <div className="flex flex-wrap gap-1.5">
         {items.map((item, index) => (
-          <span key={`${item}-${index}`} className="inline-flex items-center gap-1 bg-surface text-foreground text-xs px-2 py-1 rounded border border-border font-mono">
+          <span
+            key={`${item}-${index}`}
+            className="inline-flex items-center gap-1 bg-surface text-foreground text-xs px-2 py-1 rounded border border-border font-mono"
+          >
             {item}
             <button type="button" onClick={() => removeItem(index)} className="text-muted hover:text-red-400 ml-0.5">
               <X className="w-3 h-3" />
@@ -372,13 +407,25 @@ export function CompactCollectionDecision({
       <CompactFieldLabel>{label}</CompactFieldLabel>
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          <CompactModeButton mode="merge" selected={mode === "merge"} onModeChange={onModeChange}>Merge current + scraped</CompactModeButton>
+          <CompactModeButton mode="merge" selected={mode === "merge"} onModeChange={onModeChange}>
+            Merge current + scraped
+          </CompactModeButton>
         </div>
         <div className="grid gap-1.5 md:grid-cols-2">
-          <CompactDecisionPane label="Current" selected={currentSelected} tone="current" onClick={() => onModeChange("skip")}>
+          <CompactDecisionPane
+            label="Current"
+            selected={currentSelected}
+            tone="current"
+            onClick={() => onModeChange("skip")}
+          >
             <CompactListValue values={current} />
           </CompactDecisionPane>
-          <CompactDecisionPane label="Scraped" selected={scrapedSelected} tone="scraped" onClick={() => onModeChange("replace")}>
+          <CompactDecisionPane
+            label="Scraped"
+            selected={scrapedSelected}
+            tone="scraped"
+            onClick={() => onModeChange("replace")}
+          >
             {scraped}
           </CompactDecisionPane>
         </div>
@@ -440,15 +487,19 @@ function CompactDecisionPane({
   onClick: () => void;
   children: ReactNode;
 }) {
-  const selectedClass = tone === "current"
-    ? "border-green-600/25 bg-green-600/10 text-foreground"
-    : "border-accent/40 bg-accent/10 text-foreground";
+  const selectedClass =
+    tone === "current"
+      ? "border-green-600/25 bg-green-600/10 text-foreground"
+      : "border-accent/40 bg-accent/10 text-foreground";
 
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={(event) => { event.stopPropagation(); onClick(); }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -458,7 +509,9 @@ function CompactDecisionPane({
       }}
       className={`min-w-0 cursor-pointer rounded border px-2.5 py-2 transition-colors ${selected ? selectedClass : "border-border bg-surface/70 text-secondary hover:border-accent/40"}`}
     >
-      <div className={`mb-1 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.16em] ${selected ? tone === "current" ? "text-green-300" : "text-accent" : "text-muted"}`}>
+      <div
+        className={`mb-1 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.16em] ${selected ? (tone === "current" ? "text-green-300" : "text-accent") : "text-muted"}`}
+      >
         {selected && <Check className="h-2.5 w-2.5" />}
         {label}
       </div>
@@ -467,11 +520,24 @@ function CompactDecisionPane({
   );
 }
 
-function CompactModeButton({ children, mode, selected, onModeChange }: { children: ReactNode; mode: CollectionMode; selected: boolean; onModeChange: (mode: CollectionMode) => void }) {
+function CompactModeButton({
+  children,
+  mode,
+  selected,
+  onModeChange,
+}: {
+  children: ReactNode;
+  mode: CollectionMode;
+  selected: boolean;
+  onModeChange: (mode: CollectionMode) => void;
+}) {
   return (
     <button
       type="button"
-      onClick={(event) => { event.stopPropagation(); onModeChange(mode); }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onModeChange(mode);
+      }}
       className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition-colors ${selected ? "border-accent/40 bg-accent/10 text-accent" : "border-border bg-surface text-muted hover:border-accent/40 hover:text-secondary"}`}
     >
       {children}
@@ -486,5 +552,7 @@ function CompactValue({ value, multiline = false }: { value?: string | number | 
 
 export function CompactListValue({ values, breakAll = false }: { values: string[]; breakAll?: boolean }) {
   if (values.length === 0) return <span className="text-xs text-muted">Empty</span>;
-  return <div className={`text-xs leading-relaxed line-clamp-2 ${breakAll ? "break-all" : ""}`}>{values.join(", ")}</div>;
+  return (
+    <div className={`text-xs leading-relaxed line-clamp-2 ${breakAll ? "break-all" : ""}`}>{values.join(", ")}</div>
+  );
 }

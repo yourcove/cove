@@ -23,7 +23,10 @@ export function pickDownloaderMatch(matches: DownloaderMatch[], entity: Download
   return matches.find((item) => item.supportedEntity.toLowerCase() === entity.toLowerCase());
 }
 
-export async function createFromUrlWithOptionalDownload<TCreate extends { title?: string; urls?: string[] }, TEntity extends { id?: number }>({
+export async function createFromUrlWithOptionalDownload<
+  TCreate extends { title?: string; urls?: string[] },
+  TEntity extends { id?: number },
+>({
   requestedUrl,
   data,
   entity,

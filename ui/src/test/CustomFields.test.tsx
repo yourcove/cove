@@ -47,7 +47,9 @@ function SaveHarness({ onSave }: { onSave: () => void }) {
   return (
     <>
       <CustomFieldsEditor value={value} onChange={setValue} onValidityChange={setIsValid} entityType="video" />
-      <button type="button" disabled={!isValid} onClick={onSave}>Save entity</button>
+      <button type="button" disabled={!isValid} onClick={onSave}>
+        Save entity
+      </button>
     </>
   );
 }
@@ -71,7 +73,9 @@ describe("JSON custom fields", () => {
     const dialog = screen.getByRole("dialog", { name: "Structured Metadata" });
     const editor = screen.getByRole("textbox", { name: "Structured Metadata JSON" });
     expect(dialog).toHaveClass("h-[90vh]");
-    expect(editor).toHaveValue(`{\n  "profile": {\n    "score": 0.95\n  },\n  "labels": [\n    "one",\n    "two"\n  ]\n}`);
+    expect(editor).toHaveValue(
+      `{\n  "profile": {\n    "score": 0.95\n  },\n  "labels": [\n    "one",\n    "two"\n  ]\n}`,
+    );
     const editorHighlight = document.querySelector("[data-json-editor-highlight]");
     expect(editorHighlight).toHaveClass("whitespace-pre", "overflow-auto");
     expect(editor).toHaveClass("whitespace-pre", "overflow-auto");
@@ -101,9 +105,7 @@ describe("JSON custom fields", () => {
       profile: { details: { metrics: { score: 0.95, reviewed: true } } },
       labels: ["one", "two"],
     };
-    renderWithDefinition(
-      <CustomFieldsDisplay customFields={{ structured_metadata: value }} entityType="video" />,
-    );
+    renderWithDefinition(<CustomFieldsDisplay customFields={{ structured_metadata: value }} entityType="video" />);
 
     expect(screen.queryByLabelText("Structured Metadata JSON value")).not.toBeInTheDocument();
     expect(screen.getByText("JSON object · 2 properties")).toBeInTheDocument();
@@ -119,7 +121,10 @@ describe("JSON custom fields", () => {
     const metricsToggle = screen.getByRole("button", { name: "Expand $.profile.details.metrics" });
     expect(metricsToggle).toHaveAttribute("aria-expanded", "false");
     await user.click(metricsToggle);
-    expect(screen.getByRole("button", { name: "Collapse $.profile.details.metrics" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Collapse $.profile.details.metrics" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     expect(screen.getByText('"score"')).toHaveAttribute("data-json-token", "key");
     expect(screen.getByText("0.95")).toHaveAttribute("data-json-token", "number");
 
@@ -153,11 +158,7 @@ describe("JSON custom fields", () => {
   it("falls back to plain editor rendering for very large JSON values", async () => {
     const user = userEvent.setup();
     renderWithDefinition(
-      <CustomFieldsEditor
-        value={{ structured_metadata: "x".repeat(100_001) }}
-        onChange={vi.fn()}
-        entityType="video"
-      />,
+      <CustomFieldsEditor value={{ structured_metadata: "x".repeat(100_001) }} onChange={vi.fn()} entityType="video" />,
     );
 
     await user.click(screen.getByRole("button", { name: "Edit Structured Metadata JSON" }));
@@ -169,9 +170,7 @@ describe("JSON custom fields", () => {
   it("does not auto-expand containers with many immediate entries", async () => {
     const user = userEvent.setup();
     const value = Object.fromEntries(Array.from({ length: 201 }, (_, index) => [`property${index}`, index]));
-    renderWithDefinition(
-      <CustomFieldsDisplay customFields={{ structured_metadata: value }} entityType="video" />,
-    );
+    renderWithDefinition(<CustomFieldsDisplay customFields={{ structured_metadata: value }} entityType="video" />);
 
     await user.click(screen.getByRole("button", { name: "View Structured Metadata JSON" }));
     expect(screen.getByRole("button", { name: "Expand JSON root" })).toHaveAttribute("aria-expanded", "false");
@@ -182,11 +181,7 @@ describe("JSON custom fields", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderWithDefinition(
-      <CustomFieldsEditor
-        value={{ structured_metadata: { ready: false } }}
-        onChange={onChange}
-        entityType="video"
-      />,
+      <CustomFieldsEditor value={{ structured_metadata: { ready: false } }} onChange={onChange} entityType="video" />,
     );
 
     await user.click(screen.getByRole("button", { name: "Edit Structured Metadata JSON" }));
@@ -232,11 +227,7 @@ describe("long text custom fields", () => {
   it("uses a multiline editor and preserves the complete value as one scalar", () => {
     const onChange = vi.fn();
     renderWithDefinition(
-      <CustomFieldsEditor
-        value={{ notes: "Short values work too." }}
-        onChange={onChange}
-        entityType="performer"
-      />,
+      <CustomFieldsEditor value={{ notes: "Short values work too." }} onChange={onChange} entityType="performer" />,
       [longTextDefinition],
       "performer",
     );

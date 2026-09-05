@@ -18,7 +18,10 @@ describe("api client", () => {
     let lockTail = Promise.resolve();
     const lockRequest = vi.fn(<T>(_name: string, callback: () => Promise<T>): Promise<T> => {
       const result = lockTail.then(callback);
-      lockTail = result.then(() => undefined, () => undefined);
+      lockTail = result.then(
+        () => undefined,
+        () => undefined,
+      );
       return result;
     });
     vi.stubGlobal("navigator", { locks: { request: lockRequest } });
@@ -28,10 +31,13 @@ describe("api client", () => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
         refreshRequests += 1;
-        return new Response(JSON.stringify({
-          token: "new-access-token",
-          refreshToken: "new-refresh-token",
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            token: "new-access-token",
+            refreshToken: "new-refresh-token",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       const authorization = new Headers(init?.headers).get("Authorization");
@@ -51,7 +57,7 @@ describe("api client", () => {
       secondPageClient.authedFetch("/api/second"),
     ]);
 
-    expect(responses.map(response => response.status)).toEqual([204, 204]);
+    expect(responses.map((response) => response.status)).toEqual([204, 204]);
     expect(refreshRequests).toBe(1);
     expect(lockRequest).toHaveBeenCalledTimes(2);
   });
@@ -99,10 +105,13 @@ describe("api client", () => {
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       if (String(input) === "/api/auth/refresh") {
-        return new Response(JSON.stringify({
-          token: "new-access-token",
-          refreshToken: "new-refresh-token",
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            token: "new-access-token",
+            refreshToken: "new-refresh-token",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       const authorization = new Headers(init?.headers).get("Authorization");
@@ -134,23 +143,31 @@ describe("api client", () => {
   });
 
   it("preserves zero page size for group item pages", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [], totalCount: 0, page: 1, perPage: 0 }), { status: 200 }));
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ items: [], totalCount: 0, page: 1, perPage: 0 }), { status: 200 }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await groups.items.page(4, { page: 1, perPage: 0 });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/groups/4/items/page?page=1&perPage=0", expect.objectContaining({ headers: expect.any(Headers) }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/groups/4/items/page?page=1&perPage=0",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
   });
 
   it("forwards global-search limits and cancellation", async () => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      const signal = init?.signal;
-      if (signal?.aborted) {
-        reject(signal.reason);
-        return;
-      }
-      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
-    }));
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const controller = new AbortController();
 
@@ -168,12 +185,18 @@ describe("api client", () => {
   });
 
   it("uploads extension ZIPs as authenticated multipart form data without setting a boundary header", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
-      message: "installed",
-      extensionId: "com.example.upload",
-      version: "1.0.0",
-      path: "/extensions/com.example.upload",
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            message: "installed",
+            extensionId: "com.example.upload",
+            version: "1.0.0",
+            path: "/extensions/com.example.upload",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const file = new File(["zip contents"], "extension.zip", { type: "application/zip" });
 

@@ -22,14 +22,14 @@ describe("CoverImageDialog extension media contract", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <CoverImageDialog
-        open
-        title="Set Tag Cover"
-        entityType="tag"
-        entityId={17}
-        currentImageUrl="/tag-17.jpg"
-        onUpload={vi.fn()}
-        onDelete={vi.fn()}
-        onClose={vi.fn()}
+          open
+          title="Set Tag Cover"
+          entityType="tag"
+          entityId={17}
+          currentImageUrl="/tag-17.jpg"
+          onUpload={vi.fn()}
+          onDelete={vi.fn()}
+          onClose={vi.fn()}
         />
       </QueryClientProvider>,
     );
@@ -37,20 +37,24 @@ describe("CoverImageDialog extension media contract", () => {
     expect(screen.getByText("Cover")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Use Default" })).toBeInTheDocument();
     expect(screen.getByTestId("cover-editor-extension")).toBeInTheDocument();
-    expect(screen.getByText("Set Tag Cover").parentElement?.parentElement)
-      .toHaveClass("max-h-[90vh]", "overflow-y-auto");
-    expect(slotCalls).toEqual([{
-      slot: "entity-cover-editor",
-      context: {
-        entityType: "tag",
-        entityId: 17,
-        coverKey: "primary",
-        currentImageUrl: "/tag-17.jpg",
-        canEdit: true,
+    expect(screen.getByText("Set Tag Cover").parentElement?.parentElement).toHaveClass(
+      "max-h-[90vh]",
+      "overflow-y-auto",
+    );
+    expect(slotCalls).toEqual([
+      {
+        slot: "entity-cover-editor",
+        context: {
+          entityType: "tag",
+          entityId: 17,
+          coverKey: "primary",
+          currentImageUrl: "/tag-17.jpg",
+          canEdit: true,
+        },
+        contextResetKey: "tag:17:primary",
+        fallback: null,
       },
-      contextResetKey: "tag:17:primary",
-      fallback: null,
-    }]);
+    ]);
   });
 
   it("supports an explicit remove label", () => {
@@ -76,7 +80,16 @@ describe("CoverImageDialog extension media contract", () => {
   it("does not offer removal when only a generated fallback is displayed", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <CoverImageDialog open title="Set Video Cover" entityType="video" entityId={42} currentImageUrl="/generated-cover.jpg" onUpload={vi.fn()} onClose={vi.fn()} deleteLabel="Remove custom cover" />
+        <CoverImageDialog
+          open
+          title="Set Video Cover"
+          entityType="video"
+          entityId={42}
+          currentImageUrl="/generated-cover.jpg"
+          onUpload={vi.fn()}
+          onClose={vi.fn()}
+          deleteLabel="Remove custom cover"
+        />
       </QueryClientProvider>,
     );
 
@@ -89,7 +102,19 @@ describe("CoverImageDialog extension media contract", () => {
     const onUpload = vi.fn(() => new Promise(() => undefined));
     const { container } = render(
       <QueryClientProvider client={new QueryClient()}>
-        <CoverImageDialog open title="Set Video Cover" entityType="video" entityId={42} onUpload={onUpload} onClose={vi.fn()} extraActions={(pending) => <button type="button" disabled={pending}>From Current Frame</button>} />
+        <CoverImageDialog
+          open
+          title="Set Video Cover"
+          entityType="video"
+          entityId={42}
+          onUpload={onUpload}
+          onClose={vi.fn()}
+          extraActions={(pending) => (
+            <button type="button" disabled={pending}>
+              From Current Frame
+            </button>
+          )}
+        />
       </QueryClientProvider>,
     );
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -99,5 +124,4 @@ describe("CoverImageDialog extension media contract", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "From Current Frame" })).toBeDisabled());
     expect(onUpload).toHaveBeenCalledOnce();
   });
-
 });

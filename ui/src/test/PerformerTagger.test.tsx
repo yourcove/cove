@@ -65,7 +65,9 @@ describe("PerformerTagger", () => {
       },
     ]);
     mocks.tagsFind.mockResolvedValue({ items: [] });
-    mocks.previewScrape.mockRejectedValue(new Error('API Error 404: {"error":"Scrape returned no performer metadata."}'));
+    mocks.previewScrape.mockRejectedValue(
+      new Error('API Error 404: {"error":"Scrape returned no performer metadata."}'),
+    );
     mocks.searchMetadataServer.mockResolvedValue([]);
     mocks.findMetadataServerByIds.mockResolvedValue([]);
     mocks.applyScraped.mockResolvedValue({});
@@ -96,12 +98,14 @@ describe("PerformerTagger", () => {
 
     await user.click(await screen.findByRole("button", { name: /^Search$/i }));
 
-    await waitFor(() => expect(mocks.previewScrape).toHaveBeenCalledWith(1, {
-      scraperId: "performer-scraper",
-      inputKind: "name",
-      name: "Missing Performer",
-      url: undefined,
-    }));
+    await waitFor(() =>
+      expect(mocks.previewScrape).toHaveBeenCalledWith(1, {
+        scraperId: "performer-scraper",
+        inputKind: "name",
+        name: "Missing Performer",
+        url: undefined,
+      }),
+    );
     expect(await screen.findByText("No performer metadata was found for this search.")).toBeInTheDocument();
     expect(screen.queryByText(/API Error 404/i)).not.toBeInTheDocument();
   });
@@ -112,15 +116,17 @@ describe("PerformerTagger", () => {
       { endpoint: "https://first.example/graphql", name: "First" },
       { endpoint: "https://second.example/graphql", name: "Second" },
     );
-    mocks.findMetadataServerByIds.mockResolvedValue([{
-      endpoint: "https://second.example/graphql",
-      id: "second-remote",
-      name: "Same Name",
-      heightCm: 165,
-      aliases: [],
-      urls: [],
-      deleted: false,
-    }]);
+    mocks.findMetadataServerByIds.mockResolvedValue([
+      {
+        endpoint: "https://second.example/graphql",
+        id: "second-remote",
+        name: "Same Name",
+        heightCm: 165,
+        aliases: [],
+        urls: [],
+        deleted: false,
+      },
+    ]);
     const performer: Performer = {
       id: 1,
       name: "Same Name",
@@ -147,9 +153,14 @@ describe("PerformerTagger", () => {
     await user.click(await screen.findByRole("button", { name: "Refresh from Second" }));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(mocks.importFromMetadataServer).toHaveBeenCalledWith(1, expect.objectContaining({
-      endpoint: "https://second.example/graphql",
-      performerId: "second-remote",
-    })));
+    await waitFor(() =>
+      expect(mocks.importFromMetadataServer).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          endpoint: "https://second.example/graphql",
+          performerId: "second-remote",
+        }),
+      ),
+    );
   });
 });

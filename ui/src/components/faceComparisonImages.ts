@@ -2,14 +2,25 @@ import type { Detection, Face } from "../api/types";
 
 type DetectionCropUrlBuilder = (detectionId: number, max?: number) => string;
 
-export function buildFaceCarouselSampleImageUrls(face: Face | null | undefined, detections: Detection[], buildDetectionCropUrl: DetectionCropUrlBuilder) {
+export function buildFaceCarouselSampleImageUrls(
+  face: Face | null | undefined,
+  detections: Detection[],
+  buildDetectionCropUrl: DetectionCropUrlBuilder,
+) {
   const sampleDetections = selectFaceSampleDetections(detections);
-  return (face?.coverImageUrl ? sampleDetections.slice(1) : sampleDetections)
-    .map((detection) => buildDetectionCropUrl(detection.id, 2048));
+  return (face?.coverImageUrl ? sampleDetections.slice(1) : sampleDetections).map((detection) =>
+    buildDetectionCropUrl(detection.id, 2048),
+  );
 }
 
 export function buildFaceHeroImageUrls(face: Face | null | undefined, carouselSampleImageUrls: string[]) {
-  return Array.from(new Set([face?.coverImageUrl, ...carouselSampleImageUrls].filter((url): url is string => typeof url === "string" && url.trim().length > 0))).slice(0, 3);
+  return Array.from(
+    new Set(
+      [face?.coverImageUrl, ...carouselSampleImageUrls].filter(
+        (url): url is string => typeof url === "string" && url.trim().length > 0,
+      ),
+    ),
+  ).slice(0, 3);
 }
 
 function selectFaceSampleDetections(detections: Detection[]) {
@@ -28,7 +39,15 @@ function selectFaceSampleDetections(detections: Detection[]) {
       if (qualityDelta !== 0) return qualityDelta;
       return (right.score ?? 0) - (left.score ?? 0);
     })
-    .filter((detection, index, ordered) => ordered.findIndex((candidate) => candidate.hostType === detection.hostType && candidate.hostId === detection.hostId && candidate.observedAtSec === detection.observedAtSec) === index)
+    .filter(
+      (detection, index, ordered) =>
+        ordered.findIndex(
+          (candidate) =>
+            candidate.hostType === detection.hostType &&
+            candidate.hostId === detection.hostId &&
+            candidate.observedAtSec === detection.observedAtSec,
+        ) === index,
+    )
     .slice(0, 3);
 }
 

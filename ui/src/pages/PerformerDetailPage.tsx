@@ -1,8 +1,58 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { audios, faces, galleries, groups, images, performers, videos, texts, entityImages } from "../api/client";
-import type { Audio, AudioFilterCriteria, Face, FaceSimilar, FieldProvenance, FindFilter, Gallery, GalleryFilterCriteria, Group, GroupFilterCriteria, Image, ImageFilterCriteria, Performer as PerformerModel, PerformerFilterCriteria, Video, VideoFilterCriteria, TextDocument, TextFilterCriteria } from "../api/types";
-import { formatDate, formatDuration, getResolutionLabel, TagBadge, CustomFieldsDisplay, FieldProvenanceHover, resolveTagProvenance } from "../components/shared";
-import { Calendar, FileText, Film, FolderOpen, GitMerge, Headphones, Heart, ImageIcon, Layers, Loader2, MapPin, MoreVertical, Music, Pencil, Ruler, Scale, Search, Sparkles, ThumbsUp, Trash2, Users, UserRound } from "lucide-react";
+import type {
+  Audio,
+  AudioFilterCriteria,
+  Face,
+  FaceSimilar,
+  FieldProvenance,
+  FindFilter,
+  Gallery,
+  GalleryFilterCriteria,
+  Group,
+  GroupFilterCriteria,
+  Image,
+  ImageFilterCriteria,
+  Performer as PerformerModel,
+  PerformerFilterCriteria,
+  Video,
+  VideoFilterCriteria,
+  TextDocument,
+  TextFilterCriteria,
+} from "../api/types";
+import {
+  formatDate,
+  formatDuration,
+  getResolutionLabel,
+  TagBadge,
+  CustomFieldsDisplay,
+  FieldProvenanceHover,
+  resolveTagProvenance,
+} from "../components/shared";
+import {
+  Calendar,
+  FileText,
+  Film,
+  FolderOpen,
+  GitMerge,
+  Headphones,
+  Heart,
+  ImageIcon,
+  Layers,
+  Loader2,
+  MapPin,
+  MoreVertical,
+  Music,
+  Pencil,
+  Ruler,
+  Scale,
+  Search,
+  Sparkles,
+  ThumbsUp,
+  Trash2,
+  Users,
+  UserRound,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PerformerEditModal } from "./PerformerEditModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -18,13 +68,24 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 import { BulkSelectionActions } from "../components/BulkSelectionActions";
 import { useExtensionTabs } from "../components/useExtensionTabs";
 import { EntityDetailTabs } from "../components/EntityDetailTabs";
-import { EntityHeroLayout, HERO_ACTION_BUTTON_CLASS, HERO_PRIMARY_ACTION_BUTTON_CLASS } from "../components/EntityHeroLayout";
+import {
+  EntityHeroLayout,
+  HERO_ACTION_BUTTON_CLASS,
+  HERO_PRIMARY_ACTION_BUTTON_CLASS,
+} from "../components/EntityHeroLayout";
 import { CoverImageDialog } from "../components/CoverImageDialog";
 import { FloatingActionMenu } from "../components/FloatingActionMenu";
 import { RelatedEntityListView } from "../components/RelatedEntityListView";
 import { ContextualImageListView, ContextualVideoListView } from "../components/ContextualMediaListViews";
 import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
-import { AUDIO_CRITERIA, GALLERY_CRITERIA, GROUP_CRITERIA, IMAGE_CRITERIA, VIDEO_CRITERIA, TEXT_CRITERIA } from "../components/filterCriteriaCatalogs";
+import {
+  AUDIO_CRITERIA,
+  GALLERY_CRITERIA,
+  GROUP_CRITERIA,
+  IMAGE_CRITERIA,
+  VIDEO_CRITERIA,
+  TEXT_CRITERIA,
+} from "../components/filterCriteriaCatalogs";
 import { useBackNavigation } from "../hooks/useBackNavigation";
 import { GALLERY_SORT_OPTIONS } from "../components/gallerySortOptions";
 import { IMAGE_SORT_OPTIONS } from "../components/imageSortOptions";
@@ -38,7 +99,13 @@ import { useKeySequence } from "../hooks/useKeySequence";
 import { useDetailListSelection } from "../hooks/useDetailListSelection";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuth } from "../auth/AuthContext";
-import { canDeleteEntity, canReadEntity, canWriteEntity, filterItemsByPermission, hasAnyPermission } from "../auth/visibility";
+import {
+  canDeleteEntity,
+  canReadEntity,
+  canWriteEntity,
+  filterItemsByPermission,
+  hasAnyPermission,
+} from "../auth/visibility";
 import { withRequiredMultiId } from "../utils/detailRelationFilters";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
@@ -54,7 +121,17 @@ interface Props {
   onNavigate: (r: any) => void;
 }
 
-type TabKey = "videos" | "galleries" | "images" | "audios" | "texts" | "groups" | "faces" | "appearsWith" | "similar" | (string & {});
+type TabKey =
+  | "videos"
+  | "galleries"
+  | "images"
+  | "audios"
+  | "texts"
+  | "groups"
+  | "faces"
+  | "appearsWith"
+  | "similar"
+  | (string & {});
 
 const GALLERY_SORT = GALLERY_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -65,7 +142,12 @@ const TEXT_SORT = TEXT_SORT_OPTIONS;
 export function PerformerDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
-  const { data: performer, isLoading, error: performerError, refetch: retryPerformer } = useQuery({
+  const {
+    data: performer,
+    isLoading,
+    error: performerError,
+    refetch: retryPerformer,
+  } = useQuery({
     queryKey: ["performer", id],
     queryFn: () => performers.get(id),
   });
@@ -75,24 +157,36 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [scrapeOpen, setScrapeOpen] = useState(false);
   const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
-  const { allTabs: performerTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("performer", orderDetailTabsByMenuItems([
-    { key: "videos", label: "Videos", count: performer?.videoCount },
-    { key: "galleries", label: "Galleries", count: performer?.galleryCount },
-    { key: "images", label: "Images", count: performer?.imageCount },
-    { key: "audios", label: "Audios", count: performer?.audioCount },
-    { key: "texts", label: "Texts", count: performer?.textCount },
-    { key: "groups", label: "Groups", count: performer?.groupCount },
-    { key: "faces", label: "Faces", count: performer?.faceCount },
-    { key: "appearsWith", label: "Appears With" },
-    { key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> },
-  ], config?.interface?.menuItems), id);
+  const {
+    allTabs: performerTabs,
+    renderExtensionTab,
+    extensionCounts,
+  } = useExtensionTabs(
+    "performer",
+    orderDetailTabsByMenuItems(
+      [
+        { key: "videos", label: "Videos", count: performer?.videoCount },
+        { key: "galleries", label: "Galleries", count: performer?.galleryCount },
+        { key: "images", label: "Images", count: performer?.imageCount },
+        { key: "audios", label: "Audios", count: performer?.audioCount },
+        { key: "texts", label: "Texts", count: performer?.textCount },
+        { key: "groups", label: "Groups", count: performer?.groupCount },
+        { key: "faces", label: "Faces", count: performer?.faceCount },
+        { key: "appearsWith", label: "Appears With" },
+        { key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> },
+      ],
+      config?.interface?.menuItems,
+    ),
+    id,
+  );
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "performers" }, onNavigate);
   const canWritePerformer = canWriteEntity("performer", hasPermission);
-  const canEngagePerformer = canReadEntity("performer", hasPermission) && (user?.kind === "user" || user?.kind === "system");
+  const canEngagePerformer =
+    canReadEntity("performer", hasPermission) && (user?.kind === "user" || user?.kind === "system");
   const canDeletePerformer = canDeleteEntity("performer", hasPermission);
   const canReadFaces = canReadEntity("face", hasPermission);
   const canReadPerformerVideos = canReadEntity("video", hasPermission);
@@ -104,17 +198,21 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const canReadTags = canReadEntity("tag", hasPermission);
   const canScrapePerformer = hasAnyPermission(hasPermission, ["performers.scrape", "performers.write"]);
   const showPerformerOpsMenu = canWritePerformer || canScrapePerformer || canDeletePerformer;
-  const visiblePerformerTabs = filterItemsByPermission(performerTabs, {
-    videos: "videos.read",
-    galleries: "galleries.read",
-    images: "images.read",
-    audios: "audios.read",
-    texts: "texts.read",
-    groups: "groups.read",
-    faces: "faces.read",
-    appearsWith: "performers.read",
-    similar: "performers.read",
-  }, hasPermission);
+  const visiblePerformerTabs = filterItemsByPermission(
+    performerTabs,
+    {
+      videos: "videos.read",
+      galleries: "galleries.read",
+      images: "images.read",
+      audios: "audios.read",
+      texts: "texts.read",
+      groups: "groups.read",
+      faces: "faces.read",
+      appearsWith: "performers.read",
+      similar: "performers.read",
+    },
+    hasPermission,
+  );
 
   const deleteMut = useMutation({
     mutationFn: () => performers.delete(id),
@@ -136,12 +234,53 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
 
   useDocumentTitle(performer?.name);
 
-  useKeySequence(useMemo(() => [
-    { id: "detail.edit", keys: "e", surface: "detail" as const, action: () => { if (canWritePerformer) setEditing((value) => !value); } },
-    { id: "detail.favorite", keys: "o", surface: "detail" as const, action: () => { if (performer && canEngagePerformer) setPerformerFavorite(!performerFavorite); } },
-    { id: "detail.performer.videos", keys: "c", surface: "detail" as const, action: () => { if (canReadPerformerVideos) setActiveTab("videos"); } },
-    { id: "detail.performer.galleries", keys: "g", surface: "detail" as const, action: () => { if (canReadPerformerGalleries) setActiveTab("galleries"); } },
-  ], [canEngagePerformer, canReadPerformerGalleries, canReadPerformerVideos, canWritePerformer, performer, performerFavorite, setPerformerFavorite]));
+  useKeySequence(
+    useMemo(
+      () => [
+        {
+          id: "detail.edit",
+          keys: "e",
+          surface: "detail" as const,
+          action: () => {
+            if (canWritePerformer) setEditing((value) => !value);
+          },
+        },
+        {
+          id: "detail.favorite",
+          keys: "o",
+          surface: "detail" as const,
+          action: () => {
+            if (performer && canEngagePerformer) setPerformerFavorite(!performerFavorite);
+          },
+        },
+        {
+          id: "detail.performer.videos",
+          keys: "c",
+          surface: "detail" as const,
+          action: () => {
+            if (canReadPerformerVideos) setActiveTab("videos");
+          },
+        },
+        {
+          id: "detail.performer.galleries",
+          keys: "g",
+          surface: "detail" as const,
+          action: () => {
+            if (canReadPerformerGalleries) setActiveTab("galleries");
+          },
+        },
+      ],
+      [
+        canEngagePerformer,
+        canReadPerformerGalleries,
+        canReadPerformerVideos,
+        canWritePerformer,
+        performer,
+        performerFavorite,
+        setPerformerFavorite,
+      ],
+    ),
+  );
 
   useEffect(() => {
     if (!showOpsMenu) return;
@@ -171,7 +310,16 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   }
 
   if (performerLoadError) {
-    return <ListLoadError error={performerLoadError} onRetry={() => { void retryPerformer(); }} title="Could not load performer" className="mx-0 mt-0" />;
+    return (
+      <ListLoadError
+        error={performerLoadError}
+        onRetry={() => {
+          void retryPerformer();
+        }}
+        title="Could not load performer"
+        className="mx-0 mt-0"
+      />
+    );
   }
 
   if (!performer) {
@@ -181,7 +329,8 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const today = getUtcToday();
   const age = getPerformerAge(performer.birthdate, performer.deathDate, today);
   const deceased = hasDeathOccurred(performer.deathDate, today);
-  const performerImageUrl = performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt, 1200);
+  const performerImageUrl =
+    performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt, 1200);
   const handleCoverChanged = () => {
     queryClient.invalidateQueries({ queryKey: ["performer", performer.id] });
     queryClient.invalidateQueries({ queryKey: ["performers"] });
@@ -214,15 +363,41 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         onImageClick={canWritePerformer ? () => setCoverOpen(true) : undefined}
         imageFallbackClassName="flex h-full w-full items-center justify-center bg-gradient-to-b from-card to-surface"
         imageFallback={<UserRound className="h-20 w-20 text-muted/50" />}
-        title={<FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="name">{performer.name}</FieldProvenanceHover>}
-        subtitle={performer.disambiguation ? <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="disambiguation">{performer.disambiguation}</FieldProvenanceHover> : undefined}
-        aliases={performer.aliases.length > 0 ? <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="aliases">{performer.aliases.join(", ")}</FieldProvenanceHover> : undefined}
+        title={
+          <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="name">
+            {performer.name}
+          </FieldProvenanceHover>
+        }
+        subtitle={
+          performer.disambiguation ? (
+            <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="disambiguation">
+              {performer.disambiguation}
+            </FieldProvenanceHover>
+          ) : undefined
+        }
+        aliases={
+          performer.aliases.length > 0 ? (
+            <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="aliases">
+              {performer.aliases.join(", ")}
+            </FieldProvenanceHover>
+          ) : undefined
+        }
         favorite={performerFavorite}
         onFavoriteToggle={canEngagePerformer ? () => setPerformerFavorite(!performerFavorite) : undefined}
         counts={[
-          { key: "likes", label: "Likes", value: performer.likeCount ?? 0, icon: <ThumbsUp className={`h-4 w-4 ${(performer.likeCount ?? 0) > 0 ? "fill-accent text-accent" : ""}`} /> },
+          {
+            key: "likes",
+            label: "Likes",
+            value: performer.likeCount ?? 0,
+            icon: <ThumbsUp className={`h-4 w-4 ${(performer.likeCount ?? 0) > 0 ? "fill-accent text-accent" : ""}`} />,
+          },
           { key: "videos", label: "Videos", value: performer.videoCount, icon: <Film className="h-4 w-4" /> },
-          { key: "galleries", label: "Galleries", value: performer.galleryCount, icon: <FolderOpen className="h-4 w-4" /> },
+          {
+            key: "galleries",
+            label: "Galleries",
+            value: performer.galleryCount,
+            icon: <FolderOpen className="h-4 w-4" />,
+          },
           { key: "images", label: "Images", value: performer.imageCount, icon: <ImageIcon className="h-4 w-4" /> },
           { key: "audios", label: "Audios", value: performer.audioCount, icon: <Headphones className="h-4 w-4" /> },
           { key: "texts", label: "Texts", value: performer.textCount, icon: <FileText className="h-4 w-4" /> },
@@ -234,38 +409,170 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
             icon: ec.icon === "music" ? <Music className="h-4 w-4" /> : <Layers className="h-4 w-4" />,
           })),
         ]}
-        heroContent={(
+        heroContent={
           <>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <div className="shrink-0">
-                <InteractiveRating value={performerRating} onChange={(value) => setPerformerRating(value)} readOnly={!canEngagePerformer} />
+                <InteractiveRating
+                  value={performerRating}
+                  onChange={(value) => setPerformerRating(value)}
+                  readOnly={!canEngagePerformer}
+                />
               </div>
-              <AspectRatingsPanel hostType="performer" hostId={id} canRate={canEngagePerformer} showHeading={false} variant="inline" className="min-w-0" />
+              <AspectRatingsPanel
+                hostType="performer"
+                hostId={id}
+                canRate={canEngagePerformer}
+                showHeading={false}
+                variant="inline"
+                className="min-w-0"
+              />
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-              {performer.gender && <InfoItem icon={<UserRound className="h-4 w-4" />} label="Gender" value={performer.gender} fieldProvenance={performer.fieldProvenance} fieldKey="gender" />}
-              {performer.birthdate && (
-                <InfoItem icon={<Calendar className="h-4 w-4" />} label="Born" value={`${formatDate(performer.birthdate)}${!deceased && age != null ? ` (${age})` : ""}`} fieldProvenance={performer.fieldProvenance} fieldKey="birthdate" />
+              {performer.gender && (
+                <InfoItem
+                  icon={<UserRound className="h-4 w-4" />}
+                  label="Gender"
+                  value={performer.gender}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="gender"
+                />
               )}
-              {performer.deathDate && <InfoItem icon={<Calendar className="h-4 w-4" />} label="Died" value={`${formatDate(performer.deathDate)}${deceased && age != null ? ` (age ${age})` : ""}`} fieldProvenance={performer.fieldProvenance} fieldKey="deathDate" />}
-              {performer.country && <InfoItem icon={<MapPin className="h-4 w-4" />} label="Country" value={<CountryLabel value={performer.country} />} fieldProvenance={performer.fieldProvenance} fieldKey="country" />}
-              {performer.ethnicity && <InfoItem label="Ethnicity" value={performer.ethnicity} fieldProvenance={performer.fieldProvenance} fieldKey="ethnicity" />}
-              {performer.heightCm && <InfoItem icon={<Ruler className="h-4 w-4" />} label="Height" value={`${performer.heightCm} cm`} fieldProvenance={performer.fieldProvenance} fieldKey="height_cm" />}
-              {performer.weight && <InfoItem icon={<Scale className="h-4 w-4" />} label="Weight" value={`${performer.weight} kg`} fieldProvenance={performer.fieldProvenance} fieldKey="weight" />}
-              {performer.measurements && <InfoItem label="Measurements" value={performer.measurements} fieldProvenance={performer.fieldProvenance} fieldKey="measurements" />}
-              {performer.eyeColor && <InfoItem label="Eye Color" value={performer.eyeColor} fieldProvenance={performer.fieldProvenance} fieldKey="eye_color" />}
-              {performer.hairColor && <InfoItem label="Hair Color" value={performer.hairColor} fieldProvenance={performer.fieldProvenance} fieldKey="hair_color" />}
-              {performer.fakeTits && <InfoItem label="Fake Tits" value={performer.fakeTits} fieldProvenance={performer.fieldProvenance} fieldKey="fake_tits" />}
-              {performer.penisLength != null && <InfoItem label="Penis Length" value={`${performer.penisLength} cm`} fieldProvenance={performer.fieldProvenance} fieldKey="penis_length" />}
-              {performer.circumcised && <InfoItem label="Circumcised" value={performer.circumcised} fieldProvenance={performer.fieldProvenance} fieldKey="circumcised" />}
-              {performer.tattoos && <InfoItem label="Tattoos" value={performer.tattoos} fieldProvenance={performer.fieldProvenance} fieldKey="tattoos" />}
-              {performer.piercings && <InfoItem label="Piercings" value={performer.piercings} fieldProvenance={performer.fieldProvenance} fieldKey="piercings" />}
-              {performer.careerStart && <InfoItem label="Career" value={`${performer.careerStart}${performer.careerEnd ? ` – ${performer.careerEnd}` : " – present"}`} fieldProvenance={performer.fieldProvenance} fieldKey={["career_start", "careerStart"]} />}
+              {performer.birthdate && (
+                <InfoItem
+                  icon={<Calendar className="h-4 w-4" />}
+                  label="Born"
+                  value={`${formatDate(performer.birthdate)}${!deceased && age != null ? ` (${age})` : ""}`}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="birthdate"
+                />
+              )}
+              {performer.deathDate && (
+                <InfoItem
+                  icon={<Calendar className="h-4 w-4" />}
+                  label="Died"
+                  value={`${formatDate(performer.deathDate)}${deceased && age != null ? ` (age ${age})` : ""}`}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="deathDate"
+                />
+              )}
+              {performer.country && (
+                <InfoItem
+                  icon={<MapPin className="h-4 w-4" />}
+                  label="Country"
+                  value={<CountryLabel value={performer.country} />}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="country"
+                />
+              )}
+              {performer.ethnicity && (
+                <InfoItem
+                  label="Ethnicity"
+                  value={performer.ethnicity}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="ethnicity"
+                />
+              )}
+              {performer.heightCm && (
+                <InfoItem
+                  icon={<Ruler className="h-4 w-4" />}
+                  label="Height"
+                  value={`${performer.heightCm} cm`}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="height_cm"
+                />
+              )}
+              {performer.weight && (
+                <InfoItem
+                  icon={<Scale className="h-4 w-4" />}
+                  label="Weight"
+                  value={`${performer.weight} kg`}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="weight"
+                />
+              )}
+              {performer.measurements && (
+                <InfoItem
+                  label="Measurements"
+                  value={performer.measurements}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="measurements"
+                />
+              )}
+              {performer.eyeColor && (
+                <InfoItem
+                  label="Eye Color"
+                  value={performer.eyeColor}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="eye_color"
+                />
+              )}
+              {performer.hairColor && (
+                <InfoItem
+                  label="Hair Color"
+                  value={performer.hairColor}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="hair_color"
+                />
+              )}
+              {performer.fakeTits && (
+                <InfoItem
+                  label="Fake Tits"
+                  value={performer.fakeTits}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="fake_tits"
+                />
+              )}
+              {performer.penisLength != null && (
+                <InfoItem
+                  label="Penis Length"
+                  value={`${performer.penisLength} cm`}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="penis_length"
+                />
+              )}
+              {performer.circumcised && (
+                <InfoItem
+                  label="Circumcised"
+                  value={performer.circumcised}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="circumcised"
+                />
+              )}
+              {performer.tattoos && (
+                <InfoItem
+                  label="Tattoos"
+                  value={performer.tattoos}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="tattoos"
+                />
+              )}
+              {performer.piercings && (
+                <InfoItem
+                  label="Piercings"
+                  value={performer.piercings}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey="piercings"
+                />
+              )}
+              {performer.careerStart && (
+                <InfoItem
+                  label="Career"
+                  value={`${performer.careerStart}${performer.careerEnd ? ` – ${performer.careerEnd}` : " – present"}`}
+                  fieldProvenance={performer.fieldProvenance}
+                  fieldKey={["career_start", "careerStart"]}
+                />
+              )}
             </div>
 
-            {(performer.urls.length > 0 || performer.remoteIds.length > 0) ? (
-              <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="urls" block className="mt-4 space-y-2">
+            {performer.urls.length > 0 || performer.remoteIds.length > 0 ? (
+              <FieldProvenanceHover
+                fieldProvenance={performer.fieldProvenance}
+                fieldKey="urls"
+                block
+                className="mt-4 space-y-2"
+              >
                 <PerformerExternalLinks
                   key={id}
                   remoteIds={performer.remoteIds}
@@ -278,16 +585,28 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
             {canReadTags && performer.tags.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {performer.tags.map((tag) => (
-                  <TagBadge key={tag.id} name={tag.name} tag={tag} provenance={resolveTagProvenance(tag, performer.fieldProvenance)} onClick={() => onNavigate({ page: "tag", id: tag.id })} />
+                  <TagBadge
+                    key={tag.id}
+                    name={tag.name}
+                    tag={tag}
+                    provenance={resolveTagProvenance(tag, performer.fieldProvenance)}
+                    onClick={() => onNavigate({ page: "tag", id: tag.id })}
+                  />
                 ))}
               </div>
             ) : null}
 
-            {performer.details ? <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="details" block><NarrativeText className="mt-4 max-w-4xl text-sm leading-6 text-secondary">{performer.details}</NarrativeText></FieldProvenanceHover> : null}
+            {performer.details ? (
+              <FieldProvenanceHover fieldProvenance={performer.fieldProvenance} fieldKey="details" block>
+                <NarrativeText className="mt-4 max-w-4xl text-sm leading-6 text-secondary">
+                  {performer.details}
+                </NarrativeText>
+              </FieldProvenanceHover>
+            ) : null}
             <CustomFieldsDisplay customFields={performer.customFields} entityType="performer" />
           </>
-        )}
-        actions={(
+        }
+        actions={
           <>
             <ExtensionSlot slot="performer-detail-actions" context={{ performer, onNavigate }} />
             {canWritePerformer ? (
@@ -302,47 +621,77 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
             ) : null}
             {showPerformerOpsMenu ? (
               <div className="relative" ref={opsMenuRef}>
-                <button onClick={() => setShowOpsMenu(!showOpsMenu)} className={`${HERO_ACTION_BUTTON_CLASS} text-secondary`} title="Actions">
+                <button
+                  onClick={() => setShowOpsMenu(!showOpsMenu)}
+                  className={`${HERO_ACTION_BUTTON_CLASS} text-secondary`}
+                  title="Actions"
+                >
                   <MoreVertical className="h-4 w-4" />
                 </button>
-                <FloatingActionMenu open={showOpsMenu} anchorRef={opsMenuRef} onClose={() => setShowOpsMenu(false)} className="min-w-[160px] py-1">
-                    {canScrapePerformer ? <button onClick={() => { setScrapeOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><Search className="h-3.5 w-3.5" /> Scrape / Metadata...</button> : null}
-                    {canWritePerformer ? <button onClick={() => { setMergeOpen(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"><GitMerge className="h-3.5 w-3.5" /> Merge...</button> : null}
-                    {canDeletePerformer ? <div className="my-1 border-t border-border" /> : null}
-                    {canDeletePerformer ? <button onClick={() => { setConfirmDelete(true); setShowOpsMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-surface"><Trash2 className="h-3.5 w-3.5" /> Delete</button> : null}
+                <FloatingActionMenu
+                  open={showOpsMenu}
+                  anchorRef={opsMenuRef}
+                  onClose={() => setShowOpsMenu(false)}
+                  className="min-w-[160px] py-1"
+                >
+                  {canScrapePerformer ? (
+                    <button
+                      onClick={() => {
+                        setScrapeOpen(true);
+                        setShowOpsMenu(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"
+                    >
+                      <Search className="h-3.5 w-3.5" /> Scrape / Metadata...
+                    </button>
+                  ) : null}
+                  {canWritePerformer ? (
+                    <button
+                      onClick={() => {
+                        setMergeOpen(true);
+                        setShowOpsMenu(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface"
+                    >
+                      <GitMerge className="h-3.5 w-3.5" /> Merge...
+                    </button>
+                  ) : null}
+                  {canDeletePerformer ? <div className="my-1 border-t border-border" /> : null}
+                  {canDeletePerformer ? (
+                    <button
+                      onClick={() => {
+                        setConfirmDelete(true);
+                        setShowOpsMenu(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-surface"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </button>
+                  ) : null}
                 </FloatingActionMenu>
               </div>
             ) : null}
           </>
-        )}
+        }
       >
-        <EntityDetailTabs tabs={visiblePerformerTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-0" />
+        <EntityDetailTabs
+          tabs={visiblePerformerTabs}
+          activeTab={activeTab}
+          onTabChange={(key) => setActiveTab(key as TabKey)}
+          className="mt-0"
+        />
 
         <div className="py-6">
-          {activeTab === "videos" && (
-            <PerformerVideosPanel performerId={id} onNavigate={onNavigate} />
-          )}
-          {activeTab === "galleries" && (
-            <PerformerGalleriesPanel performerId={id} onNavigate={onNavigate} />
-          )}
-          {activeTab === "images" && (
-            <PerformerImagesPanel performerId={id} onNavigate={onNavigate} />
-          )}
-          {activeTab === "audios" && (
-            <PerformerAudiosPanel performerId={id} onNavigate={onNavigate} />
-          )}
-          {activeTab === "texts" && (
-            <PerformerTextsPanel performerId={id} onNavigate={onNavigate} />
-          )}
-          {activeTab === "groups" && (
-            <PerformerGroupsPanel performerId={id} onNavigate={onNavigate} />
-          )}
+          {activeTab === "videos" && <PerformerVideosPanel performerId={id} onNavigate={onNavigate} />}
+          {activeTab === "galleries" && <PerformerGalleriesPanel performerId={id} onNavigate={onNavigate} />}
+          {activeTab === "images" && <PerformerImagesPanel performerId={id} onNavigate={onNavigate} />}
+          {activeTab === "audios" && <PerformerAudiosPanel performerId={id} onNavigate={onNavigate} />}
+          {activeTab === "texts" && <PerformerTextsPanel performerId={id} onNavigate={onNavigate} />}
+          {activeTab === "groups" && <PerformerGroupsPanel performerId={id} onNavigate={onNavigate} />}
           {activeTab === "faces" && (
             <PerformerFacesPanel performerId={id} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
-          {activeTab === "appearsWith" && (
-            <PerformerAppearsWithPanel performerId={id} onNavigate={onNavigate} />
-          )}
+          {activeTab === "appearsWith" && <PerformerAppearsWithPanel performerId={id} onNavigate={onNavigate} />}
           {activeTab === "similar" && (
             <PerformerSimilarPanel performer={performer} canReadFaces={canReadFaces} onNavigate={onNavigate} />
           )}
@@ -364,9 +713,20 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         open={mergeOpen}
         onClose={() => setMergeOpen(false)}
         entityType="performer"
-        targetItem={{ id: performer.id, name: performer.name, imagePath: performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt), subtitle: performer.disambiguation }}
+        targetItem={{
+          id: performer.id,
+          name: performer.name,
+          imagePath: performer.imagePath || entityImages.performerImageUrl(performer.id, performer.updatedAt),
+          subtitle: performer.disambiguation,
+        }}
         searchItems={async (term) => {
-          const response = await performers.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: term || undefined });
+          const response = await performers.find({
+            page: 1,
+            perPage: 20,
+            sort: "name",
+            direction: "asc",
+            q: term || undefined,
+          });
           return response.items.map((item) => ({
             id: item.id,
             name: item.name,
@@ -378,7 +738,12 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
         invalidateQueryKeys={[["performer", id], ["performers"]]}
       />
 
-      <PerformerMetadataTaggerDialog open={scrapeOpen} onClose={() => setScrapeOpen(false)} performer={performer} onNavigate={onNavigate} />
+      <PerformerMetadataTaggerDialog
+        open={scrapeOpen}
+        onClose={() => setScrapeOpen(false)}
+        performer={performer}
+        onNavigate={onNavigate}
+      />
     </>
   );
 }
@@ -398,7 +763,15 @@ type PerformerAttributeMatch = {
   reasons: string[];
 };
 
-function PerformerSimilarPanel({ performer, canReadFaces, onNavigate }: { performer: PerformerModel; canReadFaces: boolean; onNavigate: (r: any) => void }) {
+function PerformerSimilarPanel({
+  performer,
+  canReadFaces,
+  onNavigate,
+}: {
+  performer: PerformerModel;
+  canReadFaces: boolean;
+  onNavigate: (r: any) => void;
+}) {
   return (
     <div className="space-y-6">
       <PerformerFaceSimilarityPanel performerId={performer.id} canReadFaces={canReadFaces} onNavigate={onNavigate} />
@@ -407,15 +780,22 @@ function PerformerSimilarPanel({ performer, canReadFaces, onNavigate }: { perfor
   );
 }
 
-function PerformerAttributeSimilarityPanel({ performer, onNavigate }: { performer: PerformerModel; onNavigate: (r: any) => void }) {
+function PerformerAttributeSimilarityPanel({
+  performer,
+  onNavigate,
+}: {
+  performer: PerformerModel;
+  onNavigate: (r: any) => void;
+}) {
   const attributeQueries = useMemo(() => buildPerformerAttributeQueries(performer), [performer]);
   const queryResults = useQueries({
     queries: attributeQueries.map((query) => ({
       queryKey: ["performer", performer.id, "similar-attribute", query.key, query.value],
-      queryFn: () => performers.findFiltered({
-        findFilter: { page: 1, perPage: 18, sort: "latest_video_date", direction: "desc" },
-        objectFilter: query.objectFilter,
-      }),
+      queryFn: () =>
+        performers.findFiltered({
+          findFilter: { page: 1, perPage: 18, sort: "latest_video_date", direction: "desc" },
+          objectFilter: query.objectFilter,
+        }),
       enabled: attributeQueries.length > 0,
     })),
   });
@@ -447,7 +827,12 @@ function PerformerAttributeSimilarityPanel({ performer, onNavigate }: { performe
 
     return Array.from(byPerformer.values())
       .map(({ reasonSet: _reasonSet, ...match }) => match)
-      .sort((left, right) => right.reasons.length - left.reasons.length || right.performer.videoCount - left.performer.videoCount || left.performer.name.localeCompare(right.performer.name))
+      .sort(
+        (left, right) =>
+          right.reasons.length - left.reasons.length ||
+          right.performer.videoCount - left.performer.videoCount ||
+          left.performer.name.localeCompare(right.performer.name),
+      )
       .slice(0, 12);
   }, [attributeQueries, performer.id, queryResults]);
 
@@ -457,7 +842,9 @@ function PerformerAttributeSimilarityPanel({ performer, onNavigate }: { performe
     <section className="rounded-xl border border-border bg-card p-4">
       <div>
         <h2 className="text-base font-semibold text-foreground">Similar Performers by Attributes</h2>
-        <p className="mt-1 text-sm text-secondary">Matches are grouped from shared ethnicity, hair color, measurements, height, country, and eye color.</p>
+        <p className="mt-1 text-sm text-secondary">
+          Matches are grouped from shared ethnicity, hair color, measurements, height, country, and eye color.
+        </p>
       </div>
 
       {attributeQueries.length === 0 ? (
@@ -481,8 +868,15 @@ function PerformerAttributeSimilarityPanel({ performer, onNavigate }: { performe
   );
 }
 
-function SimilarPerformerAttributeCard({ match, onNavigate }: { match: PerformerAttributeMatch; onNavigate: (r: any) => void }) {
-  const imageUrl = match.performer.imagePath || entityImages.performerImageUrl(match.performer.id, match.performer.updatedAt);
+function SimilarPerformerAttributeCard({
+  match,
+  onNavigate,
+}: {
+  match: PerformerAttributeMatch;
+  onNavigate: (r: any) => void;
+}) {
+  const imageUrl =
+    match.performer.imagePath || entityImages.performerImageUrl(match.performer.id, match.performer.updatedAt);
 
   return (
     <button
@@ -516,7 +910,12 @@ function SimilarPerformerAttributeCard({ match, onNavigate }: { match: Performer
 
 function buildPerformerAttributeQueries(performer: PerformerModel) {
   const queries: { key: string; label: string; value: string | number; objectFilter: PerformerFilterCriteria }[] = [];
-  const addString = (key: string, label: string, value: string | undefined | null, criterionKey: keyof PerformerFilterCriteria) => {
+  const addString = (
+    key: string,
+    label: string,
+    value: string | undefined | null,
+    criterionKey: keyof PerformerFilterCriteria,
+  ) => {
     const trimmed = value?.trim();
     if (!trimmed) return;
     queries.push({
@@ -551,8 +950,21 @@ function buildPerformerAttributeQueries(performer: PerformerModel) {
   return queries;
 }
 
-function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }: { performerId: number; canReadFaces: boolean; onNavigate: (r: any) => void }) {
-  const { data: linkedFacesData, isLoading: linkedFacesLoading, error: linkedFacesError, refetch: retryLinkedFaces } = useQuery({
+function PerformerFaceSimilarityPanel({
+  performerId,
+  canReadFaces,
+  onNavigate,
+}: {
+  performerId: number;
+  canReadFaces: boolean;
+  onNavigate: (r: any) => void;
+}) {
+  const {
+    data: linkedFacesData,
+    isLoading: linkedFacesLoading,
+    error: linkedFacesError,
+    refetch: retryLinkedFaces,
+  } = useQuery({
     queryKey: ["performer", performerId, "linked-faces"],
     queryFn: () => faces.performerFaces(performerId),
     enabled: canReadFaces,
@@ -609,7 +1021,10 @@ function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }:
 
     return Array.from(matches.values())
       .map(({ matchingFaceIdSet: _matchingFaceIdSet, ...candidate }) => candidate)
-      .sort((left, right) => left.bestDistance - right.bestDistance || right.matchingFaceIds.length - left.matchingFaceIds.length)
+      .sort(
+        (left, right) =>
+          left.bestDistance - right.bestDistance || right.matchingFaceIds.length - left.matchingFaceIds.length,
+      )
       .slice(0, 8);
   }, [performerId, similarFaceQueries]);
 
@@ -618,12 +1033,13 @@ function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }:
   }
 
   const similarFacesLoading = similarFaceQueries.some((query) => query.isLoading);
-  const similarFacesLoadError = similarFaceQueries
-    .map((query) => getLoadError(query.data, query.error))
-    .find((error) => error != null) ?? null;
+  const similarFacesLoadError =
+    similarFaceQueries.map((query) => getLoadError(query.data, query.error)).find((error) => error != null) ?? null;
   const retrySimilarFaces = () => {
     void retryLinkedFaces();
-    similarFaceQueries.forEach((query) => { if (query.isError) void query.refetch(); });
+    similarFaceQueries.forEach((query) => {
+      if (query.isError) void query.refetch();
+    });
   };
 
   return (
@@ -634,7 +1050,9 @@ function PerformerFaceSimilarityPanel({ performerId, canReadFaces, onNavigate }:
           <p className="mt-1 text-sm text-secondary">Visual matches derived from linked face embeddings.</p>
         </div>
         <div className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted">
-          {linkedFacesLoadError ? "Unavailable" : `${linkedFaces.length} linked face${linkedFaces.length === 1 ? "" : "s"}`}
+          {linkedFacesLoadError
+            ? "Unavailable"
+            : `${linkedFaces.length} linked face${linkedFaces.length === 1 ? "" : "s"}`}
         </div>
       </div>
 
@@ -697,7 +1115,12 @@ function SimilarPerformerFaceCard({ match, onNavigate }: { match: PerformerFaceM
       >
         <div className="h-16 w-16 overflow-hidden rounded-xl bg-surface/90">
           {match.coverImageUrl ? (
-            <img src={match.coverImageUrl} alt={match.performerName} className="h-full w-full object-cover" loading="lazy" />
+            <img
+              src={match.coverImageUrl}
+              alt={match.performerName}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-muted">
               <UserRound className="h-6 w-6" />
@@ -734,13 +1157,31 @@ const FACE_SORT_OPTIONS = [
   { value: "random", label: "Random" },
 ];
 
-function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { performerId: number; canReadFaces: boolean; onNavigate: (r: any) => void }) {
+function PerformerFacesPanel({
+  performerId,
+  canReadFaces,
+  onNavigate,
+}: {
+  performerId: number;
+  canReadFaces: boolean;
+  onNavigate: (r: any) => void;
+}) {
   const [zoomLevel, setZoomLevel] = useState(0);
   // Client-side sort over the (small) linked-face set so this tab gets the same toolbar (sort + zoom +
   // grid/list) as the other detail tabs without needing a separate paginated endpoint.
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "faces", resetKey: "performer-faces", entityType: "faces", builtInFilter: { page: 1, perPage: 200, sort: "appearances", direction: "desc" } });
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({
+    stateKey: "faces",
+    resetKey: "performer-faces",
+    entityType: "faces",
+    builtInFilter: { page: 1, perPage: 200, sort: "appearances", direction: "desc" },
+  });
   // Shares the cache key with the similarity panel's linked-faces query so switching tabs is instant.
-  const { data: linkedFacesData, isLoading, error, refetch } = useQuery({
+  const {
+    data: linkedFacesData,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["performer", performerId, "linked-faces"],
     queryFn: () => faces.performerFaces(performerId),
     enabled: canReadFaces,
@@ -756,17 +1197,31 @@ function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { perfor
     }
     return [...linkedFaces].sort((left, right) => {
       switch (key) {
-        case "videos": return dir * (left.videoCount - right.videoCount);
-        case "images": return dir * (left.imageCount - right.imageCount);
-        case "created_at": return dir * (new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
-        case "updated_at": return dir * (new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime());
-        default: return dir * (left.appearanceCount - right.appearanceCount);
+        case "videos":
+          return dir * (left.videoCount - right.videoCount);
+        case "images":
+          return dir * (left.imageCount - right.imageCount);
+        case "created_at":
+          return dir * (new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+        case "updated_at":
+          return dir * (new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime());
+        default:
+          return dir * (left.appearanceCount - right.appearanceCount);
       }
     });
   }, [linkedFaces, filter.sort, filter.direction, filter.seed]);
 
   if (!canReadFaces) return null;
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void refetch(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void refetch();
+        }}
+        className="mt-3"
+      />
+    );
 
   return (
     <div className="space-y-4">
@@ -809,8 +1264,26 @@ function PerformerFacesPanel({ performerId, canReadFaces, onNavigate }: { perfor
 const EMPTY_SELECTION = new Set<number>();
 const noop = () => {};
 
-function InfoItem({ icon, label, value, fieldProvenance, fieldKey }: { icon?: React.ReactNode; label: string; value: React.ReactNode; fieldProvenance?: FieldProvenance[]; fieldKey?: string | string[] }) {
-  const valueNode = fieldKey ? <FieldProvenanceHover fieldProvenance={fieldProvenance} fieldKey={fieldKey}>{value}</FieldProvenanceHover> : value;
+function InfoItem({
+  icon,
+  label,
+  value,
+  fieldProvenance,
+  fieldKey,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  fieldProvenance?: FieldProvenance[];
+  fieldKey?: string | string[];
+}) {
+  const valueNode = fieldKey ? (
+    <FieldProvenanceHover fieldProvenance={fieldProvenance} fieldKey={fieldKey}>
+      {value}
+    </FieldProvenanceHover>
+  ) : (
+    value
+  );
 
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -823,28 +1296,52 @@ function InfoItem({ icon, label, value, fieldProvenance, fieldKey }: { icon?: Re
   );
 }
 
-function PerformerVideosPanel({ performerId, onNavigate }: {
-  performerId: number;
-  onNavigate: (r: any) => void;
-}) {
+function PerformerVideosPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "videos", resetKey: "performer-videos", entityType: "videos", builtInFilter: { page: 1, perPage: 24, direction: "desc" }, defaultFilterKey: "videos" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "videos",
+      resetKey: "performer-videos",
+      entityType: "videos",
+      builtInFilter: { page: 1, perPage: 24, direction: "desc" },
+      defaultFilterKey: "videos",
+    });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter
-    ? videos.findFiltered({
-        findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "performersCriterion", performerId),
-      })
-    : videos.find(nextFilter, { performerIds: String(performerId) }), [hasObjectFilter, objectFilter, performerId]);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Video>({
+  const queryPage = useCallback(
+    (nextFilter: FindFilter) =>
+      hasObjectFilter
+        ? videos.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredMultiId(objectFilter as VideoFilterCriteria, "performersCriterion", performerId),
+          })
+        : videos.find(nextFilter, { performerIds: String(performerId) }),
+    [hasObjectFilter, objectFilter, performerId],
+  );
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Video>({
     queryKey: ["performer-videos", performerId, objectFilter],
     filter,
     queryFn: queryPage,
   });
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: infiniteFilterKey, objectFilter }),
+    [infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], {
+    preserveOnItemsChange: infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -856,18 +1353,87 @@ function PerformerVideosPanel({ performerId, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={VIDEO_SORT_OPTIONS} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="videos" selectedIds={selectedIds} onDone={selectNone} videoItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={VIDEO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="videos" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={VIDEO_SORT_OPTIONS}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll}
+      selectAllPending={infinitePageSize ? selectAllMatchingPending : false}
+      onSelectAllMatching={infinitePageSize ? selectAll : undefined}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="videos"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          videoItems={items}
+          onNavigate={onNavigate}
+          removeFromParent={{ type: "performer", id: performerId }}
+        />
+      }
+      criteriaDefinitions={VIDEO_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="videos"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Film className="h-10 w-10" />} message="Loading videos..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos found for this performer" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Film className="h-12 w-12" />} message="No videos found for this performer" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <ContextualVideoListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onVideoQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <ContextualVideoListView
+        items={items}
+        filter={filter}
+        totalCount={data.totalCount}
+        queryPage={queryPage}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        onVideoQuickView={setQuickViewId}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
       {quickViewId !== null && (
         <QuickViewDialog type="video" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -875,26 +1441,51 @@ function PerformerVideosPanel({ performerId, onNavigate }: {
   );
 }
 
-function PerformerGalleriesPanel({ performerId, onNavigate }: {
-  performerId: number;
-  onNavigate: (r: any) => void;
-}) {
+function PerformerGalleriesPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "galleries", resetKey: "performer-galleries", entityType: "galleries", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "galleries" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "galleries",
+      resetKey: "performer-galleries",
+      entityType: "galleries",
+      builtInFilter: { page: 1, perPage: 18, direction: "desc" },
+      defaultFilterKey: "galleries",
+    });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Gallery>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Gallery>({
     queryKey: ["performer-galleries", performerId, objectFilter],
     filter,
-    queryFn: (nextFilter) => hasObjectFilter
-      ? galleries.findFiltered({
-          findFilter: nextFilter,
-          objectFilter: withRequiredMultiId(objectFilter as GalleryFilterCriteria, "performersCriterion", performerId),
-        })
-      : galleries.find(nextFilter, { performerIds: String(performerId) }),
+    queryFn: (nextFilter) =>
+      hasObjectFilter
+        ? galleries.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredMultiId(
+              objectFilter as GalleryFilterCriteria,
+              "performersCriterion",
+              performerId,
+            ),
+          })
+        : galleries.find(nextFilter, { performerIds: String(performerId) }),
   });
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: infiniteFilterKey, objectFilter }),
+    [infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], {
+    preserveOnItemsChange: infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -906,44 +1497,133 @@ function PerformerGalleriesPanel({ performerId, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GALLERY_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="galleries" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={GALLERY_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="galleries" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={GALLERY_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll}
+      selectAllPending={infinitePageSize ? selectAllMatchingPending : false}
+      onSelectAllMatching={infinitePageSize ? selectAll : undefined}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="galleries"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          downloadItems={items}
+          removeFromParent={{ type: "performer", id: performerId }}
+        />
+      }
+      criteriaDefinitions={GALLERY_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="galleries"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<FolderOpen className="h-10 w-10" />} message="Loading galleries..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FolderOpen className="h-12 w-12" />} message="No galleries found for this performer" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<FolderOpen className="h-12 w-12" />} message="No galleries found for this performer" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="galleries" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="galleries"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function PerformerImagesPanel({ performerId, onNavigate }: {
-  performerId: number;
-  onNavigate: (r: any) => void;
-}) {
+function PerformerImagesPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "performer-images", entityType: "images", builtInFilter: { page: 1, perPage: 30, direction: "desc" }, defaultFilterKey: "images" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "images",
+      resetKey: "performer-images",
+      entityType: "images",
+      builtInFilter: { page: 1, perPage: 30, direction: "desc" },
+      defaultFilterKey: "images",
+    });
   const [quickViewId, setQuickViewId] = useState<number | null>(null);
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
   const hasObjectFilter = Object.keys(objectFilter).length > 0;
-  const queryPage = useCallback((nextFilter: FindFilter) => hasObjectFilter
-    ? images.findFiltered({
-        findFilter: nextFilter,
-        objectFilter: withRequiredMultiId(objectFilter as ImageFilterCriteria, "performersCriterion", performerId),
-      })
-    : images.find(nextFilter, { performerIds: String(performerId) }), [hasObjectFilter, objectFilter, performerId]);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Image>({
+  const queryPage = useCallback(
+    (nextFilter: FindFilter) =>
+      hasObjectFilter
+        ? images.findFiltered({
+            findFilter: nextFilter,
+            objectFilter: withRequiredMultiId(objectFilter as ImageFilterCriteria, "performersCriterion", performerId),
+          })
+        : images.find(nextFilter, { performerIds: String(performerId) }),
+    [hasObjectFilter, objectFilter, performerId],
+  );
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Image>({
     queryKey: ["performer-images", performerId, objectFilter],
     filter,
     queryFn: queryPage,
   });
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: infiniteFilterKey, objectFilter }),
+    [infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], {
+    preserveOnItemsChange: infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -955,18 +1635,88 @@ function PerformerImagesPanel({ performerId, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={IMAGE_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="images" selectedIds={selectedIds} onDone={selectNone} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={IMAGE_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="images" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={IMAGE_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll}
+      selectAllPending={infinitePageSize ? selectAllMatchingPending : false}
+      onSelectAllMatching={infinitePageSize ? selectAll : undefined}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="images"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          downloadItems={items}
+          removeFromParent={{ type: "performer", id: performerId }}
+        />
+      }
+      criteriaDefinitions={IMAGE_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="images"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<ImageIcon className="h-10 w-10" />} message="Loading images..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images found for this performer" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<ImageIcon className="h-12 w-12" />} message="No images found for this performer" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <ContextualImageListView items={items} filter={filter} totalCount={data.totalCount} queryPage={queryPage} interactionSource="performerDetailPage" interactionMeta={{ performerId }} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} onImageQuickView={setQuickViewId} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <ContextualImageListView
+        items={items}
+        filter={filter}
+        totalCount={data.totalCount}
+        queryPage={queryPage}
+        interactionSource="performerDetailPage"
+        interactionMeta={{ performerId }}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        onImageQuickView={setQuickViewId}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
       {quickViewId !== null && (
         <QuickViewDialog type="image" id={quickViewId} onClose={() => setQuickViewId(null)} onNavigate={onNavigate} />
       )}
@@ -974,23 +1724,44 @@ function PerformerImagesPanel({ performerId, onNavigate }: {
   );
 }
 
-function PerformerAudiosPanel({ performerId, onNavigate }: {
-  performerId: number;
-  onNavigate: (r: any) => void;
-}) {
+function PerformerAudiosPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "audios", resetKey: "performer-audios", entityType: "audios", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "audios" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "audios",
+      resetKey: "performer-audios",
+      entityType: "audios",
+      builtInFilter: { page: 1, perPage: 18, direction: "desc" },
+      defaultFilterKey: "audios",
+    });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Audio>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Audio>({
     queryKey: ["performer-audios", performerId, objectFilter],
     filter,
-    queryFn: (nextFilter) => audios.findFiltered({
-      findFilter: nextFilter,
-      objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "performersCriterion", performerId),
-    }),
+    queryFn: (nextFilter) =>
+      audios.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(objectFilter as AudioFilterCriteria, "performersCriterion", performerId),
+      }),
   });
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: infiniteFilterKey, objectFilter }),
+    [infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], {
+    preserveOnItemsChange: infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -1002,39 +1773,127 @@ function PerformerAudiosPanel({ performerId, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={AUDIO_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="audios" selectedIds={selectedIds} onDone={selectNone} audioItems={items} downloadItems={items} onNavigate={onNavigate} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={AUDIO_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="audios" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={AUDIO_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll}
+      selectAllPending={infinitePageSize ? selectAllMatchingPending : false}
+      onSelectAllMatching={infinitePageSize ? selectAll : undefined}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="audios"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          audioItems={items}
+          downloadItems={items}
+          onNavigate={onNavigate}
+          removeFromParent={{ type: "performer", id: performerId }}
+        />
+      }
+      criteriaDefinitions={AUDIO_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="audios"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Headphones className="h-10 w-10" />} message="Loading audios..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Headphones className="h-12 w-12" />} message="No audios found for this performer" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Headphones className="h-12 w-12" />} message="No audios found for this performer" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="audios" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="audios"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function PerformerTextsPanel({ performerId, onNavigate }: {
-  performerId: number;
-  onNavigate: (r: any) => void;
-}) {
+function PerformerTextsPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "texts", resetKey: "performer-texts", entityType: "texts", builtInFilter: { page: 1, perPage: 18, direction: "desc" }, defaultFilterKey: "texts" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "texts",
+      resetKey: "performer-texts",
+      entityType: "texts",
+      builtInFilter: { page: 1, perPage: 18, direction: "desc" },
+      defaultFilterKey: "texts",
+    });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<TextDocument>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<TextDocument>({
     queryKey: ["performer-texts", performerId, objectFilter],
     filter,
-    queryFn: (nextFilter) => texts.findFiltered({
-      findFilter: nextFilter,
-      objectFilter: withRequiredMultiId(objectFilter as TextFilterCriteria, "performersCriterion", performerId),
-    }),
+    queryFn: (nextFilter) =>
+      texts.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(objectFilter as TextFilterCriteria, "performersCriterion", performerId),
+      }),
   });
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: infiniteFilterKey, objectFilter }),
+    [infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], {
+    preserveOnItemsChange: infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -1046,39 +1905,126 @@ function PerformerTextsPanel({ performerId, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={TEXT_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="texts" selectedIds={selectedIds} onDone={selectNone} textItems={items} downloadItems={items} removeFromParent={{ type: "performer", id: performerId }} />} criteriaDefinitions={TEXT_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="texts" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={TEXT_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll}
+      selectAllPending={infinitePageSize ? selectAllMatchingPending : false}
+      onSelectAllMatching={infinitePageSize ? selectAll : undefined}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={
+        <BulkSelectionActions
+          entityType="texts"
+          selectedIds={selectedIds}
+          onDone={selectNone}
+          textItems={items}
+          downloadItems={items}
+          removeFromParent={{ type: "performer", id: performerId }}
+        />
+      }
+      criteriaDefinitions={TEXT_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="texts"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<FileText className="h-10 w-10" />} message="Loading texts..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<FileText className="h-12 w-12" />} message="No texts found for this performer" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<FileText className="h-12 w-12" />} message="No texts found for this performer" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="texts" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="texts"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function PerformerGroupsPanel({ performerId, onNavigate }: {
-  performerId: number;
-  onNavigate: (r: any) => void;
-}) {
+function PerformerGroupsPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "groups", resetKey: "performer-groups", entityType: "groups", builtInFilter: { page: 1, perPage: 18, direction: "asc" }, defaultFilterKey: "groups" });
+  const { filter, setFilter, objectFilter, setObjectFilter, displayMode, setDisplayMode, availableDisplayModes } =
+    useRelatedDetailListUrlState({
+      stateKey: "groups",
+      resetKey: "performer-groups",
+      entityType: "groups",
+      builtInFilter: { page: 1, perPage: 18, direction: "asc" },
+      defaultFilterKey: "groups",
+    });
   const [selectAllMatchingPending, setSelectAllMatchingPending] = useState(false);
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<Group>({
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<Group>({
     queryKey: ["performer-groups", performerId, objectFilter],
     filter,
-    queryFn: (nextFilter) => groups.findFiltered({
-      findFilter: nextFilter,
-      objectFilter: withRequiredMultiId(objectFilter as GroupFilterCriteria, "performersCriterion", performerId),
-    }),
+    queryFn: (nextFilter) =>
+      groups.findFiltered({
+        findFilter: nextFilter,
+        objectFilter: withRequiredMultiId(objectFilter as GroupFilterCriteria, "performersCriterion", performerId),
+      }),
   });
-  const selectionResetKey = useMemo(() => JSON.stringify({ filter: infiniteFilterKey, objectFilter }), [infiniteFilterKey, objectFilter]);
-  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], { preserveOnItemsChange: infinitePageSize, resetKey: selectionResetKey });
+  const selectionResetKey = useMemo(
+    () => JSON.stringify({ filter: infiniteFilterKey, objectFilter }),
+    [infiniteFilterKey, objectFilter],
+  );
+  const { selectedIds, toggle, selectAll, selectIds, selectNone } = useMultiSelect(data?.items ?? [], {
+    preserveOnItemsChange: infinitePageSize,
+    resetKey: selectionResetKey,
+  });
   const selecting = selectedIds.size > 0;
   const items = data?.items ?? [];
   const handleSelectAllMatching = async () => {
@@ -1090,47 +2036,179 @@ function PerformerGroupsPanel({ performerId, onNavigate }: {
     }
   };
   const toolbar = (
-    <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={GROUP_SORT} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll} selectAllPending={infinitePageSize ? selectAllMatchingPending : false} onSelectAllMatching={infinitePageSize ? selectAll : undefined} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />} criteriaDefinitions={GROUP_CRITERIA} objectFilter={objectFilter} onObjectFilterChange={setObjectFilter} filterMode="groups" defaultFilterResolved allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={GROUP_SORT}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={infinitePageSize ? handleSelectAllMatching : selectAll}
+      selectAllPending={infinitePageSize ? selectAllMatchingPending : false}
+      onSelectAllMatching={infinitePageSize ? selectAll : undefined}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={<BulkSelectionActions entityType="groups" selectedIds={selectedIds} onDone={selectNone} />}
+      criteriaDefinitions={GROUP_CRITERIA}
+      objectFilter={objectFilter}
+      onObjectFilterChange={setObjectFilter}
+      filterMode="groups"
+      defaultFilterResolved
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
   );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Layers className="h-10 w-10" />} message="Loading groups..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Layers className="h-12 w-12" />} message="No groups for this performer" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Layers className="h-12 w-12" />} message="No groups for this performer" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="groups" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="groups"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }
 
-function PerformerAppearsWithPanel({ performerId, onNavigate }: {
-  performerId: number;
-  onNavigate: (r: any) => void;
-}) {
+function PerformerAppearsWithPanel({ performerId, onNavigate }: { performerId: number; onNavigate: (r: any) => void }) {
   const [zoomLevel, setZoomLevel] = useState(0);
-  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({ stateKey: "appearsWith", resetKey: "performer-appears-with", entityType: "performers", builtInFilter: { page: 1, perPage: 18, direction: "asc" } });
-  const { data, isLoading, loadError, retry, infinitePageSize, infiniteQuery, infiniteFilterKey, fetchAllIds, loadMore } = useDetailListQuery<PerformerModel>({
+  const { filter, setFilter, displayMode, setDisplayMode, availableDisplayModes } = useRelatedDetailListUrlState({
+    stateKey: "appearsWith",
+    resetKey: "performer-appears-with",
+    entityType: "performers",
+    builtInFilter: { page: 1, perPage: 18, direction: "asc" },
+  });
+  const {
+    data,
+    isLoading,
+    loadError,
+    retry,
+    infinitePageSize,
+    infiniteQuery,
+    infiniteFilterKey,
+    fetchAllIds,
+    loadMore,
+  } = useDetailListQuery<PerformerModel>({
     queryKey: ["performer-appears-with", performerId, filter],
     filter,
     queryFn: (nextFilter) => performers.appearsWith(performerId, nextFilter),
   });
   const items = data?.items ?? [];
-  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({ items, infinitePageSize, infiniteFilterKey, fetchAllIds });
+  const { selectedIds, toggle, selectAll, selectAllPending, selectShown, selectNone } = useDetailListSelection({
+    items,
+    infinitePageSize,
+    infiniteFilterKey,
+    fetchAllIds,
+  });
   const selecting = selectedIds.size > 0;
-  const toolbar = <DetailListToolbar filter={filter} onFilterChange={setFilter} totalCount={data?.totalCount ?? 0} sortOptions={[{ value: "co_video_count", label: "Shared Videos" }, { value: "name", label: "Name" }, { value: "random", label: "Random" }]} zoomLevel={zoomLevel} onZoomChange={setZoomLevel} showSearch selectedCount={selectedIds.size} onSelectAll={selectAll} selectAllPending={selectAllPending} onSelectAllMatching={selectShown} selectAllMatchingLabel="Select shown" onSelectNone={selectNone} selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />} allowInfinitePageSize displayMode={displayMode} onDisplayModeChange={setDisplayMode} availableDisplayModes={availableDisplayModes} />;
+  const toolbar = (
+    <DetailListToolbar
+      filter={filter}
+      onFilterChange={setFilter}
+      totalCount={data?.totalCount ?? 0}
+      sortOptions={[
+        { value: "co_video_count", label: "Shared Videos" },
+        { value: "name", label: "Name" },
+        { value: "random", label: "Random" },
+      ]}
+      zoomLevel={zoomLevel}
+      onZoomChange={setZoomLevel}
+      showSearch
+      selectedCount={selectedIds.size}
+      onSelectAll={selectAll}
+      selectAllPending={selectAllPending}
+      onSelectAllMatching={selectShown}
+      selectAllMatchingLabel="Select shown"
+      onSelectNone={selectNone}
+      selectionActions={<BulkSelectionActions entityType="performers" selectedIds={selectedIds} onDone={selectNone} />}
+      allowInfinitePageSize
+      displayMode={displayMode}
+      onDisplayModeChange={setDisplayMode}
+      availableDisplayModes={availableDisplayModes}
+    />
+  );
 
-  if (loadError) return <ListLoadError error={loadError} onRetry={() => { void retry(); }} className="mt-3" />;
+  if (loadError)
+    return (
+      <ListLoadError
+        error={loadError}
+        onRetry={() => {
+          void retry();
+        }}
+        className="mt-3"
+      />
+    );
   if (isLoading) return <LoadingPanel icon={<Users className="h-10 w-10" />} message="Loading co-stars..." />;
-  if (!data || items.length === 0) return <>{toolbar}<EmptyPanel icon={<Users className="h-12 w-12" />} message="No co-stars found" /></>;
+  if (!data || items.length === 0)
+    return (
+      <>
+        {toolbar}
+        <EmptyPanel icon={<Users className="h-12 w-12" />} message="No co-stars found" />
+      </>
+    );
 
   return (
     <>
       {toolbar}
-      <RelatedEntityListView entityType="performers" items={items} displayMode={displayMode} zoomLevel={zoomLevel} selectedIds={selectedIds} selecting={selecting} onToggle={toggle} onNavigate={onNavigate} infinitePageSize={infinitePageSize} hasNextPage={infiniteQuery.hasNextPage} isFetchingNextPage={infiniteQuery.isFetchingNextPage} loadMore={loadMore} />
-      <DetailListPagination filter={filter} onFilterChange={setFilter} totalCount={data.totalCount} allowInfinitePageSize />
+      <RelatedEntityListView
+        entityType="performers"
+        items={items}
+        displayMode={displayMode}
+        zoomLevel={zoomLevel}
+        selectedIds={selectedIds}
+        selecting={selecting}
+        onToggle={toggle}
+        onNavigate={onNavigate}
+        infinitePageSize={infinitePageSize}
+        hasNextPage={infiniteQuery.hasNextPage}
+        isFetchingNextPage={infiniteQuery.isFetchingNextPage}
+        loadMore={loadMore}
+      />
+      <DetailListPagination
+        filter={filter}
+        onFilterChange={setFilter}
+        totalCount={data.totalCount}
+        allowInfinitePageSize
+      />
     </>
   );
 }

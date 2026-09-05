@@ -65,9 +65,7 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
               <label
                 key={item.id}
                 className={`flex items-center gap-3 p-3 rounded cursor-pointer border transition-all ${
-                  targetId === item.id
-                    ? "border-accent bg-accent/10"
-                    : "border-border hover:border-border"
+                  targetId === item.id ? "border-accent bg-accent/10" : "border-border hover:border-border"
                 }`}
               >
                 <input
@@ -77,22 +75,16 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
                   onChange={() => setTargetId(item.id)}
                   className="accent-accent"
                 />
-                {item.imagePath && (
-                  <img src={item.imagePath} alt="" className="w-8 h-8 rounded object-cover" />
-                )}
+                {item.imagePath && <img src={item.imagePath} alt="" className="w-8 h-8 rounded object-cover" />}
                 <span className="text-sm flex-1">{item.name}</span>
-                {targetId === item.id && (
-                  <span className="text-xs text-accent font-medium">Destination</span>
-                )}
+                {targetId === item.id && <span className="text-xs text-accent font-medium">Destination</span>}
               </label>
             ))}
           </div>
 
           {target && sources.length > 0 && (
             <div className="bg-card/50 rounded p-3 text-sm text-secondary">
-              <div className="flex items-center gap-2 mb-2 text-xs text-secondary font-medium">
-                Summary
-              </div>
+              <div className="flex items-center gap-2 mb-2 text-xs text-secondary font-medium">Summary</div>
               <div className="flex items-center gap-2 flex-wrap">
                 {sources.map((s, i) => (
                   <span key={s.id}>
@@ -106,16 +98,11 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
             </div>
           )}
 
-          {mutation.isError && (
-            <p className="text-sm text-red-400">{getApiValidationFailureDetail(mutation.error)}</p>
-          )}
+          {mutation.isError && <p className="text-sm text-red-400">{getApiValidationFailureDetail(mutation.error)}</p>}
         </div>
 
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-secondary hover:text-white rounded"
-          >
+          <button onClick={onClose} className="px-4 py-2 text-sm text-secondary hover:text-white rounded">
             Cancel
           </button>
           <button
@@ -123,11 +110,7 @@ export function MergeDialog({ open, onClose, entityType, items, onMerge, queryKe
             disabled={mutation.isPending || !targetId}
             className="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded flex items-center gap-2 disabled:opacity-50"
           >
-            {mutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Merge className="w-4 h-4" />
-            )}
+            {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Merge className="w-4 h-4" />}
             Merge
           </button>
         </div>

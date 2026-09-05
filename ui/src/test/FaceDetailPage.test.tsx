@@ -83,20 +83,18 @@ describe("FaceDetailPage", () => {
   });
 
   it("shows a retryable load error and recovers", async () => {
-    mockFaces.get
-      .mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404"))
-      .mockResolvedValueOnce({
-        id: 7,
-        label: "Recovered face",
-        ignored: false,
-        detectionCount: 0,
-        videoCount: 0,
-        appearanceCount: 0,
-        frameSampleCount: 0,
-        imageCount: 0,
-        createdAt: "2026-04-01T12:00:00Z",
-        updatedAt: "2026-04-02T12:00:00Z",
-      });
+    mockFaces.get.mockRejectedValueOnce(new Error("API Error 502: upstream API Error 404")).mockResolvedValueOnce({
+      id: 7,
+      label: "Recovered face",
+      ignored: false,
+      detectionCount: 0,
+      videoCount: 0,
+      appearanceCount: 0,
+      frameSampleCount: 0,
+      imageCount: 0,
+      createdAt: "2026-04-01T12:00:00Z",
+      updatedAt: "2026-04-02T12:00:00Z",
+    });
     mockFaces.similar.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 18 });
     mockFaces.detections.mockResolvedValue([]);
     mockFaces.appearances.mockResolvedValue({ items: [], totalCount: 0, page: 1, perPage: 24 });

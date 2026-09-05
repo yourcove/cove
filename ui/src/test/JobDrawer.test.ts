@@ -20,16 +20,13 @@ function job(status: JobInfo["status"], id: string = status): JobInfo {
 }
 
 describe("bulk deletion job cache invalidation", () => {
-  it.each(["completed", "failed", "cancelled"] as const)(
-    "invalidates content for a %s bulk deletion",
-    (status) => {
-      const queryClient = new QueryClient();
-      const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+  it.each(["completed", "failed", "cancelled"] as const)("invalidates content for a %s bulk deletion", (status) => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
-      expect(invalidateContentForTerminalJob(queryClient, job(status))).toBe(true);
-      expect(invalidate).toHaveBeenCalledWith();
-    },
-  );
+    expect(invalidateContentForTerminalJob(queryClient, job(status))).toBe(true);
+    expect(invalidate).toHaveBeenCalledWith();
+  });
 
   it("detects a terminal job first observed by history polling after reconnect", () => {
     const seen = new Set<string>();

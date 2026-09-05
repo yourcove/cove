@@ -2,13 +2,7 @@ import type { FindFilter, SortClause } from "../api/types";
 
 export const MAX_SORT_CLAUSES = 5;
 
-const ASCENDING_DEFAULT_SORTS = new Set([
-  "code",
-  "path",
-  "studio",
-  "studio_code",
-  "title",
-]);
+const ASCENDING_DEFAULT_SORTS = new Set(["code", "path", "studio", "studio_code", "title"]);
 
 export function defaultSortDirection(key: string): SortClause["direction"] {
   return ASCENDING_DEFAULT_SORTS.has(key) ? "asc" : "desc";
@@ -63,14 +57,16 @@ export function withSortClauses(filter: FindFilter, clauses: SortClause[]): Find
 export function parseSortClauses(value: string | null | undefined): SortClause[] {
   if (!value) return [];
 
-  return normalizeSortClauses(value.split(",").flatMap((part) => {
-    const separator = part.lastIndexOf(":");
-    if (separator <= 0) return [];
-    const key = part.slice(0, separator).trim();
-    const direction = part.slice(separator + 1).trim();
-    if (direction !== "asc" && direction !== "desc") return [];
-    return [{ key, direction }];
-  }));
+  return normalizeSortClauses(
+    value.split(",").flatMap((part) => {
+      const separator = part.lastIndexOf(":");
+      if (separator <= 0) return [];
+      const key = part.slice(0, separator).trim();
+      const direction = part.slice(separator + 1).trim();
+      if (direction !== "asc" && direction !== "desc") return [];
+      return [{ key, direction }];
+    }),
+  );
 }
 
 export function serializeSortClauses(clauses: SortClause[]): string {

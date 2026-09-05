@@ -47,7 +47,11 @@ function getDefaultTitle(sourceUrl: string, fallback?: string) {
   try {
     const parsed = new URL(sourceUrl);
     const segment = parsed.pathname.split("/").filter(Boolean).at(-1);
-    return segment ? decodeURIComponent(segment).replace(/[._-]+/g, " ").trim() : parsed.hostname;
+    return segment
+      ? decodeURIComponent(segment)
+          .replace(/[._-]+/g, " ")
+          .trim()
+      : parsed.hostname;
   } catch {
     return sourceUrl;
   }
@@ -80,7 +84,17 @@ function saveSourceDownloadPreferences(entity: SourceDownloadEntity, preferences
   localStorage.setItem(getPreferencesKey(entity), JSON.stringify(preferences));
 }
 
-export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTitle, metadata, autoApplyMetadata = false, onClose, onQueued }: Props) {
+export function SourceDownloadDialog({
+  open,
+  entity,
+  sourceUrl,
+  matches,
+  baseTitle,
+  metadata,
+  autoApplyMetadata = false,
+  onClose,
+  onQueued,
+}: Props) {
   const [selectedIndexes, setSelectedIndexes] = useState<Set<number>>(new Set());
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
@@ -89,18 +103,23 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
   const [parentGroupSearch, setParentGroupSearch] = useState("");
   const [containerTitle, setContainerTitle] = useState("");
   const [allowDuplicateDownloads, setAllowDuplicateDownloads] = useState(false);
-  const resolvedBaseTitle = useMemo(() => getDefaultTitle(sourceUrl, baseTitle || metadata?.title), [baseTitle, metadata?.title, sourceUrl]);
+  const resolvedBaseTitle = useMemo(
+    () => getDefaultTitle(sourceUrl, baseTitle || metadata?.title),
+    [baseTitle, metadata?.title, sourceUrl],
+  );
 
   const groupOptionsQuery = useQuery({
     queryKey: ["source-download-groups", entity, groupSearch],
     enabled: open && groupMode === "existing",
-    queryFn: () => groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: groupSearch.trim() || undefined }),
+    queryFn: () =>
+      groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: groupSearch.trim() || undefined }),
   });
 
   const parentGroupOptionsQuery = useQuery({
     queryKey: ["source-download-parent-groups", entity, parentGroupSearch],
     enabled: open && groupMode === "create",
-    queryFn: () => groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: parentGroupSearch.trim() || undefined }),
+    queryFn: () =>
+      groups.find({ page: 1, perPage: 20, sort: "name", direction: "asc", q: parentGroupSearch.trim() || undefined }),
   });
 
   useEffect(() => {
@@ -218,7 +237,12 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
             </h2>
             <p className="mt-0.5 max-w-2xl truncate text-xs text-secondary">{sourceUrl}</p>
           </div>
-          <button type="button" onClick={onClose} className="text-muted hover:text-foreground" aria-label="Close download dialog">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted hover:text-foreground"
+            aria-label="Close download dialog"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -229,7 +253,11 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
               <label className="text-sm font-medium text-foreground">Items</label>
               <button
                 type="button"
-                onClick={() => setSelectedIndexes(selectedIndexes.size === matches.length ? new Set() : new Set(matches.map((_, index) => index)))}
+                onClick={() =>
+                  setSelectedIndexes(
+                    selectedIndexes.size === matches.length ? new Set() : new Set(matches.map((_, index) => index)),
+                  )
+                }
                 className="text-xs text-accent hover:text-accent-hover"
               >
                 {selectedIndexes.size === matches.length ? "Clear" : "Select all"}
@@ -247,12 +275,16 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
                       selected ? "border-accent bg-accent/10" : "border-border bg-card hover:border-accent/40"
                     }`}
                   >
-                    <span className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${selected ? "border-accent bg-accent text-white" : "border-border text-transparent"}`}>
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${selected ? "border-accent bg-accent text-white" : "border-border text-transparent"}`}
+                    >
                       <Check className="h-3.5 w-3.5" />
                     </span>
                     {getEntityIcon(entity)}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">{getMatchTitle(match, resolvedBaseTitle, entity, index)}</span>
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {getMatchTitle(match, resolvedBaseTitle, entity, index)}
+                      </span>
                       <span className="block text-xs text-secondary">{match.downloaderName}</span>
                       <span className="mt-1 block truncate text-xs text-muted">{match.normalizedUrl || sourceUrl}</span>
                     </span>
@@ -268,9 +300,21 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
                 <Layers3 className="h-4 w-4 text-muted" /> Group
               </div>
               <div className="inline-grid w-full grid-cols-3 gap-1 rounded-lg border border-border bg-surface p-1 sm:w-auto sm:min-w-[24rem]">
-                <ContainerModeButton label="None" selected={groupMode === "none"} onClick={() => setGroupMode("none")} />
-                <ContainerModeButton label="Existing" selected={groupMode === "existing"} onClick={() => setGroupMode("existing")} />
-                <ContainerModeButton label="Create" selected={groupMode === "create"} onClick={() => setGroupMode("create")} />
+                <ContainerModeButton
+                  label="None"
+                  selected={groupMode === "none"}
+                  onClick={() => setGroupMode("none")}
+                />
+                <ContainerModeButton
+                  label="Existing"
+                  selected={groupMode === "existing"}
+                  onClick={() => setGroupMode("existing")}
+                />
+                <ContainerModeButton
+                  label="Create"
+                  selected={groupMode === "create"}
+                  onClick={() => setGroupMode("create")}
+                />
               </div>
 
               {groupMode === "existing" ? (
@@ -301,7 +345,9 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
                     value={parentGroupId}
                     search={parentGroupSearch}
                     onSearchChange={setParentGroupSearch}
-                    items={parentGroupOptionsQuery.data?.items.map((group) => ({ id: group.id, label: group.name })) ?? []}
+                    items={
+                      parentGroupOptionsQuery.data?.items.map((group) => ({ id: group.id, label: group.name })) ?? []
+                    }
                     onSelect={setParentGroupId}
                     allowNone
                   />
@@ -330,7 +376,11 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
         <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
           <div className="text-xs text-muted">{selectedMatches.length} selected</div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-secondary hover:text-foreground">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm text-secondary hover:text-foreground"
+            >
               Cancel
             </button>
             <button
@@ -339,7 +389,11 @@ export function SourceDownloadDialog({ open, entity, sourceUrl, matches, baseTit
               disabled={!hasSelection || queueMutation.isPending}
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
             >
-              {queueMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {queueMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
               Queue Selected
             </button>
           </div>
@@ -361,7 +415,23 @@ function ContainerModeButton({ label, selected, onClick }: { label: string; sele
   );
 }
 
-function EntityPicker({ label, value, search, onSearchChange, items, onSelect, allowNone = false }: { label: string; value: number | null; search: string; onSearchChange: (value: string) => void; items: { id: number; label: string }[]; onSelect: (id: number | null) => void; allowNone?: boolean }) {
+function EntityPicker({
+  label,
+  value,
+  search,
+  onSearchChange,
+  items,
+  onSelect,
+  allowNone = false,
+}: {
+  label: string;
+  value: number | null;
+  search: string;
+  onSearchChange: (value: string) => void;
+  items: { id: number; label: string }[];
+  onSelect: (id: number | null) => void;
+  allowNone?: boolean;
+}) {
   const selected = items.find((item) => item.id === value);
   return (
     <div className="space-y-2 text-sm">
@@ -377,12 +447,21 @@ function EntityPicker({ label, value, search, onSearchChange, items, onSelect, a
       {selected ? <div className="text-xs text-secondary">Selected: {selected.label}</div> : null}
       <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-card">
         {allowNone ? (
-          <button type="button" onClick={() => onSelect(null)} className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value == null ? "text-accent" : "text-foreground"}`}>
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value == null ? "text-accent" : "text-foreground"}`}
+          >
             None
           </button>
         ) : null}
         {items.map((item) => (
-          <button key={item.id} type="button" onClick={() => onSelect(item.id)} className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value === item.id ? "text-accent" : "text-foreground"}`}>
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onSelect(item.id)}
+            className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface ${value === item.id ? "text-accent" : "text-foreground"}`}
+          >
             {item.label}
           </button>
         ))}

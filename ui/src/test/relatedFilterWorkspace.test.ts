@@ -6,13 +6,7 @@ describe("related filter workspace helpers", () => {
     expect(parseSavedFilterObject('{"q":"alpha","page":2}')).toEqual({ q: "alpha", page: 2 });
   });
 
-  it.each([
-    undefined,
-    "",
-    "not json",
-    "[]",
-    "null",
-  ])("treats non-object saved-filter input as empty", (value) => {
+  it.each([undefined, "", "not json", "[]", "null"])("treats non-object saved-filter input as empty", (value) => {
     expect(parseSavedFilterObject(value)).toEqual({});
   });
 });

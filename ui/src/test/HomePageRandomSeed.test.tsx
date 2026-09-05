@@ -38,7 +38,13 @@ const { mockHomePageContent, mocks } = vi.hoisted(() => {
       groupItemsList: vi.fn(async () => []),
       groupItemsPage: vi.fn(async () => ({ ...emptyPage, page: 1, perPage: 12 })),
       savedFiltersGet: vi.fn(),
-      dashboardWidgets: [] as Array<{ instanceId: string; owner: string; widgetKey: string; label: string; configuration: unknown }>,
+      dashboardWidgets: [] as Array<{
+        instanceId: string;
+        owner: string;
+        widgetKey: string;
+        label: string;
+        configuration: unknown;
+      }>,
     },
   };
 });
@@ -60,7 +66,11 @@ vi.mock("../api/client", () => ({
     findFiltered: mocks.groupsFindFiltered,
     items: { list: mocks.groupItemsList, page: mocks.groupItemsPage },
   },
-  audios: { find: mocks.audiosFind, findFiltered: mocks.audiosFindFiltered, streamUrl: (id: number) => `/api/audios/${id}/stream` },
+  audios: {
+    find: mocks.audiosFind,
+    findFiltered: mocks.audiosFindFiltered,
+    streamUrl: (id: number) => `/api/audios/${id}/stream`,
+  },
   texts: { find: mocks.textsFind, findFiltered: mocks.textsFindFiltered },
   faces: { list: vi.fn(async () => ({ items: [], totalCount: 0 })) },
   segmentSpans: { search: mocks.segmentSpansSearch },
@@ -72,7 +82,15 @@ vi.mock("../api/client", () => ({
       return { id: 1, name: "Home", isDefault: true, version: 1, createdAt: "", updatedAt: "", widgets };
     }),
     list: vi.fn(async () => [{ id: 1, name: "Home", isDefault: true, version: 1, createdAt: "", updatedAt: "" }]),
-    get: vi.fn(async () => ({ id: 1, name: "Home", isDefault: true, version: 1, createdAt: "", updatedAt: "", widgets: mocks.dashboardWidgets })),
+    get: vi.fn(async () => ({
+      id: 1,
+      name: "Home",
+      isDefault: true,
+      version: 1,
+      createdAt: "",
+      updatedAt: "",
+      widgets: mocks.dashboardWidgets,
+    })),
   },
 }));
 
@@ -132,12 +150,14 @@ describe("HomePage random rows", () => {
     renderHomePage();
 
     await waitFor(() => {
-      expect(mocks.videosFind).toHaveBeenCalledWith(expect.objectContaining({
-        perPage: 25,
-        sort: "random",
-        direction: "asc",
-        seed: expectedSeed,
-      }));
+      expect(mocks.videosFind).toHaveBeenCalledWith(
+        expect.objectContaining({
+          perPage: 25,
+          sort: "random",
+          direction: "asc",
+          seed: expectedSeed,
+        }),
+      );
     });
   });
 
@@ -238,13 +258,15 @@ describe("HomePage random rows", () => {
     renderHomePage();
 
     await waitFor(() => {
-      expect(mocks.videosFind).toHaveBeenCalledWith(expect.objectContaining({
-        page: 1,
-        perPage: 25,
-        sort: "random",
-        direction: "desc",
-        seed: expectedSeed,
-      }));
+      expect(mocks.videosFind).toHaveBeenCalledWith(
+        expect.objectContaining({
+          page: 1,
+          perPage: 25,
+          sort: "random",
+          direction: "desc",
+          seed: expectedSeed,
+        }),
+      );
     });
   });
 
@@ -349,8 +371,18 @@ describe("HomePage random rows", () => {
   });
 
   it.each([
-    { mode: "audios", name: "Saved Audio", find: mocks.audiosFindFiltered, item: { id: 201, title: "Audio result", files: [], tracks: [], performers: [], tags: [], groups: [] } },
-    { mode: "texts", name: "Saved Text", find: mocks.textsFindFiltered, item: { id: 202, title: "Text result", files: [], performers: [], tags: [], groups: [] } },
+    {
+      mode: "audios",
+      name: "Saved Audio",
+      find: mocks.audiosFindFiltered,
+      item: { id: 201, title: "Audio result", files: [], tracks: [], performers: [], tags: [], groups: [] },
+    },
+    {
+      mode: "texts",
+      name: "Saved Text",
+      find: mocks.textsFindFiltered,
+      item: { id: 202, title: "Text result", files: [], performers: [], tags: [], groups: [] },
+    },
   ])("renders filtered $mode rows and restores their saved list state", async ({ mode, name, find, item }) => {
     const onNavigate = vi.fn();
     mockHomePageContent.value = JSON.stringify([{ type: "saved", savedFilterId: 10 }]);
@@ -367,7 +399,10 @@ describe("HomePage random rows", () => {
     renderHomePage(onNavigate);
 
     expect(await screen.findByText(name)).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: `${mode === "audios" ? "Audio" : "Text"} result` })).toHaveAttribute("href", mode === "audios" ? "/audio/201" : "/text/202");
+    expect(await screen.findByRole("link", { name: `${mode === "audios" ? "Audio" : "Text"} result` })).toHaveAttribute(
+      "href",
+      mode === "audios" ? "/audio/201" : "/text/202",
+    );
     expect(find).toHaveBeenCalledWith({
       findFilter: expect.objectContaining({ q: "saved", page: 1, perPage: 25, sort: "date", direction: "asc" }),
       objectFilter: { organizedCriterion: { modifier: "EQUALS", value: true } },
@@ -397,7 +432,14 @@ describe("HomePage random rows", () => {
       uiOptions: JSON.stringify({ displayMode: "list", profileId: 7 }),
     });
     mocks.segmentSpansSearch.mockResolvedValueOnce({
-      items: [{ videoId: 21, videoTitle: "Video result", profileId: 7, span: { spanKey: "span-1", startSec: 2, endSec: 8, segmentIds: [31], tagName: "Span result" } }],
+      items: [
+        {
+          videoId: 21,
+          videoTitle: "Video result",
+          profileId: 7,
+          span: { spanKey: "span-1", startSec: 2, endSec: 8, segmentIds: [31], tagName: "Span result" },
+        },
+      ],
       totalCount: 1,
       hasMore: false,
       page: 1,
@@ -407,19 +449,29 @@ describe("HomePage random rows", () => {
     renderHomePage(onNavigate);
 
     expect(await screen.findByText("Saved Spans")).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: /Span result/ })).toHaveAttribute("href", expect.stringContaining("/video/21/span/span-1"));
-    expect(mocks.segmentSpansSearch).toHaveBeenCalledWith(expect.objectContaining({
-      profile: 7,
-      q: "span",
-      kind: "chapter",
-      page: 1,
-      perPage: 25,
-      videoTagIds: [4],
-      videoTagDepth: -1,
-      derivedQuery: expect.objectContaining({ operator: "intersection", operands: [expect.objectContaining({ tagIds: [9] })] }),
-    }));
+    expect(await screen.findByRole("link", { name: /Span result/ })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/video/21/span/span-1"),
+    );
+    expect(mocks.segmentSpansSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: 7,
+        q: "span",
+        kind: "chapter",
+        page: 1,
+        perPage: 25,
+        videoTagIds: [4],
+        videoTagDepth: -1,
+        derivedQuery: expect.objectContaining({
+          operator: "intersection",
+          operands: [expect.objectContaining({ tagIds: [9] })],
+        }),
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "View All" }));
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ page: "segments", profileId: 7, listView: "list" }));
+    expect(onNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({ page: "segments", profileId: 7, listView: "list" }),
+    );
   });
 
   it("loads raw segments and opens View All in raw mode", async () => {
@@ -445,7 +497,17 @@ describe("HomePage random rows", () => {
 
     expect(await screen.findByText("Saved Raw Segments")).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: /Raw result/ })).toHaveAttribute("href", "/segment/32");
-    expect(mocks.segmentLibraryList).toHaveBeenCalledWith(expect.objectContaining({ tagIds: "5", tagDepth: -1, page: 1, perPage: 25, sort: "random", direction: "asc", seed: expect.any(Number) }));
+    expect(mocks.segmentLibraryList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tagIds: "5",
+        tagDepth: -1,
+        page: 1,
+        perPage: 25,
+        sort: "random",
+        direction: "asc",
+        seed: expect.any(Number),
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "View All" }));
     expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ page: "segments", segmentsView: "raw" }));
   });

@@ -40,47 +40,22 @@ export {
 export { ConfirmDialog } from "./ConfirmDialog";
 export { NarrativeText, useMarkdownRenderingEnabled } from "./NarrativeText";
 export type { NarrativeTextProps } from "./NarrativeText";
-export {
-  EditModal,
-  Field,
-  TextInput,
-  TextArea,
-  NumberInput,
-  SelectInput,
-  SaveButton,
-} from "./EditModal";
+export { EditModal, Field, TextInput, TextArea, NumberInput, SelectInput, SaveButton } from "./EditModal";
 export { ImageInput } from "./ImageInput";
 export { openTutorialStoryboard } from "./TutorialStoryboardDialog";
 export { registerManualContext, useManualContext } from "./ManualContext";
 export type { TutorialOpenRequest } from "./ManualContext";
 
 // ─── Entity Cards & Popovers ─────────────────────────────────────────────
-export {
-  PopoverButton,
-  VideoCardPopovers,
-  PerformerTile,
-  VideoCard,
-  VideoTile,
-  ImageTile,
-} from "./EntityCards";
-export {
-  EntityReferenceSelector,
-  EntityReferenceMultiSelector,
-  EntityReferenceValue,
-} from "./EntityReferenceSelector";
-export type {
-  EntityReferenceOption,
-  EntityReferenceType,
-} from "./EntityReferenceSelector";
+export { PopoverButton, VideoCardPopovers, PerformerTile, VideoCard, VideoTile, ImageTile } from "./EntityCards";
+export { EntityReferenceSelector, EntityReferenceMultiSelector, EntityReferenceValue } from "./EntityReferenceSelector";
+export type { EntityReferenceOption, EntityReferenceType } from "./EntityReferenceSelector";
 
 // ─── Players / Viewers ────────────────────────────────────────────────────
 export { VideoPlayer } from "./VideoPlayer";
 export type { VideoPlayerPlaybackControls, VideoPlayerSeek } from "./VideoPlayer";
 export { APP_FLOATING_UI_SLOT } from "./AppFloatingUI";
-export {
-  MEDIA_PLAYER_ACTIONS_SLOT,
-  MEDIA_PLAYER_OVERLAY_SLOT,
-} from "./MediaPlayerExtension";
+export { MEDIA_PLAYER_ACTIONS_SLOT, MEDIA_PLAYER_OVERLAY_SLOT } from "./MediaPlayerExtension";
 export type {
   MediaPlayerContentRect,
   MediaPlayerExtensionContext,
@@ -92,11 +67,7 @@ export type { LightboxImage } from "./Lightbox";
 
 // ─── Detail Page Building Blocks ──────────────────────────────────────────
 export { MediaDetailLayout } from "./MediaDetailLayout/MediaDetailLayout";
-export type {
-  MediaDetailLayoutProps,
-  MediaDetailTab,
-  MediaDetailSectionProps,
-} from "./MediaDetailLayout/types";
+export type { MediaDetailLayoutProps, MediaDetailTab, MediaDetailSectionProps } from "./MediaDetailLayout/types";
 export { DetailListPagination, DetailListToolbar } from "./DetailListToolbar";
 export type { DetailListPaginationProps } from "./DetailListToolbar";
 export { ListPage } from "./ListPage";
@@ -124,7 +95,11 @@ export type { GroupItemFeedProps } from "./GroupItemFeed";
 
 // ─── Hooks ────────────────────────────────────────────────────────────────
 export { useMultiSelect, toggleOptionsFromEvent, withOrderedToggle } from "../hooks/useMultiSelect";
-export type { MultiSelectToggleOptions, MultiSelectToggleHandler, BoundMultiSelectToggleHandler } from "../hooks/useMultiSelect";
+export type {
+  MultiSelectToggleOptions,
+  MultiSelectToggleHandler,
+  BoundMultiSelectToggleHandler,
+} from "../hooks/useMultiSelect";
 export { useKeySequence } from "../hooks/useKeySequence";
 export {
   useExtensionKeyboardBindings,
