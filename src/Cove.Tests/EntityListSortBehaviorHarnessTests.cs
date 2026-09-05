@@ -783,6 +783,32 @@ public class EntityListSortBehaviorHarnessTests
         Assert.Equal([1103, 1101], faceSortedIds);
     }
 
+
+    [Theory]
+    [InlineData(CoveSortDirection.Asc)]
+    [InlineData(CoveSortDirection.Desc)]
+    public async Task EqualCustomFieldValuesUseRequestedIdDirectionAcrossPages(CoveSortDirection direction)
+    {
+        await using var fixture = await SortHarnessFixture.CreateAsync();
+        fixture.ActivatePrincipal();
+        var values = await fixture.Context.CustomFieldValues
+            .Where(value => value.EntityType == CustomFieldEntityTypes.Video && value.Definition!.Key == "extension_score")
+            .ToListAsync(TestContext.Current.CancellationToken);
+        var firstValue = values.Single(value => value.EntityId == 401).NumberValue;
+        values.Single(value => value.EntityId == 403).NumberValue = firstValue;
+        await fixture.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var ids = new List<int>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var result = await new VideoRepository(fixture.Context).FindAsync(null,
+                new FindFilter { Sort = "custom:number:extension_score", Direction = direction, Page = page, PerPage = 1 },
+                TestContext.Current.CancellationToken);
+            ids.Add(Assert.Single(result.Items).Id);
+        }
+        Assert.Equal(direction == CoveSortDirection.Asc ? [402, 401, 403] : new[] { 403, 401, 402 }, ids);
+    }
+
     private static bool IsBehaviorTested(EntityListSortDefinition sort)
         => sort.KnownBrokenReason is null && !SortRowsWithBehaviorExemptions.Contains(sort.RowId);
 
@@ -1396,8 +1422,8 @@ public class EntityListSortBehaviorHarnessTests
     private static IReadOnlyList<int> Order<T, TKey>(IEnumerable<T> items, Func<T, TKey> keySelector, bool descending)
         where T : BaseEntity
         => descending
-            ? items.OrderByDescending(keySelector).Select(item => item.Id).ToArray()
-            : items.OrderBy(keySelector).Select(item => item.Id).ToArray();
+            ? items.OrderByDescending(keySelector).ThenByDescending(item => item.Id).Select(item => item.Id).ToArray()
+            : items.OrderBy(keySelector).ThenBy(item => item.Id).Select(item => item.Id).ToArray();
 
     private static IReadOnlyList<int> OrderWithDirectionalIdTieBreaker<T, TKey>(IEnumerable<T> items, Func<T, TKey> keySelector, bool descending)
         where T : BaseEntity

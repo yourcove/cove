@@ -666,7 +666,7 @@ public class VideoRepository : IVideoRepository
 
         registry.Apply(compound, clauses);
 
-        return compound.Finish(video => video.Id);
+        return compound.Finish(video => video.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private static IOrderedQueryable<Video> AppendSort<TKey>(
@@ -688,40 +688,40 @@ public class VideoRepository : IVideoRepository
 
         return sort switch
         {
-            "title" => desc ? query.OrderByDescending(s => s.Title) : query.OrderBy(s => s.Title),
+            "title" => desc ? query.OrderByDescending(s => s.Title).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Title).ThenBy(s => s.Id),
             // Null dates sort to bottom: treat null as MinValue so they come last when desc
-            "date" => desc ? query.OrderByDescending(s => s.Date ?? DateOnly.MinValue) : query.OrderBy(s => s.Date ?? DateOnly.MinValue),
+            "date" => desc ? query.OrderByDescending(s => s.Date ?? DateOnly.MinValue).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Date ?? DateOnly.MinValue).ThenBy(s => s.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Video, desc),
             "play_count" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.ViewCount), desc),
             "like_counter" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LikeCount), desc),
             "last_like_at" => EngagementQueryHelpers.ApplyInteractionTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), InteractionHostType.Video, InteractionKind.LikeCount, desc),
-            "organized" => desc ? query.OrderByDescending(s => s.Organized) : query.OrderBy(s => s.Organized),
+            "organized" => desc ? query.OrderByDescending(s => s.Organized).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Organized).ThenBy(s => s.Id),
             "last_played_at" => EngagementQueryHelpers.ApplyAffinityTimestampSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LastConsumedAt), desc),
             "play_duration" => EngagementQueryHelpers.ApplyAffinityDoubleSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.TotalConsumedSec), desc),
             "resume_time" => EngagementQueryHelpers.ApplyAffinityDoubleSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Video, nameof(UserEntityAffinity.LastPositionSec), desc),
             "random" => query.OrderBy(s => s.Id),
-            "duration" => desc ? query.OrderByDescending(s => s.MaxDuration) : query.OrderBy(s => s.MaxDuration),
-            "file_size" => desc ? query.OrderByDescending(s => s.MaxFileSize) : query.OrderBy(s => s.MaxFileSize),
+            "duration" => desc ? query.OrderByDescending(s => s.MaxDuration).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxDuration).ThenBy(s => s.Id),
+            "file_size" => desc ? query.OrderByDescending(s => s.MaxFileSize).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxFileSize).ThenBy(s => s.Id),
             "file_mod_time" => ApplyFileModTimeSort(query, desc),
-            "file_count" => desc ? query.OrderByDescending(s => s.FileCount) : query.OrderBy(s => s.FileCount),
+            "file_count" => desc ? query.OrderByDescending(s => s.FileCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.FileCount).ThenBy(s => s.Id),
             "path" => ApplyPathSort(query, desc),
-            "resolution" => desc ? query.OrderByDescending(s => s.MaxHeight) : query.OrderBy(s => s.MaxHeight),
-            "framerate" => desc ? query.OrderByDescending(s => s.MaxFrameRate) : query.OrderBy(s => s.MaxFrameRate),
+            "resolution" => desc ? query.OrderByDescending(s => s.MaxHeight).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxHeight).ThenBy(s => s.Id),
+            "framerate" => desc ? query.OrderByDescending(s => s.MaxFrameRate).ThenByDescending(s => s.Id) : query.OrderBy(s => s.MaxFrameRate).ThenBy(s => s.Id),
             "bitrate" => ApplyBitrateSort(query, desc),
             "phash" => ApplyPhashSort(query, desc),
             "perceptual_similarity" => ApplyPhashSort(query, desc),
             "tag_count" => desc
-                ? query.OrderByDescending(s => s.VideoTags.Count)
-                : query.OrderBy(s => s.VideoTags.Count),
+                ? query.OrderByDescending(s => s.VideoTags.Count).ThenByDescending(s => s.Id)
+                : query.OrderBy(s => s.VideoTags.Count).ThenBy(s => s.Id),
             "performer_count" => desc
-                ? query.OrderByDescending(s => s.VideoPerformers.Count)
-                : query.OrderBy(s => s.VideoPerformers.Count),
+                ? query.OrderByDescending(s => s.VideoPerformers.Count).ThenByDescending(s => s.Id)
+                : query.OrderBy(s => s.VideoPerformers.Count).ThenBy(s => s.Id),
             "performer_age" => ApplyPerformerAgeSort(query, desc),
             "studio" => ApplyStudioSort(query, desc),
             "code" => ApplyStudioCodeSort(query, desc),
             "studio_code" => ApplyStudioCodeSort(query, desc),
-            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
-            _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
+            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.CreatedAt).ThenBy(s => s.Id),
+            _ => desc ? query.OrderByDescending(s => s.UpdatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.UpdatedAt).ThenBy(s => s.Id),
         };
     }
 
@@ -751,8 +751,8 @@ public class VideoRepository : IVideoRepository
     private static IQueryable<Video> ApplyFileModTimeSort(IQueryable<Video> query, bool desc)
     {
         return desc
-            ? query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenByDescending(video => video.MaxFileModTime)
-            : query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenBy(video => video.MaxFileModTime);
+            ? query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenByDescending(video => video.MaxFileModTime).ThenByDescending(video => video.Id)
+            : query.OrderBy(video => video.MaxFileModTime == null ? 1 : 0).ThenBy(video => video.MaxFileModTime).ThenBy(video => video.Id);
     }
 
     private static IQueryable<Video> ApplyPathSort(IQueryable<Video> query, bool desc)
@@ -780,6 +780,7 @@ public class VideoRepository : IVideoRepository
             return descendingQuery
                 .OrderBy(item => item.Phash == null ? 1 : 0)
                 .ThenByDescending(item => item.Phash)
+                .ThenByDescending(item => item.Video.Id)
                 .Select(item => item.Video);
         }
 
@@ -797,6 +798,7 @@ public class VideoRepository : IVideoRepository
         return ascendingQuery
             .OrderBy(item => item.Phash == null ? 1 : 0)
             .ThenBy(item => item.Phash)
+            .ThenBy(item => item.Video.Id)
             .Select(item => item.Video);
     }
 
@@ -809,8 +811,8 @@ public class VideoRepository : IVideoRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).Select(item => item.Video)
-            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).Select(item => item.Video);
+            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).ThenByDescending(item => item.Video.Id).Select(item => item.Video)
+            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).ThenBy(item => item.Video.Id).Select(item => item.Video);
     }
 
     private static IQueryable<Video> ApplyStudioCodeSort(IQueryable<Video> query, bool desc)
@@ -822,8 +824,8 @@ public class VideoRepository : IVideoRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenByDescending(item => item.Code).Select(item => item.Video)
-            : sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenBy(item => item.Code).Select(item => item.Video);
+            ? sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenByDescending(item => item.Code).ThenByDescending(item => item.Video.Id).Select(item => item.Video)
+            : sortQuery.OrderBy(item => item.Code == null ? 1 : 0).ThenBy(item => item.Code).ThenBy(item => item.Video.Id).Select(item => item.Video);
     }
 
     private static IQueryable<Video> ApplyPerformerAgeSort(IQueryable<Video> query, bool desc)
@@ -845,6 +847,7 @@ public class VideoRepository : IVideoRepository
             return descendingQuery
                 .OrderBy(item => item.PerformerAge == null ? 1 : 0)
                 .ThenByDescending(item => item.PerformerAge)
+                .ThenByDescending(item => item.Video.Id)
                 .Select(item => item.Video);
         }
 
@@ -863,6 +866,7 @@ public class VideoRepository : IVideoRepository
         return ascendingQuery
             .OrderBy(item => item.PerformerAge == null ? 1 : 0)
             .ThenBy(item => item.PerformerAge)
+            .ThenBy(item => item.Video.Id)
             .Select(item => item.Video);
     }
 

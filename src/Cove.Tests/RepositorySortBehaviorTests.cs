@@ -174,10 +174,10 @@ public class RepositorySortBehaviorTests
         Assert.Contains(allItems, studio => studio.Name == "Child Studio");
     Assert.Equal("Child Studio", parentItems.First().Name);
         Assert.Equal(["Counts Leader", "Highest Rated", "Unrated"], galleryItems.Select(studio => studio.Name).ToArray());
-        Assert.Equal(["Counts Leader", "Highest Rated", "Unrated"], imageItems.Select(studio => studio.Name).ToArray());
+        Assert.Equal(["Counts Leader", "Unrated", "Highest Rated"], imageItems.Select(studio => studio.Name).ToArray());
         Assert.Equal(["Highest Rated", "Counts Leader", "Unrated"], ratingItems.Select(studio => studio.Name).ToArray());
-        Assert.Equal(["Counts Leader", "Highest Rated", "Unrated"], childItems.Select(studio => studio.Name).ToArray());
-        Assert.Equal(["Counts Leader", "Highest Rated", "Unrated"], tagItems.Select(studio => studio.Name).ToArray());
+        Assert.Equal(["Counts Leader", "Unrated", "Highest Rated"], childItems.Select(studio => studio.Name).ToArray());
+        Assert.Equal(["Counts Leader", "Unrated", "Highest Rated"], tagItems.Select(studio => studio.Name).ToArray());
         Assert.Equal(["Highest Rated", "Counts Leader", "Unrated"], updatedItems.Select(studio => studio.Name).ToArray());
     }
 

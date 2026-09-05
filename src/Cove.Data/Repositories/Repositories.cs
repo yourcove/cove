@@ -710,32 +710,32 @@ public class PerformerRepository : IPerformerRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Performer, sort, desc)
             : sort switch
             {
-            "name" => desc ? query.OrderByDescending(p => p.Name) : query.OrderBy(p => p.Name),
+            "name" => desc ? query.OrderByDescending(p => p.Name).ThenByDescending(p => p.Id) : query.OrderBy(p => p.Name).ThenBy(p => p.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Performer, desc),
-            "created_at" => desc ? query.OrderByDescending(p => p.CreatedAt) : query.OrderBy(p => p.CreatedAt),
-            "birthdate" => desc ? query.OrderByDescending(p => p.Birthdate) : query.OrderBy(p => p.Birthdate),
-            "video_count" => desc ? query.OrderByDescending(p => p.VideoPerformers.Count) : query.OrderBy(p => p.VideoPerformers.Count),
+            "created_at" => desc ? query.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id) : query.OrderBy(p => p.CreatedAt).ThenBy(p => p.Id),
+            "birthdate" => desc ? query.OrderByDescending(p => p.Birthdate).ThenByDescending(p => p.Id) : query.OrderBy(p => p.Birthdate).ThenBy(p => p.Id),
+            "video_count" => desc ? query.OrderByDescending(p => p.VideoPerformers.Count).ThenByDescending(p => p.Id) : query.OrderBy(p => p.VideoPerformers.Count).ThenBy(p => p.Id),
             "audio_count" => desc
                 ? query.OrderByDescending(p => p.AudioPerformers.Count).ThenByDescending(p => p.Id)
                 : query.OrderBy(p => p.AudioPerformers.Count).ThenBy(p => p.Id),
             "text_count" => desc
                 ? query.OrderByDescending(p => p.TextPerformers.Count).ThenByDescending(p => p.Id)
                 : query.OrderBy(p => p.TextPerformers.Count).ThenBy(p => p.Id),
-            "image_count" => desc ? query.OrderByDescending(p => p.ImagePerformers.Count) : query.OrderBy(p => p.ImagePerformers.Count),
-            "gallery_count" => desc ? query.OrderByDescending(p => p.GalleryPerformers.Count) : query.OrderBy(p => p.GalleryPerformers.Count),
-            "latest_video_date" => desc ? query.OrderByDescending(p => p.VideoPerformers.Max(sp => sp.Video!.Date)) : query.OrderBy(p => p.VideoPerformers.Max(sp => sp.Video!.Date)),
-            "total_file_size" => desc ? query.OrderByDescending(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L) : query.OrderBy(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L),
+            "image_count" => desc ? query.OrderByDescending(p => p.ImagePerformers.Count).ThenByDescending(p => p.Id) : query.OrderBy(p => p.ImagePerformers.Count).ThenBy(p => p.Id),
+            "gallery_count" => desc ? query.OrderByDescending(p => p.GalleryPerformers.Count).ThenByDescending(p => p.Id) : query.OrderBy(p => p.GalleryPerformers.Count).ThenBy(p => p.Id),
+            "latest_video_date" => desc ? query.OrderByDescending(p => p.VideoPerformers.Max(sp => sp.Video!.Date)).ThenByDescending(p => p.Id) : query.OrderBy(p => p.VideoPerformers.Max(sp => sp.Video!.Date)).ThenBy(p => p.Id),
+            "total_file_size" => desc ? query.OrderByDescending(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L).ThenByDescending(p => p.Id) : query.OrderBy(p => p.VideoPerformers.Sum(sp => (long?)sp.Video!.MaxFileSize) ?? 0L).ThenBy(p => p.Id),
             "career_length" => ApplyCareerLengthSort(query, desc),
             "height" => ApplyHeightSort(query, desc),
-            "weight" => desc ? query.OrderByDescending(p => p.Weight) : query.OrderBy(p => p.Weight),
+            "weight" => desc ? query.OrderByDescending(p => p.Weight).ThenByDescending(p => p.Id) : query.OrderBy(p => p.Weight).ThenBy(p => p.Id),
             "measurements" => ApplyMeasurementsSort(query, desc),
-            "tag_count" => desc ? query.OrderByDescending(p => p.TagCount) : query.OrderBy(p => p.TagCount),
+            "tag_count" => desc ? query.OrderByDescending(p => p.TagCount).ThenByDescending(p => p.Id) : query.OrderBy(p => p.TagCount).ThenBy(p => p.Id),
             "like_counter" => ApplyVideoAffinityIntSumSort(query, nameof(UserEntityAffinity.LikeCount), desc),
             "play_count" => ApplyPlayCountSort(query, desc),
             "last_like_at" => ApplyLastLikeAtSort(query, desc),
             "last_played_at" => ApplyLastPlayedAtSort(query, desc),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, p => p.Id, desc),
-            _ => desc ? query.OrderByDescending(p => p.UpdatedAt) : query.OrderBy(p => p.UpdatedAt),
+            _ => desc ? query.OrderByDescending(p => p.UpdatedAt).ThenByDescending(p => p.Id) : query.OrderBy(p => p.UpdatedAt).ThenBy(p => p.Id),
             };
         if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, performer => performer.Name);
@@ -841,7 +841,7 @@ public class PerformerRepository : IPerformerRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(performer => performer.Id);
+        return compound.Finish(performer => performer.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private IQueryable<Performer> ApplyLastLikeAtSort(IQueryable<Performer> query, bool desc)
@@ -1088,7 +1088,7 @@ public class TagRepository : ITagRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenByDescending(item => item.GroupSortOrder).ThenByDescending(item => item.GroupName).ThenByDescending(item => item.Name).ThenBy(item => item.Tag.Id).Select(item => item.Tag)
+            ? sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenByDescending(item => item.GroupSortOrder).ThenByDescending(item => item.GroupName).ThenByDescending(item => item.Name).ThenByDescending(item => item.Tag.Id).Select(item => item.Tag)
             : sortQuery.OrderBy(item => item.HasGroup ? 0 : 1).ThenBy(item => item.GroupSortOrder).ThenBy(item => item.GroupName).ThenBy(item => item.Name).ThenBy(item => item.Tag.Id).Select(item => item.Tag);
     }
 
@@ -1097,7 +1097,7 @@ public class TagRepository : ITagRepository
         Expression<Func<Tag, TKey>> keySelector,
         bool desc)
         => desc
-            ? query.OrderByDescending(keySelector).ThenBy(tag => tag.Id)
+            ? query.OrderByDescending(keySelector).ThenByDescending(tag => tag.Id)
             : query.OrderBy(keySelector).ThenBy(tag => tag.Id);
 
     private static CompoundSortRegistry<Tag> CreateTagMultiSortRegistry()
@@ -1126,7 +1126,7 @@ public class TagRepository : ITagRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(tag => tag.Id);
+        return compound.Finish(tag => tag.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private async Task<IQueryable<Tag>> ApplyTagCountCriteriaAsync(IQueryable<Tag> query, TagFilter filter, CancellationToken ct)
@@ -1604,20 +1604,20 @@ public class StudioRepository : IStudioRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Studio, sort, desc)
             : sort switch
             {
-            "name" => desc ? query.OrderByDescending(s => s.Name) : query.OrderBy(s => s.Name),
-            "video_count" => desc ? query.OrderByDescending(s => s.VideoCount) : query.OrderBy(s => s.VideoCount),
-            "gallery_count" => desc ? query.OrderByDescending(s => s.GalleryCount) : query.OrderBy(s => s.GalleryCount),
-            "image_count" => desc ? query.OrderByDescending(s => s.ImageCount) : query.OrderBy(s => s.ImageCount),
-            "latest_video_date" => desc ? query.OrderByDescending(s => s.Videos.Max(video => video.Date)) : query.OrderBy(s => s.Videos.Max(video => video.Date)),
-            "total_file_size" => desc ? query.OrderByDescending(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L) : query.OrderBy(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L),
+            "name" => desc ? query.OrderByDescending(s => s.Name).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Name).ThenBy(s => s.Id),
+            "video_count" => desc ? query.OrderByDescending(s => s.VideoCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.VideoCount).ThenBy(s => s.Id),
+            "gallery_count" => desc ? query.OrderByDescending(s => s.GalleryCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.GalleryCount).ThenBy(s => s.Id),
+            "image_count" => desc ? query.OrderByDescending(s => s.ImageCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.ImageCount).ThenBy(s => s.Id),
+            "latest_video_date" => desc ? query.OrderByDescending(s => s.Videos.Max(video => video.Date)).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Videos.Max(video => video.Date)).ThenBy(s => s.Id),
+            "total_file_size" => desc ? query.OrderByDescending(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L).ThenByDescending(s => s.Id) : query.OrderBy(s => s.Videos.Sum(video => (long?)video.MaxFileSize) ?? 0L).ThenBy(s => s.Id),
             "rating" => ApplyStudioRatingSort(query, desc),
             "parent_count" => desc ? query.OrderByDescending(s => s.ParentId.HasValue ? 1 : 0).ThenByDescending(s => s.Id) : query.OrderBy(s => s.ParentId.HasValue ? 1 : 0).ThenBy(s => s.Id),
-            "child_count" => desc ? query.OrderByDescending(s => s.ChildStudioCount) : query.OrderBy(s => s.ChildStudioCount),
-            "tag_count" => desc ? query.OrderByDescending(s => s.TagCount) : query.OrderBy(s => s.TagCount),
-            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt) : query.OrderBy(s => s.CreatedAt),
-            "updated_at" => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
+            "child_count" => desc ? query.OrderByDescending(s => s.ChildStudioCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.ChildStudioCount).ThenBy(s => s.Id),
+            "tag_count" => desc ? query.OrderByDescending(s => s.TagCount).ThenByDescending(s => s.Id) : query.OrderBy(s => s.TagCount).ThenBy(s => s.Id),
+            "created_at" => desc ? query.OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.CreatedAt).ThenBy(s => s.Id),
+            "updated_at" => desc ? query.OrderByDescending(s => s.UpdatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.UpdatedAt).ThenBy(s => s.Id),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, s => s.Id, desc),
-            _ => desc ? query.OrderByDescending(s => s.UpdatedAt) : query.OrderBy(s => s.UpdatedAt),
+            _ => desc ? query.OrderByDescending(s => s.UpdatedAt).ThenByDescending(s => s.Id) : query.OrderBy(s => s.UpdatedAt).ThenBy(s => s.Id),
             };
         if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, studio => studio.Name);
@@ -1675,7 +1675,7 @@ public class StudioRepository : IStudioRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(studio => studio.Id);
+        return compound.Finish(studio => studio.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 }
 
@@ -1916,18 +1916,18 @@ public class GalleryRepository : IGalleryRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Gallery, sort, desc)
             : sort switch
             {
-            "updated_at" => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
-            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue) : query.OrderBy(g => g.Date ?? DateOnly.MinValue),
+            "updated_at" => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
+            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Date ?? DateOnly.MinValue).ThenBy(g => g.Id),
             "studio" => ApplyGalleryStudioSort(query, desc),
             "file_mod_time" => ApplyGalleryFileModTimeSort(query, desc),
-            "file_count" => desc ? query.OrderByDescending(g => g.Files.Count) : query.OrderBy(g => g.Files.Count),
+            "file_count" => desc ? query.OrderByDescending(g => g.Files.Count).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Files.Count).ThenBy(g => g.Id),
             "path" => ApplyGalleryPathSort(query, desc),
-            "title" => desc ? query.OrderByDescending(g => g.Title) : query.OrderBy(g => g.Title),
-            "code" => desc ? query.OrderByDescending(g => g.Code) : query.OrderBy(g => g.Code),
-            "photographer" => desc ? query.OrderByDescending(g => g.Photographer) : query.OrderBy(g => g.Photographer),
+            "title" => desc ? query.OrderByDescending(g => g.Title).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Title).ThenBy(g => g.Id),
+            "code" => desc ? query.OrderByDescending(g => g.Code).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Code).ThenBy(g => g.Id),
+            "photographer" => desc ? query.OrderByDescending(g => g.Photographer).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Photographer).ThenBy(g => g.Id),
             "organized" => desc ? query.OrderByDescending(g => g.Organized).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Organized).ThenBy(g => g.Id),
-            "image_count" => desc ? query.OrderByDescending(g => g.ImageCount) : query.OrderBy(g => g.ImageCount),
-            "video_count" => desc ? query.OrderByDescending(g => g.VideoCount) : query.OrderBy(g => g.VideoCount),
+            "image_count" => desc ? query.OrderByDescending(g => g.ImageCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.ImageCount).ThenBy(g => g.Id),
+            "video_count" => desc ? query.OrderByDescending(g => g.VideoCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.VideoCount).ThenBy(g => g.Id),
             "rating" => ApplyGalleryRatingSort(query, desc),
             "like_counter" => desc
                 ? query.OrderByDescending(gallery =>
@@ -1939,15 +1939,15 @@ public class GalleryRepository : IGalleryRepository
             "last_like_at" => desc
                 ? query.OrderByDescending(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max() ?? DateTime.MinValue).ThenByDescending(gallery => gallery.Id)
                 : query.OrderBy(gallery => gallery.ImageGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Image && interaction.HostId == link.ImageId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At)).Concat(gallery.VideoGalleries.Select(link => _db.Interactions.Where(interaction => interaction.UserId == currentUserId && interaction.HostType == InteractionHostType.Video && interaction.HostId == link.VideoId && interaction.Kind == InteractionKind.LikeCount).Max(interaction => (DateTime?)interaction.At))).Max() ?? DateTime.MaxValue).ThenBy(gallery => gallery.Id),
-            "performer_count" => desc ? query.OrderByDescending(g => g.PerformerCount) : query.OrderBy(g => g.PerformerCount),
-            "tag_count" => desc ? query.OrderByDescending(g => g.TagCount) : query.OrderBy(g => g.TagCount),
+            "performer_count" => desc ? query.OrderByDescending(g => g.PerformerCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.PerformerCount).ThenBy(g => g.Id),
+            "tag_count" => desc ? query.OrderByDescending(g => g.TagCount).ThenByDescending(g => g.Id) : query.OrderBy(g => g.TagCount).ThenBy(g => g.Id),
             "typical_resolution" => ApplyGalleryTypicalResolutionSort(query, desc),
             "zip_file_count" => desc
-                ? query.OrderByDescending(g => g.Files.Count(file => file.Basename.EndsWith(".zip")))
-                : query.OrderBy(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))),
-            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
+                ? query.OrderByDescending(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))).ThenByDescending(g => g.Id)
+                : query.OrderBy(g => g.Files.Count(file => file.Basename.EndsWith(".zip"))).ThenBy(g => g.Id),
+            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.CreatedAt).ThenBy(g => g.Id),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
-            _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
+            _ => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
             };
         if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, gallery => gallery.Title);
@@ -1994,8 +1994,8 @@ public class GalleryRepository : IGalleryRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenByDescending(item => item.FileModTime).Select(item => item.Gallery)
-            : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).Select(item => item.Gallery);
+            ? sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenByDescending(item => item.FileModTime).ThenByDescending(item => item.Gallery.Id).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.FileModTime == null ? 1 : 0).ThenBy(item => item.FileModTime).ThenBy(item => item.Gallery.Id).Select(item => item.Gallery);
     }
 
     internal CompoundSortRegistry<Gallery> CreateGalleryMultiSortRegistry(int currentUserId)
@@ -2056,7 +2056,7 @@ public class GalleryRepository : IGalleryRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(gallery => gallery.Id);
+        return compound.Finish(gallery => gallery.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private static IQueryable<Gallery> ApplyGalleryStudioSort(IQueryable<Gallery> query, bool desc)
@@ -2068,8 +2068,8 @@ public class GalleryRepository : IGalleryRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).Select(item => item.Gallery)
-            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).Select(item => item.Gallery);
+            ? sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenByDescending(item => item.StudioName).ThenByDescending(item => item.Gallery.Id).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.StudioName == null ? 1 : 0).ThenBy(item => item.StudioName).ThenBy(item => item.Gallery.Id).Select(item => item.Gallery);
     }
 
     private static IQueryable<Gallery> ApplyGalleryPathSort(IQueryable<Gallery> query, bool desc)
@@ -2089,6 +2089,7 @@ public class GalleryRepository : IGalleryRepository
             return descendingQuery
                 .OrderBy(item => item.Path == null ? 1 : 0)
                 .ThenByDescending(item => item.Path)
+                .ThenByDescending(item => item.Gallery.Id)
                 .Select(item => item.Gallery);
         }
 
@@ -2103,6 +2104,7 @@ public class GalleryRepository : IGalleryRepository
         return ascendingQuery
             .OrderBy(item => item.Path == null ? 1 : 0)
             .ThenBy(item => item.Path)
+            .ThenBy(item => item.Gallery.Id)
             .Select(item => item.Gallery);
     }
 
@@ -2139,8 +2141,8 @@ public class GalleryRepository : IGalleryRepository
         });
 
         return desc
-            ? sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenByDescending(item => item.TypicalResolution).Select(item => item.Gallery)
-            : sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenBy(item => item.TypicalResolution).Select(item => item.Gallery);
+            ? sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenByDescending(item => item.TypicalResolution).ThenByDescending(item => item.Gallery.Id).Select(item => item.Gallery)
+            : sortQuery.OrderBy(item => item.TypicalResolution == null ? 1 : 0).ThenBy(item => item.TypicalResolution).ThenBy(item => item.Gallery.Id).Select(item => item.Gallery);
     }
 
     private static IQueryable<Gallery> ApplyGalleryPathCriterion(IQueryable<Gallery> query, StringCriterion? criterion)
@@ -2779,7 +2781,7 @@ public class ImageRepository : IImageRepository
             includeRating: clauses.Any(clause => clause.Key.Equals("rating", StringComparison.OrdinalIgnoreCase)));
         registry.Apply(compound, clauses);
 
-        return compound.Finish(image => image.Id);
+        return compound.Finish(image => image.Id, clauses[0].Direction == Core.Enums.SortDirection.Desc);
     }
 
     private IQueryable<Image> ApplySortingSwitch(IQueryable<Image> query, string sort, bool desc)
@@ -2790,18 +2792,18 @@ public class ImageRepository : IImageRepository
         return sort switch
         {
             "title" => ApplyDisplayTitleSort(query, desc),
-            "date" => desc ? query.OrderByDescending(i => i.Date ?? DateOnly.MinValue) : query.OrderBy(i => i.Date ?? DateOnly.MinValue),
+            "date" => desc ? query.OrderByDescending(i => i.Date ?? DateOnly.MinValue).ThenByDescending(i => i.Id) : query.OrderBy(i => i.Date ?? DateOnly.MinValue).ThenBy(i => i.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Image, desc),
             "like_counter" => EngagementQueryHelpers.ApplyAffinityIntSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), AffinityHostType.Image, nameof(UserEntityAffinity.LikeCount), desc),
             "random" => query.OrderBy(i => i.Id),
             "file_mod_time" => ApplyFileModTimeSort(query, desc),
-            "file_size" => desc ? query.OrderByDescending(i => i.MaxFileSize) : query.OrderBy(i => i.MaxFileSize),
-            "resolution" => desc ? query.OrderByDescending(i => i.MaxResolution) : query.OrderBy(i => i.MaxResolution),
+            "file_size" => desc ? query.OrderByDescending(i => i.MaxFileSize).ThenByDescending(i => i.Id) : query.OrderBy(i => i.MaxFileSize).ThenBy(i => i.Id),
+            "resolution" => desc ? query.OrderByDescending(i => i.MaxResolution).ThenByDescending(i => i.Id) : query.OrderBy(i => i.MaxResolution).ThenBy(i => i.Id),
             "path" => ApplyPathSort(query, desc),
-            "tag_count" => desc ? query.OrderByDescending(i => i.TagCount) : query.OrderBy(i => i.TagCount),
-            "performer_count" => desc ? query.OrderByDescending(i => i.ImagePerformers.Count) : query.OrderBy(i => i.ImagePerformers.Count),
-            "created_at" => desc ? query.OrderByDescending(i => i.CreatedAt) : query.OrderBy(i => i.CreatedAt),
-            _ => desc ? query.OrderByDescending(i => i.UpdatedAt) : query.OrderBy(i => i.UpdatedAt),
+            "tag_count" => desc ? query.OrderByDescending(i => i.TagCount).ThenByDescending(i => i.Id) : query.OrderBy(i => i.TagCount).ThenBy(i => i.Id),
+            "performer_count" => desc ? query.OrderByDescending(i => i.ImagePerformers.Count).ThenByDescending(i => i.Id) : query.OrderBy(i => i.ImagePerformers.Count).ThenBy(i => i.Id),
+            "created_at" => desc ? query.OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id) : query.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id),
+            _ => desc ? query.OrderByDescending(i => i.UpdatedAt).ThenByDescending(i => i.Id) : query.OrderBy(i => i.UpdatedAt).ThenBy(i => i.Id),
         };
     }
 
@@ -2823,6 +2825,7 @@ public class ImageRepository : IImageRepository
             return descendingQuery
                 .OrderBy(item => item.DisplayTitle == null ? 1 : 0)
                 .ThenByDescending(item => item.DisplayTitle)
+                .ThenByDescending(item => item.Image.Id)
                 .Select(item => item.Image);
         }
 
@@ -2840,14 +2843,15 @@ public class ImageRepository : IImageRepository
         return ascendingQuery
             .OrderBy(item => item.DisplayTitle == null ? 1 : 0)
             .ThenBy(item => item.DisplayTitle)
+            .ThenBy(item => item.Image.Id)
             .Select(item => item.Image);
     }
 
     private static IQueryable<Image> ApplyFileModTimeSort(IQueryable<Image> query, bool desc)
     {
         return desc
-            ? query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenByDescending(image => image.MaxFileModTime)
-            : query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenBy(image => image.MaxFileModTime);
+            ? query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenByDescending(image => image.MaxFileModTime).ThenByDescending(image => image.Id)
+            : query.OrderBy(image => image.MaxFileModTime == null ? 1 : 0).ThenBy(image => image.MaxFileModTime).ThenBy(image => image.Id);
     }
 
     private static IQueryable<Image> ApplyPathSort(IQueryable<Image> query, bool desc)
@@ -3173,13 +3177,13 @@ public class GroupRepository : IGroupRepository
             ? query.ApplyCustomFieldSort(_db, CustomFieldEntityTypes.Group, sort, desc)
             : sort switch
             {
-            "name" => desc ? query.OrderByDescending(g => g.Name) : query.OrderBy(g => g.Name),
+            "name" => desc ? query.OrderByDescending(g => g.Name).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Name).ThenBy(g => g.Id),
             "sort_order" or "sortOrder" => desc
                 ? query.OrderByDescending(g => g.SortOrder).ThenByDescending(g => g.Name).ThenByDescending(g => g.Id)
                 : query.OrderBy(g => g.SortOrder).ThenBy(g => g.Name).ThenBy(g => g.Id),
-            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue) : query.OrderBy(g => g.Date ?? DateOnly.MinValue),
+            "date" => desc ? query.OrderByDescending(g => g.Date ?? DateOnly.MinValue).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Date ?? DateOnly.MinValue).ThenBy(g => g.Id),
             "rating" => EngagementQueryHelpers.ApplyRatingSort(_db, query, EngagementQueryHelpers.CurrentUserId(_db), RatingHostType.Group, desc),
-            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt) : query.OrderBy(g => g.CreatedAt),
+            "created_at" => desc ? query.OrderByDescending(g => g.CreatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.CreatedAt).ThenBy(g => g.Id),
             "updated_at" or "updatedAt" => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
             "item_count" => ApplyGroupIntSort(query, g => g.GroupItems.Count, desc),
             "video_count" => ApplyGroupIntSort(query, g => g.GroupItems.Where(item => item.VideoId != null).Select(item => item.VideoId).Distinct().Count(), desc),
@@ -3201,7 +3205,7 @@ public class GroupRepository : IGroupRepository
             "show_in_video_lists" => desc ? query.OrderByDescending(g => g.ShowInVideoLists).ThenByDescending(g => g.Id) : query.OrderBy(g => g.ShowInVideoLists).ThenBy(g => g.Id),
             "aliases" => desc ? query.OrderByDescending(g => g.Aliases ?? g.Name).ThenByDescending(g => g.Id) : query.OrderBy(g => g.Aliases ?? g.Name).ThenBy(g => g.Id),
             "random" => SeededRandomOrdering.OrderBy(query, findFilter?.Seed, g => g.Id, desc),
-            _ => desc ? query.OrderByDescending(g => g.UpdatedAt) : query.OrderBy(g => g.UpdatedAt),
+            _ => desc ? query.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.Id) : query.OrderBy(g => g.UpdatedAt).ThenBy(g => g.Id),
             };
         if (!hasExplicitSort || FullTextSearchHelpers.IsRelevanceSort(sort))
             query = FullTextSearchHelpers.OrderByExactThenRelevance(_db, query, findFilter?.Q, group => group.Name);
