@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, performers, studios, tags, galleries, groups, audios, texts, faces, segmentLibrary, segmentSpans, savedFilters, dashboards } from "../api/client";
 import type { AffinityHostType, Audio, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter, FindFilter, Dashboard, DashboardSummary, DashboardWidget, DashboardWidgetPresentation, ExtensionDashboardWidgetContribution, TextDocument } from "../api/types";
@@ -763,6 +763,53 @@ function WidgetPresentationControl({ widget, definition, dashboardWidgetCount, d
   );
 }
 
+function useDashboardDialog<T extends HTMLElement>(onClose: () => void) {
+  const dialogRef = useRef<T>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => {
+      const initialFocus = dialogRef.current?.querySelector<HTMLElement>("[data-dialog-initial-focus]");
+      (initialFocus ?? dialogRef.current)?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      previousFocus?.focus();
+    };
+  }, []);
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCloseRef.current();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+      "a[href]:not([hidden]), button:not(:disabled):not([hidden]), input:not(:disabled):not([type='hidden']):not([hidden]), select:not(:disabled):not([hidden]), textarea:not(:disabled):not([hidden]), [tabindex]:not([tabindex='-1']):not([hidden])",
+    ));
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialogRef.current.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return { dialogRef, onKeyDown };
+}
+
 function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinitions, disabled, onAdd, onClose }: {
   currentWidgets: DashboardWidget[];
   savedFilters: SavedFilter[];
@@ -771,13 +818,15 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
   onAdd: (widget: DashboardWidget) => void;
   onClose: () => void;
 }) {
+  const titleId = useId();
+  const { dialogRef, onKeyDown } = useDashboardDialog<HTMLElement>(onClose);
   const addPremade = (filter: CustomFilter) => onAdd(contentToWidget(filter));
   const hasCanvasWidget = currentWidgets.some((widget) => getWidgetPresentation(widget) === "canvas");
   const supportedSavedFilters = filters.filter((filter) => normalizeFilterMode(filter.mode));
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/70" onClick={onClose}>
-      <aside className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-foreground">Add Widget</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
+      <aside ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-5 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Add Widget</h2><button data-dialog-initial-focus onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Built-in</h3>
         <div className="space-y-2">
           {!currentWidgets.some((widget) => widget.owner === "cove.core" && widget.widgetKey === "continue-watching") ? (
@@ -824,6 +873,8 @@ function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClo
   onSave: (configuration: unknown, label?: string) => void;
   onClose: () => void;
 }) {
+  const titleId = useId();
+  const { dialogRef, onKeyDown } = useDashboardDialog<HTMLDivElement>(onClose);
   const { resolveComponent, getExtensionRevision } = useExtensions();
   const [configuration, setConfiguration] = useState(() => structuredClone(widget.configuration));
   const [valid, setValid] = useState(true);
@@ -835,8 +886,8 @@ function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClo
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-lg border border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold text-foreground">Configure {widget.label}</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="w-full max-w-lg rounded-lg border border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Configure {widget.label}</h2><button data-dialog-initial-focus onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
         <fieldset disabled={disabled} className="contents">
         {widget.owner === "cove.core" && coreContent?.type === "custom" ? (
           <div className="space-y-3">

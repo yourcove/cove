@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomePage } from "../pages/HomePage";
 import { navigateToUrl } from "../router/location";
@@ -334,11 +334,61 @@ describe("HomePage dashboards", () => {
     expect(addWidget.parentElement?.children[1]).toBe(addWidget);
   });
 
+  it("traps catalog focus, closes on Escape, and restores the Add Widget trigger", async () => {
+    renderHome();
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+    const trigger = screen.getByRole("button", { name: /Add Widget/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "Add Widget" });
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    await waitFor(() => expect(close).toHaveFocus());
+    const enabledButtons = within(dialog).getAllByRole("button").filter((button) => !button.hasAttribute("disabled"));
+    const lastButton = enabledButtons.at(-1)!;
+    lastButton.focus();
+    fireEvent.keyDown(lastButton, { key: "Tab" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(lastButton).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Add Widget" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("manages focus and Escape for the widget configuration dialog", async () => {
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "one",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Recent",
+      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent" },
+    }]);
+    renderHome();
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+    const trigger = screen.getByRole("button", { name: /Configure/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "Configure Recent" });
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    await waitFor(() => expect(close).toHaveFocus());
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    save.focus();
+    fireEvent.keyDown(save, { key: "Tab" });
+    expect(close).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Configure Recent" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it("scrolls an appended widget into view after adding it", async () => {
     const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
-    const getBoundingClientRect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function () {
+    const getBoundingClientRect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       if (this.tagName === "HEADER") return { bottom: 180 } as DOMRect;
       return { bottom: 0, top: 0 } as DOMRect;
     });
@@ -351,7 +401,7 @@ describe("HomePage dashboards", () => {
 
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" }));
       expect(screen.queryByRole("heading", { name: "Add Widget" })).not.toBeInTheDocument();
-      const addedWidget = scrollIntoView.mock.contexts[0];
+      const addedWidget = scrollIntoView.mock.contexts[0] as HTMLElement;
       expect(addedWidget).toContainElement(screen.getByText("Recently Added Videos", { selector: "span" }));
       expect(addedWidget).toHaveStyle({ scrollMarginTop: "184px" });
       expect(addedWidget?.parentElement?.parentElement).toHaveClass("pb-[calc(100dvh-4px)]");
