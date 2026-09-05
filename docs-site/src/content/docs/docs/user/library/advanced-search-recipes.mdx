@@ -6,7 +6,7 @@ draft: true
 
 This working draft records complex searches that are useful when one ordinary filter is not enough. It is intentionally unpublished while the **Combine Filters** experience and the examples are still under review.
 
-Start with the regular filter dialog. Use **Combine filters…** only when the relationship between conditions needs an explicit **All**, **Any**, or **None** group.
+Start with the regular filter dialog. Use **Combine Filters** only when the relationship between conditions needs an explicit **All**, **Any**, **Just One**, or **None** group.
 
 ## Combine filters into groups
 
@@ -14,17 +14,18 @@ Start with the regular filter dialog. Use **Combine filters…** only when the r
 
 - **All** requires every direct condition or group.
 - **Any** requires at least one direct condition or group.
+- **Just One** requires exactly one direct condition or group.
 - **None** requires every direct condition or group not to match.
 
-Open a group's menu and choose **Create subgroup**, then select sibling rules. Two or more selections can become an **All** or **Any** group. One or more selections can become **None**. Choose **Cancel grouping** to leave the search unchanged.
+Open a group's menu and choose **Create subgroup**, then select sibling rules. Two or more selections can become an **All**, **Any**, or **Just One** group. One or more selections can become **None**. Choose **Cancel grouping** to leave the search unchanged.
 
 To relocate a condition, drag its move handle onto another group or open the condition menu and choose **Move to…**. The menu is also the direct keyboard-accessible way to choose any legal destination group.
 
 Older or externally created searches may show an **Exclude** enclosure around a compound group. This is retained when changing it to None would alter the search's meaning.
 
-Each rule is already written as a plain-language sentence. Select a sentence to edit it. Secondary actions are available from its more-actions menu; a group menu can change excluded logic, dissolve the group without deleting its rules, or remove the entire group.
+Each condition is shown as a set of readable filter chips. Select an individual chip to edit that part of the condition. Select a group's operator label to change how its conditions combine. Secondary actions are available from the more-actions menus: a condition can move or be removed, while a nested group can be dissolved without deleting its conditions or removed entirely.
 
-The complete workflow is keyboard accessible. Tab reaches every control, Enter or Space activates it, and grouping mode exposes pressed-state buttons for selecting sibling rules. Escape returns to the preceding filter view.
+The complete workflow is keyboard accessible. Tab moves between control groups, arrow keys move among controls that use roving focus, and Enter or Space activates the focused control. Grouping mode exposes pressed-state buttons for selecting sibling conditions. Escape closes the current picker or menu, cancels a keyboard move, or returns to the preceding filter view when no closer action is active. Use **Cancel grouping** to stop grouping while remaining in **Combine Filters**.
 
 ## Match a performer’s age when a video was made
 
@@ -52,18 +53,20 @@ Both conditions are evaluated against the same performer appearance. A video doe
 
 You can use performer properties instead of an exact identity. For example, add **Gender** set to Female, **Eye Color** set to Blue, **Age (then)** set to Between `18` and `20`, and **Occurrence Tags** set to **Hair Down** inside one **Related Performers** condition. Cove then requires one performer appearance to satisfy all four conditions.
 
-## Require performers from two different groups
+## Require two different performers
 
-To find a video containing both a male performer aged 20–30 and a female performer aged 30–40, add two **Related Performers** conditions:
+Two repeated related-performer conditions normally allow one performer to satisfy both. To require two different female performers in one video:
 
-| Related-performer condition | Gender | Age (then) |
-| --- | --- | --- |
-| First | Male | Between 20 and 30 |
-| Second | Female | Between 30 and 40 |
+1. Open **Videos**, then **Filters**.
+2. Add **Related Performers** with **Gender** set to Female.
+3. Choose **Add another performer condition** and add the same condition again.
+4. Open **Combine Filters**.
+5. In the **Related Performers** All group, change **Match assignment** from **May reuse a performer** to **Use a different performer for each**.
+6. Apply the filters.
 
-Keep the two related-performer conditions in an **All** group. Each condition must match one performer, while the filters inside each condition must match the same performer. The male and female requirements may therefore be satisfied by different people in the video.
+Distinct assignment pairs each condition with a separate visible performer. Leave **May reuse a performer** selected when the same performer may satisfy more than one condition.
 
-Do not combine gender and both age ranges inside one related-performer condition. Conditions inside that workspace describe one performer.
+Distinct assignment controls appear on an **All** assignment group whose own children are direct conditions for the same supported relationship in the positive **At least one matching…** mode. Cove can collect eligible siblings from a mixed outer **All** group into a dedicated nested assignment group, and a manually created nested group is also eligible when its direct children meet these rules. The supported directions are video to performers, audio to performers, and performer to audios. Distinct assignment supports two to eight conditions; for a larger eligible group, **Use a different… for each** remains visible but is disabled with a limit message.
 
 ## Repeat one filter with different operators
 
@@ -73,7 +76,7 @@ Some searches need the same criterion more than once. For example, videos outsid
 - **Any**
 - **Date** is after `2020-01-01`
 
-Add the first **Date** condition, choose **Add another Date**, and use **Combine filters…** to change **All** to **Any**.
+Add the first **Date** condition, choose **Add another Date**, and use **Combine Filters** to change **All** to **Any**.
 
 The same pattern applies when one string criterion must include one value and exclude another, such as a URL that includes one domain fragment but excludes a path fragment.
 
@@ -110,10 +113,28 @@ To find videos where an appearance has selected performer occurrence tags or the
 
 1. Add **Performer Occurrence Tags** with the required tags.
 2. Add **Related Performers**, then set **Favorite** to **True**.
-3. Return to the main filter dialog and choose **Combine filters…**.
+3. Return to the main filter dialog and choose **Combine Filters**.
 4. Open the group menu, choose **Create subgroup**, select the occurrence-tag condition and related-performer condition, then choose **Any**.
 
-These are video-level alternatives, so they belong in the main **Combine filters…** view. Use **Match any condition** inside **Related Performers** when the alternatives apply to a single related performer appearance.
+These are video-level alternatives, so they belong in the main **Combine Filters** view. Use **Match any condition** inside **Related Performers** when the alternatives apply to a single related performer appearance.
+
+## Filter by performer country
+
+To find media through a performer's normalized country value:
+
+1. Open the media list, then **Filters**.
+2. Select **Related Performers**.
+3. Select **Country** and leave the match operator set to `=` or `≠`.
+4. Search the country picker and choose a value.
+5. Apply the filters.
+
+Equality operators use the same normalized country picker as performer search. For recognized ISO-backed values, active related-filter chips show the localized country name and flag while preserving the stored country code. Custom values display their stored text without a flag. Includes, Excludes, and regular-expression operators keep a text field so existing custom values remain searchable.
+
+## Search across audio relationships
+
+Audio search exposes **Related Performers**, and performer search exposes **Related Audios**. Both work like other related filters: build an ad hoc filter or choose a saved filter, then select the relationship mode that controls whether at least one, every, or no visible related item must match.
+
+When an **All** group contains repeated related-performer conditions in audio search, **Use a different performer for each** can require separate performers. Repeated **Related Audios** conditions in performer search can similarly use **Use a different audio for each**.
 
 ## Choose the correct performer tags
 
@@ -130,7 +151,8 @@ Use occurrence tags for facts about a specific appearance. Put them inside **Rel
 Before removing this page’s draft status:
 
 - verify every recipe through the current keyboard workflow
-- add screenshots only after the related-performer grouping interface is settled
-- verify the **Combine Filters** nesting, plain-language rules, and grouping descriptions against the final interface
+- add screenshots after the combined-filter and related-assignment interface is approved
+- verify the **Combine Filters** nesting, **Just One** behavior, readable filter chips, and grouping descriptions against the final interface
+- verify distinct performer and audio assignment against the supported search pages
 - confirm the labels and result semantics against the released backend
 - remove implementation-oriented caveats that no longer apply
