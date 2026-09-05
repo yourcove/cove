@@ -272,8 +272,8 @@ public sealed class ScanFileValidator(
         if (entries.Count == 0)
             return ScanFileValidationResult.Invalid("the gallery archive contains no readable images");
 
-        // Reading the central directory is the same work gallery import already needs. Reuse this list
-        // rather than extracting every payload during scanning, which can be prohibitively expensive.
+        // Reading the central directory is the same work gallery import already needs. Reuse this list;
+        // the processor preflights payload extraction only for new or confirmed-changed archives.
         return ScanFileValidationResult.Ready(galleryEntries: entries);
     }
 
