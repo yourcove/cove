@@ -51,6 +51,7 @@ import { STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
 import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
+import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -90,7 +91,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     enabled: includeSubTags,
   });
   const opsMenuRef = useRef<HTMLDivElement | null>(null);
-  const { allTabs: tagTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("tag", [
+  const { allTabs: tagTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("tag", orderDetailTabsByMenuItems([
     { key: "videos", label: "Videos", count: includeSubTags ? recursiveTag?.videoCount : tag?.videoCount },
     { key: "performers", label: "Performers", count: includeSubTags ? recursiveTag?.performerCount : tag?.performerCount },
     { key: "images", label: "Images", count: includeSubTags ? recursiveTag?.imageCount : tag?.imageCount },
@@ -100,7 +101,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
     { key: "segments", label: "Segments", count: includeSubTags ? recursiveTag?.segmentCount : tag?.segmentCount },
     { key: "studios", label: "Studios", count: includeSubTags ? recursiveTag?.studioCount : tag?.studioCount },
     { key: "groups", label: "Groups", count: includeSubTags ? recursiveTag?.groupCount : tag?.groupCount },
-  ], id);
+  ], config?.interface?.menuItems), id);
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "tags" }, onNavigate);
   const canWriteTag = canWriteEntity("tag", hasPermission);

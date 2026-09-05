@@ -3,7 +3,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PerformerDetailPage } from "../pages/PerformerDetailPage";
 
-const { mockPerformers, mockPageState } = vi.hoisted(() => ({
+const { mockConfig, mockPerformers, mockPageState } = vi.hoisted(() => ({
+  mockConfig: { current: { ui: {} } as Record<string, unknown> },
   mockPerformers: {
     get: vi.fn(),
   },
@@ -34,7 +35,7 @@ vi.mock("../auth/AuthContext", () => ({
 }));
 
 vi.mock("../state/AppConfigContext", () => ({
-  useAppConfig: () => ({ config: { ui: {} } }),
+  useAppConfig: () => ({ config: mockConfig.current }),
   useOptionalAppConfig: () => ({ config: { ui: {} } }),
 }));
 
@@ -136,6 +137,7 @@ describe("PerformerDetailPage load state", () => {
   afterEach(() => {
     vi.clearAllMocks();
     mockPerformers.get.mockReset();
+    mockConfig.current = { ui: {} };
     mockPageState.activeTab = "extension-test";
   });
 
@@ -174,5 +176,30 @@ describe("PerformerDetailPage load state", () => {
 
     expect(await screen.findByText("1994-08-23")).toBeInTheDocument();
     expect(screen.getByText("2017-12-05 (age 23)")).toBeInTheDocument();
+  });
+
+  it("orders shared tabs by the configured main menu order", async () => {
+    mockConfig.current = {
+      ui: {},
+      interface: {
+        menuItems: ["videos", "images", "audios", "texts", "galleries", "groups", "faces"],
+      },
+    };
+    mockPerformers.get.mockResolvedValue(buildPerformer());
+
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Recovered performer" });
+    expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))).toEqual([
+      "Videos",
+      "Images",
+      "Audios",
+      "Texts",
+      "Galleries",
+      "Groups",
+      "Faces",
+      "Appears With",
+      "Similar",
+    ]);
   });
 });

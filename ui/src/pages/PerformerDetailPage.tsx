@@ -47,6 +47,7 @@ import { CountryLabel } from "../components/Country";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
 import { getPerformerAge, getUtcToday, hasDeathOccurred } from "../utils/performerAge";
+import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 interface Props {
   id: number;
@@ -74,7 +75,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [scrapeOpen, setScrapeOpen] = useState(false);
   const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
-  const { allTabs: performerTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("performer", [
+  const { allTabs: performerTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("performer", orderDetailTabsByMenuItems([
     { key: "videos", label: "Videos", count: performer?.videoCount },
     { key: "galleries", label: "Galleries", count: performer?.galleryCount },
     { key: "images", label: "Images", count: performer?.imageCount },
@@ -84,7 +85,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
     { key: "faces", label: "Faces", count: performer?.faceCount },
     { key: "appearsWith", label: "Appears With" },
     { key: "similar", label: "Similar", icon: <Sparkles className="h-4 w-4" /> },
-  ], id);
+  ], config?.interface?.menuItems), id);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
