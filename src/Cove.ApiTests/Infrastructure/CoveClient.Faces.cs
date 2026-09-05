@@ -26,9 +26,12 @@ public sealed partial class CoveClient
         IReadOnlyList<CustomFieldCriterion>? customFieldCriteria = null,
         string? sort = null,
         string direction = "asc",
+        string? label = null,
         CancellationToken cancellationToken = default)
     {
         var query = new List<string> { "page=1", "perPage=50", $"direction={Uri.EscapeDataString(direction)}" };
+        if (!string.IsNullOrWhiteSpace(label))
+            query.Add($"label={Uri.EscapeDataString(label)}");
         if (customFieldCriteria is { Count: > 0 })
         {
             var wireCriteria = customFieldCriteria.Select(criterion => new
@@ -44,6 +47,27 @@ public sealed partial class CoveClient
         }
         if (!string.IsNullOrWhiteSpace(sort))
             query.Add($"sort={Uri.EscapeDataString(sort)}");
+
+        return SendAsync<PaginatedResponse<FaceDto>>(
+            HttpMethod.Get,
+            WithCacheNonce($"/api/faces?{string.Join("&", query)}"),
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<PaginatedResponse<FaceDto>> FindFacesBySuggestionAsync(
+        float? minSuggestionConfidence = null,
+        IReadOnlyList<int>? topSuggestionPerformerIds = null,
+        string? label = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string> { "page=1", "perPage=50" };
+        if (!string.IsNullOrWhiteSpace(label))
+            query.Add($"label={Uri.EscapeDataString(label)}");
+        if (minSuggestionConfidence.HasValue)
+            query.Add($"minSuggestionConfidence={minSuggestionConfidence.Value.ToString(CultureInfo.InvariantCulture)}");
+        if (topSuggestionPerformerIds is { Count: > 0 })
+            query.Add($"topSuggestionPerformerIds={Uri.EscapeDataString(string.Join(",", topSuggestionPerformerIds))}");
 
         return SendAsync<PaginatedResponse<FaceDto>>(
             HttpMethod.Get,

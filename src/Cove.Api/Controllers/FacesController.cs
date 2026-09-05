@@ -294,6 +294,16 @@ public class FacesController(
             // Only unlinked faces carry a materialized suggestion.
             var suggestionQuery = query.Where(face => face.PerformerId == null && face.TopSuggestionPerformerId != null);
 
+            // The materialized columns hold the *global* top suggestion, so a face whose cached top this
+            // user has already decided on (rejected/accepted) no longer shows that performer — see
+            // ResolveDecidedTopSuggestionsAsync. Filtering and sorting those faces on the stored value
+            // would contradict the suggestion the row actually renders, so keep them out of this branch.
+            if (principalAccessor?.Current?.UserId is int decisionUserId)
+                suggestionQuery = suggestionQuery.Where(face => !db.FaceSuggestionDecisions.Any(decision =>
+                    decision.FaceId == face.Id
+                    && decision.UserId == decisionUserId
+                    && decision.PerformerId == face.TopSuggestionPerformerId));
+
             if (parsedTopSuggestionPerformerIds.Count > 0)
                 suggestionQuery = suggestionQuery.Where(face => face.TopSuggestionLocalPerformerId != null && parsedTopSuggestionPerformerIds.Contains(face.TopSuggestionLocalPerformerId.Value));
 
@@ -318,12 +328,13 @@ public class FacesController(
             var filteredComputedCounts = await LoadComputedCountsAsync(filteredPage.Select(face => face.Id).ToArray(), cancellationToken);
             var filteredOrdinals = await LoadPerformerFaceOrdinalsAsync(filteredPage, cancellationToken);
             var filteredCoverFallbacks = await LoadFaceCoverFallbackUrlsAsync(filteredPage, cancellationToken);
+            var filteredDecided = await ResolveDecidedTopSuggestionsAsync(filteredPage, cancellationToken);
 
             return Ok(new PaginatedResponse<FaceDto>(
                 filteredPage.Select(face => MapToDto(
                     face,
                     filteredComputedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
-                    MapStoredTopSuggestion(face),
+                    ResolveTopSuggestion(face, filteredDecided),
                     performerFaceOrdinal: filteredOrdinals.TryGetValue(face.Id, out var ord) ? ord : null,
                     coverFallbackUrl: filteredCoverFallbacks.GetValueOrDefault(face.Id))).ToList(),
                 totalFilteredCount,
@@ -346,13 +357,14 @@ public class FacesController(
         var computedCounts = await LoadComputedCountsAsync(items.Select(face => face.Id).ToArray(), cancellationToken);
         var ordinals = await LoadPerformerFaceOrdinalsAsync(items, cancellationToken);
         var coverFallbacks = await LoadFaceCoverFallbackUrlsAsync(items, cancellationToken);
+        var decided = await ResolveDecidedTopSuggestionsAsync(items, cancellationToken);
         logger.LogDebug("Faces.List total: {Ms}ms", totalSw.ElapsedMilliseconds);
 
         return Ok(new PaginatedResponse<FaceDto>(
             items.Select(face => MapToDto(
                 face,
                 computedCounts.TryGetValue(face.Id, out var counts) ? counts : null,
-                MapStoredTopSuggestion(face),
+                ResolveTopSuggestion(face, decided),
                 performerFaceOrdinal: ordinals.TryGetValue(face.Id, out var ord) ? ord : null,
                 coverFallbackUrl: coverFallbacks.GetValueOrDefault(face.Id))).ToList(),
             totalCount,
@@ -485,7 +497,8 @@ public class FacesController(
             return NotFound();
 
         var computedCounts = await LoadComputedCountsAsync(new[] { id }, cancellationToken);
-        var topSuggestion = MapStoredTopSuggestion(face);
+        var decided = await ResolveDecidedTopSuggestionsAsync([face], cancellationToken);
+        var topSuggestion = ResolveTopSuggestion(face, decided);
         var fieldProvenance = await LoadFaceFieldProvenanceAsync(face.Id, cancellationToken);
         var ordinals = await LoadPerformerFaceOrdinalsAsync([face], cancellationToken);
         return Ok(MapToDto(
@@ -1094,7 +1107,18 @@ public class FacesController(
             if (providerOutcome is not null)
             {
                 if (providerOutcome.Succeeded)
+                {
+                    // Provider decisions (reference-pack matches) are recorded in the provider's own store
+                    // and are global, so the suggester already honours them — but the cached projection
+                    // still holds the decided match until it is recomputed. Drop it so the faces list
+                    // stops offering a reference match the user just rejected.
+                    if (normalizedDecision == FaceSuggestionDecisionValues.Accept)
+                        await InvalidateSuggestionForLinkChangeAsync(id, cancellationToken);
+                    else
+                        await InvalidateSuggestionAsync(new[] { id }, cancellationToken);
+
                     return Ok(await LoadFaceDtoAsync(id, cancellationToken));
+                }
 
                 return StatusCode(providerOutcome.StatusCode ?? StatusCodes.Status400BadRequest, new { error = providerOutcome.Error ?? "Suggestion decision was not accepted by the provider." });
             }
@@ -1883,6 +1907,63 @@ public class FacesController(
             face.TopSuggestionLocalPerformerHasImage,
             face.TopSuggestionLocalPerformerIsLocalOnly);
     }
+
+    /// <summary>
+    /// Applies the current user's suggestion decisions to the materialized <c>Face.TopSuggestion*</c>
+    /// projection. The stored value is the <em>global</em> top suggestion — a single shared projection
+    /// cannot encode per-user reject decisions — so a face whose cached top this user already rejected
+    /// would keep showing that performer on the faces list even though the detail/suggestions endpoints
+    /// have long moved on to the next-best match. For those faces (rare: a decision is a deliberate
+    /// per-face action) the suggestion is recomputed through the very same path the detail endpoints
+    /// use, so both views agree and a rejection sticks no matter how often the projection is refreshed.
+    /// Returns overrides keyed by face id; a present-but-null value means the face has no suggestion
+    /// left once the user's decisions are applied.
+    /// </summary>
+    private async Task<Dictionary<int, FaceTopSuggestionDto?>> ResolveDecidedTopSuggestionsAsync(
+        IReadOnlyCollection<Face> faces,
+        CancellationToken cancellationToken)
+    {
+        var materialized = faces
+            .Where(face => !face.PerformerId.HasValue && face.TopSuggestionPerformerId.HasValue)
+            .ToArray();
+        if (materialized.Length == 0)
+            return [];
+
+        var blockedByFaceId = await LoadBlockedSuggestionIdsAsync(materialized.Select(face => face.Id).ToArray(), cancellationToken);
+        if (blockedByFaceId.Count == 0)
+            return [];
+
+        var decidedFaceIds = materialized
+            .Where(face => blockedByFaceId.TryGetValue(face.Id, out var blockedPerformerIds)
+                && blockedPerformerIds.Contains(face.TopSuggestionPerformerId!.Value))
+            .Select(face => face.Id)
+            .ToArray();
+        if (decidedFaceIds.Length == 0)
+            return [];
+
+        var rankedSuggestionsByFaceId = await BuildRankedSuggestionsByFaceAsync(
+            decidedFaceIds,
+            blockedByFaceId,
+            TopSuggestionCandidateCount,
+            cancellationToken,
+            includeReferenceMatches: true);
+
+        var overrides = new Dictionary<int, FaceTopSuggestionDto?>(decidedFaceIds.Length);
+        foreach (var faceId in decidedFaceIds)
+        {
+            var top = rankedSuggestionsByFaceId.TryGetValue(faceId, out var suggestions)
+                ? suggestions.FirstOrDefault()
+                : null;
+            overrides[faceId] = top is null ? null : MapTopSuggestion(top);
+        }
+
+        return overrides;
+    }
+
+    private static FaceTopSuggestionDto? ResolveTopSuggestion(Face face, IReadOnlyDictionary<int, FaceTopSuggestionDto?> decidedOverrides)
+        => decidedOverrides.TryGetValue(face.Id, out var replacement)
+            ? replacement
+            : MapStoredTopSuggestion(face);
 
     // Translates the suggestion-confidence criterion onto the stored Face.TopSuggestionConfidence column
     // so filtering happens in SQL. Mirrors MatchesConfidenceCriterion's modifier semantics. Values are

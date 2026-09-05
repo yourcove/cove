@@ -843,6 +843,36 @@ public sealed class DatabaseClient
         return appearance.Id;
     }
 
+    // Stamps the materialized Face.TopSuggestion* projection the way the background materializer would.
+    // The materializer scores every face globally and knows nothing about per-user reject decisions, so
+    // this is how a suggestion a user already rejected ends up back in the cached columns.
+    public async Task MaterializeFaceTopSuggestionAsync(
+        int faceId,
+        int performerId,
+        string performerName,
+        float confidence,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var updated = await db.Faces
+            .Where(face => face.Id == faceId)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(face => face.TopSuggestionPerformerId, performerId)
+                    .SetProperty(face => face.TopSuggestionLocalPerformerId, performerId)
+                    .SetProperty(face => face.TopSuggestionPerformerName, performerName)
+                    .SetProperty(face => face.TopSuggestionConfidence, confidence)
+                    .SetProperty(face => face.TopSuggestionLocalPerformerHasImage, false)
+                    .SetProperty(face => face.TopSuggestionLocalPerformerIsLocalOnly, true)
+                    .SetProperty(face => face.TopSuggestionComputedAt, DateTime.UtcNow),
+                cancellationToken);
+        if (updated != 1)
+            throw new InvalidOperationException($"The API test could not materialize a top suggestion for face {faceId}.");
+    }
+
     public async Task<int> CreateCompletedAiRunAsync(
         string runKey,
         AiRunTargetType targetType,

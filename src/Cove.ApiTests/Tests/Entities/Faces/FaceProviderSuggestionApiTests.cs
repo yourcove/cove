@@ -179,6 +179,52 @@ public sealed class FaceProviderSuggestionApiTests(
         ambiguousReview.Should().BeEmpty();
     }
 
+    [Fact]
+    [CoversEndpoint("GET", "/api/faces")]
+    public async Task GivenARejectedSuggestionRefreshedIntoTheCachedProjection_WhenTheFacesListIsRead_ThenTheRejectionStandsAndTheNextBestMatchIsShown()
+    {
+        // Arrange
+        var rejectedPerformer = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Rejected cached performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var nextBest = await AsUser().CreatePerformerAsync(new PerformerBuilder().WithName($"Next best performer {Guid.NewGuid():N}").Build(), TestContext.Current.CancellationToken);
+        var label = $"Rejected suggestion candidate {Guid.NewGuid():N}";
+        var face = await AsUser().CreateFaceAsync(new FaceCreateDto(label, null, false, null), TestContext.Current.CancellationToken);
+        await ConfigureFaceSuggestionPlanAsync(new Dictionary<int, IReadOnlyList<FaceSuggestionDto>>
+        {
+            [face.Id] = [Suggest(rejectedPerformer, 0.72f), Suggest(nextBest, 0.324f)],
+        }, TestContext.Current.CancellationToken);
+
+        var member = AsUser(ApiTestUsers.Eva);
+        await member.RecordFaceSuggestionDecisionAsync(face.Id, new FaceSuggestionDecisionDto(rejectedPerformer.Id, FaceSuggestionDecisionValues.Reject), TestContext.Current.CancellationToken);
+
+        // The projection is global and is recomputed from the global ranking, so the rejected performer
+        // lands back in the cached columns — the state that used to resurface it on the faces list.
+        await AsDbUser().MaterializeFaceTopSuggestionAsync(face.Id, rejectedPerformer.Id, rejectedPerformer.Name, 0.72f, TestContext.Current.CancellationToken);
+
+        // Act
+        var listed = await member.FindFacesAsync(label: label, cancellationToken: TestContext.Current.CancellationToken);
+        var detail = await member.GetFaceByIdAsync(face.Id, TestContext.Current.CancellationToken);
+        var live = await member.GetFaceSuggestionsAsync(face.Id, cancellationToken: TestContext.Current.CancellationToken);
+        var filteredOnRejected = await member.FindFacesBySuggestionAsync(topSuggestionPerformerIds: [rejectedPerformer.Id], label: label, cancellationToken: TestContext.Current.CancellationToken);
+        var otherUserListed = await AsUser().FindFacesAsync(label: label, cancellationToken: TestContext.Current.CancellationToken);
+        var otherUserFilteredOnRejected = await AsUser().FindFacesBySuggestionAsync(topSuggestionPerformerIds: [rejectedPerformer.Id], label: label, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        var listedFace = listed.Items.Should().ContainSingle(item => item.Id == face.Id).Subject;
+        listedFace.TopSuggestion.Should().NotBeNull();
+        listedFace.TopSuggestion!.PerformerId.Should().Be(nextBest.Id);
+        listedFace.TopSuggestion.Confidence.Should().Be(0.324f);
+        detail.TopSuggestion.Should().NotBeNull();
+        detail.TopSuggestion!.PerformerId.Should().Be(nextBest.Id);
+        live.Select(item => item.PerformerId).Should().NotContain(rejectedPerformer.Id);
+        filteredOnRejected.Items.Should().NotContain(item => item.Id == face.Id);
+
+        // The stored projection stays global: a user who never rejected it still sees the cached top and
+        // still matches the suggested-performer filter, so the exclusion is scoped to the deciding user.
+        otherUserListed.Items.Should().ContainSingle(item => item.Id == face.Id)
+            .Which.TopSuggestion!.PerformerId.Should().Be(rejectedPerformer.Id);
+        otherUserFilteredOnRejected.Items.Should().ContainSingle(item => item.Id == face.Id);
+    }
+
     private static FaceSuggestionDto Suggest(
         PerformerDto performer,
         float confidence,
