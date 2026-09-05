@@ -237,8 +237,10 @@ describe("HomePage dashboards", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
 
     const addWidget = screen.getByRole("button", { name: /Add Widget/ });
+    const toolbar = addWidget.parentElement?.firstElementChild;
     expect(addWidget.closest("header")).toBeNull();
-    expect(addWidget.parentElement?.firstElementChild?.tagName).toBe("HEADER");
+    expect(toolbar?.tagName).toBe("HEADER");
+    expect(toolbar).toHaveClass("sticky", "top-14");
     expect(addWidget.parentElement?.children[1]).toBe(addWidget);
   });
 
@@ -246,6 +248,10 @@ describe("HomePage dashboards", () => {
     const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const getBoundingClientRect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function () {
+      if (this.tagName === "HEADER") return { bottom: 180 } as DOMRect;
+      return { bottom: 0, top: 0 } as DOMRect;
+    });
     try {
       renderHome();
 
@@ -253,12 +259,16 @@ describe("HomePage dashboards", () => {
       fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
       fireEvent.click(screen.getByRole("button", { name: /^Recently Added Videos/ }));
 
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" }));
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" }));
       expect(screen.queryByRole("heading", { name: "Add Widget" })).not.toBeInTheDocument();
-      expect(scrollIntoView.mock.contexts[0]).toContainElement(screen.getByText("Recently Added Videos", { selector: "span" }));
+      const addedWidget = scrollIntoView.mock.contexts[0];
+      expect(addedWidget).toContainElement(screen.getByText("Recently Added Videos", { selector: "span" }));
+      expect(addedWidget).toHaveStyle({ scrollMarginTop: "184px" });
+      expect(addedWidget?.parentElement?.parentElement).toHaveClass("pb-[calc(100dvh-4px)]");
     } finally {
       if (originalScrollIntoView) Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
       else delete (Element.prototype as Partial<Element>).scrollIntoView;
+      getBoundingClientRect.mockRestore();
     }
   });
 

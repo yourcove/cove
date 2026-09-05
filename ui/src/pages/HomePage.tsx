@@ -459,6 +459,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
   const allowNavigation = useRef(false);
   const pendingScrollWidgetId = useRef<string | null>(null);
   const widgetElements = useRef(new Map<string, HTMLElement>());
+  const editorToolbar = useRef<HTMLElement | null>(null);
   const editorUrl = useRef(`${window.location.pathname}${window.location.search}`);
   const editorHistoryState = useRef(window.history.state);
   const dirty = JSON.stringify({ name: draft.name, widgets: draft.widgets }) !== JSON.stringify({ name: dashboard.name, widgets: dashboard.widgets });
@@ -507,7 +508,9 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
       return;
     }
     pendingScrollWidgetId.current = null;
-    element.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    const toolbarBottom = editorToolbar.current?.getBoundingClientRect().bottom ?? 0;
+    element.style.scrollMarginTop = `${toolbarBottom + 4}px`;
+    element.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }, [draft.widgets]);
 
   const confirmDiscard = () => !dirty || window.confirm("Discard your unsaved dashboard changes?");
@@ -617,7 +620,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
   const configuredWidget = configuringId ? draft.widgets.find((widget) => widget.instanceId === configuringId) : undefined;
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+      <header ref={editorToolbar} className="sticky top-14 z-30 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
         <div className="flex min-w-0 items-center gap-3">
           <span className="rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent">Editing Dashboard</span>
           <input
@@ -644,7 +647,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
         items={draft.widgets}
         getKey={(widget) => widget.instanceId}
         onReorder={(widgets) => { if (!busy) setDraft((current) => ({ ...current, widgets })); }}
-        className="space-y-3"
+        className="space-y-3 pb-[calc(100dvh-4px)]"
         renderItem={(widget, { dragHandleProps, isDragging, isOver }) => (
           <section
             ref={(element) => {
