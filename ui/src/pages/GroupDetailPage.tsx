@@ -475,9 +475,7 @@ export function GroupDetailPage({ id, onNavigate }: Props) {
           </>
         )}
       >
-        <div className="mx-auto max-w-7xl">
-          <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-0" />
-        </div>
+        <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-0" />
         <div className="py-6">
           {activeContent}
           <ExtensionSlot slot="group-detail-main-bottom" context={{ group, onNavigate }} />

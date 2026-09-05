@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { getBuiltInNavigationIcon } from "./navigationItems";
 
 export interface EntityDetailTab {
   key: string;
@@ -21,11 +22,13 @@ export function EntityDetailTabs({ tabs, activeTab, onTabChange, className = "" 
   }
 
   return (
-    <div className={["border-b border-border", className].filter(Boolean).join(" ")}>
+    <div className={["w-full border-b border-border", className].filter(Boolean).join(" ")}>
       <div className="overflow-x-auto px-1 [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)] sm:px-0 sm:[mask-image:none]">
         <div className="flex w-max min-w-full gap-1 sm:min-w-max" role="tablist" aria-label="Detail tabs">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.key;
+            const NavigationIcon = tab.icon ? undefined : getBuiltInNavigationIcon(tab.key);
+            const icon = tab.icon ?? (NavigationIcon ? <NavigationIcon className="h-4 w-4" /> : null);
             return (
               <button
                 key={tab.key}
@@ -43,7 +46,7 @@ export function EntityDetailTabs({ tabs, activeTab, onTabChange, className = "" 
                   tab.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
                 ].join(" ")}
               >
-                {tab.icon ? <span className="shrink-0 text-current">{tab.icon}</span> : null}
+                {icon ? <span className="shrink-0 text-current">{icon}</span> : null}
                 <span className="max-w-[8.5rem] truncate sm:max-w-none">{tab.label}</span>
                 {typeof tab.count === "number" ? (
                   <span className="rounded-full bg-card px-2 py-0.5 text-xs text-muted">{tab.count}</span>

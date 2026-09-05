@@ -316,7 +316,7 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
           </>
         )}
       >
-        <EntityDetailTabs tabs={visiblePerformerTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mx-auto max-w-7xl mt-0" />
+        <EntityDetailTabs tabs={visiblePerformerTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-0" />
 
         <div className="py-6">
           {activeTab === "videos" && (

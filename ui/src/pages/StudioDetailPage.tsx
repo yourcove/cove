@@ -326,7 +326,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
       >
         <ExtensionSlot slot="studio-detail-sidebar-bottom" context={{ studio, onNavigate }} />
 
-        <EntityDetailTabs tabs={visibleStudioTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mx-auto max-w-7xl mt-6" />
+        <EntityDetailTabs tabs={visibleStudioTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-6" />
         {activeTab !== "studios" && (
           <div className="mx-auto mt-4 max-w-7xl px-4">
             <HierarchyContentToggle checked={includeSubStudios} label="Include sub-studio content" onChange={setIncludeSubStudios} />

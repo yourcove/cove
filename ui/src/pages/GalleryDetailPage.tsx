@@ -449,7 +449,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
           </>
         }
       >
-        <EntityDetailTabs tabs={visibleGalleryTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mx-auto mb-4 max-w-7xl" />
+        <EntityDetailTabs tabs={visibleGalleryTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mb-4" />
 
         {activeContent}
         <ExtensionSlot slot="gallery-detail-main-bottom" context={{ gallery, onNavigate }} />

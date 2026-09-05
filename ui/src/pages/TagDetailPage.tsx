@@ -287,7 +287,7 @@ export function TagDetailPage({ id, onNavigate }: Props) {
         <ExtensionSlot slot="tag-detail-sidebar-bottom" context={{ tag, onNavigate }} />
 
         <TagHierarchyLinks tag={tag} onNavigate={onNavigate} className="mx-auto mb-4 max-w-7xl" />
-        <EntityDetailTabs tabs={visibleTagTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mx-auto max-w-7xl" />
+        <EntityDetailTabs tabs={visibleTagTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} />
         <div className="mx-auto mt-4 max-w-7xl px-4">
           <HierarchyContentToggle checked={includeSubTags} label="Include sub-tag content" onChange={setIncludeSubTags} />
         </div>

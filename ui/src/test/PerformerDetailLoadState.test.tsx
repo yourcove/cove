@@ -190,6 +190,9 @@ describe("PerformerDetailPage load state", () => {
     renderPage();
 
     await screen.findByRole("heading", { name: "Recovered performer" });
+    const tablist = screen.getByRole("tablist", { name: "Detail tabs" });
+    expect(tablist.parentElement?.parentElement).toHaveClass("w-full");
+    expect(tablist.parentElement?.parentElement).not.toHaveClass("max-w-7xl");
     expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))).toEqual([
       "Videos",
       "Images",
