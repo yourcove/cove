@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getCarouselPageDestinations, HomePage } from "../pages/HomePage";
+import { getCarouselPageDestinations, getWidgetRevealScrollDelta, HomePage } from "../pages/HomePage";
 import { navigateToUrl } from "../router/location";
 
 const { state, mocks } = vi.hoisted(() => ({
@@ -129,6 +129,7 @@ describe("HomePage dashboards", () => {
       disconnect() {}
     }
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    vi.stubGlobal("scrollBy", vi.fn());
   });
 
   it("bootstraps the first dashboard from the legacy home-page layout", async () => {
@@ -428,13 +429,15 @@ describe("HomePage dashboards", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("scrolls an appended widget into view after adding it", async () => {
-    const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  it("scrolls an appended widget only enough to reveal it", async () => {
+    const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
+    const innerHeight = vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
     const getBoundingClientRect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-      if (this.tagName === "HEADER") return { bottom: 180 } as DOMRect;
-      return { bottom: 0, top: 0 } as DOMRect;
+      if (this.tagName === "HEADER") return { bottom: 124 } as DOMRect;
+      if (this.tagName === "SECTION" && this.textContent?.includes("Recently Added Videos")) {
+        return { top: 800, bottom: 1100, height: 300 } as DOMRect;
+      }
+      return { bottom: 0, top: 0, height: 0 } as DOMRect;
     });
     try {
       renderHome();
@@ -443,15 +446,17 @@ describe("HomePage dashboards", () => {
       fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
       fireEvent.click(screen.getByRole("button", { name: /^Recently Added Videos/ }));
 
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" }));
+      await waitFor(() => expect(scrollBy).toHaveBeenCalledWith({ top: 396, behavior: "smooth" }));
       expect(screen.queryByRole("heading", { name: "Add Widget" })).not.toBeInTheDocument();
-      const addedWidget = scrollIntoView.mock.contexts[0] as HTMLElement;
+      const addedWidget = screen.getByText("Recently Added Videos", { selector: "span" }).closest("section")!;
       expect(addedWidget).toContainElement(screen.getByText("Recently Added Videos", { selector: "span" }));
-      expect(addedWidget).toHaveStyle({ scrollMarginTop: "184px" });
-      expect(addedWidget?.parentElement?.parentElement).toHaveClass("pb-[calc(100dvh-4px)]");
+      expect(addedWidget.parentElement?.parentElement).toHaveClass("pb-6");
+      expect(addedWidget.parentElement?.parentElement).not.toHaveClass("pb-[calc(100dvh-4px)]");
+      expect(getWidgetRevealScrollDelta({ top: 800, bottom: 1700, height: 900 }, 124, 720)).toBe(672);
+      expect(getWidgetRevealScrollDelta({ top: 300, bottom: 600, height: 300 }, 124, 720)).toBe(0);
     } finally {
-      if (originalScrollIntoView) Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
-      else delete (Element.prototype as Partial<Element>).scrollIntoView;
+      scrollBy.mockRestore();
+      innerHeight.mockRestore();
       getBoundingClientRect.mockRestore();
     }
   });

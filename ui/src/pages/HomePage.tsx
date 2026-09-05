@@ -522,9 +522,44 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
       return;
     }
     pendingScrollWidgetId.current = null;
-    const toolbarBottom = editorToolbar.current?.getBoundingClientRect().bottom ?? 0;
-    element.style.scrollMarginTop = `${toolbarBottom + 4}px`;
-    element.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    let revealFrame: number | undefined;
+    const revealWidget = () => {
+      if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
+      revealFrame = window.requestAnimationFrame(() => {
+        revealFrame = undefined;
+        const delta = getWidgetRevealScrollDelta(
+          element.getBoundingClientRect(),
+          editorToolbar.current?.getBoundingClientRect().bottom ?? 0,
+          window.innerHeight,
+        );
+        if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: "smooth" });
+      });
+    };
+    const resizeObserver = new ResizeObserver(revealWidget);
+    resizeObserver.observe(element);
+    revealWidget();
+    let observerTimer: number | undefined;
+    const stopObserving = () => {
+      if (revealFrame !== undefined) {
+        window.cancelAnimationFrame(revealFrame);
+        revealFrame = undefined;
+      }
+      resizeObserver.disconnect();
+      if (observerTimer !== undefined) window.clearTimeout(observerTimer);
+      window.removeEventListener("wheel", stopObserving);
+      window.removeEventListener("touchstart", stopObserving);
+      window.removeEventListener("pointerdown", stopObserving);
+      window.removeEventListener("keydown", stopOnScrollKey);
+    };
+    const stopOnScrollKey = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) stopObserving();
+    };
+    window.addEventListener("wheel", stopObserving, { passive: true });
+    window.addEventListener("touchstart", stopObserving, { passive: true });
+    window.addEventListener("pointerdown", stopObserving, { passive: true });
+    window.addEventListener("keydown", stopOnScrollKey);
+    observerTimer = window.setTimeout(stopObserving, 3000);
+    return stopObserving;
   }, [draft.widgets]);
 
   const confirmDiscard = () => !dirty || window.confirm("Discard your unsaved dashboard changes?");
@@ -661,7 +696,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
         items={draft.widgets}
         getKey={(widget) => widget.instanceId}
         onReorder={(widgets) => { if (!busy) setDraft((current) => ({ ...current, widgets })); }}
-        className="space-y-3 pb-[calc(100dvh-4px)]"
+        className="space-y-3 pb-6"
         renderItem={(widget, { dragHandleProps, isDragging, isOver }) => (
           <section
             ref={(element) => {
@@ -730,6 +765,15 @@ function canDuplicateWidget(widget: DashboardWidget, definitions: ExtensionDashb
   return definition !== undefined && definition.allowMultiple !== false;
 }
 
+export function getWidgetRevealScrollDelta(rect: Pick<DOMRect, "top" | "bottom" | "height">, toolbarBottom: number, viewportHeight: number) {
+  const revealTop = toolbarBottom + 4;
+  const revealBottom = viewportHeight - 16;
+  if (rect.height > revealBottom - revealTop) return rect.top - revealTop;
+  if (rect.top < revealTop) return rect.top - revealTop;
+  if (rect.bottom > revealBottom) return rect.bottom - revealBottom;
+  return 0;
+}
+
 function WidgetPresentationControl({ widget, definition, dashboardWidgetCount, disabled, onChange }: {
   widget: DashboardWidget;
   definition?: ExtensionDashboardWidgetContribution;
@@ -780,7 +824,7 @@ function useDashboardDialog<T extends HTMLElement>(onClose: () => void) {
     }, 0);
     return () => {
       window.clearTimeout(focusTimer);
-      previousFocus?.focus();
+      previousFocus?.focus({ preventScroll: true });
     };
   }, []);
 
