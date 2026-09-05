@@ -12,6 +12,7 @@ import type {
 import { MultiIdEditor } from "./MultiIdFilterEditor";
 import {
   BoolEditor,
+  CountryEditor,
   DateEditor,
   EnumEditor,
   HashEditor,
@@ -28,6 +29,7 @@ import type { CriterionDefinition, CriterionType } from "./filterCriteriaTypes";
 
 const TYPE_MODIFIERS: Record<CriterionType, CriterionModifier[]> = {
   string: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
+  country: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   path: ["UNDER_PATH", "NOT_UNDER_PATH", "EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   remoteId: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
   hash: ["EQUALS", "NOT_EQUALS", "INCLUDES", "EXCLUDES", "MATCHES_REGEX", "NOT_MATCHES_REGEX", "IS_NULL", "NOT_NULL"],
@@ -95,6 +97,8 @@ export function CriterionEditor({
       return <HashEditor value={value as FingerprintCriterion | undefined} onChange={onChange} modifiers={modifiers} options={criterion.options ?? []} />;
     case "string":
       return <StringEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
+    case "country":
+      return <CountryEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "path":
       return <PathEditor value={value as StringCriterion | undefined} onChange={onChange} modifiers={modifiers} />;
     case "remoteId":

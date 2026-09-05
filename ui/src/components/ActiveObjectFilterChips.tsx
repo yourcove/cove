@@ -704,6 +704,8 @@ function ExpressionEntryValue({
   const fallback = expressionEntrySummary(def, value, endpointValue, entityNameMaps, metadataServers, ratingOptions);
   return def?.type === "multiId"
     ? <MultiIdFilterChipDisplay def={def} value={value} nameMap={nameMap} fallback={fallback} />
+    : def?.type === "country"
+    ? <CountryFilterChipDisplay value={value} fallback={fallback} />
     : <>{fallback}</>;
 }
 
@@ -964,6 +966,7 @@ function RelatedFilterChipGroup({
     displayValue: string,
     target: FilterChipTarget,
     editable = true,
+    showTitle = true,
   ) => (
     <div key={key} className="flex min-h-[26px] max-w-full items-stretch overflow-hidden rounded-md border border-border/80 bg-surface text-xs text-foreground">
       {editable ? (
@@ -971,7 +974,7 @@ function RelatedFilterChipGroup({
           type="button"
           onClick={() => onEdit(target)}
           className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-2 text-left hover:bg-card"
-          title={`${label}: ${displayValue}`}
+          title={showTitle ? `${label}: ${displayValue}` : undefined}
           aria-label={`Edit ${singular} filter: ${label}`}
         >
           <EntityIcon className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
@@ -981,7 +984,7 @@ function RelatedFilterChipGroup({
       ) : (
         <span
           className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-2 text-left"
-          title={`${label}: ${displayValue}`}
+          title={showTitle ? `${label}: ${displayValue}` : undefined}
           aria-label={`${singular} filter: ${label} (read only)`}
         >
           <EntityIcon className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
@@ -1061,6 +1064,8 @@ function RelatedFilterChipGroup({
           : formatFilterChipValue(nestedDef, nestedValue, nameMap, ratingOptions);
         const displayContent = nestedDef?.type === "rating"
           ? <RatingFilterChipDisplay value={nestedValue} options={ratingOptions} fallback={displayValue} />
+          : nestedDef?.type === "country"
+          ? <CountryFilterChipDisplay value={nestedValue} fallback={displayValue} />
           : nestedDef?.type === "multiId"
           ? <MultiIdFilterChipDisplay def={nestedDef} value={nestedValue} nameMap={nameMap} fallback={displayValue} />
           : displayValue;
@@ -1071,6 +1076,7 @@ function RelatedFilterChipGroup({
           displayValue,
           { kind: "related", parentKey, facet: "criterion", nestedKey: key, nestedCriterionId: nestedDef?.id },
           Boolean(nestedDef),
+          nestedDef?.type !== "country",
         );
       })}
     </div>

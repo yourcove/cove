@@ -14,6 +14,7 @@ import type {
 } from "../api/types";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { IsoDateInput } from "./IsoDateInput";
+import { CountrySelect } from "./Country";
 import { LibraryFolderTree } from "./LibraryFolderTree";
 import {
   convertFromRatingFormat,
@@ -328,6 +329,27 @@ export function StringEditor({ value, onChange, modifiers }: { value?: StringCri
           />
         </LabeledControl>
       )}
+    </div>
+  );
+}
+
+export function CountryEditor({ value, onChange, modifiers }: { value?: StringCriterion; onChange: (v: unknown) => void; modifiers: CriterionModifier[] }) {
+  const modifier = value?.modifier ?? "EQUALS";
+  const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
+  const useSelector = modifier === "EQUALS" || modifier === "NOT_EQUALS";
+
+  return (
+    <div className="space-y-2">
+      <ModifierSelector modifiers={modifiers} selected={modifier} onSelect={(nextModifier) => onChange({ value: value?.value ?? "", modifier: nextModifier })} />
+      {!isNull ? (
+        <LabeledControl label="Value">
+          {useSelector ? (
+            <CountrySelect value={value?.value ?? ""} onChange={(country) => onChange({ value: country, modifier })} />
+          ) : (
+            <input aria-label="Value" type="text" value={value?.value ?? ""} onChange={(event) => onChange({ value: event.target.value, modifier })} className="min-h-11 w-full rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground focus:border-accent focus:outline-none md:text-sm" placeholder="Enter a stored code or custom value" />
+          )}
+        </LabeledControl>
+      ) : null}
     </div>
   );
 }

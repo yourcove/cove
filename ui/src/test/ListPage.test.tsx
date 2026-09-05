@@ -444,6 +444,45 @@ describe("ListPage active filter chips", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Between", pressed: true })).toHaveFocus());
   });
 
+  it("shows a localized country in a related performer expression", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["performer-country-options"], [
+      { value: "CZ", code: "CZ", name: "Czechia", performerCount: 1, isCustom: false },
+    ]);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouteRegistryProvider>
+          <ListPage
+            title="Videos"
+            filter={{ page: 1, perPage: 40 }}
+            onFilterChange={vi.fn()}
+            totalCount={0}
+            isLoading={false}
+            criteriaDefinitions={VIDEO_CRITERIA}
+            objectFilter={{
+              _filterExpression: {
+                operator: "OR",
+                children: [
+                  { filter: { performerFilterCriterion: { objectFilter: { countryCriterion: { value: "CZ", modifier: "EQUALS" } } } } },
+                  { filter: { titleCriterion: { value: "example", modifier: "INCLUDES" } } },
+                ],
+              },
+            }}
+            onObjectFilterChange={vi.fn()}
+          >
+            <div>content</div>
+          </ListPage>
+        </RouteRegistryProvider>
+      </QueryClientProvider>,
+    );
+
+    const countryChip = screen.getByRole("button", { name: "Edit performer filter: Country = CZ" });
+    expect(countryChip).toHaveTextContent("Country =🇨🇿Czechia");
+    expect(countryChip).not.toHaveTextContent("CZ");
+    expect(await within(countryChip).findByTitle("Czechia (CZ)")).toBeInTheDocument();
+  });
+
   it("opens a compact flat-expression chip in its normal stacked criterion panel", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

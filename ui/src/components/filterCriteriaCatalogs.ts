@@ -97,7 +97,7 @@ export const PERFORMER_CRITERIA: CriteriaDefinitionList<PerformerFilterCriteria>
     { value: "NonBinary", label: "Non-Binary" },
   ] },
   { id: "ethnicity", label: "Ethnicity", type: "string", filterKey: "ethnicityCriterion" },
-  { id: "country", label: "Country", type: "string", filterKey: "countryCriterion" },
+  { id: "country", label: "Country", type: "country", filterKey: "countryCriterion" },
   { id: "tags", label: "Tags", type: "multiId", entityType: "tags", filterKey: "tagsCriterion" },
   { id: "studios", label: "Studios", type: "multiId", entityType: "studios", filterKey: "studiosCriterion", hierarchyToggleLabel: "Include sub-studios" },
   { id: "videoCount", label: "Video Count", type: "number", filterKey: "videoCountCriterion", modifiers: NON_NULL_NUMBER_MODIFIERS },

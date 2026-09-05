@@ -104,6 +104,38 @@ describe("FilterDialog", () => {
     });
   });
 
+  it("uses the country dropdown inside a related performer filter", async () => {
+    const onApply = vi.fn();
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <FilterDialog open onClose={vi.fn()} criteria={VIDEO_CRITERIA} activeFilter={{}} onApply={onApply} />,
+      (queryClient) => queryClient.setQueryData(["performer-country-options"], [
+        { value: "CA", code: "CA", name: "Canada", performerCount: 12, isCustom: false },
+      ]),
+    );
+
+    await user.click(screen.getByText("Related Performers"));
+    await user.click(screen.getByRole("tab", { name: "Country" }));
+    await user.click(screen.getByRole("button", { name: "Show countries" }));
+    await user.click(screen.getByRole("option", { name: "Canada" }));
+
+    const chips = screen.getByRole("toolbar", { name: "Related Performers selected filters" });
+    const countryChip = within(chips).getByRole("button", { name: "Edit performer filter: Country" });
+    expect(countryChip).toHaveTextContent("Country:=🇨🇦Canada");
+    expect(countryChip).not.toHaveTextContent("CA");
+    expect(countryChip).not.toHaveAttribute("title");
+    expect(await within(chips).findByTitle("Canada (CA)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onApply).toHaveBeenCalledWith({
+      performerFilterCriterion: {
+        objectFilter: { countryCriterion: { value: "CA", modifier: "EQUALS" } },
+      },
+    });
+  });
+
   it("binds an exact performer and occurrence tags inside a related performer condition", async () => {
     performersFind.mockResolvedValue({ items: [{ id: 11, name: "Sample Performer" }] });
     tagsFind.mockResolvedValue({ items: [{ id: 21, name: "Sample Occurrence" }] });

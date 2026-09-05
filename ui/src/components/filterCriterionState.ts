@@ -102,6 +102,7 @@ export function isCriterionValueValid(value: unknown, criterion: CriterionDefini
     case "related":
       return sanitizeRelatedFilterCriterion(value, criterion) !== undefined;
     case "string":
+    case "country":
     case "path":
     case "remoteId":
     case "hash":
