@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { videos, performers, studios, tags, galleries, groups, audios, texts, faces, segmentLibrary, segmentSpans, savedFilters, dashboards } from "../api/client";
 import type { AffinityHostType, Audio, EntityEngagement, Video, Performer, Studio, Tag, Gallery, Group, SavedFilter, FindFilter, Dashboard, DashboardSummary, DashboardWidget, DashboardWidgetPresentation, ExtensionDashboardWidgetContribution, TextDocument } from "../api/types";
@@ -231,7 +231,7 @@ interface Props {
 export function HomePage({ onNavigate, dashboardId }: Props) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const [isEditing, setIsEditing] = useState(false);
+  const [editingDashboard, setEditingDashboard] = useState<{ id: number; selectName: boolean } | null>(null);
   const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
   const legacyWidgets = useMemo(() => loadContent().map(contentToWidget), [principalKey]);
   const dashboardQuery = useQuery({
@@ -266,7 +266,14 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
     if (dashboardQuery.data?.missingRequested) onNavigate({ page: "home" });
   }, [dashboardQuery.data?.missingRequested, onNavigate]);
 
-  useEffect(() => setIsEditing(false), [principalKey]);
+  useEffect(() => setEditingDashboard(null), [principalKey]);
+
+  const loadedDashboardId = dashboardQuery.data?.dashboard.id;
+  useEffect(() => {
+    if (loadedDashboardId != null) {
+      setEditingDashboard((current) => current == null || current.id === loadedDashboardId ? current : null);
+    }
+  }, [loadedDashboardId]);
 
   const refresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["dashboard-page"] });
@@ -280,22 +287,23 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   }
 
   const { dashboard, list, readOnly } = dashboardQuery.data;
-  if (isEditing) {
+  if (editingDashboard?.id === dashboard.id) {
     return (
       <DashboardEditor
         key={`${principalKey}:${dashboard.id}`}
         dashboard={dashboard}
         dashboards={list}
+        selectNameOnMount={editingDashboard.selectName}
         onNavigate={onNavigate}
-        onCancel={() => setIsEditing(false)}
+        onCancel={() => setEditingDashboard(null)}
         onDeleted={async () => {
           await refresh();
-          setIsEditing(false);
+          setEditingDashboard(null);
           onNavigate({ page: "home" });
         }}
         onSaved={async (saved) => {
           await refresh();
-          setIsEditing(false);
+          setEditingDashboard(null);
           if (saved.isDefault) onNavigate({ page: "home" });
         }}
       />
@@ -309,8 +317,8 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
         dashboard={dashboard}
         dashboards={list}
         onNavigate={onNavigate}
-        onEdit={() => setIsEditing(true)}
-        onCreated={async (created) => { await refresh(); onNavigate({ page: "dashboard", id: created.id }); }}
+        onEdit={() => setEditingDashboard({ id: dashboard.id, selectName: false })}
+        onCreated={async (created) => { await refresh(); setEditingDashboard({ id: created.id, selectName: true }); onNavigate({ page: "dashboard", id: created.id }); }}
         readOnly={readOnly}
       />
       <div className={presentation === "canvas" ? "min-w-0" : "space-y-5"}>
@@ -322,7 +330,7 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
             No dashboard widgets are available.
           </div>
         ) : dashboard.widgets.length === 0 ? (
-          <button onClick={() => setIsEditing(true)} className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 text-muted hover:border-accent/50 hover:text-accent">
+          <button onClick={() => setEditingDashboard({ id: dashboard.id, selectName: false })} className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 text-muted hover:border-accent/50 hover:text-accent">
             <Plus className="h-6 w-6" />
             Add your first widget
           </button>
@@ -354,8 +362,11 @@ function DashboardHeader({ dashboard, dashboards: items, onNavigate, onEdit, onC
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const createDashboard = async () => {
-    const name = window.prompt("Dashboard name", "New Dashboard")?.trim();
-    if (!name) return;
+    const existingNames = new Set(items.map((item) => item.name.trim().toUpperCase()));
+    let name = "New Dashboard";
+    for (let suffix = 2; existingNames.has(name.toUpperCase()); suffix += 1) {
+      name = `New Dashboard ${suffix}`;
+    }
     setCreating(true);
     setCreateError(null);
     try {
@@ -394,10 +405,10 @@ function DashboardHeader({ dashboard, dashboards: items, onNavigate, onEdit, onC
   );
 }
 
-function DashboardWidgetHost({ dashboardId, principalKey, widget, onNavigate }: { dashboardId: number; principalKey: string; widget: DashboardWidget; onNavigate: (route: any) => void }) {
+function DashboardWidgetHost({ dashboardId, principalKey, widget, onNavigate, editing = false }: { dashboardId: number; principalKey: string; widget: DashboardWidget; onNavigate: (route: any) => void; editing?: boolean }) {
   const content = widgetToContent(widget);
   if (content) {
-    return <div style={{ containerType: "inline-size" }}>{content.type === "continueWatching" ? <ContinueWatchingRow principalKey={principalKey} onNavigate={onNavigate} /> : <RecommendationRow principalKey={principalKey} content={content} onNavigate={onNavigate} />}</div>;
+    return <div style={{ containerType: "inline-size" }}>{content.type === "continueWatching" ? <ContinueWatchingRow principalKey={principalKey} onNavigate={onNavigate} /> : <RecommendationRow principalKey={principalKey} content={content} onNavigate={onNavigate} editing={editing} />}</div>;
   }
 
   return <ExtensionDashboardWidgetHost dashboardId={dashboardId} widget={widget} onNavigate={onNavigate} />;
@@ -440,9 +451,24 @@ function UnavailableWidget({ widget, failed = false }: { widget: DashboardWidget
   );
 }
 
-function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onCancel, onDeleted, onSaved }: {
+function WidgetLoadError({ label, error, onRetry }: { label: string; error: unknown; onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex min-h-24 flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+      <div>
+        <p className="font-medium text-foreground">{label} could not be loaded</p>
+        <p className="text-xs text-muted">{error instanceof Error ? error.message : "The widget request failed."}</p>
+      </div>
+      <button type="button" onClick={onRetry} aria-label={`Retry ${label}`} className="rounded border border-red-400/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10">
+        <RotateCcw className="mr-1 inline h-4 w-4" />Retry
+      </button>
+    </div>
+  );
+}
+
+function DashboardEditor({ dashboard, dashboards: dashboardList, selectNameOnMount = false, onNavigate, onCancel, onDeleted, onSaved }: {
   dashboard: Dashboard;
   dashboards: DashboardSummary[];
+  selectNameOnMount?: boolean;
   onNavigate: (route: any) => void;
   onCancel: () => void;
   onDeleted: () => Promise<void>;
@@ -457,6 +483,10 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
   const [operation, setOperation] = useState<"duplicate" | "delete" | "default" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const allowNavigation = useRef(false);
+  const pendingScrollWidgetId = useRef<string | null>(null);
+  const widgetElements = useRef(new Map<string, HTMLElement>());
+  const editorToolbar = useRef<HTMLElement | null>(null);
+  const dashboardNameInput = useRef<HTMLInputElement | null>(null);
   const editorUrl = useRef(`${window.location.pathname}${window.location.search}`);
   const editorHistoryState = useRef(window.history.state);
   const dirty = JSON.stringify({ name: draft.name, widgets: draft.widgets }) !== JSON.stringify({ name: dashboard.name, widgets: dashboard.widgets });
@@ -467,6 +497,12 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
     queryFn: () => savedFilters.list(),
   });
   const definitions = (manifest?.dashboardWidgets ?? []).filter((definition) => canAccessExtensionContribution(definition, hasPermission));
+
+  useEffect(() => {
+    if (!selectNameOnMount) return;
+    dashboardNameInput.current?.focus();
+    dashboardNameInput.current?.select();
+  }, [selectNameOnMount]);
 
   useEffect(() => {
     const confirmNavigation = () => allowNavigation.current || !dirty || window.confirm("Discard your unsaved dashboard changes?");
@@ -495,6 +531,55 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
     setShowCatalog(false);
     setConfiguringId(null);
   }, [busy]);
+
+  useEffect(() => {
+    const instanceId = pendingScrollWidgetId.current;
+    if (!instanceId) return;
+    const element = widgetElements.current.get(instanceId);
+    if (!element) {
+      if (!draft.widgets.some((widget) => widget.instanceId === instanceId)) pendingScrollWidgetId.current = null;
+      return;
+    }
+    pendingScrollWidgetId.current = null;
+    let revealFrame: number | undefined;
+    const revealWidget = () => {
+      if (revealFrame !== undefined) window.cancelAnimationFrame(revealFrame);
+      revealFrame = window.requestAnimationFrame(() => {
+        revealFrame = undefined;
+        const delta = getWidgetRevealScrollDelta(
+          element.getBoundingClientRect(),
+          editorToolbar.current?.getBoundingClientRect().bottom ?? 0,
+          window.innerHeight,
+        );
+        if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: "smooth" });
+      });
+    };
+    const resizeObserver = new ResizeObserver(revealWidget);
+    resizeObserver.observe(element);
+    revealWidget();
+    let observerTimer: number | undefined;
+    const stopObserving = () => {
+      if (revealFrame !== undefined) {
+        window.cancelAnimationFrame(revealFrame);
+        revealFrame = undefined;
+      }
+      resizeObserver.disconnect();
+      if (observerTimer !== undefined) window.clearTimeout(observerTimer);
+      window.removeEventListener("wheel", stopObserving);
+      window.removeEventListener("touchstart", stopObserving);
+      window.removeEventListener("pointerdown", stopObserving);
+      window.removeEventListener("keydown", stopOnScrollKey);
+    };
+    const stopOnScrollKey = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) stopObserving();
+    };
+    window.addEventListener("wheel", stopObserving, { passive: true });
+    window.addEventListener("touchstart", stopObserving, { passive: true });
+    window.addEventListener("pointerdown", stopObserving, { passive: true });
+    window.addEventListener("keydown", stopOnScrollKey);
+    observerTimer = window.setTimeout(stopObserving, 3000);
+    return stopObserving;
+  }, [draft.widgets]);
 
   const confirmDiscard = () => !dirty || window.confirm("Discard your unsaved dashboard changes?");
   const save = async () => {
@@ -528,6 +613,7 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
 
   const addWidget = (widget: DashboardWidget) => {
     if (busy) return;
+    pendingScrollWidgetId.current = widget.instanceId;
     setDraft((current) => ({ ...current, widgets: [...current.widgets, widget] }));
     setShowCatalog(false);
   };
@@ -602,15 +688,21 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
   const configuredWidget = configuringId ? draft.widgets.find((widget) => widget.instanceId === configuringId) : undefined;
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+      <header ref={editorToolbar} className="sticky top-14 z-30 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 shadow-lg">
         <div className="flex min-w-0 items-center gap-3">
           <span className="rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent">Editing Dashboard</span>
           <input
+            ref={dashboardNameInput}
             aria-label="Dashboard name"
             disabled={busy}
             value={draft.name}
             maxLength={100}
             onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.nativeEvent.isComposing || busy || !draft.name.trim()) return;
+              event.preventDefault();
+              void save();
+            }}
             className="min-w-0 rounded border border-border bg-input px-3 py-2 font-medium text-foreground"
           />
         </div>
@@ -622,34 +714,44 @@ function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onC
           <button disabled={busy || !draft.name.trim()} onClick={save} className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"><Check className="mr-1 inline h-4 w-4" />{saving ? "Saving…" : "Done"}</button>
         </div>
       </header>
+      <button disabled={busy} onClick={() => setShowCatalog(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-4 text-sm text-accent hover:border-accent/60 hover:bg-accent/5 disabled:opacity-50"><Plus className="h-4 w-4" />Add Widget</button>
       {error ? <div role="alert" className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
 
       <SortableList
         items={draft.widgets}
         getKey={(widget) => widget.instanceId}
         onReorder={(widgets) => { if (!busy) setDraft((current) => ({ ...current, widgets })); }}
-        className="space-y-3"
+        className="space-y-3 pb-6"
         renderItem={(widget, { dragHandleProps, isDragging, isOver }) => (
-          <section className={`rounded-lg border bg-card/30 transition-colors ${isDragging || isOver ? "border-accent" : "border-border"}`}>
-            <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-              <span {...(busy ? {} : dragHandleProps)} aria-disabled={busy} className={busy ? "cursor-not-allowed text-muted opacity-50" : "cursor-grab text-muted active:cursor-grabbing"}><GripVertical className="h-4 w-4" /></span>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{widget.label}</span>
-              <WidgetPresentationControl
-                widget={widget}
-                definition={definitions.find((item) => item.extensionId === widget.owner && item.id === widget.widgetKey)}
-                dashboardWidgetCount={draft.widgets.length}
-                disabled={busy}
-                onChange={(presentation) => setWidgetPresentation(widget.instanceId, presentation)}
-              />
-              <button disabled={busy} onClick={() => setConfiguringId(widget.instanceId)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Settings2 className="mr-1 inline h-3.5 w-3.5" />Configure</button>
-              {canDuplicateWidget(widget, definitions) ? <button disabled={busy} onClick={() => duplicateWidget(widget)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Copy className="mr-1 inline h-3.5 w-3.5" />Duplicate</button> : null}
-              <button disabled={busy} onClick={() => removeWidget(widget.instanceId)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Remove</button>
+          <section
+            ref={(element) => {
+              if (element) widgetElements.current.set(widget.instanceId, element);
+              else widgetElements.current.delete(widget.instanceId);
+            }}
+            className={`rounded-lg border bg-card/30 transition-colors ${isDragging || isOver ? "border-accent" : "border-border"}`}
+          >
+            <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 items-center gap-2 sm:flex-1">
+                <span {...(busy ? {} : dragHandleProps)} aria-disabled={busy} className={busy ? "cursor-not-allowed text-muted opacity-50" : "cursor-grab text-muted active:cursor-grabbing"}><GripVertical className="h-4 w-4" /></span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{widget.label}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1 sm:ml-auto sm:justify-end">
+                <WidgetPresentationControl
+                  widget={widget}
+                  definition={definitions.find((item) => item.extensionId === widget.owner && item.id === widget.widgetKey)}
+                  dashboardWidgetCount={draft.widgets.length}
+                  disabled={busy}
+                  onChange={(presentation) => setWidgetPresentation(widget.instanceId, presentation)}
+                />
+                <button disabled={busy} onClick={() => setConfiguringId(widget.instanceId)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Settings2 className="mr-1 inline h-3.5 w-3.5" />Configure</button>
+                {canDuplicateWidget(widget, definitions) ? <button disabled={busy} onClick={() => duplicateWidget(widget)} className="px-2 py-1 text-xs text-muted hover:text-accent disabled:opacity-50"><Copy className="mr-1 inline h-3.5 w-3.5" />Duplicate</button> : null}
+                <button disabled={busy} onClick={() => removeWidget(widget.instanceId)} className="px-2 py-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Remove</button>
+              </div>
             </div>
-            <div className="p-3"><DashboardWidgetHost dashboardId={dashboard.id} principalKey={principalKey} widget={widget} onNavigate={onNavigate} /></div>
+            <div className="p-3"><DashboardWidgetHost dashboardId={dashboard.id} principalKey={principalKey} widget={widget} onNavigate={onNavigate} editing /></div>
           </section>
         )}
       />
-      <button disabled={busy} onClick={() => setShowCatalog(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-4 text-sm text-accent hover:border-accent/60 hover:bg-accent/5 disabled:opacity-50"><Plus className="h-4 w-4" />Add Widget</button>
 
       {showCatalog ? (
         <WidgetCatalog
@@ -686,6 +788,15 @@ function canDuplicateWidget(widget: DashboardWidget, definitions: ExtensionDashb
   if (widget.owner === "cove.core") return widget.widgetKey !== "continue-watching";
   const definition = definitions.find((item) => item.extensionId === widget.owner && item.id === widget.widgetKey);
   return definition !== undefined && definition.allowMultiple !== false;
+}
+
+export function getWidgetRevealScrollDelta(rect: Pick<DOMRect, "top" | "bottom" | "height">, toolbarBottom: number, viewportHeight: number) {
+  const revealTop = toolbarBottom + 4;
+  const revealBottom = viewportHeight - 16;
+  if (rect.height > revealBottom - revealTop) return rect.top - revealTop;
+  if (rect.top < revealTop) return rect.top - revealTop;
+  if (rect.bottom > revealBottom) return rect.bottom - revealBottom;
+  return 0;
 }
 
 function WidgetPresentationControl({ widget, definition, dashboardWidgetCount, disabled, onChange }: {
@@ -725,6 +836,53 @@ function WidgetPresentationControl({ widget, definition, dashboardWidgetCount, d
   );
 }
 
+function useDashboardDialog<T extends HTMLElement>(onClose: () => void) {
+  const dialogRef = useRef<T>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => {
+      const initialFocus = dialogRef.current?.querySelector<HTMLElement>("[data-dialog-initial-focus]");
+      (initialFocus ?? dialogRef.current)?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, []);
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCloseRef.current();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+      "a[href]:not([hidden]), button:not(:disabled):not([hidden]), input:not(:disabled):not([type='hidden']):not([hidden]), select:not(:disabled):not([hidden]), textarea:not(:disabled):not([hidden]), [tabindex]:not([tabindex='-1']):not([hidden])",
+    ));
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialogRef.current.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return { dialogRef, onKeyDown };
+}
+
 function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinitions, disabled, onAdd, onClose }: {
   currentWidgets: DashboardWidget[];
   savedFilters: SavedFilter[];
@@ -733,50 +891,107 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
   onAdd: (widget: DashboardWidget) => void;
   onClose: () => void;
 }) {
+  const titleId = useId();
+  const { dialogRef, onKeyDown } = useDashboardDialog<HTMLElement>(onClose);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [search, setSearch] = useState("");
   const addPremade = (filter: CustomFilter) => onAdd(contentToWidget(filter));
   const hasCanvasWidget = currentWidgets.some((widget) => getWidgetPresentation(widget) === "canvas");
   const supportedSavedFilters = filters.filter((filter) => normalizeFilterMode(filter.mode));
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const matchesSearch = (label: string, description: string) => !normalizedSearch || `${label} ${description}`.toLocaleLowerCase().includes(normalizedSearch);
+  const flowConflictDescription = "Remove the Canvas widget before adding Flow content.";
+  const builtInItems = [
+    ...(!currentWidgets.some((widget) => widget.owner === "cove.core" && widget.widgetKey === "continue-watching")
+      ? [{ key: "continue-watching", label: "Continue Watching", description: hasCanvasWidget ? flowConflictDescription : "Resume unfinished media.", disabled: disabled || hasCanvasWidget, onClick: () => onAdd(contentToWidget({ type: "continueWatching" })) }]
+      : []),
+    ...PREMADE_FILTERS.map((filter) => ({
+      key: `${filter.mode}:${filter.sortBy}:${filter.header}`,
+      label: filter.header,
+      description: hasCanvasWidget ? flowConflictDescription : `Collection · ${filter.mode}`,
+      disabled: disabled || hasCanvasWidget,
+      onClick: () => addPremade(filter),
+    })),
+  ].filter((item) => matchesSearch(item.label, item.description));
+  const savedFilterItems = supportedSavedFilters.map((filter) => ({
+    key: `saved:${filter.id}`,
+    label: filter.name,
+    description: hasCanvasWidget ? flowConflictDescription : `Saved filter · ${filter.mode}`,
+    disabled: disabled || hasCanvasWidget,
+    onClick: () => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id })),
+  })).filter((item) => matchesSearch(item.label, item.description));
+  const extensionItems = extensionDefinitions.map((definition) => {
+    const alreadyAdded = !definition.allowMultiple && currentWidgets.some((widget) => widget.owner === definition.extensionId && widget.widgetKey === definition.id);
+    const defaultPresentation = getDefaultPresentation(definition);
+    const supportedPresentations = getSupportedPresentations(definition);
+    const presentation = currentWidgets.length > 0
+      && !hasCanvasWidget
+      && defaultPresentation === "canvas"
+      && supportedPresentations.includes("flow")
+      ? FLOW_PRESENTATION
+      : defaultPresentation;
+    const canvasConflict = presentation === "canvas" && currentWidgets.length > 0;
+    const flowConflict = presentation === "flow" && hasCanvasWidget;
+    const conflictDescription = canvasConflict
+      ? "Canvas widgets need an empty dashboard. Create or empty a dashboard first."
+      : flowConflict
+        ? flowConflictDescription
+        : undefined;
+    return {
+      key: `${definition.extensionId}:${definition.id}`,
+      label: definition.label,
+      description: conflictDescription ?? definition.description ?? definition.extensionId,
+      disabled: disabled || alreadyAdded || canvasConflict || flowConflict,
+      onClick: () => onAdd({ instanceId: createInstanceId(), owner: definition.extensionId, widgetKey: definition.id, label: definition.label, configuration: structuredClone(definition.defaultConfiguration ?? {}), presentation }),
+    };
+  }).filter((item) => matchesSearch(item.label, item.description));
+  const hasMatches = builtInItems.length + savedFilterItems.length + extensionItems.length > 0;
+  const onCatalogKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const items = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>("button[data-widget-catalog-item]:not(:disabled)") ?? []);
+    if (items.length === 0) return;
+    if (event.currentTarget === searchRef.current) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        items[0].focus();
+      }
+      return;
+    }
+    const index = items.indexOf(event.currentTarget as HTMLButtonElement);
+    if (index < 0) return;
+    event.preventDefault();
+    if (event.key === "ArrowUp" && index === 0) searchRef.current?.focus();
+    else items[Math.max(0, Math.min(items.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))]?.focus();
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/70" onClick={onClose}>
-      <aside className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-foreground">Add Widget</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Built-in</h3>
-        <div className="space-y-2">
-          {!currentWidgets.some((widget) => widget.owner === "cove.core" && widget.widgetKey === "continue-watching") ? (
-            <CatalogButton label="Continue Watching" description={hasCanvasWidget ? "Remove the Canvas widget before adding Flow content." : "Resume unfinished media."} disabled={disabled || hasCanvasWidget} onClick={() => onAdd(contentToWidget({ type: "continueWatching" }))} />
-          ) : null}
-          {PREMADE_FILTERS.map((filter) => <CatalogButton key={`${filter.mode}:${filter.sortBy}:${filter.header}`} label={filter.header} description={hasCanvasWidget ? "Remove the Canvas widget before adding Flow content." : `Collection · ${filter.mode}`} disabled={disabled || hasCanvasWidget} onClick={() => addPremade(filter)} />)}
-          {supportedSavedFilters.map((filter) => <CatalogButton key={`saved:${filter.id}`} label={filter.name} description={hasCanvasWidget ? "Remove the Canvas widget before adding Flow content." : `Saved filter · ${filter.mode}`} disabled={disabled || hasCanvasWidget} onClick={() => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id }))} />)}
+      <aside ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="sticky -top-5 z-10 -mx-5 mb-5 border-b border-border bg-surface px-5 pb-4 pt-5">
+          <div className="mb-4 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Add Widget</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
+          <input ref={searchRef} data-dialog-initial-focus type="search" aria-label="Search widgets" placeholder="Search widgets…" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={onCatalogKeyDown} className="block w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted" />
         </div>
-        {extensionDefinitions.length ? <h3 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-muted">Extensions</h3> : null}
-        <div className="space-y-2">
-          {extensionDefinitions.map((definition) => {
-            const alreadyAdded = !definition.allowMultiple && currentWidgets.some((widget) => widget.owner === definition.extensionId && widget.widgetKey === definition.id);
-            const defaultPresentation = getDefaultPresentation(definition);
-            const supportedPresentations = getSupportedPresentations(definition);
-            const presentation = currentWidgets.length > 0
-              && !hasCanvasWidget
-              && defaultPresentation === "canvas"
-              && supportedPresentations.includes("flow")
-              ? FLOW_PRESENTATION
-              : defaultPresentation;
-            const canvasConflict = presentation === "canvas" && currentWidgets.length > 0;
-            const flowConflict = presentation === "flow" && hasCanvasWidget;
-            const conflictDescription = canvasConflict
-              ? "Canvas widgets need an empty dashboard. Create or empty a dashboard first."
-              : flowConflict
-                ? "Remove the Canvas widget before adding Flow content."
-                : undefined;
-            return <CatalogButton key={`${definition.extensionId}:${definition.id}`} label={definition.label} description={conflictDescription ?? definition.description ?? definition.extensionId} disabled={disabled || alreadyAdded || canvasConflict || flowConflict} onClick={() => onAdd({ instanceId: createInstanceId(), owner: definition.extensionId, widgetKey: definition.id, label: definition.label, configuration: structuredClone(definition.defaultConfiguration ?? {}), presentation })} />;
-          })}
-        </div>
+        {builtInItems.length ? <CatalogSection title="Built-in" items={builtInItems} onItemKeyDown={onCatalogKeyDown} /> : null}
+        {savedFilterItems.length ? <CatalogSection title="Saved Filters" items={savedFilterItems} onItemKeyDown={onCatalogKeyDown} /> : null}
+        {extensionItems.length ? <CatalogSection title="Extensions" items={extensionItems} onItemKeyDown={onCatalogKeyDown} /> : null}
+        {!hasMatches ? <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted">No widgets match “{search.trim()}”.</p> : null}
       </aside>
     </div>
   );
 }
 
-function CatalogButton({ label, description, disabled, onClick }: { label: string; description: string; disabled?: boolean; onClick: () => void }) {
-  return <button disabled={disabled} onClick={onClick} className="block w-full rounded-lg border border-border bg-card p-3 text-left hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-40"><span className="block text-sm font-medium text-foreground">{label}</span><span className="mt-1 block text-xs text-muted">{description}</span></button>;
+function CatalogSection({ title, items, onItemKeyDown }: { title: string; items: Array<{ key: string; label: string; description: string; disabled: boolean; onClick: () => void }>; onItemKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void }) {
+  return (
+    <section className="mb-6" aria-labelledby={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`}>
+      <h3 id={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`} className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
+      <div className="space-y-2">
+        {items.map((item) => <CatalogButton key={item.key} label={item.label} description={item.description} disabled={item.disabled} onClick={item.onClick} onKeyDown={onItemKeyDown} />)}
+      </div>
+    </section>
+  );
+}
+
+function CatalogButton({ label, description, disabled, onClick, onKeyDown }: { label: string; description: string; disabled?: boolean; onClick: () => void; onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void }) {
+  return <button data-widget-catalog-item disabled={disabled} onClick={onClick} onKeyDown={onKeyDown} className="block w-full rounded-lg border border-border bg-card p-3 text-left hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-40"><span className="block text-sm font-medium text-foreground">{label}</span><span className="mt-1 block text-xs text-muted">{description}</span></button>;
 }
 
 function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClose }: {
@@ -786,6 +1001,8 @@ function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClo
   onSave: (configuration: unknown, label?: string) => void;
   onClose: () => void;
 }) {
+  const titleId = useId();
+  const { dialogRef, onKeyDown } = useDashboardDialog<HTMLDivElement>(onClose);
   const { resolveComponent, getExtensionRevision } = useExtensions();
   const [configuration, setConfiguration] = useState(() => structuredClone(widget.configuration));
   const [valid, setValid] = useState(true);
@@ -797,8 +1014,8 @@ function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClo
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-lg border border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold text-foreground">Configure {widget.label}</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="w-full max-w-lg rounded-lg border border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Configure {widget.label}</h2><button data-dialog-initial-focus onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
         <fieldset disabled={disabled} className="contents">
         {widget.owner === "cove.core" && coreContent?.type === "custom" ? (
           <div className="space-y-3">
@@ -834,16 +1051,20 @@ function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClo
 }
 
 function ContinueWatchingRow({ principalKey, onNavigate }: { principalKey: string; onNavigate: (r: any) => void }) {
-  const { data: groupData } = useQuery({
+  const groupQuery = useQuery({
     queryKey: ["front-page-continue-watching-group", principalKey],
     queryFn: () => groups.find({ page: 1, perPage: 100, sort: "name", direction: "asc" }),
   });
+  const groupData = groupQuery.data;
   const continueGroup = groupData?.items.find((group) => group.querySourceKey === "continue-watching");
-  const { data: itemPage, isLoading } = useQuery({
+  const itemQuery = useQuery({
     queryKey: ["front-page-continue-watching", principalKey, continueGroup?.id],
     queryFn: () => groups.items.page(continueGroup!.id, { page: 1, perPage: 12 }),
     enabled: !!continueGroup,
   });
+  if (groupQuery.isError) return <WidgetLoadError label="Continue Watching" error={groupQuery.error} onRetry={() => { void groupQuery.refetch(); }} />;
+  if (itemQuery.isError) return <WidgetLoadError label="Continue Watching" error={itemQuery.error} onRetry={() => { void itemQuery.refetch(); }} />;
+  const { data: itemPage, isLoading } = itemQuery;
   const playableItems = itemPage?.items ?? [];
   if (!isLoading && playableItems.length === 0) return null;
 
@@ -899,12 +1120,12 @@ function ContinueWatchingCard({ item, onNavigate }: { item: { hostType?: string;
 
 // ─── Recommendation Row (dispatcher) ────────────────────────────────────────
 
-function RecommendationRow({ principalKey, content, onNavigate }: { principalKey: string; content: FrontPageContent; onNavigate: (r: any) => void }) {
+function RecommendationRow({ principalKey, content, onNavigate, editing = false }: { principalKey: string; content: FrontPageContent; onNavigate: (r: any) => void; editing?: boolean }) {
   if (content.type === "continueWatching") {
     return <ContinueWatchingRow principalKey={principalKey} onNavigate={onNavigate} />;
   }
   if (content.type === "saved") {
-    return <SavedFilterRecommendationRow principalKey={principalKey} savedFilterId={content.savedFilterId} onNavigate={onNavigate} />;
+    return <SavedFilterRecommendationRow principalKey={principalKey} savedFilterId={content.savedFilterId} onNavigate={onNavigate} editing={editing} />;
   }
   return <CustomFilterRecommendationRow filter={content} onNavigate={onNavigate} />;
 }
@@ -929,14 +1150,16 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
     }
   }, [filter.mode, findFilter]);
 
-  const { data, isLoading } = useQuery<any>({
+  const query = useQuery<any>({
     queryKey: ["front-page", filter.mode, findFilter],
     queryFn: fetchFn,
   });
 
+  const { data, isLoading } = query;
   const items = data?.items ?? [];
   const engagementHostType = getRecommendationEngagementHostType(filter.mode);
   const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementHostType ? items.map((item: any) => item.id) : []);
+  if (query.isError) return <WidgetLoadError label={filter.header} error={query.error} onRetry={() => { void query.refetch(); }} />;
   if (!isLoading && items.length === 0) return null;
 
   return (
@@ -958,11 +1181,12 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
 
 // ─── Saved Filter Row ───────────────────────────────────────────────────────
 
-function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate }: { principalKey: string; savedFilterId: number; onNavigate: (r: any) => void }) {
-  const { data: filter } = useQuery({
+function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate, editing = false }: { principalKey: string; savedFilterId: number; onNavigate: (r: any) => void; editing?: boolean }) {
+  const filterQuery = useQuery({
     queryKey: ["saved-filter", principalKey, savedFilterId],
     queryFn: () => savedFilters.get(savedFilterId),
   });
+  const filter = filterQuery.data;
 
   const mode = normalizeFilterMode(filter?.mode);
   const parsedFilter = useMemo(() => parseJsonObject<FindFilter>(filter?.findFilter) ?? {}, [filter?.findFilter]);
@@ -1075,16 +1299,28 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate 
     return fetchMap[mode] ?? (() => Promise.resolve({ items: [], totalCount: 0 }));
   }, [mode, findFilter, parsedObjectFilter, hasObjectFilter, segmentProfileId]);
 
-  const { data, isLoading } = useQuery<any>({
+  const itemQuery = useQuery<any>({
     queryKey: ["front-page-saved", principalKey, savedFilterId, mode, findFilter, parsedObjectFilter, segmentProfileId],
     queryFn: fetchFn,
     enabled: !!mode,
   });
 
+  const { data, isLoading } = itemQuery;
   const items = (data as any)?.items ?? [];
   const engagementHostType = getRecommendationEngagementHostType(mode ?? undefined);
   const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementHostType ? items.map((item: any) => item.id) : []);
-  if (!filter || !mode || (!isLoading && items.length === 0)) return null;
+  if (filterQuery.isError) return <WidgetLoadError label="Saved filter" error={filterQuery.error} onRetry={() => { void filterQuery.refetch(); }} />;
+  if (itemQuery.isError) return <WidgetLoadError label={filter?.name ?? "Saved filter"} error={itemQuery.error} onRetry={() => { void itemQuery.refetch(); }} />;
+  if (!filter || !mode) return null;
+  if (itemQuery.isSuccess && items.length === 0) {
+    if (!editing) return null;
+    return (
+      <div className="px-1 py-2">
+        <h2 className="text-base font-semibold text-foreground">{filter.name}</h2>
+        <p className="mt-2 text-sm text-muted">No matching entities.</p>
+      </div>
+    );
+  }
 
   return (
     <RecommendationRowShell
@@ -1146,19 +1382,18 @@ function RecommendationRowShell({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  const [pageDestinations, setPageDestinations] = useState([0]);
 
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     setCanScrollLeft(el.scrollLeft > 5);
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 5);
-    // Calculate pages
-    if (el.clientWidth > 0) {
-      const pages = Math.ceil(el.scrollWidth / el.clientWidth);
-      setTotalPages(pages);
-      setCurrentPage(Math.round(el.scrollLeft / el.clientWidth));
-    }
+    const destinations = getCarouselPageDestinations(el.scrollWidth, el.clientWidth);
+    setPageDestinations(destinations);
+    setCurrentPage(destinations.reduce((nearestIndex, destination, index) => (
+      Math.abs(destination - el.scrollLeft) < Math.abs(destinations[nearestIndex] - el.scrollLeft) ? index : nearestIndex
+    ), 0));
   }, []);
 
   useEffect(() => {
@@ -1175,8 +1410,8 @@ function RecommendationRowShell({
   const scroll = (dir: "left" | "right") => {
     const el = scrollRef.current;
     if (!el) return;
-    const scrollAmount = el.clientWidth * 0.85;
-    el.scrollBy({ left: dir === "left" ? -scrollAmount : scrollAmount, behavior: "smooth" });
+    const nextPage = Math.max(0, Math.min(pageDestinations.length - 1, currentPage + (dir === "left" ? -1 : 1)));
+    el.scrollTo({ left: pageDestinations[nextPage], behavior: "smooth" });
   };
 
   return (
@@ -1206,7 +1441,8 @@ function RecommendationRowShell({
         {canScrollLeft && (
           <button
             onClick={() => scroll("left")}
-            className="absolute left-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-r from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity"
+            aria-label={`Previous ${header} page`}
+            className="absolute left-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-r from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity"
           >
             <ChevronLeft className="w-6 h-6 text-white" />
           </button>
@@ -1228,7 +1464,8 @@ function RecommendationRowShell({
         {canScrollRight && (
           <button
             onClick={() => scroll("right")}
-            className="absolute right-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-l from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity"
+            aria-label={`Next ${header} page`}
+            className="absolute right-0 top-0 bottom-0 z-20 w-8 flex items-center justify-center bg-gradient-to-l from-background/90 to-transparent opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity"
           >
             <ChevronRight className="w-6 h-6 text-white" />
           </button>
@@ -1236,14 +1473,14 @@ function RecommendationRowShell({
       </div>
 
       {/* Page dots */}
-      {totalPages > 1 && (
+      {pageDestinations.length > 1 && (
         <div className="mx-auto flex max-w-full justify-start gap-1.5 overflow-x-auto px-1 mt-2 scrollbar-hide sm:justify-center sm:overflow-visible">
-          {Array.from({ length: totalPages }).map((_, i) => (
+          {pageDestinations.map((destination, i) => (
             <button
-              key={i}
+              key={destination}
               onClick={() => {
                 const el = scrollRef.current;
-                if (el) el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
+                if (el) el.scrollTo({ left: destination, behavior: "smooth" });
               }}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-1 sm:w-6"
               aria-label={`Go to carousel page ${i + 1}`}
@@ -1255,6 +1492,14 @@ function RecommendationRowShell({
       )}
     </div>
   );
+}
+
+export function getCarouselPageDestinations(scrollWidth: number, clientWidth: number) {
+  if (clientWidth <= 0 || scrollWidth <= clientWidth) return [0];
+  const maxScroll = scrollWidth - clientWidth;
+  const destinations = Array.from({ length: Math.floor(maxScroll / clientWidth) + 1 }, (_, index) => index * clientWidth);
+  if (maxScroll - destinations[destinations.length - 1] > 5) destinations.push(maxScroll);
+  return destinations;
 }
 
 // ─── Entity Card (renders appropriate card based on mode) ───────────────────

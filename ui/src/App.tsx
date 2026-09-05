@@ -544,8 +544,7 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
   // 4. Built-in pages
   return (
     <>
-      {route.page === "home" && <HomePage onNavigate={navigate} />}
-      {route.page === "dashboard" && route.id !== undefined && <HomePage dashboardId={route.id} onNavigate={navigate} />}
+      {(route.page === "home" || (route.page === "dashboard" && route.id !== undefined)) && <HomePage dashboardId={route.page === "dashboard" ? route.id : undefined} onNavigate={navigate} />}
       {route.page === "manual" && <HomePage onNavigate={navigate} />}
       {route.page === "videos" && <VideosPage onNavigate={navigate} />}
       {route.page === "video" && route.id !== undefined && <VideoDetailPage id={route.id} initialSeekTo={route.seekTo} initialTab={route.videoTab} onNavigate={navigate} />}
