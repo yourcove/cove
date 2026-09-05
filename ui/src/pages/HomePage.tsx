@@ -893,6 +893,7 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
 }) {
   const titleId = useId();
   const { dialogRef, onKeyDown } = useDashboardDialog<HTMLElement>(onClose);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const addPremade = (filter: CustomFilter) => onAdd(contentToWidget(filter));
   const hasCanvasWidget = currentWidgets.some((widget) => getWidgetPresentation(widget) === "canvas");
@@ -945,35 +946,52 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
     };
   }).filter((item) => matchesSearch(item.label, item.description));
   const hasMatches = builtInItems.length + savedFilterItems.length + extensionItems.length > 0;
+  const onCatalogKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const items = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>("button[data-widget-catalog-item]:not(:disabled)") ?? []);
+    if (items.length === 0) return;
+    if (event.currentTarget === searchRef.current) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        items[0].focus();
+      }
+      return;
+    }
+    const index = items.indexOf(event.currentTarget as HTMLButtonElement);
+    if (index < 0) return;
+    event.preventDefault();
+    if (event.key === "ArrowUp" && index === 0) searchRef.current?.focus();
+    else items[Math.max(0, Math.min(items.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))]?.focus();
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/70" onClick={onClose}>
       <aside ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
         <div className="sticky -top-5 z-10 -mx-5 mb-5 border-b border-border bg-surface px-5 pb-4 pt-5">
           <div className="mb-4 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Add Widget</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
-          <input data-dialog-initial-focus type="search" aria-label="Search widgets" placeholder="Search widgets…" value={search} onChange={(event) => setSearch(event.target.value)} className="block w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted" />
+          <input ref={searchRef} data-dialog-initial-focus type="search" aria-label="Search widgets" placeholder="Search widgets…" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={onCatalogKeyDown} className="block w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted" />
         </div>
-        {builtInItems.length ? <CatalogSection title="Built-in" items={builtInItems} /> : null}
-        {savedFilterItems.length ? <CatalogSection title="Saved Filters" items={savedFilterItems} /> : null}
-        {extensionItems.length ? <CatalogSection title="Extensions" items={extensionItems} /> : null}
+        {builtInItems.length ? <CatalogSection title="Built-in" items={builtInItems} onItemKeyDown={onCatalogKeyDown} /> : null}
+        {savedFilterItems.length ? <CatalogSection title="Saved Filters" items={savedFilterItems} onItemKeyDown={onCatalogKeyDown} /> : null}
+        {extensionItems.length ? <CatalogSection title="Extensions" items={extensionItems} onItemKeyDown={onCatalogKeyDown} /> : null}
         {!hasMatches ? <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted">No widgets match “{search.trim()}”.</p> : null}
       </aside>
     </div>
   );
 }
 
-function CatalogSection({ title, items }: { title: string; items: Array<{ key: string; label: string; description: string; disabled: boolean; onClick: () => void }> }) {
+function CatalogSection({ title, items, onItemKeyDown }: { title: string; items: Array<{ key: string; label: string; description: string; disabled: boolean; onClick: () => void }>; onItemKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void }) {
   return (
     <section className="mb-6" aria-labelledby={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`}>
       <h3 id={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`} className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
       <div className="space-y-2">
-        {items.map((item) => <CatalogButton key={item.key} label={item.label} description={item.description} disabled={item.disabled} onClick={item.onClick} />)}
+        {items.map((item) => <CatalogButton key={item.key} label={item.label} description={item.description} disabled={item.disabled} onClick={item.onClick} onKeyDown={onItemKeyDown} />)}
       </div>
     </section>
   );
 }
 
-function CatalogButton({ label, description, disabled, onClick }: { label: string; description: string; disabled?: boolean; onClick: () => void }) {
-  return <button disabled={disabled} onClick={onClick} className="block w-full rounded-lg border border-border bg-card p-3 text-left hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-40"><span className="block text-sm font-medium text-foreground">{label}</span><span className="mt-1 block text-xs text-muted">{description}</span></button>;
+function CatalogButton({ label, description, disabled, onClick, onKeyDown }: { label: string; description: string; disabled?: boolean; onClick: () => void; onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void }) {
+  return <button data-widget-catalog-item disabled={disabled} onClick={onClick} onKeyDown={onKeyDown} className="block w-full rounded-lg border border-border bg-card p-3 text-left hover:border-accent/50 disabled:cursor-not-allowed disabled:opacity-40"><span className="block text-sm font-medium text-foreground">{label}</span><span className="mt-1 block text-xs text-muted">{description}</span></button>;
 }
 
 function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClose }: {

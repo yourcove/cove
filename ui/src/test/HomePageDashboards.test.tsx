@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Suspense, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../App";
@@ -422,6 +423,32 @@ describe("HomePage dashboards", () => {
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Add Widget" })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it("navigates and selects catalog widgets with the keyboard", async () => {
+    const user = userEvent.setup();
+    renderHome();
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
+
+    const dialog = screen.getByRole("dialog", { name: "Add Widget" });
+    const search = within(dialog).getByRole("searchbox", { name: "Search widgets" });
+    const firstWidget = within(dialog).getByRole("button", { name: /^Continue Watching/ });
+    const secondWidget = within(dialog).getByRole("button", { name: /^Recently Released Videos/ });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    await user.keyboard("{ArrowDown}");
+    expect(firstWidget).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(secondWidget).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(firstWidget).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(search).toHaveFocus();
+
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(screen.queryByRole("dialog", { name: "Add Widget" })).not.toBeInTheDocument();
+    expect(screen.getByText("Continue Watching", { selector: "span" })).toBeInTheDocument();
   });
 
   it("manages focus and Escape for the widget configuration dialog", async () => {
