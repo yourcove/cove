@@ -21,7 +21,7 @@ export function useInfiniteListData<TItem extends { id: string | number }>({
   chunkSize,
 }: UseInfiniteListDataOptions<TItem>) {
   const infinitePageSize = filter.perPage === 0;
-  const infiniteChunkSize = chunkSize ?? 40;
+  const infiniteChunkSize = chunkSize && chunkSize > 0 ? chunkSize : 40;
   const infiniteFilterKey = useMemo(
     () => ({ ...filter, page: 1, perPage: infiniteChunkSize }),
     [filter, infiniteChunkSize],
