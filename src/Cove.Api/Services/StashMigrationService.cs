@@ -575,14 +575,15 @@ public partial class StashMigrationService
                 async () =>
                 {
                     progress.Report(GalleriesEnd, "Importing custom fields...");
+                    var fieldTypes = await DetectStashCustomFieldTypesAsync(conn, ct);
                     var count = 0;
-                    count += await ImportCustomFieldsAsync(conn, "studio", CustomFieldEntityTypes.Studio, studioIdMap, ct);
-                    count += await ImportCustomFieldsAsync(conn, "tag", CustomFieldEntityTypes.Tag, tagIdMap, ct);
-                    count += await ImportCustomFieldsAsync(conn, "performer", CustomFieldEntityTypes.Performer, performerIdMap, ct);
-                    count += await ImportCustomFieldsAsync(conn, "group", CustomFieldEntityTypes.Group, groupIdMap, ct);
-                    count += await ImportCustomFieldsAsync(conn, "scene", CustomFieldEntityTypes.Video, sceneIdMap, ct);
-                    count += await ImportCustomFieldsAsync(conn, "image", CustomFieldEntityTypes.Image, imageIdMap, ct);
-                    count += await ImportCustomFieldsAsync(conn, "gallery", CustomFieldEntityTypes.Gallery, galleryIdMap, ct);
+                    count += await ImportCustomFieldsAsync(conn, "studio", CustomFieldEntityTypes.Studio, studioIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "tag", CustomFieldEntityTypes.Tag, tagIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "performer", CustomFieldEntityTypes.Performer, performerIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "group", CustomFieldEntityTypes.Group, groupIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "scene", CustomFieldEntityTypes.Video, sceneIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "image", CustomFieldEntityTypes.Image, imageIdMap, ct, fieldTypes);
+                    count += await ImportCustomFieldsAsync(conn, "gallery", CustomFieldEntityTypes.Gallery, galleryIdMap, ct, fieldTypes);
                     return count;
                 });
             _db.ChangeTracker.Clear();
