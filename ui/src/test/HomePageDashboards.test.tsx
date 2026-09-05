@@ -22,7 +22,7 @@ const { state, mocks } = vi.hoisted(() => ({
     update: vi.fn(),
     delete: vi.fn(),
     videosFind: vi.fn(async (): Promise<any> => ({ items: [], totalCount: 0 })),
-    groupsFind: vi.fn(async () => ({ items: [], totalCount: 0 })),
+    groupsFind: vi.fn(async (): Promise<any> => ({ items: [], totalCount: 0 })),
     groupItemsPage: vi.fn(async () => ({ items: [], totalCount: 0, page: 1, perPage: 12 })),
     savedFilterGet: vi.fn(),
     savedFiltersList: vi.fn(),
@@ -255,6 +255,27 @@ describe("HomePage dashboards", () => {
     expect(mocks.groupsFind).toHaveBeenCalledTimes(2);
   });
 
+  it("shows and retries a failed Continue Watching item request", async () => {
+    mocks.groupsFind.mockResolvedValueOnce({ items: [{ id: 3, querySourceKey: "continue-watching" }], totalCount: 1 });
+    mocks.groupItemsPage.mockRejectedValueOnce(new Error("Continue Watching items failed"));
+    mocks.groupItemsPage.mockResolvedValueOnce({ items: [], totalCount: 0, page: 1, perPage: 12 });
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "continue",
+      owner: "cove.core",
+      widgetKey: "continue-watching",
+      label: "Continue Watching",
+      configuration: {},
+    }]);
+
+    renderHome();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Continue Watching could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry Continue Watching" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(mocks.groupItemsPage).toHaveBeenCalledTimes(2);
+  });
+
   it("shows a saved-filter definition failure and still hides a successful empty retry", async () => {
     mocks.savedFilterGet.mockRejectedValueOnce(new Error("Saved filter request failed"));
     mocks.savedFilterGet.mockResolvedValueOnce({ id: 5, name: "Warnings", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" });
@@ -271,8 +292,10 @@ describe("HomePage dashboards", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Saved filter could not be loaded");
     fireEvent.click(screen.getByRole("button", { name: "Retry Saved filter" }));
 
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Warnings" })).not.toBeInTheDocument());
+    await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.videosFind).toHaveBeenCalledOnce());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Warnings" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Customize/ }));
     expect(screen.getByText("Saved filter", { selector: "span" })).toBeInTheDocument();
@@ -343,7 +366,7 @@ describe("HomePage dashboards", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Add Widget" });
     const close = within(dialog).getByRole("button", { name: "Close" });
-    await waitFor(() => expect(close).toHaveFocus());
+    await waitFor(() => expect(within(dialog).getByRole("searchbox", { name: "Search widgets" })).toHaveFocus());
     const enabledButtons = within(dialog).getAllByRole("button").filter((button) => !button.hasAttribute("disabled"));
     const lastButton = enabledButtons.at(-1)!;
     lastButton.focus();
@@ -475,6 +498,44 @@ describe("HomePage dashboards", () => {
     expect(screen.getByRole("button", { name: /Saved text/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Saved spans/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Saved raw segments/ })).toBeInTheDocument();
+  });
+
+  it("searches a large catalog while keeping widget sources clearly grouped", async () => {
+    state.savedFilters = Array.from({ length: 105 }, (_, index) => ({
+      id: index + 1,
+      name: `Saved filter ${index}`,
+      mode: "videos",
+      findFilter: "{}",
+      objectFilter: "{}",
+      uiOptions: "{}",
+    }));
+    state.dashboardDefinitions = [{
+      id: "curation-queue",
+      label: "Curation Queue",
+      description: "Review metadata warnings.",
+      extensionId: "example.extension",
+      componentName: "Widget",
+      allowMultiple: true,
+      order: 1,
+    }];
+    renderHome();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
+    const dialog = screen.getByRole("dialog", { name: "Add Widget" });
+    await waitFor(() => {
+      const groupHeadings = within(dialog).getAllByRole("heading", { level: 3 });
+      expect(groupHeadings.map((heading) => heading.textContent)).toEqual(["Built-in", "Saved Filters", "Extensions"]);
+    });
+
+    const search = within(dialog).getByRole("searchbox", { name: "Search widgets" });
+    fireEvent.change(search, { target: { value: "Saved filter 104" } });
+    expect(within(dialog).getByRole("button", { name: /^Saved filter 104/ })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("heading", { name: "Built-in" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("heading", { name: "Extensions" })).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "nothing here" } });
+    expect(within(dialog).getByText("No widgets match “nothing here”.")).toBeInTheDocument();
   });
 
   it("blocks canvas catalog items until the dashboard is empty", async () => {

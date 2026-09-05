@@ -820,45 +820,82 @@ function WidgetCatalog({ currentWidgets, savedFilters: filters, extensionDefinit
 }) {
   const titleId = useId();
   const { dialogRef, onKeyDown } = useDashboardDialog<HTMLElement>(onClose);
+  const [search, setSearch] = useState("");
   const addPremade = (filter: CustomFilter) => onAdd(contentToWidget(filter));
   const hasCanvasWidget = currentWidgets.some((widget) => getWidgetPresentation(widget) === "canvas");
   const supportedSavedFilters = filters.filter((filter) => normalizeFilterMode(filter.mode));
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const matchesSearch = (label: string, description: string) => !normalizedSearch || `${label} ${description}`.toLocaleLowerCase().includes(normalizedSearch);
+  const flowConflictDescription = "Remove the Canvas widget before adding Flow content.";
+  const builtInItems = [
+    ...(!currentWidgets.some((widget) => widget.owner === "cove.core" && widget.widgetKey === "continue-watching")
+      ? [{ key: "continue-watching", label: "Continue Watching", description: hasCanvasWidget ? flowConflictDescription : "Resume unfinished media.", disabled: disabled || hasCanvasWidget, onClick: () => onAdd(contentToWidget({ type: "continueWatching" })) }]
+      : []),
+    ...PREMADE_FILTERS.map((filter) => ({
+      key: `${filter.mode}:${filter.sortBy}:${filter.header}`,
+      label: filter.header,
+      description: hasCanvasWidget ? flowConflictDescription : `Collection · ${filter.mode}`,
+      disabled: disabled || hasCanvasWidget,
+      onClick: () => addPremade(filter),
+    })),
+  ].filter((item) => matchesSearch(item.label, item.description));
+  const savedFilterItems = supportedSavedFilters.map((filter) => ({
+    key: `saved:${filter.id}`,
+    label: filter.name,
+    description: hasCanvasWidget ? flowConflictDescription : `Saved filter · ${filter.mode}`,
+    disabled: disabled || hasCanvasWidget,
+    onClick: () => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id })),
+  })).filter((item) => matchesSearch(item.label, item.description));
+  const extensionItems = extensionDefinitions.map((definition) => {
+    const alreadyAdded = !definition.allowMultiple && currentWidgets.some((widget) => widget.owner === definition.extensionId && widget.widgetKey === definition.id);
+    const defaultPresentation = getDefaultPresentation(definition);
+    const supportedPresentations = getSupportedPresentations(definition);
+    const presentation = currentWidgets.length > 0
+      && !hasCanvasWidget
+      && defaultPresentation === "canvas"
+      && supportedPresentations.includes("flow")
+      ? FLOW_PRESENTATION
+      : defaultPresentation;
+    const canvasConflict = presentation === "canvas" && currentWidgets.length > 0;
+    const flowConflict = presentation === "flow" && hasCanvasWidget;
+    const conflictDescription = canvasConflict
+      ? "Canvas widgets need an empty dashboard. Create or empty a dashboard first."
+      : flowConflict
+        ? flowConflictDescription
+        : undefined;
+    return {
+      key: `${definition.extensionId}:${definition.id}`,
+      label: definition.label,
+      description: conflictDescription ?? definition.description ?? definition.extensionId,
+      disabled: disabled || alreadyAdded || canvasConflict || flowConflict,
+      onClick: () => onAdd({ instanceId: createInstanceId(), owner: definition.extensionId, widgetKey: definition.id, label: definition.label, configuration: structuredClone(definition.defaultConfiguration ?? {}), presentation }),
+    };
+  }).filter((item) => matchesSearch(item.label, item.description));
+  const hasMatches = builtInItems.length + savedFilterItems.length + extensionItems.length > 0;
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/70" onClick={onClose}>
       <aside ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown} className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-surface p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-5 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Add Widget</h2><button data-dialog-initial-focus onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Built-in</h3>
-        <div className="space-y-2">
-          {!currentWidgets.some((widget) => widget.owner === "cove.core" && widget.widgetKey === "continue-watching") ? (
-            <CatalogButton label="Continue Watching" description={hasCanvasWidget ? "Remove the Canvas widget before adding Flow content." : "Resume unfinished media."} disabled={disabled || hasCanvasWidget} onClick={() => onAdd(contentToWidget({ type: "continueWatching" }))} />
-          ) : null}
-          {PREMADE_FILTERS.map((filter) => <CatalogButton key={`${filter.mode}:${filter.sortBy}:${filter.header}`} label={filter.header} description={hasCanvasWidget ? "Remove the Canvas widget before adding Flow content." : `Collection · ${filter.mode}`} disabled={disabled || hasCanvasWidget} onClick={() => addPremade(filter)} />)}
-          {supportedSavedFilters.map((filter) => <CatalogButton key={`saved:${filter.id}`} label={filter.name} description={hasCanvasWidget ? "Remove the Canvas widget before adding Flow content." : `Saved filter · ${filter.mode}`} disabled={disabled || hasCanvasWidget} onClick={() => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id }))} />)}
+        <div className="sticky -top-5 z-10 -mx-5 mb-5 border-b border-border bg-surface px-5 pb-4 pt-5">
+          <div className="mb-4 flex items-center justify-between"><h2 id={titleId} className="text-lg font-semibold text-foreground">Add Widget</h2><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-muted" /></button></div>
+          <input data-dialog-initial-focus type="search" aria-label="Search widgets" placeholder="Search widgets…" value={search} onChange={(event) => setSearch(event.target.value)} className="block w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted" />
         </div>
-        {extensionDefinitions.length ? <h3 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-muted">Extensions</h3> : null}
-        <div className="space-y-2">
-          {extensionDefinitions.map((definition) => {
-            const alreadyAdded = !definition.allowMultiple && currentWidgets.some((widget) => widget.owner === definition.extensionId && widget.widgetKey === definition.id);
-            const defaultPresentation = getDefaultPresentation(definition);
-            const supportedPresentations = getSupportedPresentations(definition);
-            const presentation = currentWidgets.length > 0
-              && !hasCanvasWidget
-              && defaultPresentation === "canvas"
-              && supportedPresentations.includes("flow")
-              ? FLOW_PRESENTATION
-              : defaultPresentation;
-            const canvasConflict = presentation === "canvas" && currentWidgets.length > 0;
-            const flowConflict = presentation === "flow" && hasCanvasWidget;
-            const conflictDescription = canvasConflict
-              ? "Canvas widgets need an empty dashboard. Create or empty a dashboard first."
-              : flowConflict
-                ? "Remove the Canvas widget before adding Flow content."
-                : undefined;
-            return <CatalogButton key={`${definition.extensionId}:${definition.id}`} label={definition.label} description={conflictDescription ?? definition.description ?? definition.extensionId} disabled={disabled || alreadyAdded || canvasConflict || flowConflict} onClick={() => onAdd({ instanceId: createInstanceId(), owner: definition.extensionId, widgetKey: definition.id, label: definition.label, configuration: structuredClone(definition.defaultConfiguration ?? {}), presentation })} />;
-          })}
-        </div>
+        {builtInItems.length ? <CatalogSection title="Built-in" items={builtInItems} /> : null}
+        {savedFilterItems.length ? <CatalogSection title="Saved Filters" items={savedFilterItems} /> : null}
+        {extensionItems.length ? <CatalogSection title="Extensions" items={extensionItems} /> : null}
+        {!hasMatches ? <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted">No widgets match “{search.trim()}”.</p> : null}
       </aside>
     </div>
+  );
+}
+
+function CatalogSection({ title, items }: { title: string; items: Array<{ key: string; label: string; description: string; disabled: boolean; onClick: () => void }> }) {
+  return (
+    <section className="mb-6" aria-labelledby={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`}>
+      <h3 id={`widget-catalog-${title.toLocaleLowerCase().replaceAll(" ", "-")}`} className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
+      <div className="space-y-2">
+        {items.map((item) => <CatalogButton key={item.key} label={item.label} description={item.description} disabled={item.disabled} onClick={item.onClick} />)}
+      </div>
+    </section>
   );
 }
 
