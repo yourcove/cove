@@ -84,7 +84,7 @@ public sealed class PerformerUpdateApiTests(
         updated.Name.Should().Be(TestCatalog.Performers.RandyDandy.Name);
         retrieved.Disambiguation.Should().Be("Original role");
         retrieved.Birthdate.Should().Be("1986-02-14");
-        retrieved.Country.Should().Be("Canada");
+        retrieved.Country.Should().Be("CA");
         retrieved.Favorite.Should().BeTrue();
         retrieved.Details.Should().Be("Updated details");
         retrieved.Urls.Should().Equal("https://updated.example");

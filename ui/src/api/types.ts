@@ -101,8 +101,8 @@ export interface Performer {
   gender?: string;
   birthdate?: string;
   deathDate?: string;
-  ethnicity?: string;
   country?: string;
+  ethnicity?: string;
   eyeColor?: string;
   hairColor?: string;
   heightCm?: number;
@@ -135,6 +135,14 @@ export interface Performer {
   fieldProvenance?: FieldProvenance[];
 }
 
+export interface PerformerCountryOption {
+  value: string;
+  code?: string | null;
+  name: string;
+  performerCount: number;
+  isCustom: boolean;
+}
+
 export interface PerformerRemoteId {
   endpoint: string;
   remoteId: string;
@@ -146,6 +154,8 @@ export interface PerformerSummary {
   disambiguation?: string;
   gender?: string;
   birthdate?: string;
+  deathDate?: string;
+  country?: string;
   favorite: boolean;
   imagePath?: string;
   videoCount?: number;
@@ -3160,9 +3170,11 @@ export interface BulkVideoUpdate {
 
 export interface BulkPerformerUpdate {
   ids: number[];
+  clearFields?: string[];
   rating?: number;
   favorite?: boolean;
   gender?: string;
+  country?: string;
   details?: string;
   tagIds?: number[];
   tagMode?: BulkUpdateMode;

@@ -214,7 +214,9 @@ public sealed class PerformerCreationApiTests(
         performerAfter.Should().BeEquivalentTo(request, options => options
             .Excluding(dto => dto.Rating)
             .Excluding(dto => dto.TagIds)
-            .Excluding(dto => dto.CustomFields));
+            .Excluding(dto => dto.CustomFields)
+            .Excluding(dto => dto.Country));
+        performerAfter.Country.Should().Be("MC");
         performerAfter.ShouldHaveOnlyTag(tag);
         performerAfter.CustomFields.Should().ContainKey(customFieldKey)
             .WhoseValue.Should().BeOfType<JsonElement>()

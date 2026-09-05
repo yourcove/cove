@@ -471,7 +471,46 @@ public class PerformerRepository : IPerformerRepository
             // String criteria
             query = FilterHelpers.ApplyString(query, filter.GenderCriterion, p => p.Gender != null ? p.Gender.ToString() : null);
             query = FilterHelpers.ApplyString(query, filter.EthnicityCriterion, p => p.Ethnicity);
-            query = FilterHelpers.ApplyString(query, filter.CountryCriterion, p => p.Country);
+            var countryCriterion = filter.CountryCriterion;
+            if (countryCriterion is not null)
+            {
+                var originalValue = countryCriterion.Value;
+                var normalizedValue = CountryCatalog.Normalize(originalValue) ?? "";
+                if (!normalizedValue.Equals(originalValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    switch (countryCriterion.Modifier)
+                    {
+                        case CriterionModifier.Includes:
+                            query = query.Where(p => p.Country != null
+                                && (p.Country.ToLower().Contains(originalValue.ToLower())
+                                    || p.Country == normalizedValue));
+                            countryCriterion = null;
+                            break;
+                        case CriterionModifier.Excludes:
+                            query = query.Where(p => p.Country == null
+                                || (!p.Country.ToLower().Contains(originalValue.ToLower())
+                                    && p.Country != normalizedValue));
+                            countryCriterion = null;
+                            break;
+                        case CriterionModifier.MatchesRegex:
+                        case CriterionModifier.NotMatchesRegex:
+                            countryCriterion = new StringCriterion
+                            {
+                                Modifier = countryCriterion.Modifier,
+                                Value = $"(?:{originalValue})|(?:^{Regex.Escape(normalizedValue)}$)",
+                            };
+                            break;
+                        default:
+                            countryCriterion = new StringCriterion
+                            {
+                                Modifier = countryCriterion.Modifier,
+                                Value = normalizedValue,
+                            };
+                            break;
+                    }
+                }
+            }
+            query = FilterHelpers.ApplyString(query, countryCriterion, p => p.Country);
             query = FilterHelpers.ApplyStringCollection(query, filter.UrlCriterion, p => p.Urls.Select(u => u.Url));
 
             if (filter.FavoriteCriterion != null)

@@ -912,7 +912,9 @@ public class AudiosController(CoveContext db, CustomFieldService customFields, I
             performerCounts?.GetValueOrDefault(performer.Id)?.ImageCount ?? 0,
             performerCounts?.GetValueOrDefault(performer.Id)?.GalleryCount ?? 0,
             performerCounts?.GetValueOrDefault(performer.Id)?.AudioCount ?? 0,
-            performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0)).ToList(),
+            performerCounts?.GetValueOrDefault(performer.Id)?.TextCount ?? 0,
+            performer.Country,
+            PartialDate.Format(performer.DeathDate, performer.DeathDatePrecision))).ToList(),
         audio.Tracks.OrderBy(track => track.OrderIndex).ThenBy(track => track.Id).Select(track => new AudioTrackDto(track.Id, track.OrderIndex, track.Title, track.StartSec, track.EndSec)).ToList(),
         audio.Files.OrderBy(file => file.Id).Select(file => new AudioFileDto(
             file.Id,

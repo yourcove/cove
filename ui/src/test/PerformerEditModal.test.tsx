@@ -10,6 +10,7 @@ import { resetMutationFailureForTests } from "../state/mutationFailure";
 
 const mocks = vi.hoisted(() => ({
   performersUpdate: vi.fn(),
+  performersCountries: vi.fn(),
   tagsCreate: vi.fn(),
   tagsFind: vi.fn(),
   performerImageUrl: vi.fn(),
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../api/client", () => ({
-  performers: { update: mocks.performersUpdate },
+  performers: { update: mocks.performersUpdate, countries: mocks.performersCountries },
   tags: { create: mocks.tagsCreate, find: mocks.tagsFind },
   entityImages: {
     performerImageUrl: mocks.performerImageUrl,
@@ -73,6 +74,7 @@ function renderModal(performer: Performer) {
 describe("PerformerEditModal", () => {
   beforeEach(() => {
     mocks.performersUpdate.mockResolvedValue({});
+    mocks.performersCountries.mockResolvedValue([]);
     mocks.tagsFind.mockResolvedValue({ items: [] });
     mocks.performerImageUrl.mockReturnValue("/performers/1/image");
     mocks.uploadPerformerImage.mockResolvedValue(undefined);

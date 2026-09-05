@@ -75,6 +75,14 @@ public sealed partial class CoveClient
             payload: null,
             cancellationToken);
 
+    public Task<IReadOnlyList<PerformerCountryOptionDto>> GetPerformerCountriesAsync(
+        CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<PerformerCountryOptionDto>>(
+            HttpMethod.Get,
+            $"/api/performers/countries?apiTestNonce={Guid.NewGuid():N}",
+            payload: null,
+            cancellationToken);
+
     public Task<PerformerDto> UpdatePerformerAsync(
         int performerId,
         object update,

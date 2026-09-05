@@ -2,11 +2,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { BulkEditDialog, GROUP_BULK_FIELDS, VIDEO_BULK_FIELDS } from "../components/BulkEditDialog";
+import { BulkEditDialog, GROUP_BULK_FIELDS, PERFORMER_BULK_FIELDS, VIDEO_BULK_FIELDS } from "../components/BulkEditDialog";
 
 const mocks = vi.hoisted(() => ({
   tagsFind: vi.fn(),
   performersFind: vi.fn(),
+  performerCountries: vi.fn(),
   studiosFind: vi.fn(),
   studiosGet: vi.fn(),
   groupsFind: vi.fn(),
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../api/client", () => ({
   tags: { find: mocks.tagsFind },
-  performers: { find: mocks.performersFind },
+  performers: { find: mocks.performersFind, countries: mocks.performerCountries },
   studios: { find: mocks.studiosFind, get: mocks.studiosGet },
   groups: { find: mocks.groupsFind },
 }));
@@ -58,6 +59,9 @@ describe("BulkEditDialog", () => {
   beforeEach(() => {
     mocks.tagsFind.mockResolvedValue({ items: [{ id: 1, name: "Tag One" }] });
     mocks.performersFind.mockResolvedValue({ items: [] });
+    mocks.performerCountries.mockResolvedValue([
+      { value: "US", code: "US", name: "United States", performerCount: 42, isCustom: false },
+    ]);
     mocks.studiosFind.mockResolvedValue({ items: [{ id: 11, name: "Alpha Studio" }] });
     mocks.studiosGet.mockResolvedValue({ id: 11, name: "Alpha Studio" });
     mocks.groupsFind.mockResolvedValue({ items: [{ id: 5, name: "Series One" }] });
@@ -149,5 +153,24 @@ describe("BulkEditDialog", () => {
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(onApply).toHaveBeenCalledWith({ studioId: null, clearFields: ["studioId"] });
+  });
+
+  it("sets and clears performer countries", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+
+    const { rerender } = renderDialog(
+      <BulkEditDialog open onClose={vi.fn()} title="Edit Performers" selectedCount={2} fields={PERFORMER_BULK_FIELDS} onApply={onApply} />,
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Country" }));
+    await user.click(screen.getByRole("button", { name: "Show countries" }));
+    await user.click((await screen.findByText("United States")).closest("button")!);
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenLastCalledWith({ country: "US" });
+
+    rerender(<QueryClientProvider client={new QueryClient()}><BulkEditDialog key="clear-country" open onClose={vi.fn()} title="Edit Performers" selectedCount={2} fields={PERFORMER_BULK_FIELDS} onApply={onApply} /></QueryClientProvider>);
+    await user.click(screen.getByRole("checkbox", { name: "Country" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenLastCalledWith({ country: null, clearFields: ["country"] });
   });
 });
