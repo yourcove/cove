@@ -12,6 +12,7 @@
  *   or would load from JS bundles (for external extensions)
  */
 import {
+  forwardRef,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -28,7 +29,8 @@ import { extensions } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { supportsServerBackedUiPreferences, updateAuthenticatedUserUiPreferences } from "../utils/userUiPreferences";
 import { canAccessExtensionContribution } from "./extension-permissions";
-import { Music, Puzzle, type LucideIcon } from "lucide-react";
+import { Puzzle, type LucideIcon, type LucideProps } from "lucide-react";
+import { DynamicIcon, iconNames, type IconName } from "lucide-react/dynamic.js";
 import type {
   ExtensionManifest,
   ExtensionFeatureDef,
@@ -52,9 +54,21 @@ import { createExtensionRuntimeReconciler, type ExtensionRuntimeOwner } from "./
 // ============================================================================
 // Icon resolver — maps manifest icon names to Lucide components
 // ============================================================================
-const ICON_MAP: Record<string, LucideIcon> = { music: Music, puzzle: Puzzle };
-function resolveIcon(name?: string): LucideIcon | undefined {
-  return name ? ICON_MAP[name.toLowerCase()] : undefined;
+const validIconNames = new Set<string>(iconNames);
+const iconComponents = new Map<IconName, LucideIcon>();
+function resolveIcon(name?: string): LucideIcon {
+  const normalizedName = name?.toLowerCase();
+  if (!normalizedName || !validIconNames.has(normalizedName)) return Puzzle;
+
+  const iconName = normalizedName as IconName;
+  let Icon = iconComponents.get(iconName);
+  if (!Icon) {
+    // Keep the component type stable when manifest refreshes register routes again.
+    Icon = forwardRef<SVGSVGElement, LucideProps>((props, ref) => <DynamicIcon {...props} name={iconName} ref={ref} />);
+    Icon.displayName = `ExtensionIcon(${iconName})`;
+    iconComponents.set(iconName, Icon);
+  }
+  return Icon;
 }
 
 type ExtensionActionHandler = (action: ExtensionAction, payload: Record<string, unknown>) => Promise<unknown> | unknown;
