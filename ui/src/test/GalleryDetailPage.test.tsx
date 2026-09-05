@@ -92,6 +92,11 @@ vi.mock("../auth/AuthContext", () => ({
   }),
 }));
 
+vi.mock("../state/AppConfigContext", () => ({
+  useAppConfig: () => ({ config: { ui: {} } }),
+  useOptionalAppConfig: () => ({ config: { ui: {} } }),
+}));
+
 vi.mock("../components/ConfirmDialog", () => ({
   ConfirmDialog: () => null,
 }));

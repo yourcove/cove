@@ -257,6 +257,8 @@ describe("GroupDetailPage", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "Summer Compilation" })).toBeInTheDocument();
+    const tablist = screen.getByRole("tablist", { name: "Detail tabs" });
+    expect(tablist.parentElement?.parentElement?.parentElement).not.toHaveClass("max-w-7xl");
     expect(screen.getByRole("tab", { name: /^items$/i })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /metadata/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /^edit$/i })).not.toBeInTheDocument();

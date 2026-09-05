@@ -693,7 +693,7 @@ export function FaceDetailPage({ id, onNavigate }: Props) {
         onFavoriteToggle={canEngageFace ? () => setFaceFavorite(!faceFavorite) : undefined}
         actions={faceActions}
       >
-        <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as FaceTab)} className="mx-auto mb-4 max-w-7xl" />
+        <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as FaceTab)} className="mb-4" />
         {activeTabContent}
       </EntityHeroLayout>
 

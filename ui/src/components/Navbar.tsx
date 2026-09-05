@@ -1,4 +1,4 @@
-import { Film, Headphones, FileText, Users, Building2, Tags, Image, ImageIcon, Layers, Settings, BarChart3, Activity, HelpCircle, Menu, X, Fingerprint, Bookmark } from "lucide-react";
+import { Settings, BarChart3, Activity, HelpCircle, Menu, X } from "lucide-react";
 import { useState, type MouseEvent } from "react";
 import { JobDrawer, useJobCount } from "./JobDrawer";
 import { GlobalSearch } from "./GlobalSearch";
@@ -6,29 +6,16 @@ import { useRouteRegistry } from "../router/RouteRegistry";
 import { useAppConfig } from "../state/AppConfigContext";
 import { useExtensions } from "../extensions/ExtensionLoader";
 import { useAuth } from "../auth/AuthContext";
-import { canShowNavPage, type NavPage } from "../auth/visibility";
+import { canShowNavPage } from "../auth/visibility";
 import { openTutorialStoryboard } from "./TutorialStoryboardDialog";
 import { createManualOpenRequest } from "./ManualContext";
 import { buildRouteUrl, type Route } from "../router/location";
+import { BUILT_IN_NAVIGATION_ITEMS } from "./navigationItems";
 
 interface NavbarProps {
   currentPage: string;
   navigate: (r: any) => void;
 }
-
-const navItems: { page: NavPage; label: string; icon: typeof Film }[] = [
-  { page: "videos", label: "Videos", icon: Film },
-  { page: "audios", label: "Audios", icon: Headphones },
-  { page: "texts", label: "Texts", icon: FileText },
-  { page: "segments", label: "Segments", icon: Bookmark },
-  { page: "images", label: "Images", icon: ImageIcon },
-  { page: "faces", label: "Faces", icon: Fingerprint },
-  { page: "galleries", label: "Galleries", icon: Image },
-  { page: "performers", label: "Performers", icon: Users },
-  { page: "studios", label: "Studios", icon: Building2 },
-  { page: "tags", label: "Tags", icon: Tags },
-  { page: "groups", label: "Groups", icon: Layers },
-];
 
 const DETAIL_PARENT_PAGE: Record<string, string> = {
   dashboard: "home",
@@ -83,12 +70,12 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
   const canViewSettings = !authEnabled || !!user;
 
   // Build ordered nav: if menuItems specifies order, use it; otherwise fall back to default
-  const allItemsMap = new Map<string, typeof navItems[number] | typeof extensionNavItems[number]>();
-  for (const item of navItems.filter((navItem) => canShowNavPage(navItem.page, hasPermission, user))) allItemsMap.set(item.page, item);
+  const allItemsMap = new Map<string, typeof BUILT_IN_NAVIGATION_ITEMS[number] | typeof extensionNavItems[number]>();
+  for (const item of BUILT_IN_NAVIGATION_ITEMS.filter((navItem) => canShowNavPage(navItem.page, hasPermission, user))) allItemsMap.set(item.page, item);
   for (const item of extensionNavItems) allItemsMap.set(item.page, item);
 
   const allNavItems = enabledMenuItems
-    ? enabledMenuItems.map((page) => allItemsMap.get(page)).filter(Boolean) as (typeof navItems[number] | typeof extensionNavItems[number])[]
+    ? enabledMenuItems.map((page) => allItemsMap.get(page)).filter(Boolean) as (typeof BUILT_IN_NAVIGATION_ITEMS[number] | typeof extensionNavItems[number])[]
     : Array.from(allItemsMap.values());
 
   const handleAnchorNavigate = (event: MouseEvent<HTMLAnchorElement>, route: Route) => {

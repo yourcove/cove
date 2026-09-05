@@ -45,6 +45,7 @@ import { withRequiredMultiId, withRequiredSingleId } from "../utils/detailRelati
 import { HierarchyContentToggle } from "../components/HierarchyContentToggle";
 import { useDetailBooleanUrlState, useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
+import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -92,7 +93,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     queryFn: () => studios.get(id, -1),
     enabled: includeSubStudios,
   });
-  const { allTabs: studioTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("studio", [
+  const { allTabs: studioTabs, renderExtensionTab, extensionCounts } = useExtensionTabs("studio", orderDetailTabsByMenuItems([
     { key: "videos", label: "Videos", count: includeSubStudios ? recursiveStudio?.videoCount : studio?.videoCount },
     { key: "performers", label: "Performers", count: includeSubStudios ? recursiveStudio?.performerCount : studio?.performerCount },
     { key: "galleries", label: "Galleries", count: includeSubStudios ? recursiveStudio?.galleryCount : studio?.galleryCount },
@@ -101,7 +102,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
     { key: "texts", label: "Texts", count: includeSubStudios ? recursiveStudio?.textCount : studio?.textCount },
     { key: "studios", label: "Sub-studios", count: studio?.childStudioCount },
     { key: "groups", label: "Groups", count: includeSubStudios ? recursiveStudio?.groupCount : studio?.groupCount },
-  ], id);
+  ], config?.interface?.menuItems), id);
   const queryClient = useQueryClient();
   const { backLabel, goBack } = useBackNavigation({ page: "studios" }, onNavigate);
   const canWriteStudio = canWriteEntity("studio", hasPermission);
@@ -325,7 +326,7 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
       >
         <ExtensionSlot slot="studio-detail-sidebar-bottom" context={{ studio, onNavigate }} />
 
-        <EntityDetailTabs tabs={visibleStudioTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mx-auto max-w-7xl mt-6" />
+        <EntityDetailTabs tabs={visibleStudioTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mt-6" />
         {activeTab !== "studios" && (
           <div className="mx-auto mt-4 max-w-7xl px-4">
             <HierarchyContentToggle checked={includeSubStudios} label="Include sub-studio content" onChange={setIncludeSubStudios} />

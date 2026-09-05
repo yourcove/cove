@@ -41,6 +41,8 @@ import { VIDEO_SORT_OPTIONS } from "../components/videoSortOptions";
 import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/useDetailListUrlState";
 import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
+import { useAppConfig } from "../state/AppConfigContext";
+import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 interface Props {
   id: number;
@@ -57,6 +59,7 @@ const GALLERY_IMAGES_DEFAULT_FILTER_KEY = "gallery-images";
 const GALLERY_VIDEOS_DEFAULT_FILTER_KEY = "gallery-videos";
 
 export function GalleryDetailPage({ id, onNavigate }: Props) {
+  const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
   const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("images");
   const { filter: imageFilter, setFilter: setImageFilter, objectFilter: imageObjectFilter, setObjectFilter: setImageObjectFilter, displayMode: imageDisplayMode, setDisplayMode: setImageDisplayMode, availableDisplayModes: imageDisplayModes } = useRelatedDetailListUrlState({ stateKey: "images", resetKey: "gallery-images", entityType: "images", builtInFilter: { page: 1, perPage: 60, direction: "desc" }, defaultFilterKey: GALLERY_IMAGES_DEFAULT_FILTER_KEY, enabled: activeTab === "images" });
@@ -86,11 +89,11 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
   const effectiveImageCount = galleryImages?.totalCount ?? gallery?.imageCount ?? 0;
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { allTabs: galleryTabs, renderExtensionTab } = useExtensionTabs("gallery", [
+  const { allTabs: galleryTabs, renderExtensionTab } = useExtensionTabs("gallery", orderDetailTabsByMenuItems([
     { key: "images", label: "Images", count: effectiveImageCount },
     { key: "videos", label: "Videos", count: gallery?.videoCount ?? 0 },
     { key: "fileinfo", label: "File Info" },
-  ]);
+  ], config?.interface?.menuItems));
   const [imageZoom, setImageZoom] = useState(0);
   const [showAddImages, setShowAddImages] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
@@ -446,7 +449,7 @@ export function GalleryDetailPage({ id, onNavigate }: Props) {
           </>
         }
       >
-        <EntityDetailTabs tabs={visibleGalleryTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mx-auto mb-4 max-w-7xl" />
+        <EntityDetailTabs tabs={visibleGalleryTabs} activeTab={activeTab} onTabChange={(key) => setActiveTab(key as TabKey)} className="mb-4" />
 
         {activeContent}
         <ExtensionSlot slot="gallery-detail-main-bottom" context={{ gallery, onNavigate }} />
