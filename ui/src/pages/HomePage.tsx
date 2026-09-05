@@ -440,6 +440,20 @@ function UnavailableWidget({ widget, failed = false }: { widget: DashboardWidget
   );
 }
 
+function WidgetLoadError({ label, error, onRetry }: { label: string; error: unknown; onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex min-h-24 flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+      <div>
+        <p className="font-medium text-foreground">{label} could not be loaded</p>
+        <p className="text-xs text-muted">{error instanceof Error ? error.message : "The widget request failed."}</p>
+      </div>
+      <button type="button" onClick={onRetry} aria-label={`Retry ${label}`} className="rounded border border-red-400/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10">
+        <RotateCcw className="mr-1 inline h-4 w-4" />Retry
+      </button>
+    </div>
+  );
+}
+
 function DashboardEditor({ dashboard, dashboards: dashboardList, onNavigate, onCancel, onDeleted, onSaved }: {
   dashboard: Dashboard;
   dashboards: DashboardSummary[];
@@ -858,16 +872,20 @@ function WidgetConfigurationDialog({ widget, definition, disabled, onSave, onClo
 }
 
 function ContinueWatchingRow({ principalKey, onNavigate }: { principalKey: string; onNavigate: (r: any) => void }) {
-  const { data: groupData } = useQuery({
+  const groupQuery = useQuery({
     queryKey: ["front-page-continue-watching-group", principalKey],
     queryFn: () => groups.find({ page: 1, perPage: 100, sort: "name", direction: "asc" }),
   });
+  const groupData = groupQuery.data;
   const continueGroup = groupData?.items.find((group) => group.querySourceKey === "continue-watching");
-  const { data: itemPage, isLoading } = useQuery({
+  const itemQuery = useQuery({
     queryKey: ["front-page-continue-watching", principalKey, continueGroup?.id],
     queryFn: () => groups.items.page(continueGroup!.id, { page: 1, perPage: 12 }),
     enabled: !!continueGroup,
   });
+  if (groupQuery.isError) return <WidgetLoadError label="Continue Watching" error={groupQuery.error} onRetry={() => { void groupQuery.refetch(); }} />;
+  if (itemQuery.isError) return <WidgetLoadError label="Continue Watching" error={itemQuery.error} onRetry={() => { void itemQuery.refetch(); }} />;
+  const { data: itemPage, isLoading } = itemQuery;
   const playableItems = itemPage?.items ?? [];
   if (!isLoading && playableItems.length === 0) return null;
 
@@ -953,14 +971,16 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
     }
   }, [filter.mode, findFilter]);
 
-  const { data, isLoading } = useQuery<any>({
+  const query = useQuery<any>({
     queryKey: ["front-page", filter.mode, findFilter],
     queryFn: fetchFn,
   });
 
+  const { data, isLoading } = query;
   const items = data?.items ?? [];
   const engagementHostType = getRecommendationEngagementHostType(filter.mode);
   const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementHostType ? items.map((item: any) => item.id) : []);
+  if (query.isError) return <WidgetLoadError label={filter.header} error={query.error} onRetry={() => { void query.refetch(); }} />;
   if (!isLoading && items.length === 0) return null;
 
   return (
@@ -983,10 +1003,11 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
 // ─── Saved Filter Row ───────────────────────────────────────────────────────
 
 function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate }: { principalKey: string; savedFilterId: number; onNavigate: (r: any) => void }) {
-  const { data: filter } = useQuery({
+  const filterQuery = useQuery({
     queryKey: ["saved-filter", principalKey, savedFilterId],
     queryFn: () => savedFilters.get(savedFilterId),
   });
+  const filter = filterQuery.data;
 
   const mode = normalizeFilterMode(filter?.mode);
   const parsedFilter = useMemo(() => parseJsonObject<FindFilter>(filter?.findFilter) ?? {}, [filter?.findFilter]);
@@ -1099,15 +1120,18 @@ function SavedFilterRecommendationRow({ principalKey, savedFilterId, onNavigate 
     return fetchMap[mode] ?? (() => Promise.resolve({ items: [], totalCount: 0 }));
   }, [mode, findFilter, parsedObjectFilter, hasObjectFilter, segmentProfileId]);
 
-  const { data, isLoading } = useQuery<any>({
+  const itemQuery = useQuery<any>({
     queryKey: ["front-page-saved", principalKey, savedFilterId, mode, findFilter, parsedObjectFilter, segmentProfileId],
     queryFn: fetchFn,
     enabled: !!mode,
   });
 
+  const { data, isLoading } = itemQuery;
   const items = (data as any)?.items ?? [];
   const engagementHostType = getRecommendationEngagementHostType(mode ?? undefined);
   const { engagementById } = useEntityEngagementBatch(engagementHostType ?? "video", engagementHostType ? items.map((item: any) => item.id) : []);
+  if (filterQuery.isError) return <WidgetLoadError label="Saved filter" error={filterQuery.error} onRetry={() => { void filterQuery.refetch(); }} />;
+  if (itemQuery.isError) return <WidgetLoadError label={filter?.name ?? "Saved filter"} error={itemQuery.error} onRetry={() => { void itemQuery.refetch(); }} />;
   if (!filter || !mode || (!isLoading && items.length === 0)) return null;
 
   return (

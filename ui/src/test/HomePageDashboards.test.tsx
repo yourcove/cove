@@ -21,8 +21,9 @@ const { state, mocks } = vi.hoisted(() => ({
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
-    videosFind: vi.fn(async () => ({ items: [], totalCount: 0 })),
+    videosFind: vi.fn(async (): Promise<any> => ({ items: [], totalCount: 0 })),
     groupsFind: vi.fn(async () => ({ items: [], totalCount: 0 })),
+    groupItemsPage: vi.fn(async () => ({ items: [], totalCount: 0, page: 1, perPage: 12 })),
     savedFilterGet: vi.fn(),
     savedFiltersList: vi.fn(),
   },
@@ -37,7 +38,7 @@ vi.mock("../api/client", () => ({
   groups: {
     find: mocks.groupsFind,
     findFiltered: vi.fn(),
-    items: { list: vi.fn(async () => []), page: vi.fn(async () => ({ items: [], totalCount: 0, page: 1, perPage: 12 })) },
+    items: { list: vi.fn(async () => []), page: mocks.groupItemsPage },
   },
   savedFilters: { get: mocks.savedFilterGet, list: mocks.savedFiltersList },
   dashboards: {
@@ -54,6 +55,10 @@ vi.mock("../api/client", () => ({
 
 vi.mock("../hooks/useEntityEngagementBatch", () => ({
   useEntityEngagementBatch: () => ({ engagementById: new Map() }),
+}));
+
+vi.mock("../components/Rating", () => ({
+  RatingBanner: () => null,
 }));
 
 vi.mock("../utils/userUiPreferences", () => ({
@@ -208,6 +213,91 @@ describe("HomePage dashboards", () => {
 
     await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.groupsFind).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows and retries a failed built-in collection widget", async () => {
+    mocks.videosFind.mockRejectedValueOnce(new Error("Collection request failed"));
+    mocks.videosFind.mockResolvedValueOnce({ items: [{ id: 101, title: "Recovered video", files: [], tags: [], performers: [] }], totalCount: 1 });
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "collection",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Recent videos",
+      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc", header: "Recent videos" },
+    }]);
+
+    renderHome();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Recent videos could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry Recent videos" }));
+
+    expect(await screen.findByText("Recovered video")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows and retries a failed Continue Watching widget", async () => {
+    mocks.groupsFind.mockRejectedValueOnce(new Error("Continue Watching request failed"));
+    mocks.groupsFind.mockResolvedValueOnce({ items: [], totalCount: 0 });
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "continue",
+      owner: "cove.core",
+      widgetKey: "continue-watching",
+      label: "Continue Watching",
+      configuration: {},
+    }]);
+
+    renderHome();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Continue Watching could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry Continue Watching" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(mocks.groupsFind).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a saved-filter definition failure and still hides a successful empty retry", async () => {
+    mocks.savedFilterGet.mockRejectedValueOnce(new Error("Saved filter request failed"));
+    mocks.savedFilterGet.mockResolvedValueOnce({ id: 5, name: "Warnings", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" });
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "saved",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Saved filter",
+      configuration: { source: "saved", savedFilterId: 5 },
+    }]);
+
+    renderHome();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Saved filter could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry Saved filter" }));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Warnings" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Customize/ }));
+    expect(screen.getByText("Saved filter", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Configure/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Remove/ })).toBeInTheDocument();
+  });
+
+  it("shows and retries a saved-filter item-query failure", async () => {
+    mocks.videosFind.mockRejectedValueOnce(new Error("Saved collection request failed"));
+    mocks.videosFind.mockResolvedValueOnce({ items: [{ id: 102, title: "Recovered saved video", files: [], tags: [], performers: [] }], totalCount: 1 });
+    state.active = dashboard(1, "Home", true, [{
+      instanceId: "saved",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Saved filter",
+      configuration: { source: "saved", savedFilterId: 5 },
+    }]);
+
+    renderHome();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Filter 7 could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry Filter 7" }));
+
+    expect(await screen.findByText("Recovered saved video")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("disables dashboard draft controls while a save is pending", async () => {
