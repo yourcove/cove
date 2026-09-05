@@ -202,7 +202,7 @@ export function DetailListToolbar({ filter, onFilterChange, totalCount, sortOpti
 
   return (
     <>
-      <div className="mx-auto mb-2 flex max-w-7xl flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-3 py-3 text-sm shadow-sm shadow-black/20 sm:px-2.5 sm:py-2">
+      <div className="mx-auto mb-2 flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/90 px-3 py-3 text-sm shadow-sm shadow-black/20 sm:px-2.5 sm:py-2">
         <div className="mr-auto flex min-w-0 items-center gap-2 pr-2">
           <span className="text-xs text-muted">
             {totalCount > 0 ? `${start}–${end} of ${totalCount.toLocaleString()}` : "0 items"}

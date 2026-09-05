@@ -120,6 +120,22 @@ describe("DetailListToolbar", () => {
     }));
   });
 
+  it("allows the toolbar to fill the available detail-list width", () => {
+    render(
+      <DetailListToolbar
+        filter={{ page: 1, perPage: 24 }}
+        onFilterChange={vi.fn()}
+        totalCount={100}
+        sortOptions={[{ value: "title", label: "Title" }]}
+        showSearch
+      />,
+    );
+
+    const toolbar = screen.getByPlaceholderText("Search…").closest("form")?.parentElement;
+    expect(toolbar).toHaveClass("w-full");
+    expect(toolbar).not.toHaveClass("max-w-7xl");
+  });
+
   it("registers the filter action when filtering is available", () => {
     renderWithQueryClient(
       <DetailListToolbar
