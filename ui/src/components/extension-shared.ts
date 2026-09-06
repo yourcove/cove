@@ -89,6 +89,10 @@ export { ImageSelectionActions } from "./ImageSelectionActions";
 export type { ImageSelectionActionsProps } from "./ImageSelectionActions";
 export { getDefaultFilter } from "./SavedFilterMenu";
 export { Pager } from "./Pager";
+// Scroll-triggered "load more" sentinel. ListPage deliberately renders no sentinel of its own in the display
+// modes where the CONTENT is expected to own infinite loading (grid/wall/feed/vertical), so an extension that
+// renders its own results layout needs this for infinite page size to work at all.
+export { InfiniteScrollSentinel } from "./InfiniteScrollSentinel";
 export { VIDEO_SORT_OPTIONS } from "./videoSortOptions";
 export { GroupItemFeed } from "./GroupItemFeed";
 export type { GroupItemFeedProps } from "./GroupItemFeed";
