@@ -148,6 +148,10 @@ export default defineConfig({
                 { link: '/docs/user/library/search-and-filters/', label: 'Search and filters' },
                 { link: '/docs/user/library/search-and-filters/saved/', label: 'Use saved filters' },
                 { link: '/docs/user/library/search-and-filters/combine/', label: 'Combine filters' },
+                {
+                  link: '/docs/user/library/search-and-filters/related-performers/',
+                  label: 'Filter by related performers',
+                },
               ],
             },
             {

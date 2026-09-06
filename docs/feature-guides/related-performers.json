@@ -1,0 +1,196 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "related-performers",
+  "title": "Filter by related performers",
+  "parentTopicId": "search-and-filters",
+  "description": "Build video filters from performer details, keep conditions bound to the right performer, and search in the reverse direction through related videos.",
+  "order": 44,
+  "pages": ["search"],
+  "sections": [
+    {
+      "id": "how-related-filters-work",
+      "title": "One block describes one related performer",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Related Performers lets a video search use details stored on performer records. Every nested condition in one Related Performers block must match the same performer, so Country Spain and Gender Female together mean a Spanish female performer—not one Spanish performer and a different female performer."
+        },
+        {
+          "type": "paragraph",
+          "text": "Add another Related Performers condition when the search has another performer role. Separate conditions can reuse the same performer when their criteria overlap; choose Use a different performer for each in Combine Filters when each role must belong to a distinct performer. Mutually exclusive values, such as Female and Male, already force different performers. The recipes below show how to build separate roles and how to search through the relationship in reverse."
+        },
+        {
+          "type": "note",
+          "text": "Related filters consider only records the current user is allowed to see. A hidden relationship cannot make a result match."
+        }
+      ]
+    },
+    {
+      "id": "relationship-modes",
+      "title": "Choose how the relationship matches",
+      "blocks": [
+        {
+          "type": "table",
+          "caption": "Relationship match modes",
+          "columns": ["Mode", "Meaning"],
+          "rows": [
+            ["At least one matching performer", "One visible performer must satisfy every condition in the block."],
+            ["Every performer matches", "The video must have a visible performer, and every visible performer must satisfy the block."],
+            ["No performer matches", "The video must have a visible performer, and none of its visible performers may satisfy the block."]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "When a block contains several nested conditions, Match all conditions keeps them joined with AND for the same performer. Match any condition uses OR inside that performer block. These controls are separate from the surrounding Combine Filters group that joins whole Related Performers conditions."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Combine filters",
+              "href": "/docs/user/library/search-and-filters/combine/",
+              "topicId": "combine-filters"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recipes",
+      "title": "Recipes",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open a recipe for a practical walkthrough, then replace the example values with the ones that matter in your library."
+        },
+        {
+          "type": "recipes",
+          "items": [
+            {
+              "id": "spanish-female-and-male-age-brackets",
+              "title": "Require a Spanish woman and a man in different age ranges",
+              "description": "Build a broad country search into two precise performer roles in three stages.",
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 3,
+                  "text": "1. Find videos with a Spanish performer"
+                },
+                {
+                  "type": "steps",
+                  "items": [
+                    "Open Videos, choose Filters, and select Related Performers under Related items.",
+                    "Leave Relationship match mode set to At least one matching performer.",
+                    "Select Country, leave the operator set to =, and choose Spain from the country picker.",
+                    "Choose Apply. The result contains videos with at least one visible performer whose country is Spain."
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 3,
+                  "text": "2. Require a female Spanish performer and a male performer"
+                },
+                {
+                  "type": "steps",
+                  "items": [
+                    "Open Filters and edit the active Related Performers condition.",
+                    "Select Gender and choose Female. Country Spain and Gender Female now describe the same performer.",
+                    "Choose Add another performer condition in the bottom-left corner.",
+                    "In the new Related Performers condition, select Gender and choose Male.",
+                    "Choose Apply. Cove now requires both relationship conditions."
+                  ]
+                },
+                {
+                  "type": "note",
+                  "text": "The two gender requirements cannot be satisfied by the same single-valued Gender field, so this example inherently requires two performers. For overlapping conditions that one performer could satisfy twice, use Combine Filters → Use a different performer for each."
+                },
+                {
+                  "type": "heading",
+                  "level": 3,
+                  "text": "3. Add each performer's age at the video date"
+                },
+                {
+                  "type": "steps",
+                  "items": [
+                    "Edit the Related Performers condition containing Gender Female and Country Spain.",
+                    "Select Age (then), choose Between, enter 20 and 25, and save the condition.",
+                    "Edit the condition containing Gender Male.",
+                    "Select Age (then), choose Between, enter 25 and 30, and save the condition.",
+                    "Choose Apply to run the completed video search."
+                  ]
+                },
+                {
+                  "type": "image",
+                  "src": "assets/related-performers-complete.png",
+                  "alt": "Two Related Performers conditions: a female Spanish performer aged 20 to 25 and a male performer aged 25 to 30",
+                  "caption": "Each chip group describes one performer. Both groups must match the video."
+                },
+                {
+                  "type": "note",
+                  "text": "Age (then) compares the performer's birthdate with the video's date. A performer needs a birthdate and the video needs a date for this condition to match. Use Age (now) only when the performer's current age is the question."
+                },
+                {
+                  "type": "links",
+                  "items": [
+                    {
+                      "label": "Open Videos to build the filter",
+                      "href": "/docs/user/library/search-and-filters/related-performers/#recipes",
+                      "appHref": "/videos"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "find-performers-by-related-videos",
+              "title": "Reverse the search: find performers by related videos",
+              "description": "Use video properties to filter the performers who appear in them.",
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "text": "The relationship works in the other direction too. On the Performers page, Related Videos filters performer results using facts about videos in which they appear. Every nested condition in one Related Videos block must match the same video."
+                },
+                {
+                  "type": "steps",
+                  "items": [
+                    "Open Performers, choose Filters, and select Related Videos under Related items.",
+                    "Leave Relationship match mode set to At least one matching video.",
+                    "Select Date, choose Between, and enter 2020-01-01 and 2025-12-31.",
+                    "Select Resolution, leave the operator set to =, and choose 1080p.",
+                    "Choose Apply. The result contains performers with at least one visible related video that satisfies both conditions."
+                  ]
+                },
+                {
+                  "type": "image",
+                  "src": "assets/related-videos-reverse.png",
+                  "alt": "Related Videos filter requiring one video dated from 2020 through 2025 with 1080p resolution",
+                  "caption": "Date and Resolution belong to one Related Videos block, so the same video must satisfy both."
+                },
+                {
+                  "type": "note",
+                  "text": "You can choose a saved video filter instead of rebuilding its conditions. Add nested conditions as well when the saved filter is only part of the question; both must match the same related video."
+                },
+                {
+                  "type": "links",
+                  "items": [
+                    {
+                      "label": "Open Performers to reverse the search",
+                      "href": "/docs/user/library/search-and-filters/related-performers/#recipes",
+                      "appHref": "/performers"
+                    },
+                    {
+                      "label": "Use saved filters",
+                      "href": "/docs/user/library/search-and-filters/saved/",
+                      "topicId": "saved-filters"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/search-and-filters.png" width="880" alt="Cove videos page">
+  <img src="docs-site/public/images/screenshots/search-and-filters.png" width="880" alt="Cove videos page">
 </p>
 
 ## Why Cove
@@ -43,31 +43,31 @@
 
 <table>
   <tr>
-    <td width="62%"><img src="docs/screenshots/global-search.png" alt="Global search"></td>
+    <td width="62%"><img src="docs-site/public/images/screenshots/global-search.png" alt="Global search"></td>
     <td><strong>Find content by whatever you remember or are looking for.</strong><br>Search across everything by title, tag, performer, studio, path, or group. Or add filters to narrow a big library down. Save the searches & filters you like.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/occurrence-tagging.png" alt="Per-occurrence tagging"></td>
+    <td><img src="docs-site/public/images/screenshots/occurrence-tagging.png" alt="Per-occurrence tagging"></td>
     <td><strong>Tag people, moments, and parts of a video.</strong><br>When a tag only applies to one person or one part of a video, put it exactly there. See who appears in which part of a scene, not just who's in it somewhere.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/feed-viewer.png" alt="Feed view"></td>
+    <td><img src="docs-site/public/images/screenshots/feed-viewer.png" alt="Feed view"></td>
     <td><strong>Browse it your way.</strong><br>Grid and list pages for sorting and cleanup; feed and vertical pages for when you just want to watch. Watch later, history, and continue watching let you pick up where you left off.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/group-detail.png" alt="Groups Page"></td>
+    <td><img src="docs-site/public/images/screenshots/group-detail.png" alt="Groups Page"></td>
     <td><strong>Go beyond flat tagging.</strong><br>Tag groups, dynamic groups that fill themselves based on rules, segments, sub-scenes, and compilations give your library real structure as it grows.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/security-and-sharing.png" alt="Security and Sharing"></td>
+    <td><img src="docs-site/public/images/screenshots/security-and-sharing.png" alt="Security and Sharing"></td>
     <td><strong>Share one library safely.</strong><br>Give each person on your network their own account with roles and permissions that control what they can see and do. Or give someone a share link to specific content.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/extensions-registry.png" alt="Extensions"></td>
+    <td><img src="docs-site/public/images/screenshots/extensions-registry.png" alt="Extensions"></td>
     <td><strong>Extend almost anything.</strong><br>Downloaders, scrapers, themes, settings panels, pages, background jobs, API endpoints. If Cove doesn't do something yet, there's a way to add it with extensions.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/audio-detail.png" alt="Audio"></td>
+    <td><img src="docs-site/public/images/screenshots/audio-detail.png" alt="Audio"></td>
     <td><strong>Store all your kinds of content.</strong><br>Store all your types of media in one place: Video, Audio, Galleries, Text files, and the organization surrounding them</td>
   </tr>
 </table>

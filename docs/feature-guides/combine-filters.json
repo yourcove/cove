@@ -38,6 +38,16 @@
         {
           "type": "note",
           "text": "Age (now) uses the performer's current age. Use Age (then) when the age at the video's date is what matters."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Build a Related Performers search",
+              "href": "/docs/user/library/search-and-filters/related-performers/",
+              "topicId": "related-performers"
+            }
+          ]
         }
       ]
     },

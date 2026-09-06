@@ -139,6 +139,11 @@
               "topicId": "combine-filters"
             },
             {
+              "label": "Filter by related performers",
+              "href": "/docs/user/library/search-and-filters/related-performers/",
+              "topicId": "related-performers"
+            },
+            {
               "label": "Use saved filters",
               "href": "/docs/user/library/search-and-filters/saved/",
               "topicId": "saved-filters"
