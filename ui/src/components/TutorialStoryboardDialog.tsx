@@ -369,7 +369,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
         imageAlt: "The tagger view with items lined up for review",
         points: [
           "[green] the item you are reviewing, with its suggested matches",
-          "[blue] apply or skip, then move straight to the next item",
+          "[blue] review the suggestions and apply the changes you want",
           "Filter first so you only see the items you want to work through",
         ],
       },
@@ -955,7 +955,7 @@ export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
         imageSrc: "/manual/screenshots/texts-view.png",
         imageAlt: "A text detail page showing the reader",
         points: [
-          "[green] the reader, with page controls for PDFs",
+          "[green] the document reader; PDFs add page controls",
           "Tag and organize documents alongside your other media",
         ],
       },

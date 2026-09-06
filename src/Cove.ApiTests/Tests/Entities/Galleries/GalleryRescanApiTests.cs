@@ -86,6 +86,30 @@ public sealed class GalleryRescanApiTests(
         importedFile.Basename.Should().Be("rescanned-image.png");
         importedFile.Format.Should().Be("png");
 
+        AsTestFileSystem().DeleteLibraryFile(archivePath);
+        AsTestFileSystem().CreateGalleryArchive(
+            Path.GetFileName(archivePath),
+            "replacement-image.png",
+            ApiTestImages.OnePixelPng());
+        File.SetLastWriteTimeUtc(archivePath, DateTime.UtcNow.AddMinutes(-1));
+        var replacementJobId = await AsUser(ApiTestUsers.Eva).RescanGalleryAsync(gallery.Id, TestContext.Current.CancellationToken);
+        var replacementJob = await AsUser(ApiTestUsers.Eva).WaitForTerminalJobAsync(replacementJobId, TestContext.Current.CancellationToken);
+        replacementJob.Status.Should().Be(JobStatus.Completed);
+        replacementJob.SubTask.Should().Contain("0 unsettled files deferred");
+        replacementJob.SubTask.Should().Contain("0 file failures");
+        var replaced = await AsUser().GetGalleryByIdAsync(gallery.Id, TestContext.Current.CancellationToken);
+        replaced.Id.Should().Be(gallery.Id);
+        replaced.ImageCount.Should().Be(1);
+        var replacementGalleryFile = replaced.Files.Should().ContainSingle().Which;
+        replacementGalleryFile.Id.Should().Be(beforeFile.Id);
+        replacementGalleryFile.Path.Should().Be(archivePath);
+        var replacementImages = await AsUser().FindImagesAsync(new FilteredQueryRequest<ImageFilter>
+        {
+            ObjectFilter = new ImageFilter { GalleryId = gallery.Id },
+            FindFilter = new FindFilter { Page = 1, PerPage = 10, Sort = "title" },
+        }, TestContext.Current.CancellationToken);
+        replacementImages.Items.Should().ContainSingle().Which.Title.Should().Be("replacement-image");
+
         var emptyGallery = await AsUser().CreateGalleryAsync(new GalleryBuilder()
             .WithTitle($"Gallery rescan empty {suffix}")
             .Build(), TestContext.Current.CancellationToken);
@@ -93,11 +117,11 @@ public sealed class GalleryRescanApiTests(
         await noFiles.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 400 (BadRequest)*");
         var missing = () => AsUser(ApiTestUsers.Eva).RescanGalleryAsync(int.MaxValue);
         await missing.Should().ThrowAsync<InvalidOperationException>().WithMessage("*returned 404 (NotFound)*");
-        (await AsUser().GetGalleryByIdAsync(gallery.Id, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(rescanned);
+        (await AsUser().GetGalleryByIdAsync(gallery.Id, TestContext.Current.CancellationToken)).Should().BeEquivalentTo(replaced);
         var emptyAfterFailures = await AsUser().GetGalleryByIdAsync(emptyGallery.Id, TestContext.Current.CancellationToken);
         emptyAfterFailures.Files.Should().BeEmpty();
         emptyAfterFailures.ImageCount.Should().Be(0);
         (await AsUser().GetJobHistoryAsync(TestContext.Current.CancellationToken)).Select(item => item.Id)
-            .Should().Equal(new[] { job.Id }.Concat(initialJobIds));
+            .Should().Equal(new[] { replacementJob.Id, job.Id }.Concat(initialJobIds));
     }
 }

@@ -65,6 +65,8 @@
   --cove-muted: #9fb0c3;
   --cove-pink: #ff2f9a;
   --cove-teal: #13b8c2;
+  --cove-link: #8ff3f8;
+  --cove-link-hover: #ffffff;
   --cove-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
   --content-width: 1180px;
   --sl-color-accent-low: #2a1238;
@@ -119,6 +121,28 @@ samp {
     radial-gradient(circle at top left, rgba(19, 184, 194, 0.18), transparent 30%),
     radial-gradient(circle at top right, rgba(255, 47, 154, 0.2), transparent 35%),
     linear-gradient(180deg, #08111a 0%, #071019 28%, #091421 100%);
+}
+
+.marketing-body main a:not(:where(.button, .button-ghost, .media-shot-link)) {
+  color: var(--cove-link);
+  font-weight: 700;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  text-underline-offset: 0.18em;
+}
+
+.marketing-body main a:not(:where(.button, .button-ghost, .media-shot-link)):visited {
+  color: var(--cove-link);
+}
+
+.marketing-body main a:not(:where(.button, .button-ghost, .media-shot-link)):hover {
+  color: var(--cove-link-hover);
+  text-decoration-color: currentColor;
+}
+
+.marketing-body main a:not(:where(.button, .button-ghost, .media-shot-link)):focus-visible {
+  outline: 2px solid var(--cove-link);
+  outline-offset: 3px;
+  border-radius: 0.2rem;
 }
 
 .site-header {
@@ -467,7 +491,7 @@ samp {
 .audience-card a,
 .comparison-card a,
 .setup-card a {
-  color: #8ff3f8;
+  color: var(--cove-link);
   font-weight: 700;
   text-decoration: none;
 }
@@ -672,6 +696,66 @@ samp {
   height: auto;
   aspect-ratio: 1700 / 1300;
   object-fit: cover;
+}
+
+.media-shot-link {
+  position: relative;
+  display: block;
+  color: inherit;
+}
+
+.media-shot-link::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: rgba(4, 10, 18, 0.16);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.media-shot-zoom {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 3.5rem;
+  height: 3.5rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(5, 13, 23, 0.82);
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transform: translate(-50%, -44%) scale(0.9);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.media-shot-zoom svg {
+  width: 1.65rem;
+  height: 1.65rem;
+}
+
+.media-shot-link:is(:hover, :focus-visible)::after,
+.media-shot-link:is(:hover, :focus-visible) .media-shot-zoom {
+  opacity: 1;
+}
+
+.media-shot-link:is(:hover, :focus-visible) .media-shot-zoom {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.media-shot-link:focus-visible {
+  outline: 3px solid var(--cove-teal);
+  outline-offset: -3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-shot-link::after,
+  .media-shot-zoom {
+    transition: none;
+  }
 }
 
 .media-shot figcaption {

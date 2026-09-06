@@ -43,7 +43,6 @@ interface Props {
   onToggleSelect?: (id: number) => void;
   onDeleteNode?: (id: number) => void;
 }
-
 interface LayoutNode extends TagGraphNode, SimulationNodeDatum {
   radius: number;
   layoutRadius: number;
@@ -179,7 +178,7 @@ const MIN_SCALE = 0.12;
 const MAX_SCALE = 2.4;
 const FOCUS_MIN_SCALE = 0.68;
 const MIN_GRAPH_HEIGHT = 520;
-const MAX_GRAPH_HEIGHT = 860;
+const MAX_GRAPH_HEIGHT = 1440;
 const CLUSTER_PARENT_THRESHOLD = 3;
 const CLUSTER_PADDING = 140;
 const CLUSTER_CHIP_LIMIT = 8;
@@ -673,6 +672,7 @@ export function TagGraphView({
   const dragStateRef = useRef<DragState | null>(null);
   const touchGestureRef = useRef<TouchGestureState | null>(null);
   const initializedViewKeyRef = useRef<string | null>(null);
+  const viewModeRef = useRef<"default" | "full" | "manual">("default");
   const restoredPrefsRef = useRef(false);
   const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 720 });
   const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 });
@@ -742,11 +742,14 @@ export function TagGraphView({
     }
 
     const updateSize = (width: number) => {
-      const graphHeight = clamp(Math.round(width * 0.64), MIN_GRAPH_HEIGHT, MAX_GRAPH_HEIGHT);
+      const availableViewportHeight = window.innerHeight - element.getBoundingClientRect().top - 24;
+      const graphHeight = clamp(Math.round(Math.max(width * 0.64, availableViewportHeight)), MIN_GRAPH_HEIGHT, MAX_GRAPH_HEIGHT);
       setCanvasSize({ width: Math.max(Math.round(width), 320), height: graphHeight });
     };
 
-    updateSize(element.getBoundingClientRect().width);
+    const updateFromElement = () => updateSize(element.getBoundingClientRect().width);
+
+    updateFromElement();
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -756,7 +759,11 @@ export function TagGraphView({
     });
 
     observer.observe(element);
-    return () => observer.disconnect();
+    window.addEventListener("resize", updateFromElement);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateFromElement);
+    };
   }, []);
 
   const graph = useMemo(() => {
@@ -1156,13 +1163,17 @@ export function TagGraphView({
     }
 
     const viewKey = `${nodes.length}:${links.length}:${nodes[0]?.id ?? 0}:${nodes[nodes.length - 1]?.id ?? 0}`;
-    if (initializedViewKeyRef.current === viewKey) {
-      return;
+    if (initializedViewKeyRef.current !== viewKey) {
+      initializedViewKeyRef.current = viewKey;
+      viewModeRef.current = "default";
     }
 
-    initializedViewKeyRef.current = viewKey;
-    setView(defaultView);
-  }, [defaultView, graph.layoutNodes.length, links.length, nodes]);
+    if (viewModeRef.current === "default") {
+      setView(defaultView);
+    } else if (viewModeRef.current === "full") {
+      setView(fullGraphView);
+    }
+  }, [defaultView, fullGraphView, graph.layoutNodes.length, links.length, nodes]);
 
   useEffect(() => {
     if (graph.layoutNodes.length === 0) {
@@ -1392,6 +1403,7 @@ export function TagGraphView({
       return;
     }
 
+    viewModeRef.current = "manual";
     setView((currentView) => ({
       ...currentView,
       x: canvasSize.width / 2 - (node.x ?? 0) * currentView.scale,
@@ -1405,6 +1417,7 @@ export function TagGraphView({
       return;
     }
 
+    viewModeRef.current = "manual";
     setFocusedClusterId((currentClusterId) => (currentClusterId === clusterId ? null : clusterId));
     setSelectedId(cluster.anchorId);
 
@@ -1416,6 +1429,7 @@ export function TagGraphView({
   };
 
   const zoomAtPoint = (nextScale: number, pointerX: number, pointerY: number) => {
+    viewModeRef.current = "manual";
     setView((currentView) => scaleViewAtPoint(currentView, nextScale, pointerX, pointerY));
   };
 
@@ -1494,6 +1508,7 @@ export function TagGraphView({
 
     if (dragState.moved) {
       event.preventDefault();
+      viewModeRef.current = "manual";
       setView((currentView) => ({
         ...currentView,
         x: dragState.originX + deltaX,
@@ -1576,6 +1591,7 @@ export function TagGraphView({
 
       event.preventDefault();
       setIsPanning(true);
+      viewModeRef.current = "manual";
       setView({
         ...scaledView,
         x: scaledView.x + (center.x - gesture.startCenterX),
@@ -1606,6 +1622,7 @@ export function TagGraphView({
 
     if (gesture.moved) {
       event.preventDefault();
+      viewModeRef.current = "manual";
       setView((currentView) => ({
         ...currentView,
         x: gesture.originX + deltaX,
@@ -1726,7 +1743,10 @@ export function TagGraphView({
         </button>
         <button
           type="button"
-          onClick={() => setView(defaultView)}
+          onClick={() => {
+            viewModeRef.current = "default";
+            setView(defaultView);
+          }}
           className="rounded-full border border-border bg-card p-2 text-secondary transition-colors hover:border-accent/40 hover:text-foreground"
           title="Focus overview"
         >
@@ -1734,7 +1754,10 @@ export function TagGraphView({
         </button>
         <button
           type="button"
-          onClick={() => setView(fullGraphView)}
+          onClick={() => {
+            viewModeRef.current = "full";
+            setView(fullGraphView);
+          }}
           className="rounded-full border border-border bg-card px-3 py-2 text-xs text-secondary transition-colors hover:border-accent/40 hover:text-foreground"
         >
           Fit All
@@ -1903,7 +1926,11 @@ export function TagGraphView({
                 const labelWidth = Math.max(88, halo.anchorName.length * 7.4 + 24);
 
                 return (
-                  <g key={`halo-${halo.anchorId}`} opacity={dimmed ? 0.18 : 1}>
+                  <g
+                    key={`halo-${halo.anchorId}`}
+                    data-cluster-halo={halo.anchorName}
+                    opacity={dimmed ? 0.18 : 1}
+                  >
                     <circle
                       cx={halo.x}
                       cy={halo.y}
@@ -2010,6 +2037,7 @@ export function TagGraphView({
                 <g
                   key={node.id}
                   data-node-interactive="true"
+                  data-node-name={node.name}
                   transform={`translate(${node.x ?? 0} ${node.y ?? 0})`}
                   onMouseEnter={() => setHoveredId(node.id)}
                   onMouseLeave={() =>
