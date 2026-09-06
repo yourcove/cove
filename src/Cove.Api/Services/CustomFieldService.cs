@@ -855,7 +855,7 @@ public sealed class CustomFieldService(
         var previousWasSeparator = false;
         foreach (var character in raw.Trim())
         {
-            if (char.IsLetterOrDigit(character))
+            if (char.IsLetterOrDigit(character) || character == '_')
             {
                 result.Add(char.ToLowerInvariant(character));
                 previousWasSeparator = false;

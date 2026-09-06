@@ -812,6 +812,24 @@ export function SetupWizardPage({ config, onComplete }: Props) {
                 Enter the path to your Stash SQLite database file (usually{" "}
                 <code className="text-xs bg-card px-1 py-0.5 rounded">~/.stash/stash-go.sqlite</code>).
               </p>
+              <div
+                role="note"
+                aria-label="Saved filters"
+                className="mb-6 rounded-lg border border-border bg-card p-4 text-sm text-secondary"
+              >
+                Saved filters are not included in this import because Cove and Stash use different filter systems. After
+                setup, you can install{" "}
+                <a
+                  href="https://github.com/MinasukiHikimuna/MidnightRider-Cove/tree/main/extensions/stash-filter-importer"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent underline hover:text-accent-hover"
+                >
+                  Stash Filter Importer
+                </a>
+                , a specialized tool that imports saved filters and adapts differences where possible. Keep your Stash
+                SQLite backup for that step.
+              </div>
               <div className="space-y-4">
                 <div className="flex gap-2">
                   <div className="flex-1 flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
