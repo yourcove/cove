@@ -254,15 +254,13 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
     (preset: KeyboardShortcutPreset) => {
       if (preset.provenance?.source !== "personal" && preset.provenance?.source !== "import") return;
       if (!validateKeyboardPreset(preset).valid) return;
-      setPersonalPresets((current) => {
-        const next = current.some((entry) => entry.id === preset.id)
-          ? current.map((entry) => (entry.id === preset.id ? preset : entry))
-          : [...current, preset];
-        persist(activePresetId, next);
-        return next;
-      });
+      const next = personalPresets.some((entry) => entry.id === preset.id)
+        ? personalPresets.map((entry) => (entry.id === preset.id ? preset : entry))
+        : [...personalPresets, preset];
+      setPersonalPresets(next);
+      persist(activePresetId, next);
     },
-    [activePresetId, persist],
+    [activePresetId, persist, personalPresets],
   );
 
   const clonePreset = useCallback(

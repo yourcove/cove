@@ -84,9 +84,19 @@ describe("PerformerEditModal", () => {
   afterEach(() => resetMutationFailureForTests());
 
   it.each(["TransgenderMale", "TransgenderFemale"])("preserves and submits the API gender %s", async (gender) => {
-    const performer = { id: 1, name: "Sample Performer", gender, urls: [], aliases: [], tags: [], remoteIds: [] } as unknown as Performer;
+    const performer = {
+      id: 1,
+      name: "Sample Performer",
+      gender,
+      urls: [],
+      aliases: [],
+      tags: [],
+      remoteIds: [],
+    } as unknown as Performer;
     const { container } = renderModal(performer);
-    const select = [...container.querySelectorAll("select")].find(element => [...element.options].some(option => option.value === "NonBinary"))!;
+    const select = [...container.querySelectorAll("select")].find((element) =>
+      [...element.options].some((option) => option.value === "NonBinary"),
+    )!;
     expect(select.value).toBe(gender);
     fireEvent.change(select, { target: { value: gender } });
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
