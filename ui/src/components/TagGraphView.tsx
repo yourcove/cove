@@ -743,7 +743,11 @@ export function TagGraphView({
 
     const updateSize = (width: number) => {
       const availableViewportHeight = window.innerHeight - element.getBoundingClientRect().top - 24;
-      const graphHeight = clamp(Math.round(Math.max(width * 0.64, availableViewportHeight)), MIN_GRAPH_HEIGHT, MAX_GRAPH_HEIGHT);
+      const graphHeight = clamp(
+        Math.round(Math.max(width * 0.64, availableViewportHeight)),
+        MIN_GRAPH_HEIGHT,
+        MAX_GRAPH_HEIGHT,
+      );
       setCanvasSize({ width: Math.max(Math.round(width), 320), height: graphHeight });
     };
 
@@ -1926,11 +1930,7 @@ export function TagGraphView({
                 const labelWidth = Math.max(88, halo.anchorName.length * 7.4 + 24);
 
                 return (
-                  <g
-                    key={`halo-${halo.anchorId}`}
-                    data-cluster-halo={halo.anchorName}
-                    opacity={dimmed ? 0.18 : 1}
-                  >
+                  <g key={`halo-${halo.anchorId}`} data-cluster-halo={halo.anchorName} opacity={dimmed ? 0.18 : 1}>
                     <circle
                       cx={halo.x}
                       cy={halo.y}
