@@ -1,5 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
 import { Download, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { extensions } from "../api/client";
 import { useKeyboardShortcuts } from "../keyboard/KeyboardShortcutProvider";
 import { normalizeShortcutEvent, normalizeShortcutSequence } from "../keyboard/keybindings";
 
@@ -37,32 +39,85 @@ export function KeyboardShortcutSettings() {
     existing: string[];
     strokes: string[];
   } | null>(null);
+  const [activeShortcutTabId, setActiveShortcutTabId] = useState("cove");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activePreset = presets.find((preset) => preset.id === activePresetId);
   const effectivePreset = presets.find((preset) => preset.id === effectivePresetId);
   const editable = activePreset?.provenance?.source === "personal" || activePreset?.provenance?.source === "import";
+  const { data: extensionInfos = [] } = useQuery({
+    queryKey: ["extensions-list"],
+    queryFn: () => extensions.list(),
+  });
 
-  const groups = useMemo(() => {
+  const shortcutTabs = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return Array.from(
-      actions
-        .reduce((result, action) => {
-          if (
-            normalizedQuery &&
-            !`${action.label} ${action.description ?? ""} ${action.id} ${action.group}`
+    const extensionNames = new Map(extensionInfos.map((extension) => [extension.id, extension.name]));
+    const tabs = new Map<string, { id: string; label: string; extensionId?: string; actions: typeof actions }>();
+    tabs.set("cove", {
+      id: "cove",
+      label: "Cove",
+      actions: actions.filter((action) => action.source !== "extension"),
+    });
+    for (const action of actions) {
+      if (action.source !== "extension") continue;
+      const extensionId = action.extensionId ?? "unknown-extension";
+      const tabId = `extension:${extensionId}`;
+      const tab = tabs.get(tabId) ?? {
+        id: tabId,
+        label: extensionNames.get(extensionId) ?? extensionId,
+        extensionId,
+        actions: [],
+      };
+      tab.actions.push(action);
+      tabs.set(tabId, tab);
+    }
+
+    const tabEntries = Array.from(tabs.values());
+    const labelCounts = tabEntries.reduce((counts, tab) => {
+      const label = tab.label.toLocaleLowerCase();
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>());
+
+    return tabEntries
+      .map((tab) => {
+        const matchingActions = tab.actions.filter(
+          (action) =>
+            !normalizedQuery ||
+            `${action.label} ${action.description ?? ""} ${action.id} ${action.group}`
               .toLowerCase()
-              .includes(normalizedQuery)
-          ) {
-            return result;
-          }
-          const entries = result.get(action.group) ?? [];
-          entries.push(action);
-          result.set(action.group, entries);
-          return result;
-        }, new Map<string, typeof actions>())
-        .entries(),
-    );
-  }, [actions, query]);
+              .includes(normalizedQuery),
+        );
+        return {
+          ...tab,
+          label:
+            tab.extensionId && (labelCounts.get(tab.label.toLocaleLowerCase()) ?? 0) > 1
+              ? `${tab.label} (${tab.extensionId})`
+              : tab.label,
+          matchCount: matchingActions.length,
+          groups: Array.from(
+            matchingActions
+              .reduce((result, action) => {
+                const entries = result.get(action.group) ?? [];
+                entries.push(action);
+                result.set(action.group, entries);
+                return result;
+              }, new Map<string, typeof actions>())
+              .entries(),
+          ),
+        };
+      })
+      .sort((left, right) => {
+        if (left.id === "cove") return -1;
+        if (right.id === "cove") return 1;
+        return left.label.localeCompare(right.label);
+      });
+  }, [actions, extensionInfos, query]);
+  const activeShortcutTab = shortcutTabs.find((tab) => tab.id === activeShortcutTabId) ?? shortcutTabs[0];
+
+  useEffect(() => {
+    if (!shortcutTabs.some((tab) => tab.id === activeShortcutTabId)) setActiveShortcutTabId("cove");
+  }, [activeShortcutTabId, shortcutTabs]);
 
   const updateBindings = (actionId: string, bindings: string[]) => {
     if (!activePreset || !editable) return;
@@ -211,78 +266,143 @@ export function KeyboardShortcutSettings() {
         />
       </label>
 
-      {groups.map(([group, definitions]) => (
-        <section key={group} className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{group}</h3>
-          <div className="grid gap-3 md:grid-cols-2">
-            {definitions.map((definition) => {
-              const bindings = effectiveBindings[definition.id] ?? [];
-              return (
-                <div key={definition.id} className="rounded-xl border border-border bg-card p-3">
-                  <div className="text-sm font-medium text-foreground">{definition.label}</div>
-                  <div className="mt-1 text-xs text-muted">{definition.id}</div>
-                  <div className="mt-3 space-y-2">
-                    {bindings.map((binding, index) => (
-                      <div key={`${definition.id}:${index}`} className="flex gap-2">
-                        <input
-                          value={binding}
-                          readOnly={!editable}
-                          onChange={(event) =>
-                            updateBindings(
-                              definition.id,
-                              bindings.map((value, bindingIndex) =>
-                                bindingIndex === index ? event.target.value : value,
-                              ),
-                            )
-                          }
-                          className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-foreground read-only:text-muted focus:border-accent focus:outline-none"
-                          aria-label={`${definition.label} binding ${index + 1}`}
-                        />
-                        {editable && (
+      <div
+        className="flex gap-1 overflow-x-auto border-b border-border"
+        role="tablist"
+        aria-label="Shortcut source"
+        aria-orientation="horizontal"
+      >
+        {shortcutTabs.map((tab, index) => {
+          const selected = tab.id === activeShortcutTab.id;
+          return (
+            <button
+              key={tab.id}
+              id={`keyboard-shortcut-tab-${index}`}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              aria-label={
+                query.trim()
+                  ? `${tab.label}, ${tab.matchCount} ${tab.matchCount === 1 ? "match" : "matches"}`
+                  : tab.label
+              }
+              aria-controls={`keyboard-shortcut-panel-${index}`}
+              tabIndex={selected ? 0 : -1}
+              title={tab.extensionId}
+              onClick={() => setActiveShortcutTabId(tab.id)}
+              onKeyDown={(event) => {
+                let nextIndex = index;
+                if (event.key === "ArrowRight") nextIndex = (index + 1) % shortcutTabs.length;
+                else if (event.key === "ArrowLeft") nextIndex = (index - 1 + shortcutTabs.length) % shortcutTabs.length;
+                else if (event.key === "Home") nextIndex = 0;
+                else if (event.key === "End") nextIndex = shortcutTabs.length - 1;
+                else return;
+                event.preventDefault();
+                setActiveShortcutTabId(shortcutTabs[nextIndex].id);
+                requestAnimationFrame(() => document.getElementById(`keyboard-shortcut-tab-${nextIndex}`)?.focus());
+              }}
+              className={`shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+                selected
+                  ? "border-accent text-foreground"
+                  : "border-transparent text-muted hover:border-border hover:text-secondary"
+              }`}
+            >
+              {tab.label}
+              {query.trim() && (
+                <span className="ml-1.5 text-xs text-muted" aria-hidden="true">
+                  {tab.matchCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <section
+        id={`keyboard-shortcut-panel-${shortcutTabs.indexOf(activeShortcutTab)}`}
+        role="tabpanel"
+        aria-labelledby={`keyboard-shortcut-tab-${shortcutTabs.indexOf(activeShortcutTab)}`}
+        className="space-y-5"
+      >
+        {activeShortcutTab.groups.length > 0 ? (
+          activeShortcutTab.groups.map(([group, definitions]) => (
+            <div key={group} className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{group}</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                {definitions.map((definition) => {
+                  const bindings = effectiveBindings[definition.id] ?? [];
+                  return (
+                    <div key={definition.id} className="rounded-xl border border-border bg-card p-3">
+                      <div className="text-sm font-medium text-foreground">{definition.label}</div>
+                      <div className="mt-1 text-xs text-muted">{definition.id}</div>
+                      <div className="mt-3 space-y-2">
+                        {bindings.map((binding, index) => (
+                          <div key={`${definition.id}:${index}`} className="flex gap-2">
+                            <input
+                              value={binding}
+                              readOnly={!editable}
+                              onChange={(event) =>
+                                updateBindings(
+                                  definition.id,
+                                  bindings.map((value, bindingIndex) =>
+                                    bindingIndex === index ? event.target.value : value,
+                                  ),
+                                )
+                              }
+                              className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-foreground read-only:text-muted focus:border-accent focus:outline-none"
+                              aria-label={`${definition.label} binding ${index + 1}`}
+                            />
+                            {editable && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateBindings(
+                                    definition.id,
+                                    bindings.filter((_, bindingIndex) => bindingIndex !== index),
+                                  )
+                                }
+                                className="rounded-lg border border-border p-2 text-muted hover:border-red-500/50 hover:text-red-300"
+                                aria-label={`Remove ${binding}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {bindings.length === 0 && (
+                          <div className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted">
+                            Unbound
+                          </div>
+                        )}
+                        {editable && bindings.length < 8 && (
                           <button
                             type="button"
                             onClick={() =>
-                              updateBindings(
-                                definition.id,
-                                bindings.filter((_, bindingIndex) => bindingIndex !== index),
-                              )
+                              setRecording({
+                                actionId: definition.id,
+                                label: definition.label,
+                                existing: bindings,
+                                strokes: [],
+                              })
                             }
-                            className="rounded-lg border border-border p-2 text-muted hover:border-red-500/50 hover:text-red-300"
-                            aria-label={`Remove ${binding}`}
+                            className="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-hover"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Plus className="h-3.5 w-3.5" /> Add binding
                           </button>
                         )}
                       </div>
-                    ))}
-                    {bindings.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted">
-                        Unbound
-                      </div>
-                    )}
-                    {editable && bindings.length < 8 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRecording({
-                            actionId: definition.id,
-                            label: definition.label,
-                            existing: bindings,
-                            strokes: [],
-                          })
-                        }
-                        className="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-hover"
-                      >
-                        <Plus className="h-3.5 w-3.5" /> Add binding
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted">
+            No shortcuts in {activeShortcutTab.label} match your search.
           </div>
-        </section>
-      ))}
+        )}
+      </section>
 
       {recording && (
         <div
