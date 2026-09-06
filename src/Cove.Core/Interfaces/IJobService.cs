@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Globalization;
 using Cove.Core.Auth;
 using Cove.Core.DTOs;
@@ -299,6 +300,11 @@ public interface IScanService
 public interface ICleanService
 {
     string StartClean(bool dryRun = false, IReadOnlyList<string>? paths = null);
+
+    // Binary-compatibility shim for extensions compiled against Cove 1.3 and earlier, before
+    // `paths` was appended. See the note on IVideoRepository.FindAsync.
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    string StartClean(bool dryRun) => StartClean(dryRun, null);
 }
 
 public interface IBackupService

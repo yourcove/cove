@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cove.Core.Entities;
@@ -18,6 +19,18 @@ public interface IVideoRepository : IRepository<Video>
 {
     Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null);
     Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<VideoFilter>? expression = null);
+
+    // Binary-compatibility shims for extensions compiled against Cove 1.3 and earlier, before
+    // `expression` was appended to the signatures above. Optional parameters are resolved at the
+    // call site, so those extensions carry a hard reference to the three-argument arity and fail
+    // with MissingMethodException without these. New code should call the overloads above.
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    Task<(IReadOnlyList<Video> Items, int TotalCount)> FindAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct)
+        => FindAsync(filter, findFilter, ct, null);
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    Task<VideoAggregate> AggregateAsync(VideoFilter? filter, FindFilter? findFilter, CancellationToken ct)
+        => AggregateAsync(filter, findFilter, ct, null);
+
     Task<Video?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
     /// <summary>Returns VideoPerformer join rows (with Performer.RemoteIds included) for the given video IDs.</summary>
     Task<IReadOnlyList<VideoPerformer>> GetVideoPerformersAsync(IReadOnlyList<int> videoIds, CancellationToken ct = default);
@@ -28,6 +41,13 @@ public sealed record VideoAggregate(int Count, double Duration, long FileSize);
 public interface IPerformerRepository : IRepository<Performer>
 {
     Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct = default, FilterExpression<PerformerFilter>? expression = null);
+
+    // Binary-compatibility shim for extensions compiled against Cove 1.3 and earlier, before
+    // `expression` was appended. See the note on IVideoRepository.FindAsync.
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    Task<(IReadOnlyList<Performer> Items, int TotalCount)> FindAsync(PerformerFilter? filter, FindFilter? findFilter, CancellationToken ct)
+        => FindAsync(filter, findFilter, ct, null);
+
     Task<Performer?> GetByIdWithRelationsAsync(int id, CancellationToken ct = default);
 
     /// <summary>
