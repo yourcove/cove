@@ -234,6 +234,23 @@ describe("HomePage dashboards", () => {
     ]);
   });
 
+  it("gives legacy saved-filter widgets an identifying fallback label", async () => {
+    state.legacyContent = JSON.stringify([{ type: "continueWatching" }, { type: "saved", savedFilterId: 42 }]);
+
+    renderHome();
+
+    await waitFor(() => expect(mocks.bootstrap).toHaveBeenCalledOnce());
+    expect(mocks.bootstrap).toHaveBeenCalledWith([
+      expect.objectContaining({ widgetKey: "continue-watching" }),
+      expect.objectContaining({
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Saved filter #42",
+        configuration: { source: "saved", savedFilterId: 42 },
+      }),
+    ]);
+  });
+
   it("switches non-default dashboards through their stable URL", async () => {
     state.dashboards = [summary(1, "Home", true), summary(2, "Research")];
     const { onNavigate } = renderHome();
@@ -419,8 +436,8 @@ describe("HomePage dashboards", () => {
 
     renderHome();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Saved filter could not be loaded");
-    fireEvent.click(screen.getByRole("button", { name: "Retry Saved filter" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Saved filter #5 could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry Saved filter #5" }));
 
     await waitFor(() => expect(mocks.savedFilterGet).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mocks.videosFind).toHaveBeenCalledOnce());
@@ -446,6 +463,89 @@ describe("HomePage dashboards", () => {
     fireEvent.click(screen.getByRole("button", { name: /Remove/ }));
     expect(screen.queryByRole("heading", { name: "Warnings" })).not.toBeInTheDocument();
     expect(screen.queryByText("No matching entities.")).not.toBeInTheDocument();
+  });
+
+  it("removes a deleted saved filter widget without exposing the API response", async () => {
+    mocks.savedFilterGet.mockRejectedValueOnce(
+      new Error(
+        'API Error 404: {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.5","title":"Not Found","status":404}',
+      ),
+    );
+    state.active = dashboard(1, "Home", true, [
+      {
+        instanceId: "saved",
+        owner: "cove.core",
+        widgetKey: "collection",
+        label: "Review queue",
+        configuration: { source: "saved", savedFilterId: 5 },
+      },
+    ]);
+    mocks.update.mockImplementationOnce(
+      async (_id: number, request: { name: string; widgets: NonNullable<typeof state.active>["widgets"] }) => {
+        state.active = { ...state.active!, name: request.name, version: 2, widgets: request.widgets };
+        return state.active;
+      },
+    );
+
+    renderHome();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Review queue is unavailable");
+    expect(alert).toHaveTextContent("The saved filter was deleted.");
+    expect(alert).not.toHaveTextContent("API Error");
+    expect(screen.queryByRole("button", { name: "Retry Review queue" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Review queue" }));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith(1, {
+        name: "Home",
+        expectedVersion: 1,
+        widgets: [],
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove Review queue" })).not.toBeInTheDocument());
+  });
+
+  it("preserves concurrent dashboard changes when removing a deleted saved filter widget", async () => {
+    mocks.savedFilterGet.mockRejectedValue(new Error("API Error 404: Not Found"));
+    const missingWidget = {
+      instanceId: "saved",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Review queue",
+      configuration: { source: "saved", savedFilterId: 5 },
+    };
+    const concurrentWidget = {
+      instanceId: "concurrent",
+      owner: "cove.core",
+      widgetKey: "collection",
+      label: "Recently Added Videos",
+      configuration: { source: "premade", mode: "videos", sortBy: "date", direction: "desc" },
+    };
+    state.active = dashboard(1, "Home", true, [missingWidget]);
+    mocks.update
+      .mockImplementationOnce(async () => {
+        state.active = { ...dashboard(1, "Renamed elsewhere", true, [missingWidget, concurrentWidget]), version: 2 };
+        throw new Error("API Error 409: DASHBOARD_VERSION_CONFLICT");
+      })
+      .mockImplementationOnce(
+        async (_id: number, request: { name: string; widgets: NonNullable<typeof state.active>["widgets"] }) => {
+          state.active = { ...state.active!, name: request.name, version: 3, widgets: request.widgets };
+          return state.active;
+        },
+      );
+
+    renderHome();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Review queue" }));
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(2));
+    expect(mocks.update).toHaveBeenLastCalledWith(1, {
+      name: "Renamed elsewhere",
+      expectedVersion: 2,
+      widgets: [concurrentWidget],
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove Review queue" })).not.toBeInTheDocument());
   });
 
   it("shows and retries a saved-filter item-query failure", async () => {
@@ -761,6 +861,52 @@ describe("HomePage dashboards", () => {
     expect(screen.getByRole("button", { name: /Saved text/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Saved spans/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Saved raw segments/ })).toBeInTheDocument();
+  });
+
+  it("persists a saved filter's name as its widget label", async () => {
+    state.savedFilters = [
+      { id: 5, name: "Review queue", mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+    ];
+    renderHome();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Review queue/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalled());
+    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(
+      expect.objectContaining({
+        widgets: [
+          expect.objectContaining({
+            label: "Review queue",
+            configuration: { source: "saved", savedFilterId: 5 },
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("caps a saved filter widget label at the dashboard API limit", async () => {
+    const longName = `${"Long saved filter ".repeat(12)}Long saved filter`;
+    const expectedLabel = `${longName.slice(0, 196).trimEnd()}… #5`;
+    state.savedFilters = [
+      { id: 5, name: longName, mode: "videos", findFilter: "{}", objectFilter: "{}", uiOptions: "{}" },
+    ];
+    renderHome();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Customize/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add Widget/ }));
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${longName}`) }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalled());
+    expect(mocks.update.mock.calls.at(-1)?.[1]).toEqual(
+      expect.objectContaining({
+        widgets: [expect.objectContaining({ label: expectedLabel })],
+      }),
+    );
+    expect(expectedLabel).toHaveLength(200);
   });
 
   it("searches a large catalog while keeping widget sources clearly grouped", async () => {
