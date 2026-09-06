@@ -1,0 +1,49 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "content-performers",
+  "title": "Browse performers",
+  "parentTopicId": "explore-your-library",
+  "description": "Use performer pages to explore appearances, relationships, ratings, and related people.",
+  "order": 32,
+  "pages": ["performers", "performer"],
+  "sections": [
+    {
+      "id": "performer-page",
+      "title": "See a person's library relationships",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A performer page collects the media and groups associated with one person. Summary counts show which content exists before you switch tabs. Ratings, descriptive fields, tags, and the biography help distinguish people with similar names."
+        },
+        {
+          "type": "image",
+          "src": "assets/performer-page.webp",
+          "alt": "Performer detail page with content tabs, Appears With, and Similar controls identified"
+        }
+      ]
+    },
+    {
+      "id": "related-performers",
+      "title": "Move from one performer to another",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Content tabs divide appearances by media type and show a count for each.",
+            "Appears With lists people who share library items with this performer.",
+            "Similar suggests other performers based on Cove's available similarity data.",
+            "Edit updates identity, descriptive metadata, images, tags, and other fields when your role permits it."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Organizing your library", "href": "/docs/user/library/organizing/", "topicId": "organizing" },
+            { "label": "Metadata provenance", "href": "/docs/user/metadata/provenance/", "topicId": "metadata-provenance" }
+          ]
+        }
+      ]
+    }
+  ]
+}

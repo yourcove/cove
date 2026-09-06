@@ -1,0 +1,51 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "media-type-galleries",
+  "title": "Galleries",
+  "parentTopicId": "media-types",
+  "description": "Give a related image set its own browsable collection, metadata, and place in the library.",
+  "order": 23,
+  "pages": ["galleries"],
+  "sections": [
+    {
+      "id": "collection-boundary",
+      "title": "Give an image set a collection identity",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A gallery presents related images as one browsable library item. It owns its title and shared metadata; it is not merely the directory that contains image files. The images remain their own records inside that collection."
+        },
+        {
+          "type": "image",
+          "src": "assets/galleries-view.webp",
+          "alt": "Cove gallery detail page showing its images together in a grid"
+        }
+      ]
+    },
+    {
+      "id": "browse-gallery-images",
+      "title": "Browse the set without losing context",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open a gallery's Images tab to see the complete set as a grid. Open any image in the viewer and continue through the gallery from there. Use gallery metadata for facts about the set and image metadata for facts about one still."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Galleries reference",
+              "href": "/docs/reference/galleries/"
+            },
+            {
+              "label": "Images",
+              "href": "/docs/user/library/media-types/images/",
+              "topicId": "media-type-images"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

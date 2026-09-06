@@ -1,48 +1,10 @@
 ---
 title: Users, roles, and permissions
-description: Multi-user access, roles, permissions, content rules, and share links for sharing a Cove library within your network.
+description: Give each person deliberate access with separate accounts, reusable roles, content rules, and scoped share links.
+tableOfContents: false
 ---
 
-import DocsScreenshot from '../../../../../components/DocsScreenshot.astro';
+import FeatureGuide from '../../../../../components/guides/FeatureGuide.astro';
+import guide from '../../../../../../../docs/feature-guides/users-roles-permissions.json';
 
-Cove is built to support more than one person using the same library. That means access needs to be deliberate instead of collapsing into one shared login with full control over everything.
-
-## The access model
-
-Start with a separate [user](../../../reference/users/) for each person or integration identity. [Role assignments](../../../reference/role-assignments/) connect those users to reusable [roles](../../../reference/roles/), while [content rules](../../../reference/content-rules/) narrow or grant record-level read access. Use [share links](../../../reference/share-links/) and [API tokens](../../../reference/api-tokens/) for their narrower access patterns rather than as substitutes for account design.
-
-## A practical setup order
-
-1. Keep the owner account protected and use it sparingly.
-2. Create separate user accounts for real people.
-3. Define roles around actual responsibilities.
-4. Add content rules when access to content should differ between people.
-5. Use share links for narrow access within your network instead of broad logins.
-
-<DocsScreenshot
-  src="images/docs/thumbnails/role-permissions.webp"
-  alt="New role form showing role, saved-filter, segment, and streaming permission choices"
-  width={850}
-  height={590}
-/>
-
-## Roles versus content rules
-
-Roles grant reusable action permissions. Content rules make access depend on the record: read rules can grant a matching slice, while write and delete rules can only narrow authority already supplied by a role. See [Content rules](../../../reference/content-rules/) for the complete decision order before designing overlapping rules.
-
-## Share links
-
-[Share links](../../../reference/share-links/) are useful when you want to expose specific content without turning a temporary need into a full new account. They are a better fit when:
-
-- the access is narrow
-- the access is time-limited
-- the person does not need normal library navigation
-
-## Internet exposure
-
-If you expose Cove outside your local network, treat it like any self-hosted application that can access private media:
-
-- put it behind your own reverse proxy and TLS
-- avoid exposing administrator accounts directly
-- review roles and share links carefully
-- assume the security model is only as strong as the way you publish the service
+<FeatureGuide guide={guide} />

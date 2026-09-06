@@ -30,6 +30,7 @@ import {
   buildRoutePath,
   buildRouteUrl,
   navigateToUrl,
+  resolveContextualDetailRoute,
   parseCurrentRoute,
   parseLegacyHashRoute,
   readStoredRoute,
@@ -193,15 +194,16 @@ export default function App() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
+    const nextRoute = resolveContextualDetailRoute(r);
     const currentUrl = buildCurrentUrl(window.location.pathname, window.location.search);
-    const nextUrl = buildRouteUrl(r);
+    const nextUrl = buildRouteUrl(nextRoute);
     if (currentUrl === nextUrl) {
       window.dispatchEvent(new CustomEvent("cove-page-reset", { detail: r.page }));
     } else {
       // Store the full route (including non-URL-serializable fields) in history.state
       // so the location change handler can recover it without URL round-tripping.
-      if (!navigateToUrl(nextUrl, { state: r })) return;
-      setRoute(r);
+      if (!navigateToUrl(nextUrl, { state: nextRoute })) return;
+      setRoute(nextRoute);
       // Forward navigation to a different page should start at the top. Without this the
       // window keeps the previous page's scroll offset (e.g. a deep scroll position in the
       // faces list), so a shorter detail page opens scrolled to its bottom. Back/forward
@@ -545,6 +547,9 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
               state: { page: "manual", manualTopicId: topicId, manualSlideId: slideId },
             });
           }
+        }}
+        onAppNavigate={(href) => {
+          if (navigateToUrl(href)) setTutorialOpen(false);
         }}
       />
       <KeyboardShortcutsDialog open={shortcutDialogOpen} onClose={() => setShortcutDialogOpen(false)} />

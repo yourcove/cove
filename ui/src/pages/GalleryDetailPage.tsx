@@ -69,7 +69,7 @@ import { useDetailTabUrlState, useRelatedDetailListUrlState } from "../hooks/use
 import { usePaginatedImageLightbox } from "../hooks/usePaginatedImageLightbox";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
 import { useAppConfig } from "../state/AppConfigContext";
-import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 interface Props {
   id: number;
@@ -88,7 +88,9 @@ const GALLERY_VIDEOS_DEFAULT_FILTER_KEY = "gallery-videos";
 export function GalleryDetailPage({ id, onNavigate }: Props) {
   const { config } = useAppConfig();
   const { hasPermission, user } = useAuth();
-  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("images");
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>(
+    getFirstDetailTabByMenuItems(["images", "videos", "fileinfo"], config?.interface?.menuItems) ?? "images",
+  );
   const {
     filter: imageFilter,
     setFilter: setImageFilter,

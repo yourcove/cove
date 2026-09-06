@@ -114,7 +114,7 @@ import { CountryLabel } from "../components/Country";
 import { sortSeededRandom } from "../utils/seededRandomSort";
 import { PerformerExternalLinks } from "../components/PerformerExternalLinks";
 import { getPerformerAge, getUtcToday, hasDeathOccurred } from "../utils/performerAge";
-import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 interface Props {
   id: number;
@@ -156,7 +156,12 @@ export function PerformerDetailPage({ id, onNavigate }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [scrapeOpen, setScrapeOpen] = useState(false);
-  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>(
+    getFirstDetailTabByMenuItems(
+      ["videos", "galleries", "images", "audios", "texts", "groups", "faces", "appearsWith", "similar"],
+      config?.interface?.menuItems,
+    ) ?? "videos",
+  );
   const {
     allTabs: performerTabs,
     renderExtensionTab,

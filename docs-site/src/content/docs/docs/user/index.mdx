@@ -2,30 +2,10 @@
 title: User Guide
 description: Guides for browsing, organizing, searching, managing metadata and access, and operating Cove.
 prev: false
+tableOfContents: false
 ---
 
-The User Guide covers day-to-day work after Cove is running: browsing and playing media, finding things quickly, organizing content, managing metadata workflows, controlling access, and keeping the installation healthy.
+import FeatureGuide from "../../../../components/guides/FeatureGuide.astro";
+import guide from "../../../../../../docs/feature-guides/user-guide.json";
 
-For a new installation, begin with [Get Started](../get-started/) instead. It connects the supported installation paths, shared first-run setup, first scan, and introductory library tutorials.
-
-## Browse and play
-
-- [Media types](./library/media-types/)
-
-## Organize and find things
-
-- [Organize your library](./library/organizing/)
-- [Dynamic groups](./library/dynamic-groups/)
-- [Segments and compilations](./library/segments-and-compilations/)
-- [Search and filters](./library/search-and-filters/)
-
-## Manage metadata and access
-
-- [Metadata provenance](./metadata/provenance/)
-- [Providers, scrapers, and downloaders](./metadata/providers-scrapers-downloaders/)
-- [Users, roles, and permissions](./security/users-roles-permissions/)
-
-## Operate Cove
-
-- [Backups, migrations, and upgrades](./admin/backups-migrations-upgrades/)
-- [Troubleshooting](./troubleshooting/)
+<FeatureGuide guide={guide} />

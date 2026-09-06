@@ -123,6 +123,9 @@ export default defineConfig(({ command }) => {
     server: {
       host: "127.0.0.1",
       port: 5173,
+      fs: {
+        allow: [import.meta.dirname, path.resolve(import.meta.dirname, "../docs/feature-guides")],
+      },
       proxy: {
         "/api": {
           target: "http://localhost:5073",

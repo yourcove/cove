@@ -315,6 +315,18 @@ test('production crawler URLs preserve a GitHub Pages repository base', async ()
     }
     assert.ok(contentLocations.includes(`${siteUrl}/`));
     assert.ok(contentLocations.includes(`${siteUrl}/docs/`));
+
+    const { document: userGuide } = await readPage(outputDirectory, '/docs/user/');
+    const sharedGuideLinks = findElements(userGuide, 'a', { 'data-feature-guide-link': '' });
+    assert.ok(sharedGuideLinks.length > 0, 'User Guide must render links from shared guide content');
+    for (const link of sharedGuideLinks) {
+      const href = getAttribute(link, 'href');
+      if (href?.startsWith('http')) continue;
+      assert.ok(
+        href?.startsWith('/repository/docs/'),
+        `Shared User Guide link ${href} must preserve the repository base`,
+      );
+    }
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }

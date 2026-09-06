@@ -1,0 +1,192 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "search-and-filters",
+  "title": "Search and filters",
+  "description": "Use Cove search, filters, saved views, and browsing controls to move through a large media library quickly.",
+  "order": 41,
+  "pages": ["search"],
+  "sections": [
+    {
+      "id": "what-to-use-first",
+      "title": "What to use first",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove's list pages use the same controls across content types, so you can narrow a large library without relearning each page. Most of the time, start in this order:"
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Choose the content page you want.",
+            "Use search to narrow by the thing you remember.",
+            "Apply filters when the result is still too broad.",
+            "Save the view if you know you will come back to it."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "what-search-is-for",
+      "title": "What search is for",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Search is best when you already know something concrete, such as part of a title, performer, tag, studio, group, or other meaningful metadata. It finds likely candidates quickly."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Search within a content page"
+        },
+        {
+          "type": "paragraph",
+          "text": "The search field on a content page is scoped to that content type. It can match titles, descriptions, tags and their aliases, performers and their aliases, and studios."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Search across everything"
+        },
+        {
+          "type": "paragraph",
+          "text": "Use global search when you are not sure where something lives. Results are grouped by content type so you can jump directly to an item without browsing each page first."
+        }
+      ]
+    },
+    {
+      "id": "what-filters-are-for",
+      "title": "What filters are for",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Filters deliberately shape a result set: for example, one orientation, items missing metadata, a specific rating or state, or a recurring review workflow. They turn 'somewhere in the library' into the exact slice you want now."
+        },
+        {
+          "type": "image",
+          "src": "assets/search-and-filters.png",
+          "alt": "Filter editor with searchable video criteria and an empty configuration area",
+          "caption": "Search the available criteria, choose one to configure it, and apply the completed filter to the current content page."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Remote ID filters"
+        },
+        {
+          "type": "paragraph",
+          "text": "Videos, performers, studios, and tags provide a Remote ID filter. Enter the external identifier and optionally select a configured metadata service. Any metadata service searches identifiers across every endpoint. Cove stores the endpoint separately, so a saved filter that refers to a removed service keeps that endpoint as an unconfigured selection until you choose another service."
+        },
+        {
+          "type": "paragraph",
+          "text": "Equals, Includes, and Regex compare identifier values without regard to letter case. Their inverse operators also include records with no matching remote ID. With Any metadata service, Is Null and Not Null check whether a record has any remote ID; with a selected service, they are scoped to that service. Remote ID Count always checks the total number of remote IDs."
+        }
+      ]
+    },
+    {
+      "id": "go-further",
+      "title": "Go further with filters",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Most searches need only a few ordinary conditions. When the relationship between those conditions matters, use Combine Filters. When you will use the same result set again, save it as a named filter or make it the page default."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Use saved filters",
+              "href": "/docs/user/library/search-and-filters/saved/",
+              "topicId": "saved-filters"
+            },
+            {
+              "label": "Combine filters",
+              "href": "/docs/user/library/search-and-filters/combine/",
+              "topicId": "combine-filters"
+            },
+            {
+              "label": "Filter by related performers",
+              "href": "/docs/user/library/search-and-filters/related-performers/",
+              "topicId": "related-performers"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "view-modes-and-page-size",
+      "title": "View modes and page size",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Search and filters work alongside sort order, view mode, page size, and feed or vertical-style browsing. A useful result set is not only about what it includes, but also how you plan to move through it next."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "How list pages work",
+              "href": "/docs/tutorial/explore-your-library/",
+              "topicId": "list-pages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recipes",
+      "title": "Recipes",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Sorting changes the order of the current result set without changing which records it contains. These examples start simple and then add a stable tie-breaker."
+        },
+        {
+          "type": "recipes",
+          "items": [
+            {
+              "id": "sort-by-one-field",
+              "title": "Sort by one field",
+              "description": "Order a video list by title.",
+              "blocks": [
+                {
+                  "type": "steps",
+                  "items": [
+                    "Open Videos and find the Primary sort control above the results.",
+                    "Choose Title.",
+                    "Use the adjacent direction button to switch between ascending and descending order."
+                  ]
+                },
+                {
+                  "type": "note",
+                  "text": "The arrow shows the active direction. Ascending Title order starts at the beginning of the alphabet; descending order reverses it."
+                }
+              ]
+            },
+            {
+              "id": "sort-by-multiple-fields",
+              "title": "Sort by multiple fields",
+              "description": "Group videos by studio, then order each studio's videos by date.",
+              "blocks": [
+                {
+                  "type": "steps",
+                  "items": [
+                    "Open Videos and choose Studio as the Primary sort.",
+                    "Choose Add another sort to open Sort order.",
+                    "Choose Add sort, then set the new field to Date and its direction to descending.",
+                    "Keep Studio first and Date second. Use the move controls if you need to change their priority.",
+                    "Close Sort order. The compact control summarizes the active fields in priority order."
+                  ]
+                },
+                {
+                  "type": "note",
+                  "text": "Earlier fields take priority. Here Cove groups records by studio first, then shows the newest video first within each studio."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

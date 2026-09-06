@@ -65,6 +65,9 @@ jobs:
                 frontend=true
                 cli=true
                 ;;
+              docs/feature-guides/*)
+                frontend=true
+                ;;
               docs/*|docs-site/*|.github/workflows/docs-site.yml|*.md)
                 # Documentation does not affect app CI; docs-site has its own workflow.
                 ;;

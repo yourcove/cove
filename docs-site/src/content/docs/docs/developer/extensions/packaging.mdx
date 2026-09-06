@@ -66,7 +66,7 @@ JSON property matching is case-insensitive, but use the camel-case names shown h
 | `dependencies` | `{}` | Map of extension id to one supported semantic-version range: exact, `=`, `>`, `>=`, `<`, or `<=` followed by a version. Cove uses it for dependency validation and initialization order. |
 | `externalDependencies` | `[]` | User-visible tools, runtimes, services, executables, environment variables, or configuration requirements. These describe requirements; the extension remains responsible for probing what it uses. |
 | `settings` | `[]` | Generic settings shown in the Extensions settings UI. Each item names the setting and type and can include a display name, description, and applicable extension ids. |
-| `tutorialTopics` | `[]` | In-app Cove Manual topics contributed by this package. |
+| `tutorialTopics` | `[]` | In-app Cove User Guide topics contributed by this package. |
 | `entryDll` | Auto-discover root DLLs | DLL containing an `IExtension` implementation. Set it for compiled packages so Cove loads one intentional entry assembly instead of inspecting every root DLL. |
 | `sharedAssemblies` | `[]` | Assembly **simple names**, without `.dll`, that multiple extensions must load as one shared type identity. Use only for a deliberately shared cross-extension contract. |
 | `jsBundle` | Optional | Relative path to the frontend ESM bundle for a loaded `IUIExtension`. |

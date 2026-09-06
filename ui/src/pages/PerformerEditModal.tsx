@@ -23,8 +23,8 @@ interface Props {
 export const GENDER_OPTIONS = [
   { value: "Male", label: "Male" },
   { value: "Female", label: "Female" },
-  { value: "TransMale", label: "Trans Male" },
-  { value: "TransFemale", label: "Trans Female" },
+  { value: "TransgenderMale", label: "Trans Male" },
+  { value: "TransgenderFemale", label: "Trans Female" },
   { value: "Intersex", label: "Intersex" },
   { value: "NonBinary", label: "Non-Binary" },
 ];

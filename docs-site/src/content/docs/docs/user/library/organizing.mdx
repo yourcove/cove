@@ -1,60 +1,9 @@
 ---
 title: Organizing your library
-description: Tags, tag groups, performers, studios, groups, and day-to-day organization in Cove.
+description: Use tags, tag groups, performers, studios, groups, and saved views to make a growing Cove library easier to revisit.
 ---
 
-Cove is built for libraries that become more structured over time. The right goal is not “classify everything perfectly immediately.” The right goal is to make the library easier to find, review, browse, and share every time you come back.
+import FeatureGuide from "../../../../../components/guides/FeatureGuide.astro";
+import guide from "../../../../../../../docs/feature-guides/organizing.json";
 
-## The main building blocks
-
-Start with the record that owns the content, then add only the relationships that improve retrieval:
-
-- [performers](../../../reference/performers/) and [studios](../../../reference/studios/) for identities reused across items
-- [tags](../../../reference/tags/) for overlapping classification
-- tag groups for keeping a larger tag vocabulary divided into understandable categories
-- [groups](../../../reference/groups/) for a collection with its own identity or order
-- [saved filters](../../../reference/saved-filters/) for a view you want to revisit
-- [dynamic groups](../../../reference/dynamic-groups/) when a library collection should resolve from a query
-
-## A practical organization loop
-
-1. Scan or import media into Cove.
-2. Add the broad metadata that helps you find it later.
-3. Create the views you return to often with saved filters or dynamic groups.
-4. Add more specific structure only where it pays off.
-5. Review provenance when automated workflows changed something important.
-
-That last step matters. A useful library is not only organized. It is understandable.
-
-## Tags versus groups
-
-Use tags when:
-
-- the label applies to many unrelated items
-- you want the label to be searchable and reusable
-- you want many overlapping labels on the same item
-
-Use groups when:
-
-- you are curating a collection intentionally
-- order or membership matters
-- you want a collection that behaves more like a chosen set than a shared label
-
-Use dynamic groups when:
-
-- the collection should update itself
-- the result comes from a rule, filter, or activity pattern
-
-See [Groups](../../../reference/groups/), [dynamic groups](../../../reference/dynamic-groups/), and [saved filters](../../../reference/saved-filters/) for their record and lifecycle boundaries.
-
-## When to go deeper
-
-The library usually benefits most from deeper structure in a few places:
-
-- high-value tags that you search often
-- performer identity cleanup
-- studio normalization
-- recurring watch or review queues
-- groups you revisit often
-
-Once those are stable, you can add more advanced workflows such as contextual tagging, segments, sub-videos, and compilations where they actually help.
+<FeatureGuide guide={guide} />

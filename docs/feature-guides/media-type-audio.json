@@ -1,0 +1,46 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "media-type-audio",
+  "title": "Audio",
+  "parentTopicId": "media-types",
+  "description": "Play sound-first media, organize tracks and timeline ranges, and connect audio to the rest of the library.",
+  "order": 24,
+  "pages": ["audios"],
+  "sections": [
+    {
+      "id": "play-and-organize-audio",
+      "title": "Play and organize sound-first media",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "An audio record represents sound content without requiring a video component. Its detail page combines the player with descriptive metadata and relationships. Play or pause, scrub to a position, change volume, and connect the item with ratings, tags, performers, studios, and groups."
+        },
+        {
+          "type": "image",
+          "src": "assets/audios-view.webp",
+          "alt": "Cove audio detail page with playback controls and track metadata"
+        }
+      ]
+    },
+    {
+      "id": "tracks-and-segments",
+      "title": "Describe meaningful parts of the timeline",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Audio tracks describe named, ordered ranges without turning every range into a separate primary record. Raw segments can preserve points or ranges supplied by users, metadata providers, or analysis workflows."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Audio reference",
+              "href": "/docs/reference/audio/"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

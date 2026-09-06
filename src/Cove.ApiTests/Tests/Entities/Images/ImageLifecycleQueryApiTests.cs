@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Cove.ApiTests.Builders;
 using Cove.ApiTests.Infrastructure;
@@ -11,6 +12,33 @@ public sealed class ImageLifecycleQueryApiTests(
     ITestOutputHelper output,
     CoveApiTestFixture fixture) : ApiTest(output, fixture)
 {
+    [Fact]
+    [CoversEndpoint("POST", "/api/images/from-file")]
+    public async Task GivenImageFile_WhenMemberImportsIt_ThenImageHasRealFileMetadata()
+    {
+        const string fileName = "image-file-lifecycle.png";
+        var path = AsTestFileSystem().CreateLibraryFile(fileName, ApiTestImages.OnePixelPng());
+        var malformedPath = AsTestFileSystem().CreateLibraryFile("image-file-malformed.jpg", [0x01, 0x02, 0x03]);
+
+        var created = await AsUser(ApiTestUsers.Eva).CreateImageFromFileAsync(path, TestContext.Current.CancellationToken);
+        var retrieved = await AsUser(ApiTestUsers.Eva).GetImageByIdAsync(created.Id, TestContext.Current.CancellationToken);
+        await AsUser(ApiTestUsers.Eva).AssertResponseAsync(
+            HttpMethod.Post,
+            "/api/images/from-file",
+            HttpStatusCode.BadRequest,
+            new FileBackedCreateDto(malformedPath),
+            TestContext.Current.CancellationToken);
+
+        var createdFile = created.Files.Should().ContainSingle().Which;
+        createdFile.Path.Should().Be(path);
+        createdFile.Basename.Should().Be(fileName);
+        createdFile.Format.Should().Be("png");
+        createdFile.Width.Should().Be(1);
+        createdFile.Height.Should().Be(1);
+        createdFile.Size.Should().Be(ApiTestImages.OnePixelPng().Length);
+        retrieved.Files.Should().ContainSingle().Which.Id.Should().Be(createdFile.Id);
+    }
+
     [Fact]
     [CoversEndpoint("POST", "/api/images")]
     [CoversEndpoint("GET", "/api/images/{id:int}")]

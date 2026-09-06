@@ -1,0 +1,50 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "media-type-images",
+  "title": "Images",
+  "parentTopicId": "media-types",
+  "description": "Browse individual still images, inspect them at full size, and connect them to galleries and library metadata.",
+  "order": 22,
+  "pages": ["images"],
+  "sections": [
+    {
+      "id": "one-record-per-still",
+      "title": "Keep each still independently useful",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "An image is a primary media record for one still. Its record owns descriptive metadata and relationships, while the attached file owns technical values such as path, dimensions, format, size, and fingerprints."
+        },
+        {
+          "type": "image",
+          "src": "assets/images-view.webp",
+          "alt": "Cove image detail page with the image viewer and item information"
+        }
+      ]
+    },
+    {
+      "id": "inspect-and-move-between-images",
+      "title": "Inspect an image and move through related results",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open an image to view the still at a useful size with its metadata nearby. Use the lightbox for a focused full-size view, zoom when you need detail, and move to the previous or next image without returning to the list."
+        },
+        {
+          "type": "paragraph",
+          "text": "Gallery membership adds collection context without changing the image's identity or metadata, so the same image remains independently searchable and reusable."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Images reference",
+              "href": "/docs/reference/images/"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

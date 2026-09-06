@@ -50,6 +50,10 @@ public interface IScanFileValidator
         DateTime discoveredModTime,
         ScanMediaKind kind,
         CancellationToken ct = default);
+
+    Task<ScanFileValidationResult> ValidateImageContentAsync(
+        string path,
+        CancellationToken ct = default);
 }
 
 /// <summary>
@@ -147,6 +151,40 @@ public sealed class ScanFileValidator(
         }
 
         return validation;
+    }
+
+    public async Task<ScanFileValidationResult> ValidateImageContentAsync(
+        string path,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await ValidateImageFileAsync(path, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is InvalidDataException
+            or SixLabors.ImageSharp.InvalidImageContentException
+            or SixLabors.ImageSharp.UnknownImageFormatException
+            or XmlException
+            or JsonException)
+        {
+            return ScanFileValidationResult.Invalid(ex.Message);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
+        catch (UnauthorizedAccessException ex) when (FileReadRace.IsWindowsDeletionRace(ex, path))
+        {
+            return ScanFileValidationResult.Deferred("the file disappeared during validation");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ScanFileValidationResult.Failed(ex.Message);
+        }
     }
 
     public static bool DidFileChangeDuringValidation(

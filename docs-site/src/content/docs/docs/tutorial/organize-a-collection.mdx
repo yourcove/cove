@@ -2,60 +2,10 @@
 title: Organize a collection
 description: Create a static group, add useful metadata to an item, and verify the resulting collection.
 next: false
+tableOfContents: false
 ---
 
-import DocsScreenshot from '../../../../components/DocsScreenshot.astro';
+import FeatureGuide from '../../../../components/guides/FeatureGuide.astro';
+import guide from '../../../../../../docs/feature-guides/organize-a-collection.json';
 
-In this tutorial you will create one static group and add an item to it. This is a deliberately small organization exercise: the goal is a useful result you can extend, not a perfect classification system.
-
-## Choose a small theme
-
-Pick an item that belongs to a theme you will remember. A few examples are a trip, event, project, subject, series, or short watchlist. A group is appropriate because you are choosing explicit membership for a collection with its own name. You can add related items after the first one works.
-
-## Create the group
-
-1. Open **Groups**.
-2. Select **+ New**.
-3. Enter a short, specific name.
-4. Leave **Kind** set to **static**. A static group keeps the members you choose; a dynamic group resolves members from a query.
-5. Add a description if the name does not make the collection's purpose clear.
-6. Select **Save**.
-
-Do not begin with a large hierarchy. One clearly named group is enough to learn the workflow.
-
-## Edit and add the item
-
-1. Find and open the first item.
-2. Select the **Edit** tab on its detail page.
-3. Correct the title, date, details, studio, or other descriptive fields only when you know they are wrong or incomplete.
-4. Under **Tags**, choose one or two existing labels that will make the item easier to retrieve. Skip this step if no existing tag fits; you can design a tag vocabulary later.
-5. Under **Groups**, search for the group you just created and select it.
-6. If you chose a video and order matters, set **Video #**. Otherwise leave it at its default.
-7. Select **Save**.
-
-After this tutorial, repeat the group step for any related items. Cove groups can bring supported media types together, so every member does not have to use the same format.
-
-## Verify the collection
-
-1. Open **Groups** and search for the name you chose.
-2. Open the group.
-3. Confirm the item count and card.
-4. Open the card from the group and confirm the new group and tags appear on its detail page.
-
-<DocsScreenshot
-  src="images/docs/thumbnails/tutorial-group-detail.webp"
-  alt="Sample static group detail page showing its description, media counts, and one video item"
-  width={850}
-  height={532}
-  caption="The sample group makes its purpose, kind, item count, and member visible on one page."
-/>
-
-## Know which structure you just used
-
-- **Tags** are reusable labels. An item can have many, and the same tag can span unrelated collections.
-- **Static groups** are named collections whose membership you choose.
-- **Dynamic groups** update from a query or activity, such as the built-in **Save for Later** and **Continue Watching** groups.
-
-Use the **Organized** check only if it represents a meaningful reviewed state in your workflow. It is not a required final step, and a newly scanned item does not need every possible field before it becomes useful.
-
-You have completed the first-hour path: Cove can scan your files, you can browse their relationships, find an item again, and create a collection. Continue with the [Organizing your library guide](../../user/library/organizing/) for tags and group strategy, [Search and filters](../../user/library/search-and-filters/) for recurring views, or the [User Guide](../../user/) to choose another goal.
+<FeatureGuide guide={guide} />

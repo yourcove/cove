@@ -133,6 +133,29 @@ public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, I
         return CreatedAtAction(nameof(GetById), new { id = image.Id }, await MapToDtoWithProvenanceAsync(result!, ct));
     }
 
+    [HttpPost("from-file")]
+    [RequiresPermission(Permissions.ImagesWrite)]
+    public async Task<ActionResult<ImageDto>> CreateFromFile([FromBody] FileBackedCreateDto? dto, CancellationToken ct)
+    {
+        var filePath = dto?.FilePath?.Trim();
+        if (string.IsNullOrWhiteSpace(filePath) || !System.IO.File.Exists(filePath))
+            return BadRequest(new { error = "A valid file path is required." });
+
+        int imageId;
+        try
+        {
+            imageId = await scanService.ImportDownloadedImageAsync(filePath, imageId: null, ct);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        var image = await imageRepo.GetByIdWithRelationsAsync(imageId, ct);
+        if (image == null) return NotFound();
+
+        return CreatedAtAction(nameof(GetById), new { id = imageId }, await MapToDtoWithProvenanceAsync(image, ct));
+    }
+
     [HttpPut("{id:int}")]
     [RequiresPermission(Permissions.ImagesWrite)]
     [RequiresEntityAccess(EntityKinds.Image, Permissions.ImagesWrite)]

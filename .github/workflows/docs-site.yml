@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'docs-site/**'
+      - 'docs/feature-guides/**'
       - '.github/workflows/docs-site.yml'
   pull_request:
     branches: [main]
     paths:
       - 'docs-site/**'
+      - 'docs/feature-guides/**'
       - '.github/workflows/docs-site.yml'
   workflow_dispatch:
 

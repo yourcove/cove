@@ -49,6 +49,8 @@ The Stash importer only appears before setup is complete. Once an instance is co
 
 If **Preview** cannot find generated content, the metadata import can still proceed, but those derived files will not be copied. Fix missing media-path mappings before the import; a record whose path Cove cannot read will not become playable merely because its metadata was imported.
 
+The first-run importer also migrates Stash custom fields. Cove creates readable normalized keys, uses **Number** when all values are compatible numbers, uses **JSON** when all values are Cove-compatible JSON and the field is not numeric, and otherwise preserves the source values as **Long Text**. Imported Number fields are ready for filtering and sorting. To query properties inside an imported JSON document, add [typed JSON Pointer targets](../../library/custom-fields/json/) after the import.
+
 ## Import supported metadata from another Cove instance
 
 Use this workflow only to transfer tags, studios, performers, and groups. It is not a complete Cove-to-Cove migration.

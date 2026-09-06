@@ -35,6 +35,12 @@ describe("createManualOpenRequest", () => {
     expect(contexts.indexOf("settings-tab:extensions/docs")).toBeLessThan(contexts.indexOf("page:settings"));
   });
 
+  it("puts a detail page before its broader active navigation page", () => {
+    const contexts = createManualOpenRequest("video", "videos", "/video/1").contexts ?? [];
+
+    expect(contexts.indexOf("page:video")).toBeLessThan(contexts.indexOf("page:videos"));
+  });
+
   it("emits extension settings aliases for shorthand settings routes", () => {
     const contexts = createManualOpenRequest("settings", "settings", "/settings/docs").contexts ?? [];
 

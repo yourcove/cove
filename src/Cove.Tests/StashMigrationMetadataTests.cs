@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using Cove.Api.Services;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
@@ -15,6 +16,263 @@ namespace Cove.Tests;
 
 public class StashMigrationMetadataTests
 {
+    [Theory]
+    [InlineData("42", "1.25", CustomFieldTypes.Number)]
+    [InlineData("+001.5", "1e2", CustomFieldTypes.Number)]
+    [InlineData("{\"value\":1}", "[1,2]", CustomFieldTypes.Json)]
+    [InlineData("true", "null", CustomFieldTypes.Json)]
+    [InlineData("\"text\"", "42", CustomFieldTypes.Json)]
+    [InlineData("{\"value\":1}", "not json", CustomFieldTypes.LongText)]
+    [InlineData("42", "", CustomFieldTypes.LongText)]
+    [InlineData("42", "NaN", CustomFieldTypes.LongText)]
+    [InlineData("+001.5", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"value\":0e2147483647}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("999999999999.999999", "1e-6", CustomFieldTypes.Number)]
+    [InlineData("1000000000000", "{}", CustomFieldTypes.Json)]
+    [InlineData("{\"value\":1e131071}", "{\"value\":1e-16383}", CustomFieldTypes.Json)]
+    [InlineData("{\"value\":1e131072}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"value\":1.0e-16383}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"value\":1,\"value\":2}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"value\":\"\\u0000\"}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"\\u0000\":1}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"value\":\"\\ud800\"}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"value\":1e1000000}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("{\"value\":1e-20000}", "{}", CustomFieldTypes.LongText)]
+    [InlineData("1000000000000", "42", CustomFieldTypes.Json)]
+    [InlineData("0.0000001", "42", CustomFieldTypes.Json)]
+    [InlineData("0.123456000000000000000000000000001", "42", CustomFieldTypes.Json)]
+    public async Task ImportCustomFields_InfersTypeFromEveryValue(string first, string second, string expectedType)
+    {
+        await using var context = CreateContext();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(stash, "CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL)");
+        await using var command = stash.CreateCommand();
+        command.CommandText = "INSERT INTO tag_custom_fields VALUES (1, 'Detected', $first), (2, 'Detected', $second)";
+        command.Parameters.AddWithValue("$first", first);
+        command.Parameters.AddWithValue("$second", second);
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        var map = new Dictionary<int, int> { [1] = 101, [2] = 102 };
+        var service = CreateService(context);
+        for (var run = 0; run < 2; run++)
+            await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "tag", "tag", map, TestContext.Current.CancellationToken);
+        var definition = Assert.Single(context.CustomFieldDefinitions);
+        Assert.Equal(expectedType, definition.Type);
+        Assert.Equal(expectedType == CustomFieldTypes.Number, definition.Filterable);
+        Assert.Equal(expectedType == CustomFieldTypes.Number, definition.Sortable);
+        var values = await context.CustomFieldValues.OrderBy(v => v.EntityId).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, values.Count);
+        foreach (var (value, source) in values.Zip(new[] { first, second }))
+        {
+            Assert.Null(value.TextValue);
+            if (expectedType == CustomFieldTypes.Number)
+            {
+                Assert.Equal(decimal.Parse(source, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture), value.NumberValue);
+                Assert.Null(value.LongTextValue);
+                Assert.Null(value.JsonValue);
+            }
+            else if (expectedType == CustomFieldTypes.Json)
+            {
+                using var expected = JsonDocument.Parse(source);
+                Assert.True(JsonElement.DeepEquals(expected.RootElement, value.JsonValue!.Value));
+                Assert.Null(value.LongTextValue);
+                Assert.Null(value.NumberValue);
+            }
+            else
+            {
+                Assert.Equal(source, value.LongTextValue);
+                Assert.Null(value.NumberValue);
+                Assert.Null(value.JsonValue);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ImportCustomFields_DetectionIncludesOtherEntityTypesAndLaterBatches()
+    {
+        await using var context = CreateContext();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(stash, """
+            CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL);
+            CREATE TABLE scene_custom_fields (scene_id INTEGER, field TEXT, value BLOB NOT NULL);
+            WITH RECURSIVE ids(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM ids WHERE id < 1001)
+            INSERT INTO tag_custom_fields SELECT id, 'Late mixed', '42' FROM ids;
+            INSERT INTO tag_custom_fields VALUES (1002, 'Late mixed', 'plain text'), (1, 'Shared', '42'), (1, 'Unmapped mixed', '42');
+            INSERT INTO scene_custom_fields VALUES (1, 'Shared', '{"ok":true}'), (999, 'Unmapped mixed', 'plain text');
+            """);
+        var service = CreateService(context);
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "tag", "tag", Enumerable.Range(1, 1002).ToDictionary(id => id, id => id), TestContext.Current.CancellationToken);
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "scene", "video", new Dictionary<int, int> { [1] = 1 }, TestContext.Current.CancellationToken);
+        var definitions = await context.CustomFieldDefinitions.ToDictionaryAsync(d => d.Label, TestContext.Current.CancellationToken);
+        Assert.Equal(CustomFieldTypes.LongText, definitions["Late mixed"].Type);
+        Assert.Equal(CustomFieldTypes.LongText, definitions["Unmapped mixed"].Type);
+        Assert.Equal(CustomFieldTypes.Json, definitions["Shared"].Type);
+        Assert.Equal(new[] { "tag", "video" }, definitions["Shared"].EntityTypes);
+        Assert.Equal(1005, await context.CustomFieldValues.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("culture.av1_encode", "stash__culture__av1_encode")]
+    [InlineData("FEMALE", "stash__female")]
+    [InlineData("non_sex_performers", "stash__non_sex_performers")]
+    [InlineData("My Notes", "stash__my_notes")]
+    [InlineData("!!!", "stash__field")]
+    public async Task ImportCustomFields_UsesReadableNormalizedKeys(string name, string expectedKey)
+    {
+        await using var context = CreateContext();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(stash, "CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL)");
+        await using var command = stash.CreateCommand();
+        command.CommandText = "INSERT INTO tag_custom_fields VALUES (1, $name, 'value')";
+        command.Parameters.AddWithValue("$name", name);
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        await InvokePrivateAsync(CreateService(context), "ImportCustomFieldsAsync", stash, "tag", "tag", new Dictionary<int, int> { [1] = 101 }, TestContext.Current.CancellationToken);
+        var definition = Assert.Single(context.CustomFieldDefinitions);
+        Assert.Equal(expectedKey, definition.Key);
+        Assert.Equal(name, definition.Label);
+    }
+
+    [Theory]
+    [InlineData("scene", "video")]
+    [InlineData("image", "image")]
+    [InlineData("gallery", "gallery")]
+    [InlineData("performer", "performer")]
+    [InlineData("studio", "studio")]
+    [InlineData("tag", "tag")]
+    [InlineData("group", "group")]
+    public async Task ImportCustomFields_PreservesLongTextAndScalars(string sourceType, string entityType)
+    {
+        await using var context = CreateContext();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(stash, $"CREATE TABLE {sourceType}_custom_fields ({sourceType}_id INTEGER, field TEXT, value BLOB NOT NULL)");
+        var longText = "  First line\r\n" + new string('x', 12000) + "\n日本語  ";
+        await using (var command = stash.CreateCommand())
+        {
+            command.CommandText = $"INSERT INTO {sourceType}_custom_fields VALUES (1, 'Notes', $value), (1, 'Count', 42), (1, 'Score', 1.25), (1, 'Empty', ''), (999, 'Unmapped', 'ignored')";
+            command.Parameters.AddWithValue("$value", longText);
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        var service = CreateService(context);
+        var map = new Dictionary<int, int> { [1] = 101 };
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, sourceType, entityType, map, TestContext.Current.CancellationToken);
+        context.ChangeTracker.Clear();
+        var definitions = await context.CustomFieldDefinitions.ToDictionaryAsync(d => d.Id, TestContext.Current.CancellationToken);
+        var values = await context.CustomFieldValues.ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(4, definitions.Count);
+        Assert.Equal(4, values.Count);
+        Assert.All(definitions.Values, d =>
+        {
+            var isNumber = d.Label is "Count" or "Score";
+            Assert.Equal(isNumber ? CustomFieldTypes.Number : CustomFieldTypes.LongText, d.Type);
+            Assert.Equal(new[] { entityType }, d.EntityTypes);
+            Assert.Equal(isNumber, d.Filterable);
+            Assert.Equal(isNumber, d.Sortable);
+            Assert.False(d.IsMultiValue);
+        });
+        Assert.All(values, v =>
+        {
+            Assert.Equal(101, v.EntityId);
+            Assert.Equal(entityType, v.EntityType);
+            Assert.Null(v.TextValue);
+        });
+        var byLabel = values.ToDictionary(v => definitions[v.DefinitionId].Label, v => v.LongTextValue);
+        Assert.Equal(longText, byLabel["Notes"]);
+        Assert.Equal(42m, values.Single(v => definitions[v.DefinitionId].Label == "Count").NumberValue);
+        Assert.Equal(1.25m, values.Single(v => definitions[v.DefinitionId].Label == "Score").NumberValue);
+        Assert.Equal("", byLabel["Empty"]);
+
+        await ExecuteSqlAsync(stash, $"UPDATE {sourceType}_custom_fields SET value = 'changed' WHERE field = 'Notes'");
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, sourceType, entityType, map, TestContext.Current.CancellationToken);
+        Assert.Equal(4, await context.CustomFieldValues.CountAsync(TestContext.Current.CancellationToken));
+        var notesId = definitions.Values.Single(d => d.Label == "Notes").Id;
+        Assert.Equal(longText, (await context.CustomFieldValues.SingleAsync(v => v.DefinitionId == notesId, TestContext.Current.CancellationToken)).LongTextValue);
+    }
+
+    [Fact]
+    public async Task ImportCustomFields_HandlesBatchesMergedEntitiesAndDistinctNames()
+    {
+        await using var context = CreateContext();
+        context.ChangeTracker.AutoDetectChangesEnabled = false;
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(stash, """
+            CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL);
+            WITH RECURSIVE ids(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM ids WHERE id < 1002)
+            INSERT INTO tag_custom_fields SELECT id, 'Notes', 'value ' || id FROM ids;
+            INSERT INTO tag_custom_fields VALUES (1, 'notes', 'lower'), (1, '!!!', 'punctuation'), (1, 'A-B', 'dash'), (1, 'A B', 'space');
+            CREATE TABLE performer_custom_fields (performer_id INTEGER, field TEXT, value BLOB NOT NULL);
+            INSERT INTO performer_custom_fields VALUES (1, 'Notes', 'performer notes');
+            """);
+        var service = CreateService(context);
+        var longPrefix = string.Concat(Enumerable.Repeat("a.", 31));
+        await using (var command = stash.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO tag_custom_fields VALUES (1, $first, 'first long name'), (1, $second, 'second long name')";
+            command.Parameters.AddWithValue("$first", longPrefix + "b");
+            command.Parameters.AddWithValue("$second", longPrefix + "c");
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+        var map = Enumerable.Range(1, 1002).ToDictionary(id => id, id => id == 1002 ? 1 : id);
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "tag", "tag", map, TestContext.Current.CancellationToken);
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "performer", "performer", new Dictionary<int, int> { [1] = 1 }, TestContext.Current.CancellationToken);
+        context.ChangeTracker.Clear();
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "tag", "tag", map, TestContext.Current.CancellationToken);
+        Assert.Equal(7, await context.CustomFieldDefinitions.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1008, await context.CustomFieldValues.CountAsync(TestContext.Current.CancellationToken));
+        var keys = await context.CustomFieldDefinitions.ToDictionaryAsync(d => d.Label, d => d.Key, TestContext.Current.CancellationToken);
+        Assert.Equal("stash__notes", keys["Notes"]);
+        Assert.Equal("stash__notes_2", keys["notes"]);
+        Assert.Equal("stash__a_b", keys["A B"]);
+        Assert.Equal("stash__a_b_2", keys["A-B"]);
+        Assert.Equal(keys[longPrefix + "b"] + "_2", keys[longPrefix + "c"]);
+        var notes = await context.CustomFieldDefinitions.SingleAsync(d => d.Label == "Notes", TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { "tag", "performer" }, notes.EntityTypes);
+        Assert.Equal("value 1", (await context.CustomFieldValues.SingleAsync(v => v.DefinitionId == notes.Id && v.EntityType == "tag" && v.EntityId == 1, TestContext.Current.CancellationToken)).LongTextValue);
+        Assert.All(await context.CustomFieldDefinitions.ToListAsync(TestContext.Current.CancellationToken), d => Assert.True(d.Key.Length <= 100));
+    }
+
+    [Fact]
+    public async Task ImportCustomFields_DoesNotChangeIncompatibleDefinitions()
+    {
+        await using var context = CreateContext();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(stash, "CREATE TABLE tag_custom_fields (tag_id INTEGER, field TEXT, value BLOB NOT NULL); INSERT INTO tag_custom_fields VALUES (1, 'Notes', 'imported');");
+        var key = "stash__notes";
+        context.CustomFieldDefinitions.Add(new CustomFieldDefinition { Key = key, Label = "Notes", Type = CustomFieldTypes.Number, EntityTypes = ["tag"] });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = CreateService(context);
+        for (var i = 0; i < 2; i++)
+            await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "tag", "tag", new Dictionary<int, int> { [1] = 1 }, TestContext.Current.CancellationToken);
+        Assert.Equal(2, await context.CustomFieldDefinitions.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(CustomFieldTypes.Number, (await context.CustomFieldDefinitions.SingleAsync(d => d.Key == key, TestContext.Current.CancellationToken)).Type);
+        Assert.Equal("imported", Assert.Single(context.CustomFieldValues).LongTextValue);
+
+        // Freeing the original collision must not strand the imported definition or its edits.
+        var importedValue = Assert.Single(context.CustomFieldValues);
+        importedValue.LongTextValue = "manual edit";
+        context.CustomFieldDefinitions.Remove(await context.CustomFieldDefinitions.SingleAsync(d => d.Key == key, TestContext.Current.CancellationToken));
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await InvokePrivateAsync(service, "ImportCustomFieldsAsync", stash, "tag", "tag", new Dictionary<int, int> { [1] = 1 }, TestContext.Current.CancellationToken);
+        Assert.Equal("stash__notes_2", Assert.Single(context.CustomFieldDefinitions).Key);
+        Assert.Equal("manual edit", Assert.Single(context.CustomFieldValues).LongTextValue);
+    }
+
+    [Fact]
+    public async Task ImportCustomFields_OlderDatabaseWithoutTableIsSupported()
+    {
+        await using var context = CreateContext();
+        await using var stash = new SqliteConnection("Data Source=:memory:");
+        await stash.OpenAsync(TestContext.Current.CancellationToken);
+        await InvokePrivateAsync(CreateService(context), "ImportCustomFieldsAsync", stash, "scene", "video", new Dictionary<int, int> { [1] = 101 }, TestContext.Current.CancellationToken);
+        Assert.Empty(context.CustomFieldDefinitions);
+        Assert.Empty(context.CustomFieldValues);
+    }
+
     [Fact]
     public async Task ImportAsync_RejectsImportWhenNoEngagementOwnerExists()
     {
@@ -2233,7 +2491,10 @@ VALUES
         var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
-        var task = method!.Invoke(target, args) as Task;
+        var missingParameters = method!.GetParameters().Skip(args.Length).ToArray();
+        if (missingParameters.All(parameter => parameter.HasDefaultValue))
+            args = [.. args, .. missingParameters.Select(parameter => parameter.DefaultValue)];
+        var task = method.Invoke(target, args) as Task;
         Assert.NotNull(task);
         await task!;
         return task!.GetType().GetProperty("Result")?.GetValue(task);

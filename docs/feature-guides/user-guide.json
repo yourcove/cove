@@ -1,0 +1,259 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "user-guide",
+  "title": "User Guide",
+  "description": "Guides for browsing, organizing, searching, managing metadata and access, and operating Cove.",
+  "order": 1,
+  "sections": [
+    {
+      "id": "choose-where-to-begin",
+      "title": "Choose where to begin",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The User Guide covers day-to-day work after Cove is running: browsing and playing media, finding things quickly, organizing content, managing metadata workflows, controlling access, and keeping the installation healthy."
+        },
+        {
+          "type": "image",
+          "src": "assets/user-guide-overview.png",
+          "alt": "Cove User Guide with a searchable topic list and a shared article",
+          "caption": "On desktop, browse every topic in the sidebar or narrow the list with search. On mobile, focus the search field to browse the same formatted topic list."
+        },
+        {
+          "type": "paragraph",
+          "text": "For a new installation, begin with Get Started instead. It connects the supported installation paths, shared first-run setup, first scan, and introductory library tutorials."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Get Started",
+              "href": "/docs/get-started/"
+            },
+            {
+              "label": "Your first hour with Cove",
+              "href": "/docs/tutorial/",
+              "topicId": "getting-started"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "guided-tutorials",
+      "title": "Guided tutorials",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Use these focused tutorials individually after first-run setup, or follow them in order from Your first hour with Cove."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Scan your first library",
+              "href": "/docs/user/getting-started/first-scan/",
+              "topicId": "scan-your-first-library"
+            },
+            {
+              "label": "Explore your library",
+              "href": "/docs/tutorial/explore-your-library/",
+              "topicId": "explore-your-library"
+            },
+            {
+              "label": "Find anything",
+              "href": "/docs/tutorial/find-anything/",
+              "topicId": "find-anything"
+            },
+            {
+              "label": "Organize a collection",
+              "href": "/docs/tutorial/organize-a-collection/",
+              "topicId": "organize-a-collection"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "browse-and-play",
+      "title": "Browse and play",
+      "blocks": [
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Media types",
+              "href": "/docs/user/library/media-types/",
+              "topicId": "media-types"
+            },
+            {
+              "label": "Use list pages",
+              "href": "/docs/user/library/list-pages/",
+              "topicId": "list-pages"
+            },
+            {
+              "label": "Use detail pages",
+              "href": "/docs/user/library/detail-pages/",
+              "topicId": "detail-pages"
+            },
+            {
+              "label": "Use playback and the timeline",
+              "href": "/docs/user/library/playback/",
+              "topicId": "detail-pages-playback"
+            },
+            {
+              "label": "Browse performers",
+              "href": "/docs/user/library/performers/",
+              "topicId": "content-performers"
+            },
+            {
+              "label": "Browse studios",
+              "href": "/docs/user/library/studios/",
+              "topicId": "content-studios"
+            },
+            {
+              "label": "Use feed, vertical, and graph views",
+              "href": "/docs/user/library/special-views/",
+              "topicId": "special-views"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "organize-and-find-things",
+      "title": "Find and organize things",
+      "blocks": [
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Search and filters",
+              "href": "/docs/user/library/search-and-filters/",
+              "topicId": "search-and-filters"
+            },
+            {
+              "label": "Combine filters",
+              "href": "/docs/user/library/search-and-filters/combine/",
+              "topicId": "combine-filters"
+            },
+            {
+              "label": "Filter by related performers",
+              "href": "/docs/user/library/search-and-filters/related-performers/",
+              "topicId": "related-performers"
+            },
+            {
+              "label": "Use saved filters",
+              "href": "/docs/user/library/search-and-filters/saved/",
+              "topicId": "saved-filters"
+            },
+            {
+              "label": "Organize your library",
+              "href": "/docs/user/library/organizing/",
+              "topicId": "organizing"
+            },
+            {
+              "label": "Dynamic groups",
+              "href": "/docs/user/library/dynamic-groups/",
+              "topicId": "dynamic-groups"
+            },
+            {
+              "label": "Segments and compilations",
+              "href": "/docs/user/library/segments-and-compilations/",
+              "topicId": "segments-and-compilations"
+            },
+            {
+              "label": "Custom fields",
+              "href": "/docs/user/library/custom-fields/",
+              "topicId": "custom-fields"
+            },
+            {
+              "label": "JSON custom fields",
+              "href": "/docs/user/library/custom-fields/json/",
+              "topicId": "json-custom-fields"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "customize-cove",
+      "title": "Customize Cove",
+      "blocks": [
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Keyboard shortcuts",
+              "href": "/docs/user/interface/keyboard-shortcuts/",
+              "topicId": "keyboard-shortcuts"
+            },
+            {
+              "label": "Customize keyboard shortcuts",
+              "href": "/docs/user/interface/keyboard-shortcuts/customize/",
+              "topicId": "keyboard-shortcuts-customization"
+            },
+            {
+              "label": "Customize themes and layout",
+              "href": "/docs/user/interface/themes-and-layout/",
+              "topicId": "appearance"
+            },
+            {
+              "label": "Discover and install extensions",
+              "href": "/docs/user/extensions/",
+              "topicId": "extensions"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "manage-metadata-and-access",
+      "title": "Manage metadata and access",
+      "blocks": [
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Metadata provenance",
+              "href": "/docs/user/metadata/provenance/",
+              "topicId": "metadata-provenance"
+            },
+            {
+              "label": "Providers, scrapers, and downloaders",
+              "href": "/docs/user/metadata/providers-scrapers-downloaders/",
+              "topicId": "providers-scrapers-downloaders"
+            },
+            {
+              "label": "Users, roles, and permissions",
+              "href": "/docs/user/security/users-roles-permissions/",
+              "topicId": "users-roles-permissions"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operate-cove",
+      "title": "Operate Cove",
+      "blocks": [
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Backups, migrations, and upgrades",
+              "href": "/docs/user/admin/backups-migrations-upgrades/",
+              "topicId": "backups-migrations-upgrades"
+            },
+            {
+              "label": "Troubleshooting",
+              "href": "/docs/user/troubleshooting/",
+              "topicId": "troubleshooting"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

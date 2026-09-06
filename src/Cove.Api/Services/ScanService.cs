@@ -20,6 +20,7 @@ public class ScanService : IScanService
     private readonly ScanAudioProcessor _audioProcessor;
     private readonly ScanTextProcessor _textProcessor;
     private readonly ScanJobRunner _scanJobRunner;
+    private readonly IScanFileValidator _fileValidator;
 
     public ScanService(
         IJobService jobService,
@@ -38,6 +39,7 @@ public class ScanService : IScanService
     {
         _scopeFactory = scopeFactory;
         _eventBus = eventBus;
+        _fileValidator = fileValidator;
         _physicalFileCoordinator = physicalFileCoordinator ?? PhysicalFileAccessCoordinator.Shared;
 
         var folderResolver = new ScanFolderResolver(logger);
@@ -112,7 +114,16 @@ public class ScanService : IScanService
 
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CoveContext>();
-        var (image, _, _) = await _imageProcessor.ProcessAsync(db, path, imageId, ct);
+        var validation = await _fileValidator.ValidateImageContentAsync(path, ct);
+        if (validation.Status != ScanFileValidationStatus.Ready)
+            throw new InvalidDataException(validation.Reason ?? $"Unable to validate image file {path}");
+        var (image, _, _) = await _imageProcessor.ProcessAsync(
+            db,
+            path,
+            imageId,
+            ct,
+            validatedWidth: validation.Width,
+            validatedHeight: validation.Height);
         await db.SaveChangesAsync(ct);
 
         if (image.Id == 0)

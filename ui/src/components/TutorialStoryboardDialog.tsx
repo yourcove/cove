@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Check,
@@ -20,6 +20,18 @@ import {
 import ReactMarkdown from "react-markdown";
 import type { ExtensionTutorialTopic } from "../api/types";
 import { normalizeManualContext, uniqueManualContexts, type TutorialOpenRequest } from "./ManualContext";
+
+const sharedFeatureGuideImages = import.meta.glob("../../../docs/feature-guides/assets/**/*", {
+  eager: true,
+  import: "default",
+  query: "?url",
+}) as Record<string, string>;
+
+function resolveSharedFeatureGuideImage(source?: string) {
+  if (!source) return undefined;
+  if (source.startsWith("/") || /^(?:https?:|data:)/.test(source)) return source;
+  return sharedFeatureGuideImages[`../../../docs/feature-guides/${source}`];
+}
 
 export const TUTORIAL_STORYBOARD_STORAGE_KEY = "cove-tutorial-storyboard-complete";
 export const TUTORIAL_STORYBOARD_EVENT = "cove:tutorial-storyboard-open";
@@ -45,7 +57,100 @@ export interface TutorialStoryboardSlide {
   points?: string[];
   links?: { label: string; url: string }[];
   topicLinks?: { label: string; topicId: string; slideId?: string }[];
+  guideArticle?: SharedFeatureGuideArticle;
 }
+
+type SharedFeatureGuideContentBlock =
+  | { type: "paragraph" | "note"; text: string }
+  | { type: "steps"; items: string[] }
+  | { type: "heading"; level: 3 | 4; text: string }
+  | { type: "list"; items: string[] }
+  | {
+      type: "links";
+      items: { label: string; href: string; appHref?: string; topicId?: string; slideId?: string }[];
+    }
+  | { type: "image"; src: string; alt: string; caption?: string }
+  | { type: "table"; caption?: string; columns: string[]; rows: string[][] }
+  | { type: "code"; language?: string; lines: string[] };
+
+type SharedFeatureGuideBlock =
+  | SharedFeatureGuideContentBlock
+  | {
+      type: "recipes";
+      items: {
+        id: string;
+        title: string;
+        description?: string;
+        blocks: SharedFeatureGuideContentBlock[];
+      }[];
+    };
+
+interface SharedFeatureGuideArticle {
+  description: string;
+  sections: { id: string; title: string; blocks: SharedFeatureGuideBlock[] }[];
+}
+
+interface SharedFeatureGuideSource extends SharedFeatureGuideArticle {
+  schemaVersion: 1;
+  id: string;
+  title: string;
+  order: number;
+  pages?: string[];
+  contexts?: string[];
+  parentTopicId?: string;
+}
+
+function resolveSharedFeatureGuideBlockImages(block: SharedFeatureGuideContentBlock): SharedFeatureGuideContentBlock;
+function resolveSharedFeatureGuideBlockImages(block: SharedFeatureGuideBlock): SharedFeatureGuideBlock;
+function resolveSharedFeatureGuideBlockImages(block: SharedFeatureGuideBlock): SharedFeatureGuideBlock {
+  if (block.type === "image") {
+    return { ...block, src: resolveSharedFeatureGuideImage(block.src) ?? block.src };
+  }
+  if (block.type === "recipes") {
+    return {
+      ...block,
+      items: block.items.map((recipe) => ({
+        ...recipe,
+        blocks: recipe.blocks.map((recipeBlock) => resolveSharedFeatureGuideBlockImages(recipeBlock)),
+      })),
+    };
+  }
+  return block;
+}
+
+const sharedFeatureGuideModules = import.meta.glob("../../../docs/feature-guides/*.json", {
+  eager: true,
+  import: "default",
+}) as Record<string, unknown>;
+
+const sharedFeatureGuideTopics = Object.values(sharedFeatureGuideModules)
+  .filter((guide): guide is SharedFeatureGuideSource => {
+    if (!guide || typeof guide !== "object") return false;
+    const candidate = guide as Partial<SharedFeatureGuideSource>;
+    return candidate.schemaVersion === 1 && typeof candidate.id === "string" && Array.isArray(candidate.sections);
+  })
+  .map<TutorialStoryboardTopic>((guide) => ({
+    id: guide.id,
+    title: guide.title,
+    description: guide.description,
+    pages: guide.pages,
+    contexts: guide.contexts,
+    parentTopicId: guide.parentTopicId,
+    order: guide.order,
+    slides: [
+      {
+        id: "guide",
+        title: guide.title,
+        guideArticle: {
+          description: guide.description,
+          sections: guide.sections.map((section) => ({
+            ...section,
+            blocks: section.blocks.map(resolveSharedFeatureGuideBlockImages),
+          })),
+        },
+      },
+    ],
+  }));
 
 export interface TutorialStoryboardTopic {
   id: string;
@@ -66,1013 +171,7 @@ interface TutorialTopicEntry {
   depth: number;
 }
 
-export const builtinTutorialTopics: TutorialStoryboardTopic[] = [
-  {
-    id: "getting-started",
-    title: "Getting Started",
-    description: "Get your library indexed, then learn where everything shows up.",
-    pages: ["home", "settings"],
-    order: 10,
-    slides: [
-      {
-        id: "welcome",
-        title: "Welcome to Cove",
-        caption:
-          "Cove organizes your media into videos, images, performers, tags, and more so you can browse and find things fast.",
-        imageSrc: "/manual/screenshots/nav-bar.png",
-        imageAlt: "Cove top navigation bar with content type links",
-        points: [
-          "Everything starts by pointing Cove at the folders you already have",
-          "Once indexed, your media shows up across the content pages in the top bar",
-          "Open this manual any time from the Help button to come back to a topic",
-        ],
-        topicLinks: [
-          { label: "How list pages work", topicId: "list-pages" },
-          { label: "What the content types are for", topicId: "content-types" },
-        ],
-      },
-      {
-        id: "library-paths",
-        title: "Point Cove at your folders",
-        caption:
-          "In Settings, open Library → Paths & Storage and use + Add path to add each folder you keep media in. These are the roots the scanner will read.",
-        imageSrc: "/manual/screenshots/library-paths.png",
-        imageAlt: "The Library Paths settings with the Add path button",
-        points: [
-          "[green] + Add path, add one row per content root",
-          "Per path, you can exclude videos, images, audio, or text if a folder only holds one kind",
-          "Cove only reads these folders — your files stay where they are",
-        ],
-      },
-      {
-        id: "scan-generate",
-        title: "Run Scan, then Generate",
-        caption:
-          "Scan finds your files and adds them to the library. Generate creates the previews, thumbnails, and sprites that make browsing smooth.",
-        imageSrc: "/manual/screenshots/settings-scan-generate.png",
-        imageAlt: "Scan and Generate controls in Settings",
-        points: [
-          "[green] Scan, run it first after adding a library folder",
-          "[blue] Generate, run it next to build previews and thumbnails",
-          "Both run in the background, so you can keep browsing while they work",
-        ],
-      },
-      {
-        id: "viewing-content",
-        title: "Where your content lives",
-        caption:
-          "Each content type has its own page in the top navigation bar. Videos, images, performers, studios, tags, and groups all have a home there.",
-        imageSrc: "/manual/screenshots/nav-bar.png",
-        imageAlt: "Cove top navigation bar with content type links",
-        points: [
-          "[green] the content pages you can jump between",
-          "Each page opens a list you can sort, filter, and switch views on",
-          "Click any item to open its detail page with playback and metadata",
-        ],
-        topicLinks: [{ label: "How list pages work", topicId: "list-pages" }],
-      },
-      {
-        id: "whats-next",
-        title: "Where to go next",
-        caption: "Once your library is in, these are the areas most people explore first.",
-        imageSrc: "/manual/screenshots/nav-bar.png",
-        imageAlt: "Cove navigation bar to explore content pages next",
-        points: [
-          "Pull in titles, performers, and tags automatically with metadata collection",
-          "Add downloaders to bring new media into Cove",
-          "Learn the list pages once and every content page feels familiar",
-        ],
-        topicLinks: [
-          { label: "Metadata collection", topicId: "metadata" },
-          { label: "Downloaders", topicId: "downloaders" },
-          { label: "List pages", topicId: "list-pages" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "list-pages",
-    title: "List Pages",
-    description: "Sorting, filtering, views, and the controls every content page shares.",
-    pages: ["videos", "images", "galleries", "performers", "studios", "audios", "texts"],
-    order: 20,
-    slides: [
-      {
-        id: "anatomy",
-        title: "One list page, learned everywhere",
-        caption:
-          "Every content page works the same way. Once you know one, you know them all. The toolbar above the results holds every control you need.",
-        imageSrc: "/manual/screenshots/list-page-anatomy.png",
-        imageAlt: "A content list page with the toolbar controls highlighted",
-        points: [
-          "[green] the view switcher for grid, wall, feed, and other layouts",
-          "[blue] sort order and direction",
-          "[purple] filters, including saved filters you can reuse",
-          "[orange] page size, with an infinite option for no pages (social media style)",
-          "[pink] card size, to fit more or fewer items on screen",
-          "[teal] create a new item from this page",
-        ],
-        topicLinks: [
-          { label: "What each content type is for", topicId: "content-types" },
-          { label: "Searching within a page", topicId: "search" },
-        ],
-      },
-      {
-        id: "cards",
-        title: "Get more from each card",
-        caption: "Cards do more than they show at a glance. A few actions are worth knowing about right away.",
-        imageSrc: "/manual/screenshots/card-options.png",
-        imageAlt: "A single card with its menu open and linked chips highlighted",
-        points: [
-          "[green] the card menu, with Save for Later and Quick View",
-          "Save for Later drops an item into a built-in group to revisit",
-          "Quick View opens an item without leaving the list",
-          "[blue] hover performers, tags, or groups on a card and click to open them",
-        ],
-      },
-    ],
-  },
-  {
-    id: "content-types",
-    title: "Content Types",
-    description: "What videos, images, performers, tags, and groups are for.",
-    order: 30,
-    slides: [
-      {
-        id: "media",
-        title: "Your media",
-        caption: "These are the things you actually watch, view, listen to, or read.",
-        imageSrc: "/manual/screenshots/nav-bar.png",
-        imageAlt: "Top navigation bar showing the content type pages",
-        points: [
-          "Videos are videos, with playback, a timeline, and rich metadata",
-          "Images and galleries hold single pictures and collections of them",
-          "Audio and text cover everything else you want to keep and organize",
-        ],
-        topicLinks: [
-          { label: "Performers", topicId: "content-performers" },
-          { label: "Studios", topicId: "content-studios" },
-          { label: "Tagging in depth", topicId: "tagging" },
-          { label: "Groups", topicId: "groups" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "downloaders",
-    title: "Downloaders",
-    description: "Add media to Cove with downloader extensions.",
-    pages: ["downloads", "downloaders"],
-    order: 40,
-    slides: [
-      {
-        id: "downloaders-what",
-        title: "What downloaders do",
-        caption: "Downloaders are extensions that bring new media into your library from supported sources.",
-        imageSrc: "/manual/screenshots/downloaders-discover.png",
-        imageAlt: "Discover page showing downloader extensions you can add",
-        points: [
-          "Each downloader knows how to fetch from a specific kind of source",
-          "Downloaded items land in your library like any other video or image",
-          "You add the downloaders you want, so Cove only does what you need",
-        ],
-      },
-      {
-        id: "downloaders-install",
-        title: "Install a downloader",
-        caption:
-          "Downloaders come from the same place as other extensions. Find the one you want in Discover and install it.",
-        imageSrc: "/manual/screenshots/downloaders-discover.png",
-        imageAlt: "Discover page with a downloader extension and its install button",
-        points: [
-          "[green] browse Discover for the downloader you want",
-          "[blue] install it with a click, just like any extension",
-        ],
-        topicLinks: [{ label: "Browsing and installing extensions", topicId: "extensions" }],
-      },
-      {
-        id: "downloaders-use",
-        title: "Use a downloader",
-        caption: "Once a downloader is installed, start a download and choose it to fetch new media into your library.",
-        imageSrc: "/manual/screenshots/downloaders-use.png",
-        imageAlt: "The download flow with the installed downloader selected",
-        points: [
-          "[green] start a download and pick the installed downloader to use",
-          "Downloads run in the background and appear when they finish",
-        ],
-      },
-      {
-        id: "downloaders-new-url",
-        title: "Add an item from a URL",
-        caption:
-          "You can also create an item straight from a URL. In the New dialog, switch to URL and paste a link — Cove hands it to a matching downloader, which fetches the media into your library.",
-        imageSrc: "/manual/screenshots/new-from-url.png",
-        imageAlt: "The New item dialog with the URL option selected and a link pasted",
-        points: [
-          "[green] choose URL in the New dialog and paste a link",
-          "A matching downloader resolves the URL and downloads the media",
-        ],
-      },
-    ],
-  },
-  {
-    id: "metadata",
-    title: "Metadata Collection",
-    description: "Fill in titles, performers, tags, and more, automatically.",
-    order: 50,
-    slides: [
-      {
-        id: "metadata-overview",
-        title: "Let Cove fill in the details",
-        caption:
-          "Metadata collection pulls in titles, performers, studios, tags, and images so you spend less time typing and more time browsing.",
-        imageSrc: "/manual/screenshots/tagger-view.png",
-        imageAlt: "Metadata collection tools reviewing item details",
-        points: [
-          "Scrapers read details from a source and suggest them for an item",
-          "Metadata servers can match and enrich many items at once",
-          "Field provenance shows where each value came from",
-        ],
-        topicLinks: [
-          { label: "Scrapers", topicId: "metadata-scrapers" },
-          { label: "Metadata servers", topicId: "metadata-servers" },
-          { label: "The tagger view", topicId: "metadata-tagger" },
-          { label: "Field provenance", topicId: "metadata-provenance" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "metadata-scrapers",
-    title: "Scrapers",
-    description: "Pull details for a single item from a source.",
-    parentTopicId: "metadata",
-    order: 51,
-    slides: [
-      {
-        id: "scrapers-run",
-        title: "Scrape one item first",
-        caption:
-          "Scrapers read an item's details from a source so you can review and apply them. Start with one item before doing many.",
-        imageSrc: "/manual/screenshots/scraper-run.png",
-        imageAlt: "A scrape result with fields ready to review",
-        points: [
-          "[green] start a scrape from an item's detail page",
-          "[blue] review the suggested fields before you apply them",
-          "Apply only the fields you want, then scale up once it looks right",
-        ],
-      },
-    ],
-  },
-  {
-    id: "metadata-servers",
-    title: "Metadata Servers",
-    description: "Match and enrich many items at once.",
-    parentTopicId: "metadata",
-    order: 52,
-    slides: [
-      {
-        id: "servers-overview",
-        title: "Enrich at scale",
-        caption:
-          "A metadata server can identify items and return rich details across your library, which is handy once a single scrape looks good.",
-        imageSrc: "/manual/screenshots/tagger-view.png",
-        imageAlt: "Reviewing enriched metadata across many items",
-        points: [
-          "Configure a server once in Settings, then reuse it everywhere",
-          "Identify matches an item to a known entry and fills it in",
-          "Use it for batches after you trust the results on a few items",
-          "Check Cove's metadata servers page to see which servers you can connect to",
-        ],
-        links: [
-          {
-            label: "Metadata servers list",
-            url: "https://yourcove.net/docs/user/metadata/providers-scrapers-downloaders/",
-          },
-        ],
-        topicLinks: [{ label: "Scrapers", topicId: "metadata-scrapers" }],
-      },
-    ],
-  },
-  {
-    id: "metadata-tagger",
-    title: "Tagger View",
-    description: "A fast loop for cleaning metadata across many items.",
-    parentTopicId: "metadata",
-    order: 53,
-    slides: [
-      {
-        id: "tagger-view",
-        title: "Clean metadata in a loop",
-        caption: "The tagger view is built for making the same kind of decision across many items quickly.",
-        imageSrc: "/manual/screenshots/tagger-view.png",
-        imageAlt: "The tagger view with items lined up for review",
-        points: [
-          "[green] the item you are reviewing, with its suggested matches",
-          "[blue] apply or skip, then move straight to the next item",
-          "Filter first so you only see the items you want to work through",
-        ],
-      },
-    ],
-  },
-  {
-    id: "metadata-provenance",
-    title: "Field Provenance",
-    description: "See where each piece of metadata came from.",
-    parentTopicId: "metadata",
-    order: 54,
-    slides: [
-      {
-        id: "provenance",
-        title: "Know where a value came from",
-        caption: "Field provenance shows the source of a value so you can trust it or replace it with confidence.",
-        imageSrc: "/manual/screenshots/field-provenance.png",
-        imageAlt: "A field with its provenance details shown on hover",
-        points: [
-          "[green] hover a field to see where its value came from",
-          "Sources can be a scrape, a server, or your own manual edit",
-          "Use this when two sources disagree and you need to choose",
-        ],
-      },
-    ],
-  },
-  {
-    id: "tagging",
-    title: "Tagging",
-    description: "Label content consistently so browsing and filtering stay useful.",
-    pages: ["tags", "tag"],
-    order: 60,
-    slides: [
-      {
-        id: "tagging-basics",
-        title: "Tags describe what something is",
-        caption:
-          "Tags are reusable labels. Add them to videos, images, galleries, performers, groups, and other content so related things stay easy to find.",
-        imageSrc: "/manual/screenshots/tagging-basics.png",
-        imageAlt: "A tag detail page showing aliases and related content types",
-        points: [
-          "[green] use tags for genres, qualities, sources, themes, or any label you want to search later",
-          "[blue] tags can have aliases and relationships, so one idea can still be found by several names",
-          "The tag graph helps you spot related tags and clean up overlaps over time",
-        ],
-        topicLinks: [
-          { label: "The tag graph", topicId: "special-views", slideId: "tags-graph" },
-          { label: "The tagger view", topicId: "metadata-tagger" },
-        ],
-      },
-      {
-        id: "occurrence-tagging",
-        title: "Tag when something appears",
-        caption:
-          "Some tags are about a whole item. Others are about where a performer, face, tag, or other thing appears inside a video.",
-        imageSrc: "/manual/screenshots/occurrence-tagging.png",
-        imageAlt: "A video edit page showing whole-video tags, performer occurrence tags, and the timeline overlay",
-        points: [
-          "[green] use normal tags when the whole item should carry the label",
-          "[blue] use occurrence tagging when timing matters and you want to know where something appears",
-          "[purple] occurrence tagging works with segments, which also power player bars, filters, and compilations",
-        ],
-        topicLinks: [
-          { label: "Segments and time ranges", topicId: "segments" },
-          { label: "Raw and derived segments", topicId: "segments-raw-derived" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "segments",
-    title: "Segments",
-    description: "Track meaningful time ranges inside videos and reuse them.",
-    pages: ["segments", "segment"],
-    order: 70,
-    slides: [
-      {
-        id: "segments-overview",
-        title: "Video moments become reusable",
-        caption:
-          "Segments are time ranges inside a video. They let Cove show when tags, performers, faces, and other entities are present, then reuse those ranges in playback and organization.",
-        imageSrc: "/manual/screenshots/segments-derived.png",
-        imageAlt: "Segments marked along a video timeline",
-        points: [
-          "Use segments to see where tags, performers, faces, and other entities appear in a video",
-          "Watch dedicated parts of videos, build compilations, or turn a segment into a sub-video",
-          "Derived segments are usually the ones you browse, play, filter, and add to compilations",
-        ],
-        topicLinks: [
-          { label: "Raw and derived segments", topicId: "segments-raw-derived" },
-          { label: "Display profiles", topicId: "segments-display-profiles" },
-          { label: "Building compilations", topicId: "segments-compilations" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "segments-raw-derived",
-    title: "Raw vs Derived",
-    description: "The two kinds of segments and when each appears.",
-    parentTopicId: "segments",
-    order: 71,
-    slides: [
-      {
-        id: "raw-derived",
-        title: "Raw and derived segments",
-        caption:
-          "Raw segments are the marks recorded directly on a video. Derived segments are Cove's calculated results from raw marks, tags, performers, faces, and display settings.",
-        imageSrc: "/manual/screenshots/segments-derived.png",
-        imageAlt: "A video timeline showing raw and derived segments",
-        points: [
-          "[green] raw segments, the original marks on the timeline",
-          "[blue] derived segments, the ranges most useful for player bars, filters, and compilations",
-          "You usually inspect raw segments for source detail and use derived segments for actual browsing",
-        ],
-      },
-    ],
-  },
-  {
-    id: "segments-display-profiles",
-    title: "Display Profiles",
-    description: "Control how derived segments are shaped.",
-    parentTopicId: "segments",
-    order: 72,
-    slides: [
-      {
-        id: "display-profiles",
-        title: "Shape your results with profiles",
-        caption:
-          "A display profile is a saved set of rules for turning raw segments into the derived ones you see. Switch profiles to get different views of the same videos.",
-        imageSrc: "/manual/screenshots/display-profiles.png",
-        imageAlt: "Display profile selector with derived results",
-        points: [
-          "[green] pick a display profile to change how results are built",
-          "Different profiles suit different ways of browsing the same library",
-          "Profiles are saved, so you can reuse a setup you like",
-        ],
-      },
-    ],
-  },
-  {
-    id: "segments-compilations",
-    title: "Compilations",
-    description: "Turn grouped content into a playable sequence.",
-    parentTopicId: "segments",
-    order: 73,
-    slides: [
-      {
-        id: "compilations",
-        title: "Build a compilation from a group",
-        caption:
-          "A compilation plays grouped content back to back. Segments are especially powerful here, but compilations can include any supported content type.",
-        imageSrc: "/manual/screenshots/compilation-play.png",
-        imageAlt: "A compilation playing content from a group",
-        points: [
-          "[green] a group of content ready to play as a compilation",
-          "[blue] the compilation player moving from one item to the next",
-          "Use segments for precise video excerpts, or mix in other content when the group calls for it",
-        ],
-        topicLinks: [{ label: "Groups and dynamic groups", topicId: "groups" }],
-      },
-    ],
-  },
-  {
-    id: "search",
-    title: "Search",
-    description: "Find items fast from a page or across everything.",
-    pages: ["search"],
-    order: 80,
-    slides: [
-      {
-        id: "page-search",
-        title: "Search within a page",
-        caption: "The search bar on each content page looks across more than just the title.",
-        imageSrc: "/manual/screenshots/search-bar.png",
-        imageAlt: "A page search bar with results",
-        points: [
-          "[green] the page search bar, scoped to the current content type",
-          "It matches titles, tags and their aliases, and the description",
-          "It also matches performers and their aliases, and the studio",
-        ],
-      },
-      {
-        id: "global-search",
-        title: "Search across everything",
-        caption: "When you are not sure where something lives, the global search looks across content types at once.",
-        imageSrc: "/manual/screenshots/global-search.png",
-        imageAlt: "Global search with grouped results",
-        points: [
-          "Open global search to look everywhere at once",
-          "Results are grouped by content type so you can jump straight in",
-          "Use it as a fast way to reach any item without browsing first",
-        ],
-      },
-    ],
-  },
-  {
-    id: "groups",
-    title: "Groups",
-    description: "Collections you build by hand or that update themselves.",
-    pages: ["groups", "group"],
-    order: 90,
-    slides: [
-      {
-        id: "groups-basics",
-        title: "Gather items into groups",
-        caption: "A group is a collection of items. You can build one by hand and add anything you like to it.",
-        imageSrc: "/manual/screenshots/group-detail.png",
-        imageAlt: "A group detail page with its items",
-        points: [
-          "Add videos, images, segments, and more to the same group",
-          "Groups can even contain other groups for deeper organizing",
-        ],
-      },
-      {
-        id: "dynamic-builtin",
-        title: "Dynamic and built-in groups",
-        caption:
-          "Some groups fill themselves based on a filter, and Cove ships with a few that track your activity automatically.",
-        imageSrc: "/manual/screenshots/dynamic-groups.png",
-        imageAlt: "Dynamic groups including the built-in ones",
-        points: [
-          "[green] dynamic groups that update from a saved filter",
-          "[blue] the built-in Watch History, Continue Watching, and Save for Later",
-          "The built-in groups are managed by Cove and cannot be deleted",
-        ],
-        topicLinks: [{ label: "Building compilations", topicId: "segments-compilations" }],
-      },
-    ],
-  },
-  {
-    id: "special-views",
-    title: "Special Views",
-    description: "Feed, vertical view, and the tag graph.",
-    pages: ["feed", "graph"],
-    order: 100,
-    slides: [
-      {
-        id: "feed-view",
-        title: "Feed view",
-        caption: "Feed view stacks items in a single scrolling column, great for social-media-style browsing.",
-        imageSrc: "/manual/screenshots/feed-view.png",
-        imageAlt: "A list switched into feed view",
-        points: [
-          "[green] switch a list into feed view",
-          "Each item plays in place as you scroll through the session",
-          "Pair it with infinite page size for an uninterrupted run",
-        ],
-      },
-      {
-        id: "vertical-view",
-        title: "Vertical view",
-        caption: "Vertical view plays one item at a time full-height, swiping to the next like a short-video feed.",
-        imageSrc: "/manual/screenshots/vertical-view.png",
-        imageAlt: "A list switched into vertical view",
-        points: [
-          "[green] switch a list into vertical view",
-          "One item fills the screen and plays; move to the next when you're ready",
-          "Pair it with infinite page size for a continuous run",
-        ],
-      },
-      {
-        id: "tags-graph",
-        title: "The tag graph",
-        caption:
-          "The tag graph shows how your tags relate to each other, which helps you understand and tidy up your labels.",
-        imageSrc: "/manual/screenshots/tags-graph.png",
-        imageAlt: "The tag graph view",
-        points: [
-          "[green] the graph of tags and how they connect",
-          "Use it to spot related tags and clean up overlaps",
-          "Click a tag in the graph to jump straight to it",
-        ],
-      },
-    ],
-  },
-  {
-    id: "security",
-    title: "Security",
-    description: "Users, roles, permissions, content rules, and share links.",
-    pages: ["users", "user"],
-    order: 110,
-    slides: [
-      {
-        id: "security-overview",
-        title: "Control access deliberately",
-        caption:
-          "Security settings decide who can sign in, what actions they can take, what content they can see, and what can be shared outside an account.",
-        imageSrc: "/manual/screenshots/security-overview.png",
-        imageAlt: "Security settings with the Security and Access menu expanded and the users page visible",
-        points: [
-          "[green] users, roles, content rules, and share links live together in Security and Access",
-          "[blue] each page controls a different layer of access",
-          "Use them together: users sign in, roles grant actions, content rules limit visibility, and share links grant scoped temporary access",
-        ],
-        topicLinks: [
-          { label: "Users", topicId: "security-users" },
-          { label: "Roles and permissions", topicId: "security-roles-permissions" },
-          { label: "Content rules", topicId: "security-content-rules" },
-          { label: "Share links", topicId: "security-sharing" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "security-users",
-    title: "Users",
-    description: "Create accounts and assign access.",
-    parentTopicId: "security",
-    pages: ["users", "user"],
-    order: 111,
-    slides: [
-      {
-        id: "users",
-        title: "Give each person an account",
-        caption:
-          "User accounts let people sign in separately, keep their own activity, and receive the role that fits how they should use Cove.",
-        imageSrc: "/manual/screenshots/users-admin.png",
-        imageAlt: "User management with accounts and roles",
-        points: [
-          "[green] the list of users and their assigned roles",
-          "Create accounts for people who should sign in directly",
-          "Change a user's role when their access needs to change",
-        ],
-        topicLinks: [{ label: "Roles and permissions", topicId: "security-roles-permissions" }],
-      },
-    ],
-  },
-  {
-    id: "security-roles-permissions",
-    title: "Roles and Permissions",
-    description: "Choose what each type of user can do.",
-    parentTopicId: "security",
-    order: 112,
-    slides: [
-      {
-        id: "roles-permissions",
-        title: "Roles bundle permissions",
-        caption:
-          "A role is the set of permissions a user receives. Use roles to separate everyday browsing from administrative actions.",
-        imageSrc: "/manual/screenshots/roles-permissions.png",
-        imageAlt: "Roles list with a role permission panel open",
-        points: [
-          "[green] permissions cover actions like managing settings, users, metadata, downloads, and library content",
-          "[blue] open a role to review exactly what it can do",
-          "Give users the smallest role that still lets them do their work",
-          "Pair roles with content rules when users should only see part of the library",
-        ],
-        topicLinks: [{ label: "Content rules", topicId: "security-content-rules" }],
-      },
-    ],
-  },
-  {
-    id: "security-content-rules",
-    title: "Content Rules",
-    description: "Limit which library items a role can see.",
-    parentTopicId: "security",
-    order: 113,
-    slides: [
-      {
-        id: "content-rules",
-        title: "Rules shape visibility",
-        caption:
-          "Content rules decide which items are visible to a role. They are useful when an account should browse only a specific part of the library.",
-        imageSrc: "/manual/screenshots/content-rules.png",
-        imageAlt: "Content rules settings with the create rule panel open",
-        points: [
-          "[green] use content rules to allow or hide content by the criteria Cove supports",
-          "[blue] review saved rules and entity overrides in one place",
-          "Rules work alongside permissions: one controls visibility, the other controls actions",
-          "Review rules carefully before assigning them to a role used by other people",
-        ],
-        topicLinks: [
-          { label: "Users", topicId: "security-users" },
-          { label: "Share links", topicId: "security-sharing" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "security-sharing",
-    title: "Share Links",
-    description: "Share selected content without creating an account.",
-    parentTopicId: "security",
-    order: 114,
-    slides: [
-      {
-        id: "share-links",
-        title: "Share selected content",
-        caption: "Share links let you hand out access to specific content without giving someone a full account.",
-        imageSrc: "/manual/screenshots/share-links.png",
-        imageAlt: "Creating a share link",
-        points: [
-          "[green] create a share link for the content you choose",
-          "Send the link to give someone scoped access",
-          "Manage or revoke links from the same place later",
-        ],
-      },
-    ],
-  },
-  {
-    id: "appearance",
-    title: "Themes and Layout",
-    description: "Make Cove look how you want.",
-    order: 120,
-    slides: [
-      {
-        id: "color-palette",
-        title: "Choose a color palette",
-        caption:
-          "Color palettes set Cove's core colors, including the background, surfaces, accent color, text, borders, and navigation.",
-        imageSrc: "/manual/screenshots/theme-picker.png",
-        imageAlt: "Appearance settings showing the color palette controls",
-        points: [
-          "[green] choose a palette to set the overall color system",
-          "Changes apply right away so you can try a few quickly",
-          "Use palettes as the foundation before fine-tuning style and layout",
-        ],
-      },
-      {
-        id: "style-layout",
-        title: "Choose style and layout",
-        caption:
-          "Style options change the feel of surfaces and controls. Layout options change how pages are arranged for browsing.",
-        imageSrc: "/manual/screenshots/style-layout-options.png",
-        imageAlt: "Appearance settings showing style and layout options",
-        points: [
-          "[green] pick a style and adjust its extra options when they appear",
-          "[blue] choose the layout that matches how you like to browse",
-          "Combine a palette, style, and layout into a setup that feels right",
-        ],
-      },
-    ],
-  },
-  {
-    id: "extensions",
-    title: "Extensions",
-    description: "Discover and install add-ons, including downloaders.",
-    pages: ["extensions", "registry", "discover"],
-    order: 130,
-    slides: [
-      {
-        id: "discover-install",
-        title: "Discover and install extensions",
-        caption:
-          "Extensions add new abilities to Cove, from downloaders to scrapers to whole new panels. You browse and install them from Discover.",
-        imageSrc: "/manual/screenshots/extensions-discover.png",
-        imageAlt: "The Discover page listing available extensions",
-        points: [
-          "[green] browse available extensions in Discover",
-          "[blue] install the ones you want with a click",
-          "Installed extensions can add their own panels and manual topics",
-        ],
-        topicLinks: [
-          { label: "Downloaders", topicId: "downloaders" },
-          { label: "Metadata collection", topicId: "metadata" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "content-performers",
-    title: "Performers",
-    description: "The people in your media and their detail pages.",
-    pages: ["performers", "performer"],
-    parentTopicId: "content-types",
-    order: 31,
-    slides: [
-      {
-        id: "performer-page",
-        title: "Performers",
-        caption:
-          "Performers are the people in your media. A performer page gathers everything they appear in, split by content type, plus who they appear with and similar performers.",
-        imageSrc: "/manual/screenshots/performer-page.png",
-        imageAlt: "A performer detail page with content tabs",
-        points: [
-          "[green] content tabs split everything they appear in by type, each with a count",
-          "[blue] Appears With shows performers who share content with this one",
-          "[purple] Similar suggests performers you might also want",
-        ],
-      },
-    ],
-  },
-  {
-    id: "content-studios",
-    title: "Studios",
-    description: "The sources your media came from, and how they nest.",
-    pages: ["studios", "studio"],
-    parentTopicId: "content-types",
-    order: 32,
-    slides: [
-      {
-        id: "studio-page",
-        title: "A studio's page",
-        caption:
-          "Studios are the sources your media came from. A studio page works like a performer's, with one extra: Sub-studios, since studios can be nested under a parent.",
-        imageSrc: "/manual/screenshots/studio-page.png",
-        imageAlt: "A studio detail page showing the Sub-studios tab",
-        points: [
-          "[green] content tabs split the studio's media by type",
-          "[blue] Sub-studios are the studios nested under this one",
-        ],
-      },
-    ],
-  },
-  {
-    id: "content-images",
-    title: "Images",
-    description: "Single pictures and how they open.",
-    pages: ["images", "image"],
-    parentTopicId: "content-types",
-    order: 33,
-    slides: [
-      {
-        id: "images-view",
-        title: "Images",
-        caption:
-          "Images are single pictures. Open one to view it full size, with zoom and quick next/previous between shots.",
-        imageSrc: "/manual/screenshots/images-view.png",
-        imageAlt: "An image detail page with the picture displayed",
-        points: [
-          "[green] open an image to view it full size",
-          "Zoom in and step through images without leaving the viewer",
-        ],
-        topicLinks: [{ label: "Galleries", topicId: "content-galleries" }],
-      },
-    ],
-  },
-  {
-    id: "content-galleries",
-    title: "Galleries",
-    description: "Collections of images grouped together.",
-    pages: ["galleries", "gallery"],
-    parentTopicId: "content-types",
-    order: 34,
-    slides: [
-      {
-        id: "galleries-view",
-        title: "Galleries",
-        caption:
-          "A gallery groups related images together. Its Images tab shows the whole set as a grid, and you can open any one full size.",
-        imageSrc: "/manual/screenshots/galleries-view.png",
-        imageAlt: "A gallery detail page showing its images grid",
-        points: ["[green] a gallery's images, shown together as a grid", "Open any image to view it full size"],
-        topicLinks: [{ label: "Images", topicId: "content-images" }],
-      },
-    ],
-  },
-  {
-    id: "content-audio",
-    title: "Audio",
-    description: "Sound files and the audio player.",
-    pages: ["audios", "audio"],
-    parentTopicId: "content-types",
-    order: 35,
-    slides: [
-      {
-        id: "audio-view",
-        title: "Audio",
-        caption:
-          "Audio files open in a player with a scrubber and volume. The page lists everything Cove knows about the track alongside it.",
-        imageSrc: "/manual/screenshots/audios-view.png",
-        imageAlt: "An audio detail page with the player",
-        points: [
-          "[green] the audio player, with a scrubber and volume",
-          "Rate, tag, and organize audio like any other content",
-        ],
-      },
-    ],
-  },
-  {
-    id: "content-texts",
-    title: "Texts",
-    description: "Documents and PDFs in a reader.",
-    pages: ["texts", "text"],
-    parentTopicId: "content-types",
-    order: 36,
-    slides: [
-      {
-        id: "texts-view",
-        title: "Texts",
-        caption: "Text and PDF files open in a reader. PDFs get page controls so you can jump through the document.",
-        imageSrc: "/manual/screenshots/texts-view.png",
-        imageAlt: "A text detail page showing the reader",
-        points: [
-          "[green] the reader, with page controls for PDFs",
-          "Tag and organize documents alongside your other media",
-        ],
-      },
-    ],
-  },
-  {
-    id: "detail-pages",
-    title: "Detail Pages",
-    description: "What's on a video's page: playback, metadata, ratings, and editing.",
-    pages: ["video", "image", "audio", "text", "gallery"],
-    order: 35,
-    slides: [
-      {
-        id: "scene-anatomy",
-        title: "Anatomy of a video page",
-        caption:
-          "A video page puts the player up top and everything Cove knows about the video below, split into tabs: Details, Segments, Similar, Audio Similar, Filters, File Info, History, and Edit.",
-        imageSrc: "/manual/screenshots/video-detail.png",
-        imageAlt: "A video detail page showing the player and the row of tabs",
-        points: [
-          "[green] the player at the top",
-          "[blue] the tabs that organize everything else",
-          "[purple] the Details tab: studio, performers, tags, groups, galleries, and faces",
-        ],
-        topicLinks: [
-          { label: "Tags and people", topicId: "content-types" },
-          { label: "Segments", topicId: "segments" },
-        ],
-      },
-      {
-        id: "ratings-actions",
-        title: "Rate, favorite, and organize",
-        caption:
-          "Alongside the video you can set a star rating, mark it a favorite, and flag it Organized once you've finished tidying its metadata. Cove also tracks likes and how often you've opened it.",
-        imageSrc: "/manual/screenshots/video-detail-actions.png",
-        imageAlt: "The rating, favorite, and organized controls on a video page",
-        points: [
-          "[green] the 5-star rating",
-          "[blue] the favorite heart",
-          "[orange] Organized, your 'this one's done' marker",
-        ],
-      },
-      {
-        id: "edit-metadata",
-        title: "Edit the details",
-        caption:
-          "The Edit tab turns the metadata into a form so you can fix titles, dates, and descriptions or adjust tags, performers, and groups by hand.",
-        imageSrc: "/manual/screenshots/video-edit.png",
-        imageAlt: "The Edit tab of a video showing the metadata form",
-        points: [
-          "Editing needs write permission on that content type",
-          "Manual edits are recorded in provenance, so you can always see what you changed",
-        ],
-        topicLinks: [{ label: "Field provenance", topicId: "metadata-provenance" }],
-      },
-    ],
-  },
-  {
-    id: "detail-pages-playback",
-    title: "Playback",
-    description: "Player controls and the timeline.",
-    pages: ["video"],
-    parentTopicId: "detail-pages",
-    order: 36,
-    slides: [
-      {
-        id: "player-controls",
-        title: "The player and timeline",
-        caption:
-          "Play, scrub, change speed, loop a section, and go fullscreen. The scrubber isn't just a progress bar — it shows swimlanes for segments, detections, and faces so you can see what's where and jump to it.",
-        imageSrc: "/manual/screenshots/video-scrubber.png",
-        imageAlt: "The video player scrubber showing segment and face swimlanes",
-        points: [
-          "[green] the scrubber with segment and face swimlanes",
-          "[blue] speed and loop controls",
-          "Click a swimlane segment to jump straight to that moment",
-        ],
-        topicLinks: [{ label: "How segments work", topicId: "segments" }],
-      },
-    ],
-  },
-  {
-    id: "backups-upgrades",
-    title: "Backups and Upgrades",
-    description: "Keep your library safe and understand the update prompt.",
-    pages: ["settings"],
-    contexts: ["settings-tab:operations/backup-restore", "route:/settings/operations/backup-restore"],
-    order: 125,
-    slides: [
-      {
-        id: "backups",
-        title: "Back up your library",
-        caption:
-          "In Settings, open Operations → Backup & Restore. Create a database backup before big changes, and you can restore from one if something goes wrong. You can also export and import metadata here.",
-        imageSrc: "/manual/screenshots/backup-restore.png",
-        imageAlt: "The Backup & Restore settings with create and restore controls",
-        points: [
-          "[green] Create Database Backup, do this before risky changes",
-          "[blue] Restore Database, roll back to a saved backup",
-          "Export/Import Metadata moves library data in and out",
-        ],
-      },
-      {
-        id: "upgrades",
-        title: "When Cove needs to update",
-        caption:
-          "After an update, Cove may need to apply database changes before the library opens. You'll see a Database Update Required screen — it makes a backup first, then you click Run Migration.",
-        imageSrc: "/manual/screenshots/backup-restore-plain.png",
-        imageAlt: "The Backup & Restore settings, where backups are created before updates",
-        points: [
-          "A backup is created automatically before any migration runs",
-          "Run Migration, then Cove opens as usual",
-        ],
-      },
-    ],
-  },
-];
+export const builtinTutorialTopics: TutorialStoryboardTopic[] = sharedFeatureGuideTopics;
 
 export function hasCompletedTutorialStoryboard() {
   return localStorage.getItem(TUTORIAL_STORYBOARD_STORAGE_KEY) === "true";
@@ -1090,6 +189,7 @@ interface Props {
   currentPage?: string;
   extensionTopics?: ExtensionTutorialTopic[];
   onTopicChange?: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
 }
 
 export function TutorialStoryboardDialog({
@@ -1099,8 +199,10 @@ export function TutorialStoryboardDialog({
   currentPage,
   extensionTopics = [],
   onTopicChange,
+  onAppNavigate,
 }: Props) {
   const topics = useMemo(() => mergeTutorialTopics(extensionTopics), [extensionTopics]);
+  const availableTopicIds = useMemo(() => new Set(topics.map((topic) => topic.id)), [topics]);
   const topicEntries = useMemo(() => buildTopicEntries(topics), [topics]);
   const orderedTopicIds = useMemo(() => topicEntries.map((entry) => entry.topic.id), [topicEntries]);
   const parentByChild = useMemo(() => {
@@ -1117,9 +219,11 @@ export function TutorialStoryboardDialog({
   const [selectedTopicId, setSelectedTopicId] = useState(() => pickInitialTopicId(topics, request, currentPage));
   const [index, setIndex] = useState(0);
   const [search, setSearch] = useState("");
-  // Nested topics start collapsed. A parent counts as expanded when its id is in this
-  // set, or when it is on the path to the currently selected topic (so the active
-  // branch is always visible).
+  const [mobileTopicSearchOpen, setMobileTopicSearchOpen] = useState(false);
+  const mobileTopicSearchRef = useRef<HTMLDivElement>(null);
+  const articleScrollRef = useRef<HTMLDivElement>(null);
+  // Nested topics start collapsed. Selecting a child opens its ancestors, while the
+  // user can still collapse that branch without changing the selected article.
   const [expandedTopicIds, setExpandedTopicIds] = useState<Set<string>>(() => new Set());
 
   const selectedTopic = topics.find((topic) => topic.id === selectedTopicId) ?? topics[0];
@@ -1130,17 +234,44 @@ export function TutorialStoryboardDialog({
   const isVeryFirst = currentOrderIndex <= 0 && index === 0;
   const isVeryLast = currentOrderIndex === orderedTopicIds.length - 1 && isLast;
 
-  const selectedAncestors = useMemo(
-    () => new Set([selectedTopic.id, ...ancestorsOf(selectedTopic.id, parentByChild)]),
-    [selectedTopic.id, parentByChild],
-  );
-  const isTopicOpen = (topicId: string) => expandedTopicIds.has(topicId) || selectedAncestors.has(topicId);
+  const isTopicOpen = (topicId: string) => expandedTopicIds.has(topicId);
   const trimmedSearch = search.trim();
   const visibleEntries = trimmedSearch
     ? topicEntries.filter(({ topic }) => matchesTopicSearch(topic, trimmedSearch))
     : topicEntries.filter(({ topic }) =>
         ancestorsOf(topic.id, parentByChild).every((ancestorId) => isTopicOpen(ancestorId)),
       );
+  const mobileVisibleEntries = trimmedSearch
+    ? topicEntries.filter(({ topic }) => matchesTopicSearch(topic, trimmedSearch))
+    : topicEntries;
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open && articleScrollRef.current) {
+      articleScrollRef.current.scrollTop = 0;
+    }
+  }, [index, open, selectedTopicId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const topicIdsToOpen = ancestorsOf(selectedTopic.id, parentByChild);
+    if (parentIdsWithChildren.has(selectedTopic.id)) topicIdsToOpen.push(selectedTopic.id);
+    if (topicIdsToOpen.length === 0) return;
+    setExpandedTopicIds((current) => {
+      if (topicIdsToOpen.every((topicId) => current.has(topicId))) return current;
+      const next = new Set(current);
+      topicIdsToOpen.forEach((topicId) => next.add(topicId));
+      return next;
+    });
+  }, [open, parentByChild, parentIdsWithChildren, selectedTopic.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -1155,6 +286,7 @@ export function TutorialStoryboardDialog({
     setSelectedTopicId(nextTopic.id);
     setIndex(nextSlideIndex);
     setSearch("");
+    setMobileTopicSearchOpen(false);
   }, [currentPage, open, request, topics]);
 
   useEffect(() => {
@@ -1175,6 +307,18 @@ export function TutorialStoryboardDialog({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, selectedTopic.id, index, isLast, currentOrderIndex, orderedTopicIds]);
+
+  useEffect(() => {
+    if (!mobileTopicSearchOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !mobileTopicSearchRef.current?.contains(event.target)) {
+        setMobileTopicSearchOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [mobileTopicSearchOpen]);
 
   if (!open || !selectedTopic || !slide) return null;
 
@@ -1248,7 +392,7 @@ export function TutorialStoryboardDialog({
               <BookOpen className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted">Cove manual</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted">Cove User Guide</div>
               <h2 id="tutorial-storyboard-title" className="truncate text-base font-semibold text-foreground">
                 {selectedTopic.title}
               </h2>
@@ -1258,13 +402,13 @@ export function TutorialStoryboardDialog({
             type="button"
             onClick={markCompleteAndClose}
             className="rounded p-2 text-muted transition-colors hover:bg-surface hover:text-foreground"
-            title="Close manual"
+            title="Close User Guide"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[17rem_minmax(0,1.45fr)_minmax(18rem,0.55fr)]">
+        <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[18rem_minmax(0,1.45fr)_minmax(18rem,0.55fr)] xl:grid-cols-[22rem_minmax(0,1.45fr)_minmax(18rem,0.55fr)]">
           <aside className="hidden min-h-0 flex-col border-r border-border bg-nav/40 p-3 lg:flex">
             <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted">Topics</div>
             <div className="relative mb-2">
@@ -1274,7 +418,7 @@ export function TutorialStoryboardDialog({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search topics"
-                aria-label="Search manual topics"
+                aria-label="Search User Guide topics"
                 className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
               />
             </div>
@@ -1311,7 +455,9 @@ export function TutorialStoryboardDialog({
                         data-topic-depth={depth}
                         className={`min-w-0 flex-1 rounded-lg px-3 py-2 text-left transition-colors ${topic.id === selectedTopic.id ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"}`}
                       >
-                        <span className="block truncate text-sm font-medium">{topic.title}</span>
+                        <span className="block whitespace-normal break-words text-sm font-medium leading-5">
+                          {topic.title}
+                        </span>
                         {topic.description ? (
                           <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{topic.description}</span>
                         ) : null}
@@ -1326,23 +472,84 @@ export function TutorialStoryboardDialog({
             </div>
           </aside>
 
-          <div className="min-h-0 overflow-y-auto bg-black/20 p-4 sm:p-6">
-            <div className="mb-3 flex gap-1.5 lg:hidden">
-              <select
-                value={selectedTopic.id}
-                onChange={(event) => chooseTopic(event.target.value)}
-                className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground"
-                aria-label="Tutorial topic"
-              >
-                {topicEntries.map(({ topic, depth }) => (
-                  <option key={topic.id} value={topic.id}>{`${"  ".repeat(depth)}${topic.title}`}</option>
-                ))}
-              </select>
+          <div
+            ref={articleScrollRef}
+            role="region"
+            aria-label="User Guide article"
+            className={`min-h-0 overflow-y-auto bg-black/20 p-4 sm:p-6 ${slide.guideArticle ? "lg:col-span-2" : ""}`}
+          >
+            <div
+              ref={mobileTopicSearchRef}
+              className="mb-3 space-y-2 lg:hidden"
+              onBlur={(event) => {
+                if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) {
+                  setMobileTopicSearchOpen(false);
+                }
+              }}
+            >
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onFocus={() => setMobileTopicSearchOpen(true)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setMobileTopicSearchOpen(false);
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  placeholder="Search topics"
+                  aria-label="Search User Guide topics on mobile"
+                  aria-expanded={mobileTopicSearchOpen}
+                  aria-controls="mobile-topic-search-results"
+                  className="w-full rounded-lg border border-border bg-input py-2 pl-8 pr-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+              {mobileTopicSearchOpen ? (
+                <div
+                  id="mobile-topic-search-results"
+                  className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-input p-1"
+                  role="region"
+                  aria-label="Mobile topic search results"
+                >
+                  {mobileVisibleEntries.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted">No topics match “{trimmedSearch}”.</div>
+                  ) : (
+                    mobileVisibleEntries.map(({ topic }) => (
+                      <button
+                        key={topic.id}
+                        type="button"
+                        onClick={() => {
+                          setSearch("");
+                          setMobileTopicSearchOpen(false);
+                          chooseTopic(topic.id);
+                        }}
+                        className={`block w-full rounded-lg px-3 py-2 text-left transition-colors ${topic.id === selectedTopic.id ? "bg-accent/15 text-accent" : "text-secondary hover:bg-card hover:text-foreground"}`}
+                      >
+                        <span className="block text-sm font-medium">{topic.title}</span>
+                        {topic.description ? (
+                          <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{topic.description}</span>
+                        ) : null}
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
             </div>
-            <StoryboardPreview slide={slide} />
+            <StoryboardPreview
+              slide={slide}
+              onChooseTopic={chooseTopic}
+              onAppNavigate={onAppNavigate}
+              availableTopicIds={availableTopicIds}
+            />
           </div>
 
-          <aside className="flex min-h-0 flex-col overflow-y-auto border-t border-border p-4 lg:border-l lg:border-t-0 sm:p-6">
+          <aside
+            aria-hidden={slide.guideArticle ? true : undefined}
+            className={`${slide.guideArticle ? "hidden" : "flex"} min-h-0 flex-col overflow-y-auto border-t border-border p-4 lg:border-l lg:border-t-0 sm:p-6`}
+          >
             <div className="text-xs font-semibold uppercase tracking-wide text-muted">{progressLabel}</div>
             <h3 className="mt-2 text-xl font-semibold text-foreground">{slide.title}</h3>
             {slide.caption ? <p className="mt-3 text-sm leading-6 text-secondary">{slide.caption}</p> : null}
@@ -1521,7 +728,8 @@ function matchesTopicSearch(topic: TutorialStoryboardTopic, query: string): bool
     (slide) =>
       slide.title.toLowerCase().includes(needle) ||
       slide.caption?.toLowerCase().includes(needle) ||
-      slide.points?.some((point) => point.toLowerCase().includes(needle)),
+      slide.points?.some((point) => point.toLowerCase().includes(needle)) ||
+      (slide.guideArticle && JSON.stringify(slide.guideArticle).toLowerCase().includes(needle)),
   );
 }
 
@@ -1665,9 +873,36 @@ function normalizeManualContexts(contexts?: string[]) {
   return uniqueManualContexts(contexts ?? []);
 }
 
+const legacyTopicAliases: Record<string, string> = {
+  "content-types": "media-types",
+  "content-images": "media-types",
+  "content-galleries": "media-types",
+  "content-audio": "media-types",
+  "content-texts": "media-types",
+  tagging: "organizing",
+  groups: "dynamic-groups",
+  segments: "segments-and-compilations",
+  "segments-raw-derived": "segments-and-compilations",
+  "segments-display-profiles": "segments-and-compilations",
+  "segments-compilations": "segments-and-compilations",
+  search: "search-and-filters",
+  downloaders: "providers-scrapers-downloaders",
+  metadata: "providers-scrapers-downloaders",
+  "metadata-scrapers": "providers-scrapers-downloaders",
+  "metadata-servers": "providers-scrapers-downloaders",
+  "metadata-tagger": "providers-scrapers-downloaders",
+  security: "users-roles-permissions",
+  "security-users": "users-roles-permissions",
+  "security-roles-permissions": "users-roles-permissions",
+  "security-content-rules": "users-roles-permissions",
+  "security-sharing": "users-roles-permissions",
+  "backups-upgrades": "backups-migrations-upgrades",
+};
+
 function pickInitialTopicId(topics: TutorialStoryboardTopic[], request?: TutorialOpenRequest, currentPage?: string) {
-  if (request?.topicId && topics.some((topic) => topic.id === request.topicId)) {
-    return request.topicId;
+  const requestedTopicId = request?.topicId ? (legacyTopicAliases[request.topicId] ?? request.topicId) : undefined;
+  if (requestedTopicId && topics.some((topic) => topic.id === requestedTopicId)) {
+    return requestedTopicId;
   }
 
   const contextTopicId = pickTopicIdForContexts(topics, request, currentPage);
@@ -1765,7 +1000,29 @@ function SlideImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
-function StoryboardPreview({ slide }: { slide: TutorialStoryboardSlide }) {
+function StoryboardPreview({
+  slide,
+  onChooseTopic,
+  onAppNavigate,
+  availableTopicIds,
+}: {
+  slide: TutorialStoryboardSlide;
+  onChooseTopic: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
+  availableTopicIds: ReadonlySet<string>;
+}) {
+  if (slide.guideArticle) {
+    return (
+      <SharedFeatureGuideArticle
+        title={slide.title}
+        article={slide.guideArticle}
+        onChooseTopic={onChooseTopic}
+        onAppNavigate={onAppNavigate}
+        availableTopicIds={availableTopicIds}
+      />
+    );
+  }
+
   if (slide.imageSrc) {
     return <SlideImage src={slide.imageSrc} alt={slide.imageAlt ?? slide.title} />;
   }
@@ -1818,6 +1075,222 @@ function StoryboardPreview({ slide }: { slide: TutorialStoryboardSlide }) {
       </div>
     </div>
   );
+}
+
+function SharedFeatureGuideBlocks({
+  blocks,
+  keyPrefix,
+  onChooseTopic,
+  onAppNavigate,
+  availableTopicIds,
+}: {
+  blocks: SharedFeatureGuideBlock[] | SharedFeatureGuideContentBlock[];
+  keyPrefix: string;
+  onChooseTopic: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
+  availableTopicIds: ReadonlySet<string>;
+}) {
+  return blocks.map((block, index) => {
+    const key = `${keyPrefix}:${index}`;
+    if (block.type === "paragraph") return <p key={key}>{block.text}</p>;
+    if (block.type === "steps") {
+      return (
+        <ol key={key} className="list-decimal space-y-2 pl-6">
+          {block.items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ol>
+      );
+    }
+    if (block.type === "heading") {
+      return block.level === 4 ? (
+        <h6 key={key} className="pt-2 text-base font-semibold text-foreground">
+          {block.text}
+        </h6>
+      ) : (
+        <h5 key={key} className="pt-2 text-lg font-semibold text-foreground">
+          {block.text}
+        </h5>
+      );
+    }
+    if (block.type === "list") {
+      return (
+        <ul key={key} className="list-disc space-y-2 pl-6">
+          {block.items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      );
+    }
+    if (block.type === "links") {
+      return (
+        <div key={key} className="flex flex-wrap gap-2">
+          {block.items.map((item) => {
+            const appHref = resolveInAppRouteHref(item.appHref);
+            return item.topicId && availableTopicIds.has(item.topicId) ? (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => onChooseTopic(item.topicId!, item.slideId)}
+                className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-accent transition-colors hover:border-accent"
+              >
+                {item.label}
+              </button>
+            ) : (
+              <a
+                key={item.label}
+                href={appHref ?? resolveInAppGuideHref(item.href)}
+                target={appHref ? undefined : "_blank"}
+                rel={appHref ? undefined : "noopener noreferrer"}
+                onClick={
+                  appHref && onAppNavigate
+                    ? (event) => {
+                        event.preventDefault();
+                        onAppNavigate(appHref);
+                      }
+                    : undefined
+                }
+                className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-accent transition-colors hover:border-accent"
+              >
+                {item.label}
+              </a>
+            );
+          })}
+        </div>
+      );
+    }
+    if (block.type === "note") {
+      return (
+        <aside key={key} className="rounded-r-lg border-l-4 border-accent bg-accent/10 px-4 py-3">
+          {block.text}
+        </aside>
+      );
+    }
+    if (block.type === "image") {
+      return (
+        <figure key={key} className="overflow-hidden rounded-lg border border-border bg-card">
+          <img src={block.src} alt={block.alt} className="mx-auto block h-auto max-w-full" />
+          {block.caption ? <figcaption className="px-4 py-3 text-sm text-muted">{block.caption}</figcaption> : null}
+        </figure>
+      );
+    }
+    if (block.type === "table") {
+      return (
+        <div key={key} className="overflow-x-auto rounded-lg border border-border">
+          <table className="min-w-[38rem] border-collapse text-left text-sm">
+            {block.caption ? (
+              <caption className="px-4 py-3 text-left font-semibold text-foreground">{block.caption}</caption>
+            ) : null}
+            <thead className="bg-card text-foreground">
+              <tr>
+                {block.columns.map((column) => (
+                  <th key={column} scope="col" className="border-b border-border px-4 py-3 font-semibold">
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, rowIndex) => (
+                <tr key={`${key}:row:${rowIndex}`} className="border-b border-border last:border-b-0">
+                  {row.map((cell, cellIndex) => (
+                    <td key={`${key}:cell:${rowIndex}:${cellIndex}`} className="px-4 py-3 align-top">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+    if (block.type === "code") {
+      return (
+        <pre
+          key={key}
+          className="overflow-x-auto rounded-lg border border-border bg-card p-4 text-xs text-foreground sm:text-sm"
+        >
+          <code>{block.lines.join("\n")}</code>
+        </pre>
+      );
+    }
+    if (block.type === "recipes") {
+      return (
+        <ul key={key} aria-label="Recipes" className="list-none space-y-3 p-0">
+          {block.items.map((recipe) => (
+            <li key={recipe.id}>
+              <details className="group overflow-hidden rounded-lg border border-border bg-card/50 open:bg-card">
+                <summary className="cursor-pointer px-4 py-3 text-foreground marker:text-accent hover:bg-card">
+                  <span className="font-semibold">{recipe.title}</span>
+                  {recipe.description ? (
+                    <span className="mt-1 block text-sm font-normal text-muted">{recipe.description}</span>
+                  ) : null}
+                </summary>
+                <div className="space-y-4 border-t border-border px-4 py-4">
+                  <SharedFeatureGuideBlocks
+                    blocks={recipe.blocks}
+                    keyPrefix={`${key}:${recipe.id}`}
+                    onChooseTopic={onChooseTopic}
+                    onAppNavigate={onAppNavigate}
+                    availableTopicIds={availableTopicIds}
+                  />
+                </div>
+              </details>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    return null;
+  });
+}
+
+function SharedFeatureGuideArticle({
+  title,
+  article,
+  onChooseTopic,
+  onAppNavigate,
+  availableTopicIds,
+}: {
+  title: string;
+  article: SharedFeatureGuideArticle;
+  onChooseTopic: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
+  availableTopicIds: ReadonlySet<string>;
+}) {
+  return (
+    <article className="mx-auto max-w-4xl rounded-xl border border-border bg-background p-5 shadow-xl sm:p-8">
+      <h3 className="text-2xl font-semibold text-foreground sm:text-3xl">{title}</h3>
+      <p className="mt-3 text-base leading-7 text-secondary">{article.description}</p>
+      <div className="mt-8 space-y-10">
+        {article.sections.map((section) => (
+          <section key={section.id} aria-labelledby={`manual-guide-${section.id}`}>
+            <h4 id={`manual-guide-${section.id}`} className="text-xl font-semibold text-foreground">
+              {section.title}
+            </h4>
+            <div className="mt-3 space-y-4 text-sm leading-6 text-secondary sm:text-base sm:leading-7">
+              <SharedFeatureGuideBlocks
+                blocks={section.blocks}
+                keyPrefix={section.id}
+                onChooseTopic={onChooseTopic}
+                onAppNavigate={onAppNavigate}
+                availableTopicIds={availableTopicIds}
+              />
+            </div>
+          </section>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function resolveInAppGuideHref(href: string) {
+  return href.startsWith("/docs/") ? `https://yourcove.net${href}` : href;
+}
+
+function resolveInAppRouteHref(href: string | undefined) {
+  return href?.startsWith("/") && !href.startsWith("//") ? href : undefined;
 }
 
 function TasksMock() {

@@ -87,6 +87,7 @@ import {
   readDerivedSpanQueryFilter,
 } from "./segments/derivedQueryCriterion";
 import { readMultiIdCriterionDepth, readMultiIdCriterionIds } from "./segments/segmentCriteriaDefinitions";
+import { isApiNotFoundError } from "../utils/queryLoadState";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -267,7 +268,7 @@ function cloneJsonConfiguration(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
 }
 
-function contentToWidget(content: FrontPageContent): DashboardWidget {
+function contentToWidget(content: FrontPageContent, savedFilterName?: string): DashboardWidget {
   if (content.type === "continueWatching") {
     return {
       instanceId: createInstanceId(),
@@ -279,11 +280,17 @@ function contentToWidget(content: FrontPageContent): DashboardWidget {
     };
   }
   if (content.type === "saved") {
+    const normalizedSavedFilterName = savedFilterName?.trim();
+    const identifyingSuffix = `… #${content.savedFilterId}`;
+    const widgetLabel =
+      normalizedSavedFilterName && normalizedSavedFilterName.length > 200
+        ? `${normalizedSavedFilterName.slice(0, 200 - identifyingSuffix.length).trimEnd()}${identifyingSuffix}`
+        : normalizedSavedFilterName;
     return {
       instanceId: createInstanceId(),
       owner: "cove.core",
       widgetKey: "collection",
-      label: "Saved filter",
+      label: widgetLabel || `Saved filter #${content.savedFilterId}`,
       configuration: { source: "saved", savedFilterId: content.savedFilterId },
       presentation: FLOW_PRESENTATION,
     };
@@ -337,7 +344,7 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   const { user } = useAuth();
   const [editingDashboard, setEditingDashboard] = useState<{ id: number; selectName: boolean } | null>(null);
   const principalKey = user ? `${user.kind}:${user.id}` : "anonymous";
-  const legacyWidgets = useMemo(() => loadContent().map(contentToWidget), [principalKey]);
+  const legacyWidgets = useMemo(() => loadContent().map((content) => contentToWidget(content)), [principalKey]);
   const dashboardQuery = useQuery({
     queryKey: ["dashboard-page", principalKey, dashboardId ?? "default"],
     queryFn: async () => {
@@ -427,6 +434,30 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
   }
 
   const presentation = dashboard.widgets.length === 1 ? getWidgetPresentation(dashboard.widgets[0]) : FLOW_PRESENTATION;
+  const removeWidget = async (instanceId: string) => {
+    const updateWithoutWidget = (current: Dashboard) =>
+      dashboards.update(current.id, {
+        name: current.name,
+        expectedVersion: current.version,
+        widgets: current.widgets.filter((candidate) => candidate.instanceId !== instanceId),
+      });
+
+    try {
+      await updateWithoutWidget(dashboard);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("DASHBOARD_VERSION_CONFLICT")) throw error;
+      const current = await dashboards.get(dashboard.id);
+      if (current.widgets.some((candidate) => candidate.instanceId === instanceId)) {
+        try {
+          await updateWithoutWidget(current);
+        } catch (retryError) {
+          await refresh();
+          throw retryError;
+        }
+      }
+    }
+    await refresh();
+  };
   return (
     <div className={presentation === "canvas" ? "space-y-3" : "space-y-5"} data-dashboard-presentation={presentation}>
       <DashboardHeader
@@ -449,6 +480,13 @@ export function HomePage({ onNavigate, dashboardId }: Props) {
             principalKey={principalKey}
             widget={widget}
             onNavigate={onNavigate}
+            onRemove={
+              readOnly
+                ? undefined
+                : async () => {
+                    await removeWidget(widget.instanceId);
+                  }
+            }
           />
         ))}
         {dashboard.widgets.length === 0 && readOnly ? (
@@ -578,12 +616,14 @@ function DashboardWidgetHost({
   principalKey,
   widget,
   onNavigate,
+  onRemove,
   editing = false,
 }: {
   dashboardId: number;
   principalKey: string;
   widget: DashboardWidget;
   onNavigate: (route: any) => void;
+  onRemove?: () => Promise<void>;
   editing?: boolean;
 }) {
   const content = widgetToContent(widget);
@@ -593,7 +633,14 @@ function DashboardWidgetHost({
         {content.type === "continueWatching" ? (
           <ContinueWatchingRow principalKey={principalKey} onNavigate={onNavigate} />
         ) : (
-          <RecommendationRow principalKey={principalKey} content={content} onNavigate={onNavigate} editing={editing} />
+          <RecommendationRow
+            principalKey={principalKey}
+            content={content}
+            savedFilterLabel={widget.label}
+            onNavigate={onNavigate}
+            onRemove={onRemove}
+            editing={editing}
+          />
         )}
       </div>
     );
@@ -684,6 +731,48 @@ function WidgetLoadError({ label, error, onRetry }: { label: string; error: unkn
         <RotateCcw className="mr-1 inline h-4 w-4" />
         Retry
       </button>
+    </div>
+  );
+}
+
+function MissingSavedFilterWidget({ label, onRemove }: { label: string; onRemove?: () => Promise<void> }) {
+  const [removing, setRemoving] = useState(false);
+  const [removeFailed, setRemoveFailed] = useState(false);
+
+  const remove = async () => {
+    if (!onRemove || removing) return;
+    setRemoving(true);
+    setRemoveFailed(false);
+    try {
+      await onRemove();
+    } catch {
+      setRemoveFailed(true);
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <div
+      role="alert"
+      className="flex min-h-24 flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3"
+    >
+      <div>
+        <p className="font-medium text-foreground">{label} is unavailable</p>
+        <p className="text-xs text-muted">The saved filter was deleted.</p>
+        {removeFailed ? <p className="mt-1 text-xs text-red-300">The widget could not be removed. Try again.</p> : null}
+      </div>
+      {onRemove ? (
+        <button
+          type="button"
+          disabled={removing}
+          onClick={() => void remove()}
+          aria-label={`Remove ${label}`}
+          className="rounded border border-red-400/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+        >
+          <Trash2 className="mr-1 inline h-4 w-4" />
+          {removing ? "Removing…" : "Remove"}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1317,7 +1406,7 @@ function WidgetCatalog({
       label: filter.name,
       description: hasCanvasWidget ? flowConflictDescription : `Saved filter · ${filter.mode}`,
       disabled: disabled || hasCanvasWidget,
-      onClick: () => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id })),
+      onClick: () => onAdd(contentToWidget({ type: "saved", savedFilterId: filter.id }, filter.name)),
     }))
     .filter((item) => matchesSearch(item.label, item.description));
   const extensionItems = extensionDefinitions
@@ -1733,12 +1822,16 @@ function ContinueWatchingCard({
 function RecommendationRow({
   principalKey,
   content,
+  savedFilterLabel,
   onNavigate,
+  onRemove,
   editing = false,
 }: {
   principalKey: string;
   content: FrontPageContent;
+  savedFilterLabel?: string;
   onNavigate: (r: any) => void;
+  onRemove?: () => Promise<void>;
   editing?: boolean;
 }) {
   if (content.type === "continueWatching") {
@@ -1749,7 +1842,9 @@ function RecommendationRow({
       <SavedFilterRecommendationRow
         principalKey={principalKey}
         savedFilterId={content.savedFilterId}
+        fallbackLabel={savedFilterLabel}
         onNavigate={onNavigate}
+        onRemove={onRemove}
         editing={editing}
       />
     );
@@ -1836,14 +1931,23 @@ function CustomFilterRecommendationRow({ filter, onNavigate }: { filter: CustomF
 function SavedFilterRecommendationRow({
   principalKey,
   savedFilterId,
+  fallbackLabel,
   onNavigate,
+  onRemove,
   editing = false,
 }: {
   principalKey: string;
   savedFilterId: number;
+  fallbackLabel?: string;
   onNavigate: (r: any) => void;
+  onRemove?: () => Promise<void>;
   editing?: boolean;
 }) {
+  const normalizedFallbackLabel = fallbackLabel?.trim();
+  const errorLabel =
+    normalizedFallbackLabel && normalizedFallbackLabel !== "Saved filter"
+      ? normalizedFallbackLabel
+      : `Saved filter #${savedFilterId}`;
   const filterQuery = useQuery({
     queryKey: ["saved-filter", principalKey, savedFilterId],
     queryFn: () => savedFilters.get(savedFilterId),
@@ -2008,10 +2112,13 @@ function SavedFilterRecommendationRow({
     engagementHostType ?? "video",
     engagementHostType ? items.map((item: any) => item.id) : [],
   );
+  if (isApiNotFoundError(filterQuery.error)) {
+    return <MissingSavedFilterWidget label={errorLabel} onRemove={onRemove} />;
+  }
   if (filterQuery.isError)
     return (
       <WidgetLoadError
-        label="Saved filter"
+        label={errorLabel}
         error={filterQuery.error}
         onRetry={() => {
           void filterQuery.refetch();

@@ -18,3 +18,13 @@ export function orderDetailTabsByMenuItems<T extends { key: string }>(
     })
     .map(({ tab }) => tab);
 }
+
+export function getFirstDetailTabByMenuItems<T extends string>(
+  tabKeys: readonly T[],
+  menuItems: readonly string[] | null | undefined,
+): T | undefined {
+  return orderDetailTabsByMenuItems(
+    tabKeys.map((key) => ({ key })),
+    menuItems,
+  )[0]?.key;
+}

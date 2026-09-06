@@ -7,6 +7,8 @@ COPY ui/ ./
 RUN mkdir -p /build/src/Cove.Api/wwwroot
 # Changelog lives at repo root and is imported by the UI build (src/data/changelog.ts).
 COPY CHANGELOG.md /build/CHANGELOG.md
+# Shared feature guides are consumed by both the UI manual and documentation site.
+COPY docs/feature-guides/ /build/docs/feature-guides/
 RUN npm run build
 
 # ── Stage 2: Restore backend projects ─────────────────────────────

@@ -111,10 +111,10 @@ export function createPageManualContexts(currentPage: string, activePage: string
     }
   }
 
-  contexts.push(`page:${activePage}`);
   if (currentPage !== activePage) {
     contexts.push(`page:${currentPage}`);
   }
+  contexts.push(`page:${activePage}`);
 
   return uniqueManualContexts(contexts);
 }

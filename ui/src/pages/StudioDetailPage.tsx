@@ -110,7 +110,7 @@ import {
   useRelatedDetailListUrlState,
 } from "../hooks/useDetailListUrlState";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
-import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -157,7 +157,12 @@ export function StudioDetailPage({ id, onNavigate }: Props) {
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const opsMenuRef = useRef<HTMLDivElement>(null);
-  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>(
+    getFirstDetailTabByMenuItems(
+      ["videos", "performers", "galleries", "images", "audios", "texts", "studios", "groups"],
+      config?.interface?.menuItems,
+    ) ?? "videos",
+  );
   const [includeSubStudios, setIncludeSubStudios] = useDetailBooleanUrlState("includeSubStudios");
   const { data: recursiveStudio } = useQuery({
     queryKey: ["studio", id, "depth", -1],
