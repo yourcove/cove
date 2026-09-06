@@ -9,7 +9,7 @@ const { mockConfig, mockPerformers, mockPageState } = vi.hoisted(() => ({
     get: vi.fn(),
   },
   mockPageState: {
-    activeTab: "extension-test",
+    activeTab: undefined as string | undefined,
     setFavorite: vi.fn(),
   },
 }));
@@ -48,7 +48,10 @@ vi.mock("../components/useExtensionTabs", () => ({
 }));
 
 vi.mock("../hooks/useDetailListUrlState", () => ({
-  useDetailTabUrlState: () => ({ activeTab: mockPageState.activeTab, setActiveTab: vi.fn() }),
+  useDetailTabUrlState: (defaultTab: string) => ({
+    activeTab: mockPageState.activeTab ?? defaultTab,
+    setActiveTab: vi.fn(),
+  }),
   useRelatedDetailListUrlState: () => ({
     filter: {},
     setFilter: vi.fn(),
@@ -138,7 +141,7 @@ describe("PerformerDetailPage load state", () => {
     vi.clearAllMocks();
     mockPerformers.get.mockReset();
     mockConfig.current = { ui: {} };
-    mockPageState.activeTab = "extension-test";
+    mockPageState.activeTab = undefined;
   });
 
   it("shows a retryable load error and recovers", async () => {
@@ -204,5 +207,20 @@ describe("PerformerDetailPage load state", () => {
       "Appears With",
       "Similar",
     ]);
+    expect(screen.getByRole("tab", { name: "Videos" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("selects the first tab in the configured main menu order by default", async () => {
+    mockConfig.current = {
+      ui: {},
+      interface: {
+        menuItems: ["images", "galleries", "videos", "audios", "texts", "groups", "faces"],
+      },
+    };
+    mockPerformers.get.mockResolvedValue(buildPerformer());
+
+    renderPage();
+
+    expect(await screen.findByRole("tab", { name: "Images" })).toHaveAttribute("aria-selected", "true");
   });
 });

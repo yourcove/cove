@@ -5,6 +5,7 @@ import {
   navigateToUrl,
   parseCurrentRoute,
   registerNavigationBlocker,
+  resolveContextualDetailRoute,
   syncRouteHistory,
 } from "../router/location";
 
@@ -50,6 +51,41 @@ describe("route history", () => {
     });
 
     expect(buildRouteUrl({ page: "video", id: 42, seekTo: 91.5 })).toBe("/video/42?t=91.5");
+  });
+
+  it.each([
+    ["video", "videos"],
+    ["videos", "videos"],
+    ["gallery", "galleries"],
+    ["galleries", "galleries"],
+    ["image", "images"],
+    ["images", "images"],
+    ["audio", "audios"],
+    ["audios", "audios"],
+    ["text", "texts"],
+    ["texts", "texts"],
+  ])("opens related entity detail pages on the %s source tab", (sourcePage, detailTab) => {
+    expect(resolveContextualDetailRoute({ page: "performer", id: 7 }, sourcePage)).toEqual({
+      page: "performer",
+      id: 7,
+      detailTab,
+    });
+  });
+
+  it("preserves an explicit detail tab over the source context", () => {
+    expect(resolveContextualDetailRoute({ page: "performer", id: 7, detailTab: "faces" }, "gallery")).toEqual({
+      page: "performer",
+      id: 7,
+      detailTab: "faces",
+    });
+  });
+
+  it("serializes and parses an entity detail tab", () => {
+    const url = buildRouteUrl({ page: "performer", id: 7, detailTab: "galleries" });
+
+    expect(url).toBe("/performer/7?tab=galleries");
+    window.history.replaceState(null, "", url);
+    expect(parseCurrentRoute()).toEqual({ page: "performer", id: 7, detailTab: "galleries" });
   });
 
   it("parses and rebuilds parameterized extension page routes", () => {
