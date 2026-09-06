@@ -1,5 +1,5 @@
 import { Settings, BarChart3, Activity, HelpCircle, Menu, X } from "lucide-react";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { JobDrawer, useJobCount } from "./JobDrawer";
 import { GlobalSearch } from "./GlobalSearch";
 import { useRouteRegistry } from "../router/RouteRegistry";
@@ -45,6 +45,8 @@ function shouldHandleClientNavigation(event: MouseEvent<HTMLAnchorElement>) {
 export function Navbar({ currentPage, navigate }: NavbarProps) {
   const [jobDrawerOpen, setJobDrawerOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const jobCount = useJobCount();
   const { routes } = useRouteRegistry();
   const { config } = useAppConfig();
@@ -78,6 +80,20 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
     .sort((a, b) => a.order - b.order);
   const canViewStats = hasPermission("system.read");
   const canViewSettings = !authEnabled || !!user;
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    const handleClick = (event: globalThis.MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (mobileMenuToggleRef.current?.contains(target) || mobileMenuRef.current?.contains(target)) return;
+      setMobileMenuOpen(false);
+    };
+
+    document.addEventListener("click", handleClick, true);
+    return () => document.removeEventListener("click", handleClick, true);
+  }, [mobileMenuOpen]);
 
   // Build ordered nav: if menuItems specifies order, use it; otherwise fall back to default
   const allItemsMap = new Map<
@@ -137,6 +153,7 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
 
           {/* Hamburger button - mobile only */}
           <button
+            ref={mobileMenuToggleRef}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="navbar-mobile-toggle p-2 rounded text-secondary hover:text-foreground mr-2"
             aria-expanded={mobileMenuOpen}
@@ -219,7 +236,7 @@ export function Navbar({ currentPage, navigate }: NavbarProps) {
       <JobDrawer open={jobDrawerOpen} onClose={() => setJobDrawerOpen(false)} onNavigate={navigate} />
       {/* Mobile dropdown menu */}
       {mobileMenuOpen && (
-        <div className="navbar-mobile-menu bg-nav border-t border-border shadow-lg">
+        <div ref={mobileMenuRef} className="navbar-mobile-menu bg-nav border-t border-border shadow-lg">
           <div className="px-4 py-2 space-y-1">
             {allNavItems.map(({ page, label, icon: Icon }) => (
               <button
