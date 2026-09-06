@@ -1,6 +1,6 @@
 import type { MouseEventHandler } from "react";
 import type { Route } from "../router/location";
-import { buildRouteUrl, navigateToUrl } from "../router/location";
+import { buildRouteUrl, navigateToUrl, resolveContextualDetailRoute } from "../router/location";
 
 function isPlainPrimaryClick(event: {
   button: number;
@@ -46,9 +46,10 @@ export function createRouteLinkProps<T extends HTMLAnchorElement>(
   href: string;
   onClick: MouseEventHandler<T>;
 } {
+  const contextualRoute = resolveContextualDetailRoute(route);
   return {
-    href: buildRouteUrl(route),
-    onClick: createRouteLinkClickHandler<T>(route, onDefault),
+    href: buildRouteUrl(contextualRoute),
+    onClick: createRouteLinkClickHandler<T>(contextualRoute, onDefault),
   };
 }
 
@@ -59,8 +60,9 @@ export function createNestedRouteLinkProps<T extends HTMLAnchorElement>(
   href: string;
   onClick: MouseEventHandler<T>;
 } {
+  const contextualRoute = resolveContextualDetailRoute(route);
   return {
-    href: buildRouteUrl(route),
-    onClick: createRouteLinkClickHandler<T>(route, onDefault, { stopPropagation: true }),
+    href: buildRouteUrl(contextualRoute),
+    onClick: createRouteLinkClickHandler<T>(contextualRoute, onDefault, { stopPropagation: true }),
   };
 }

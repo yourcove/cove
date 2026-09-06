@@ -130,6 +130,7 @@ export function useDetailTabUrlState<TTab extends string>(defaultTab: TTab) {
 
   useEffect(() => {
     const applyUrlTab = () => setActiveTabState(readTab(defaultTab) as TTab);
+    applyUrlTab();
     window.addEventListener("popstate", applyUrlTab);
     window.addEventListener(LOCATION_CHANGE_EVENT, applyUrlTab);
     return () => {

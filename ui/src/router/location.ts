@@ -10,6 +10,7 @@ export interface Route {
   slug?: string;
   seekTo?: number;
   videoTab?: string;
+  detailTab?: string;
   spanKey?: string;
   profileId?: number;
   derivedQueryDescriptor?: SegmentDerivedQueryDescriptor;
@@ -95,6 +96,35 @@ export function parseCurrentRoute(): Route {
   return parsePath(window.location.pathname, window.location.search);
 }
 
+const DETAIL_TAB_BY_SOURCE_PAGE: Record<string, string> = {
+  video: "videos",
+  videos: "videos",
+  gallery: "galleries",
+  galleries: "galleries",
+  image: "images",
+  images: "images",
+  audio: "audios",
+  audios: "audios",
+  text: "texts",
+  texts: "texts",
+};
+
+const DETAIL_TABS_BY_TARGET_PAGE: Record<string, ReadonlySet<string>> = {
+  performer: new Set(["videos", "galleries", "images", "audios", "texts"]),
+  studio: new Set(["videos", "galleries", "images", "audios", "texts"]),
+  tag: new Set(["videos", "galleries", "images", "audios", "texts"]),
+  gallery: new Set(["videos", "images"]),
+};
+
+export function resolveContextualDetailRoute(route: Route, sourcePage: string = parseCurrentRoute().page): Route {
+  if (route.detailTab) return route;
+
+  const detailTab = DETAIL_TAB_BY_SOURCE_PAGE[sourcePage];
+  if (!detailTab || !DETAIL_TABS_BY_TARGET_PAGE[route.page]?.has(detailTab)) return route;
+
+  return { ...route, detailTab };
+}
+
 function readCurrentStateRoute(): Route | undefined {
   return isRouteState(window.history.state) ? window.history.state : undefined;
 }
@@ -156,6 +186,9 @@ export function buildRouteUrl(route: Route): string {
   }
   if (route.segmentsView === "raw") {
     params.set("segmentsView", "raw");
+  }
+  if (route.detailTab) {
+    params.set("tab", route.detailTab);
   }
   if (route.seekTo != null && Number.isFinite(route.seekTo) && route.seekTo >= 0) {
     params.set("t", String(route.seekTo));
@@ -385,7 +418,12 @@ function applyRouteSearch(route: Route, search?: string): Route {
   const params = new URLSearchParams(search);
   const profileParam = params.get("profile");
   const seekParam = params.get("t");
+  const detailTab = params.get("tab");
   let nextRoute = route;
+
+  if (detailTab) {
+    nextRoute = { ...nextRoute, detailTab };
+  }
 
   if (profileParam != null) {
     const profileId = Number(profileParam);

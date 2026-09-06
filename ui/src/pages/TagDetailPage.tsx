@@ -136,7 +136,7 @@ import { STUDIO_SORT_OPTIONS } from "../components/studioSortOptions";
 import { GROUP_SORT_OPTIONS } from "../components/groupSortOptions";
 import { RAW_SEGMENT_SORT_OPTIONS } from "../components/segmentSortOptions";
 import { getLoadError, isApiNotFoundError } from "../utils/queryLoadState";
-import { orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
+import { getFirstDetailTabByMenuItems, orderDetailTabsByMenuItems } from "../utils/detailTabOrder";
 
 const PERFORMER_SORT = PERFORMER_SORT_OPTIONS;
 const IMAGE_SORT = IMAGE_SORT_OPTIONS;
@@ -183,7 +183,12 @@ export function TagDetailPage({ id, onNavigate }: Props) {
   const [metadataTaggerOpen, setMetadataTaggerOpen] = useState(false);
   const [showOpsMenu, setShowOpsMenu] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
-  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>("videos");
+  const { activeTab, setActiveTab } = useDetailTabUrlState<TabKey>(
+    getFirstDetailTabByMenuItems(
+      ["videos", "performers", "images", "galleries", "audios", "texts", "segments", "studios", "groups"],
+      config?.interface?.menuItems,
+    ) ?? "videos",
+  );
   const [includeSubTags, setIncludeSubTags] = useDetailBooleanUrlState("includeSubTags");
   const { data: recursiveTag } = useQuery({
     queryKey: ["tag", id, "depth", -1],

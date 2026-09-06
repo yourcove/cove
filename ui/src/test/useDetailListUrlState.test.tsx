@@ -39,8 +39,8 @@ function DetailListProbe({ stateKey = "videos" }: { stateKey?: string }) {
   );
 }
 
-function TabProbe() {
-  const { activeTab, setActiveTab } = useDetailTabUrlState<"videos" | "galleries">("videos");
+function TabProbe({ defaultTab = "videos" }: { defaultTab?: "videos" | "galleries" }) {
+  const { activeTab, setActiveTab } = useDetailTabUrlState<"videos" | "galleries">(defaultTab);
   return (
     <div>
       <div data-testid="tab">{activeTab}</div>
@@ -141,6 +141,26 @@ describe("detail list URL state", () => {
 
     await user.click(screen.getByRole("button", { name: "Videos" }));
     await waitFor(() => expect(window.location.search).toBe(""));
+  });
+
+  it("adopts a changed default when the URL does not select a tab", async () => {
+    const { rerender } = render(<TabProbe />);
+
+    expect(screen.getByTestId("tab")).toHaveTextContent("videos");
+
+    rerender(<TabProbe defaultTab="galleries" />);
+
+    await waitFor(() => expect(screen.getByTestId("tab")).toHaveTextContent("galleries"));
+  });
+
+  it("keeps an explicitly selected URL tab when the default changes", async () => {
+    window.history.replaceState(null, "", "/performer/477?tab=videos");
+    const { rerender } = render(<TabProbe />);
+
+    rerender(<TabProbe defaultTab="galleries" />);
+
+    await waitFor(() => expect(screen.getByTestId("tab")).toHaveTextContent("videos"));
+    expect(window.location.search).toBe("?tab=videos");
   });
 
   it("restores a visited tab's state from the page cache", async () => {
