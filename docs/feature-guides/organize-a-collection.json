@@ -1,0 +1,120 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "organize-a-collection",
+  "title": "Organize a collection",
+  "parentTopicId": "organizing",
+  "description": "Create a static group, add useful metadata to an item, and verify the resulting collection.",
+  "order": 51,
+  "pages": [],
+  "sections": [
+    {
+      "id": "choose-a-small-theme",
+      "title": "Choose a small theme",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Create one static group and add one item to it. This is deliberately small: the goal is a useful result you can extend, not a perfect classification system."
+        },
+        {
+          "type": "paragraph",
+          "text": "Pick an item that belongs to a theme you will remember, such as a trip, event, project, subject, series, or short watchlist. A group fits because you are choosing explicit membership for a collection with its own name."
+        }
+      ]
+    },
+    {
+      "id": "create-the-group",
+      "title": "Create the group",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open Groups.",
+            "Select + New.",
+            "Enter a short, specific name.",
+            "Leave Kind set to static. A static group keeps the members you choose; a dynamic group resolves members from a query.",
+            "Add a description if the name does not make the collection's purpose clear.",
+            "Select Save."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Do not begin with a large hierarchy. One clearly named group is enough to learn the workflow."
+        }
+      ]
+    },
+    {
+      "id": "edit-and-add-the-item",
+      "title": "Edit and add the item",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Find and open the first item.",
+            "Select the Edit tab on its detail page.",
+            "Correct descriptive fields only when you know they are wrong or incomplete.",
+            "Under Tags, choose one or two existing labels that make the item easier to retrieve. Skip this if no existing tag fits.",
+            "Under Groups, search for the group you just created and select it.",
+            "For a video where order matters, set Video #. Otherwise leave the default.",
+            "Select Save."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Repeat the group step for related items after the first one works. Cove groups can bring supported media types together, so every member does not have to use the same format."
+        }
+      ]
+    },
+    {
+      "id": "verify-the-collection",
+      "title": "Verify the collection",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open Groups and search for the name you chose.",
+            "Open the group.",
+            "Confirm the item count and card.",
+            "Open the card from the group and confirm the new group and tags appear on its detail page."
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/tutorial-group-detail.webp",
+          "alt": "Sample static group detail page showing its description, media counts, and one video item",
+          "caption": "The sample group makes its purpose, kind, item count, and member visible on one page."
+        }
+      ]
+    },
+    {
+      "id": "know-which-structure-you-just-used",
+      "title": "Know which structure you just used",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Tags are reusable labels. An item can have many, and the same tag can span unrelated collections.",
+            "Static groups are named collections whose membership you choose.",
+            "Dynamic groups update from a query or activity, including built-in groups such as Save for Later and Continue Watching."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Use Organized only when it represents a meaningful reviewed state in your workflow. It is not a required final step, and a newly scanned item does not need every field before it becomes useful."
+        },
+        {
+          "type": "paragraph",
+          "text": "You have completed the first-hour path: Cove can scan your files, you can browse their relationships, find an item again, and create a collection."
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Organizing your library", "href": "/docs/user/library/organizing/", "topicId": "organizing" },
+            { "label": "Search and filters", "href": "/docs/user/library/search-and-filters/", "topicId": "search-and-filters" },
+            { "label": "User Guide", "href": "/docs/user/", "topicId": "user-guide" }
+          ]
+        }
+      ]
+    }
+  ]
+}

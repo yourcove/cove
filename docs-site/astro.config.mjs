@@ -107,42 +107,70 @@ export default defineConfig({
               items: [
                 { link: '/docs/user/getting-started/first-run-setup/', label: 'Choose a setup path' },
                 { link: '/docs/user/getting-started/import-existing-library/', label: 'Import from Stash' },
-              ],
-            },
-            {
-              label: 'Learn Cove',
-              items: [
                 { link: '/docs/tutorial/', label: 'Your first hour with Cove' },
-                { link: '/docs/user/getting-started/first-scan/', label: 'Scan your first library' },
-                { link: '/docs/tutorial/explore-your-library/', label: 'Explore your library' },
-                { link: '/docs/tutorial/find-anything/', label: 'Find anything' },
-                { link: '/docs/tutorial/organize-a-collection/', label: 'Organize a collection' },
               ],
             },
           ],
         },
+        // Keep the website's User Guide names aligned with their shared in-app topics.
         {
           label: 'User Guide',
           items: [
-            { link: '/docs/user/', label: 'User guide overview' },
+            { link: '/docs/user/', label: 'User Guide' },
+            { link: '/docs/user/getting-started/first-scan/', label: 'Scan your first library' },
+            {
+              label: 'Media types',
+              items: [
+                { link: '/docs/user/library/media-types/', label: 'Media types' },
+                { link: '/docs/user/library/media-types/videos/', label: 'Videos' },
+                { link: '/docs/user/library/media-types/images/', label: 'Images' },
+                { link: '/docs/user/library/media-types/galleries/', label: 'Galleries' },
+                { link: '/docs/user/library/media-types/audio/', label: 'Audio' },
+                { link: '/docs/user/library/media-types/text/', label: 'Text' },
+              ],
+            },
             {
               label: 'Browse and play',
               items: [
-                { link: '/docs/user/library/media-types/', label: 'Media types' },
+                { link: '/docs/tutorial/explore-your-library/', label: 'Explore your library' },
+                { link: '/docs/user/library/list-pages/', label: 'Use list pages' },
+                { link: '/docs/user/library/detail-pages/', label: 'Use detail pages' },
+                { link: '/docs/user/library/playback/', label: 'Use playback and the timeline' },
+                { link: '/docs/user/library/performers/', label: 'Browse performers' },
+                { link: '/docs/user/library/studios/', label: 'Browse studios' },
+                { link: '/docs/user/library/special-views/', label: 'Use feed, vertical, and graph views' },
+              ],
+            },
+            {
+              label: 'Find things',
+              items: [
+                { link: '/docs/tutorial/find-anything/', label: 'Find anything' },
+                { link: '/docs/user/library/search-and-filters/', label: 'Search and filters' },
+                { link: '/docs/user/library/search-and-filters/saved/', label: 'Use saved filters' },
+                { link: '/docs/user/library/search-and-filters/combine/', label: 'Combine filters' },
               ],
             },
             {
               label: 'Organize your library',
               items: [
-                { link: '/docs/user/library/organizing/', label: 'Tags and groups' },
+                { link: '/docs/user/library/organizing/', label: 'Organizing your library' },
+                { link: '/docs/tutorial/organize-a-collection/', label: 'Organize a collection' },
                 { link: '/docs/user/library/dynamic-groups/', label: 'When to use dynamic groups' },
                 { link: '/docs/user/library/segments-and-compilations/', label: 'Segments and compilations' },
               ],
             },
             {
-              label: 'Search and filters',
+              label: 'Keyboard shortcuts',
               items: [
-                { link: '/docs/user/library/search-and-filters/', label: 'Search and filters' },
+                { link: '/docs/user/interface/keyboard-shortcuts/', label: 'Keyboard shortcuts' },
+                { link: '/docs/user/interface/keyboard-shortcuts/customize/', label: 'Customize keyboard shortcuts' },
+              ],
+            },
+            {
+              label: 'Customize Cove',
+              items: [
+                { link: '/docs/user/interface/themes-and-layout/', label: 'Customize themes and layout' },
+                { link: '/docs/user/extensions/', label: 'Discover and install extensions' },
               ],
             },
             {
@@ -226,11 +254,11 @@ export default defineConfig({
                 { link: '/docs/reference/library/', label: 'Library' },
                 { link: '/docs/reference/library-paths/', label: 'Library paths' },
                 { link: '/docs/reference/media/', label: 'Media' },
-                { link: '/docs/reference/videos/', label: 'Videos' },
-                { link: '/docs/reference/images/', label: 'Images' },
-                { link: '/docs/reference/galleries/', label: 'Galleries' },
-                { link: '/docs/reference/audio/', label: 'Audio' },
-                { link: '/docs/reference/text/', label: 'Text' },
+                { link: '/docs/reference/videos/', label: 'Videos reference' },
+                { link: '/docs/reference/images/', label: 'Images reference' },
+                { link: '/docs/reference/galleries/', label: 'Galleries reference' },
+                { link: '/docs/reference/audio/', label: 'Audio reference' },
+                { link: '/docs/reference/text/', label: 'Text reference' },
                 { link: '/docs/reference/generated-media/', label: 'Generated media' },
               ],
             },

@@ -342,7 +342,7 @@ See [UI extension points](../ui-extension-points/) for the fields, supported tar
 | `UISettingsPanel` | A settings component in an extension tab or a targeted built-in tab and section. |
 | `ExtensionLoginMethod` | A host-rendered button on the unauthenticated login page that starts an extension-owned local authentication route. |
 | `ExtensionAction` | A toolbar or bulk action. Actions may also come from `IActionExtension`; the declared context-menu type is currently reserved. |
-| `UITutorialTopic` | An in-app Cove Manual topic made from slides, Markdown, images, and links. |
+| `UITutorialTopic` | An in-app Cove User Guide topic made from slides, Markdown, images, and links. |
 | `UIListFilterContribution` | A first-class filter criterion on a built-in entity list, including custom-field-backed filters. |
 | `UIListSortContribution` | A first-class sort option on a built-in entity list, including custom-field-backed sorts. |
 | `UIFeatureDefinition` | Named feature metadata and string options that the host UI can inspect. |
@@ -384,7 +384,7 @@ Other component target strings remain reserved. See [UI extension points](../ui-
 Not every package needs a DLL. `extension.json` can describe a manifest-only `bundle` or `scraper-pack`, and can contribute:
 
 - generic settings surfaced in the Extensions settings UI
-- in-app Cove Manual topics
+- in-app Cove User Guide topics
 - external tool, runtime, service, environment-variable, and configuration requirements
 - extension dependencies and Cove version compatibility
 - declarative network, scraper-runtime, and downloader-runtime requirements

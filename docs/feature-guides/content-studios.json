@@ -1,0 +1,45 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "content-studios",
+  "title": "Browse studios",
+  "parentTopicId": "explore-your-library",
+  "description": "Use studio pages to explore sources, their media, and nested studio relationships.",
+  "order": 33,
+  "pages": ["studios", "studio"],
+  "sections": [
+    {
+      "id": "studio-page",
+      "title": "See everything associated with a studio",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A studio represents a source or publisher for library content. Its page combines descriptive metadata with media counts and tabs, so you can move between the studio's videos, performers, galleries, images, audio, text, groups, and child studios."
+        },
+        {
+          "type": "image",
+          "src": "assets/studio-page.webp",
+          "alt": "Studio detail page with media tabs and nested sub-studios identified"
+        }
+      ]
+    },
+    {
+      "id": "nested-studios",
+      "title": "Model parent and child studios",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Use Sub-studios when one label or imprint belongs beneath another studio.",
+            "Turn on Include sub-studio content when a parent view should include media assigned to its descendants.",
+            "Assign the most specific known studio to an item; use the hierarchy when you need the broader catalog."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Studio and group hierarchies answer different questions: studios describe a source, while groups collect items for organization or playback."
+        }
+      ]
+    }
+  ]
+}

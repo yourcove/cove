@@ -1,0 +1,61 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "special-views",
+  "title": "Use feed, vertical, and graph views",
+  "parentTopicId": "explore-your-library",
+  "description": "Choose a continuous playback layout or explore how tags connect.",
+  "order": 34,
+  "pages": ["feed", "graph"],
+  "sections": [
+    {
+      "id": "feed-view",
+      "title": "Browse a scrolling feed",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Feed view stacks playable items in one scrolling column. Pair it with the Infinite page size when you want an uninterrupted browsing session."
+        },
+        {
+          "type": "image",
+          "src": "assets/feed-view.webp",
+          "alt": "A Cove media list displayed in feed view"
+        }
+      ]
+    },
+    {
+      "id": "vertical-view",
+      "title": "Focus on one item at a time",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Vertical view gives one item most of the viewport and moves through the result set item by item. Use it for short-form media when a dense grid would distract from playback."
+        },
+        {
+          "type": "image",
+          "src": "assets/vertical-view.webp",
+          "alt": "A Cove media list displayed in vertical view"
+        }
+      ]
+    },
+    {
+      "id": "tag-graph",
+      "title": "Explore relationships in the tag graph",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The tag graph visualizes tag relationships. Use it to find clusters, notice overlapping labels, and open a tag directly from the graph."
+        },
+        {
+          "type": "image",
+          "src": "assets/tags-graph.webp",
+          "alt": "Cove tag graph showing connected tag nodes"
+        },
+        {
+          "type": "note",
+          "text": "A graph is most useful after tags have been applied consistently. Clean up duplicate or overly broad tags before drawing conclusions from the clusters."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "appearance",
+  "title": "Customize themes and layout",
+  "description": "Choose Cove's colors, surface style, layout, and visual effects.",
+  "order": 120,
+  "pages": ["settings"],
+  "contexts": ["settings-tab:my/theme", "route:/settings/my/theme"],
+  "sections": [
+    {
+      "id": "open-theme-settings",
+      "title": "Open your theme settings",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open Settings, expand My Settings, and choose Theme. These preferences belong to your account, so changing them does not alter another user's view of the same Cove server."
+        }
+      ]
+    },
+    {
+      "id": "color-palette",
+      "title": "Choose a color palette",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A palette sets the core background, surface, accent, text, border, and navigation colors. Select a built-in palette for a coordinated result or choose Custom when you want to control the colors yourself."
+        },
+        {
+          "type": "image",
+          "src": "assets/theme-picker.webp",
+          "alt": "Theme settings showing Cove's color palette choices"
+        }
+      ]
+    },
+    {
+      "id": "style-layout",
+      "title": "Choose a surface style and page layout",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Style changes the treatment of surfaces and controls. Layout changes how navigation and page content are arranged. Additional effect controls appear when the selected style supports them."
+        },
+        {
+          "type": "image",
+          "src": "assets/style-layout-options.webp",
+          "alt": "Theme settings showing style, layout, and visual effect controls"
+        },
+        {
+          "type": "note",
+          "text": "Changes apply immediately. Test important list and detail pages before settling on a high-contrast or effect-heavy combination."
+        }
+      ]
+    }
+  ]
+}

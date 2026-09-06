@@ -123,7 +123,7 @@ test("captures the feed layout and its view control", async ({ page }) => {
       padding: 5,
       labelAlign: "right",
     },
-  ]);
+  ], { screenshotHeight: 978 });
 });
 
 test("captures the vertical layout and its view control", async ({ page }) => {

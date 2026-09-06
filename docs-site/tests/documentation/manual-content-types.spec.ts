@@ -33,7 +33,7 @@ test('captures performer content and discovery tabs', async ({ page }) => {
       labelPlacement: 'below',
       labelAlign: 'right',
     },
-  ]);
+  ], { screenshotHeight: 1301 });
 });
 
 test('captures studio media and sub-studio tabs', async ({ page }) => {
@@ -55,7 +55,7 @@ test('captures studio media and sub-studio tabs', async ({ page }) => {
       targets: page.getByRole('tab', { name: 'Sub-studios' }),
       padding: 5,
     },
-  ]);
+  ], { screenshotHeight: 1137 });
 });
 
 test('captures the full-size image viewer', async ({ page }) => {

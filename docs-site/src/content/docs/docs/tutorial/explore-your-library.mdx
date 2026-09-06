@@ -1,70 +1,10 @@
 ---
 title: Explore your library
 description: Tour Cove's home page, open a media item, and follow the relationships that connect your library.
+tableOfContents: false
 ---
 
-import DocsScreenshot from '../../../../components/DocsScreenshot.astro';
+import FeatureGuide from '../../../../components/guides/FeatureGuide.astro';
+import guide from '../../../../../../docs/feature-guides/explore-your-library.json';
 
-This tutorial starts after Cove contains at least a few scanned or imported items. You will browse the home page, open one item, and follow one of its relationships. When you finish, the main parts of Cove should feel familiar instead of looking like a wall of features.
-
-The screenshots use a small public Earth-science and spaceflight library. The titles in your library will be different, but the controls are the same.
-
-## Start from home
-
-Select the **Cove** wordmark in the upper-left corner to return home from anywhere in the application.
-
-The navigation bar separates two kinds of destinations:
-
-- **Videos**, **Images**, **Audios**, **Texts**, and **Galleries** contain the primary media records.
-- **Segments**, **Performers**, **Tags**, **Groups**, and **Studios** let you browse relationships and organization shared by those records.
-
-The home page brings useful parts of both together. Its rows can include recently released media, recently added performers or studios, groups, and personal rows such as **Continue Watching**. Select **View All** beside a row when you want its complete list.
-
-<DocsScreenshot
-  src="images/docs/thumbnails/tutorial-library-home.webp"
-  alt="Cove home page showing rows of sample videos, studios, groups, and performers"
-  width={850}
-  height={532}
-  caption="The sample home page mixes media with the people, studios, and groups that organize it."
-/>
-
-## Open one item
-
-1. Select **Videos** in the navigation bar.
-2. Open any video card whose title you recognize. If you have only one scanned item, use that one.
-3. Play a few seconds, then pause. Cove can use that progress for **Continue Watching**.
-4. Look through the details beside the player before changing anything.
-
-The detail page brings several kinds of information into one place:
-
-- the title, date, studio, file quality, and descriptive details
-- tags, performers, groups, galleries, and source URLs
-- your rating, favorite, like, and playback state
-- tabs for segments, playback filters, file information, history, and editing
-
-<DocsScreenshot
-  src="images/docs/thumbnails/tutorial-video-detail.webp"
-  alt="Sample video detail page with metadata and relationships beside the video player"
-  width={850}
-  height={532}
-  caption="The sample item connects one video to a studio, three tags, and a group."
-/>
-
-File details describe the source Cove can play. Tags, groups, people, studios, and descriptive fields make that source easier to understand and find. Your playback progress and favorites belong to your user rather than changing the shared description for everyone.
-
-## Follow a relationship
-
-Select one tag, performer, studio, or group shown on the item. Cove opens that record so you can see the other library items connected to it. Use **Back** to return to the item.
-
-This is the basic browsing loop in Cove:
-
-1. Start from a media item you know.
-2. Follow a meaningful relationship.
-3. Discover another relevant item.
-4. Return or keep following the library's connections.
-
-## Leave one personal breadcrumb
-
-Return to **Videos** and choose the bookmark control on a card to add it to **Save for Later**. Then open **Groups → Save for Later** and confirm the item appears. This built-in group is personal and updates automatically; it does not change the item's shared metadata.
-
-You now know how to move from the home page to an item, understand its detail page, and browse or save a relationship. Continue with [Find anything](../find-anything/) to learn when to use global search and when to narrow a single list.
+<FeatureGuide guide={guide} />

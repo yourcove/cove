@@ -68,7 +68,7 @@ test('captures the shared list-page controls with matching manual callouts', asy
       padding: 5,
       labelAlign: 'right',
     },
-  ]);
+  ], { screenshotHeight: 1765 });
 });
 
 test('captures card actions and linked metadata with matching manual callouts', async ({ page }) => {
@@ -104,5 +104,5 @@ test('captures card actions and linked metadata with matching manual callouts', 
       ],
       padding: 5,
     },
-  ]);
+  ], { screenshotHeight: 1765 });
 });

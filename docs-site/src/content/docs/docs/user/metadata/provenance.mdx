@@ -1,19 +1,10 @@
 ---
 title: Metadata provenance
-description: Understand where metadata came from and how Cove records changes.
+description: Review where a metadata value came from so you can decide whether to trust, keep, replace, or correct it upstream.
+tableOfContents: false
 ---
 
-Use [provenance](../../../reference/provenance/) when the origin of a value affects whether you trust, keep, or replace it. It is especially useful after automated or provider-driven changes.
+import FeatureGuide from '../../../../../components/guides/FeatureGuide.astro';
+import guide from '../../../../../../../docs/feature-guides/metadata-provenance.json';
 
-## Why it matters
-
-Large libraries often combine manual edits, file scans, scrapers, downloaders, analysis workflows, and extensions. Reviewing origin lets you distinguish an upstream mismatch from a local edit and decide whether to correct one field or the workflow that supplied it.
-
-## What to review
-
-- Check which source supplied the field you are questioning.
-- Compare that source with the record's provider identity and surrounding values.
-- Decide whether the correction belongs on this record, in provider configuration, or in an extension workflow.
-- Re-run automation on a small sample before applying the same correction broadly.
-
-See [Metadata](../../../reference/metadata/) for the boundary between descriptive values, file properties, and engagement data.
+<FeatureGuide guide={guide} />

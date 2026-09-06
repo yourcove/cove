@@ -1,0 +1,182 @@
+---
+import { withBase } from '../../lib/paths';
+
+type FeatureGuideContentBlock =
+  | { type: 'paragraph' | 'note'; text: string }
+  | { type: 'steps'; items: string[] }
+  | { type: 'heading'; level: 3 | 4; text: string }
+  | { type: 'list'; items: string[] }
+  | { type: 'links'; items: { label: string; href: string; topicId?: string; slideId?: string }[] }
+  | { type: 'image'; src: string; alt: string; caption?: string }
+  | { type: 'table'; caption?: string; columns: string[]; rows: string[][] }
+  | { type: 'code'; language?: string; lines: string[] };
+
+type FeatureGuideBlock =
+  | FeatureGuideContentBlock
+  | {
+      type: 'recipes';
+      items: { id: string; title: string; description?: string; blocks: FeatureGuideContentBlock[] }[];
+    };
+
+interface Props {
+  block: FeatureGuideBlock;
+}
+
+const { block } = Astro.props;
+const sharedImages = import.meta.glob('../../../../docs/feature-guides/assets/**/*', {
+  eager: true,
+  import: 'default',
+  query: '?url',
+}) as Record<string, string>;
+
+function resolveImage(source?: string) {
+  if (!source) return undefined;
+  if (source.startsWith('/') || /^(?:https?:|data:)/.test(source)) return source;
+  return sharedImages[`../../../../docs/feature-guides/${source}`];
+}
+
+function resolveHref(href: string) {
+  return /^https?:\/\//.test(href) ? href : withBase(href);
+}
+---
+
+{block.type === 'paragraph' ? <p>{block.text}</p> : null}
+{block.type === 'steps' ? <ol>{block.items.map((step) => <li>{step}</li>)}</ol> : null}
+{block.type === 'heading' ? (block.level === 4 ? <h4>{block.text}</h4> : <h3>{block.text}</h3>) : null}
+{block.type === 'list' ? <ul>{block.items.map((item) => <li>{item}</li>)}</ul> : null}
+{block.type === 'links' ? (
+  <ul class="feature-guide-links">
+    {block.items.map((item) => <li><a data-feature-guide-link href={resolveHref(item.href)}>{item.label}</a></li>)}
+  </ul>
+) : null}
+{block.type === 'note' ? <aside class="feature-guide-note">{block.text}</aside> : null}
+{block.type === 'image' ? (() => {
+  const image = resolveImage(block.src);
+  return image ? (
+    <figure class="feature-guide-image">
+      <img src={image} alt={block.alt} loading="lazy" />
+      {block.caption ? <figcaption>{block.caption}</figcaption> : null}
+    </figure>
+  ) : null;
+})() : null}
+{block.type === 'table' ? (
+  <div class="feature-guide-table">
+    <table>
+      {block.caption ? <caption>{block.caption}</caption> : null}
+      <thead><tr>{block.columns.map((column) => <th scope="col">{column}</th>)}</tr></thead>
+      <tbody>{block.rows.map((row) => <tr>{row.map((cell) => <td>{cell}</td>)}</tr>)}</tbody>
+    </table>
+  </div>
+) : null}
+{block.type === 'code' ? (
+  <div class="feature-guide-code">
+    <pre><code class={block.language ? `language-${block.language}` : undefined}>{block.lines.join('\n')}</code></pre>
+  </div>
+) : null}
+{block.type === 'recipes' ? (
+  <ul class="feature-guide-recipes" aria-label="Recipes">
+    {block.items.map((recipe) => (
+      <li>
+        <details>
+          <summary>
+            <strong>{recipe.title}</strong>
+            {recipe.description ? <span>{recipe.description}</span> : null}
+          </summary>
+          <div class="feature-guide-recipe-content">
+            {recipe.blocks.map((recipeBlock) => <Astro.self block={recipeBlock} />)}
+          </div>
+        </details>
+      </li>
+    ))}
+  </ul>
+) : null}
+
+<style>
+  .feature-guide-image {
+    margin-inline: 0;
+  }
+
+  .feature-guide-image img {
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    margin-inline: auto;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.75rem;
+  }
+
+  .feature-guide-note {
+    margin-block: 1rem;
+    padding: 0.75rem 1rem;
+    border-inline-start: 0.25rem solid var(--sl-color-accent);
+    background: var(--sl-color-gray-6);
+  }
+
+  .feature-guide-links,
+  .feature-guide-recipes {
+    list-style: none;
+    padding-inline-start: 0;
+  }
+
+  .feature-guide-recipes {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .feature-guide-recipes details {
+    overflow: hidden;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.75rem;
+    background: var(--sl-color-bg-nav);
+  }
+
+  .feature-guide-recipes summary {
+    cursor: pointer;
+    padding: 0.9rem 1rem;
+  }
+
+  .feature-guide-recipes summary:hover {
+    background: var(--sl-color-gray-6);
+  }
+
+  .feature-guide-recipes summary strong,
+  .feature-guide-recipes summary span {
+    display: block;
+  }
+
+  .feature-guide-recipes summary span {
+    margin-block-start: 0.25rem;
+    color: var(--sl-color-gray-2);
+    font-size: 0.9rem;
+  }
+
+  .feature-guide-recipe-content {
+    padding: 0.25rem 1rem 1rem;
+    border-block-start: 1px solid var(--sl-color-gray-5);
+  }
+
+  .feature-guide-table {
+    overflow-x: auto;
+  }
+
+  .feature-guide-table table {
+    min-width: 38rem;
+  }
+
+  .feature-guide-table caption {
+    margin-block-end: 0.5rem;
+    text-align: start;
+    font-weight: 600;
+  }
+
+  .feature-guide-code {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .feature-guide-code pre {
+    width: max-content;
+    min-width: 100%;
+    margin: 0;
+  }
+</style>

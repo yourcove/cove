@@ -38,7 +38,7 @@ test('captures style and layout choices', async ({ page }) => {
   await captureAnnotatedManualScreenshot(page, 'style-layout-options', [
     { label: 'Pick a style (extra options appear)', tone: 'green', targets: styles, padding: 8 },
     { label: 'Pick a layout', tone: 'blue', targets: layouts, padding: 8 },
-  ]);
+  ], { screenshotHeight: 972 });
 });
 
 test('captures segment display profiles and rules', async ({ page }) => {

@@ -42,9 +42,15 @@ export async function openAuthenticatedPage(
       .getByRole("textbox", { name: "Password" })
       .fill(requiredEnvironment("COVE_DEV_APP_PASSWORD"));
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("link", { name: "Settings" })).toBeVisible({
+    const settingsLink = page.getByRole("link", { name: "Settings" });
+    const skipSetup = page.getByRole("button", { name: "Skip setup for now" });
+    await expect(settingsLink.or(skipSetup)).toBeVisible({
       timeout: 15_000,
     });
+    if (await skipSetup.isVisible()) {
+      await skipSetup.click();
+      await expect(settingsLink).toBeVisible();
+    }
     await page.goto(pagePath);
   }
   await expect(ready).toBeVisible();

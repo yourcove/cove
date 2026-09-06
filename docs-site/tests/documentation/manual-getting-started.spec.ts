@@ -28,7 +28,7 @@ test('captures the manual navigation overview with its content-page callout', as
       page.getByRole('link', { name: 'Studios' }),
     ],
     padding: 5,
-  }]);
+  }], { screenshotHeight: 1683 });
 });
 
 test('captures the manual library path screen with its add-path callout', async ({ page }) => {
@@ -49,6 +49,7 @@ test('captures the manual library path screen with its add-path callout', async 
   }], {
     inputValues: [{ target: pathInput, value: 'D:\\Media\\Library' }],
     checkboxValues: exclusionCheckboxes,
+    screenshotHeight: 1132,
   });
 });
 
@@ -77,5 +78,5 @@ test('captures the manual scan and generate screen with ordered callouts', async
       targets: generateCard,
       padding: 9,
     },
-  ]);
+  ], { screenshotHeight: 1212 });
 });

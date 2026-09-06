@@ -1,0 +1,70 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "list-pages",
+  "title": "Use list pages",
+  "parentTopicId": "explore-your-library",
+  "description": "Sort, filter, change views, and act on cards with the controls shared by Cove's media lists.",
+  "order": 31,
+  "pages": ["videos", "images", "galleries", "performers", "studios", "audios", "texts"],
+  "sections": [
+    {
+      "id": "shared-toolbar",
+      "title": "Learn one toolbar for every media list",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The media lists use the same core toolbar. Search the current type, choose a sort and direction, open filters, switch layouts, set the page size, and adjust card size without learning a different workflow for each page."
+        },
+        {
+          "type": "image",
+          "src": "assets/list-page-anatomy.webp",
+          "alt": "Video list with view, sort, filter, page-size, card-size, and create controls identified",
+          "caption": "The exact view choices vary by media type, but the toolbar positions and behavior stay consistent."
+        }
+      ]
+    },
+    {
+      "id": "shape-results",
+      "title": "Shape the result set before browsing",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Search narrows the current media type; global search in the navigation searches across types.",
+            "Sort controls choose both the field and direction.",
+            "Filters can be combined and saved for reuse.",
+            "Page size controls how many items load. Infinite removes page-by-page navigation for a continuous list.",
+            "Card size trades detail for density without changing the result set."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Search and filters", "href": "/docs/user/library/search-and-filters/", "topicId": "search-and-filters" },
+            { "label": "Special views", "href": "/docs/user/library/special-views/", "topicId": "special-views" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "card-actions",
+      "title": "Use the actions attached to each card",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A card is also a launch point. Its menu exposes actions such as Save for Later and Quick View, while linked chips open related performers, tags, studios, or groups without first opening the item."
+        },
+        {
+          "type": "image",
+          "src": "assets/card-options.webp",
+          "alt": "Media card with its actions menu and linked metadata chips identified"
+        },
+        {
+          "type": "note",
+          "text": "Quick View keeps your place in the list. Open the full detail page when you need every relationship, playback control, or edit field."
+        }
+      ]
+    }
+  ]
+}

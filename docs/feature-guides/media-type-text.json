@@ -1,0 +1,46 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "media-type-text",
+  "title": "Text",
+  "parentTopicId": "media-types",
+  "description": "Read supported documents while keeping their metadata, relationships, and access rules in the same library.",
+  "order": 25,
+  "pages": ["texts"],
+  "sections": [
+    {
+      "id": "read-documents",
+      "title": "Read documents without leaving the library",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Text records open in Cove's document reader. Plain text and supported document formats stay connected to library metadata, while PDFs add page controls so you can move directly through the document."
+        },
+        {
+          "type": "image",
+          "src": "assets/texts-view.webp",
+          "alt": "Cove text detail page showing a document reader with PDF page controls"
+        }
+      ]
+    },
+    {
+      "id": "record-and-document-body",
+      "title": "Keep metadata separate from the document body",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A text record can have no file or several attached files. Cove selects an attached file for reading and extracts content when requested. The render mode follows the source format, while the title, description, relationships, provenance, and organization state remain metadata on the text record."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Text reference",
+              "href": "/docs/reference/text/"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "detail-pages",
+  "title": "Use detail pages",
+  "description": "Review playback, metadata, relationships, activity, file information, and editing controls for one item.",
+  "order": 35,
+  "pages": ["video", "image", "audio", "text", "gallery"],
+  "sections": [
+    {
+      "id": "page-anatomy",
+      "title": "Move between the item and its supporting information",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A detail page keeps the primary viewer or player close to everything Cove knows about one item. Tabs separate descriptive details, segments or related media, similarity tools, file information, history, and editing. The exact tabs depend on the media type and your permissions."
+        },
+        {
+          "type": "image",
+          "src": "assets/video-detail.webp",
+          "alt": "Video detail page with its tab rail, metadata area, and player identified"
+        }
+      ]
+    },
+    {
+      "id": "actions",
+      "title": "Rate, favorite, and track your review state",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Use ratings and favorites to record personal preference. Organized is an optional workflow marker for an item whose metadata you consider reviewed; it is not required before an item becomes useful. Cove also records supported engagement and history information."
+        },
+        {
+          "type": "image",
+          "src": "assets/video-detail-actions.webp",
+          "alt": "Rating, favorite, and Organized controls on a video detail page"
+        }
+      ]
+    },
+    {
+      "id": "edit-metadata",
+      "title": "Edit known details without losing their origin",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "When your role grants write access, the Edit tab lets you correct titles, dates, descriptions, relationships, tags, and grouping. Manual changes participate in field provenance, so Cove can show how the effective value was chosen."
+        },
+        {
+          "type": "image",
+          "src": "assets/video-edit.webp",
+          "alt": "Video Edit tab with descriptive and relationship fields"
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Metadata provenance", "href": "/docs/user/metadata/provenance/", "topicId": "metadata-provenance" },
+            { "label": "Playback and timeline", "href": "/docs/user/library/playback/", "topicId": "detail-pages-playback" }
+          ]
+        }
+      ]
+    }
+  ]
+}

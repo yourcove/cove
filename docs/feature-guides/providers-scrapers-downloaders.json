@@ -1,0 +1,188 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "providers-scrapers-downloaders",
+  "title": "Providers, scrapers, and downloaders",
+  "description": "Choose the right tool to bring in media, identify existing items, and apply trustworthy metadata at the right scale.",
+  "order": 90,
+  "pages": ["downloads", "downloaders"],
+  "sections": [
+    {
+      "id": "the-three-main-roles",
+      "title": "The three main roles",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Cove separates bringing in new media from identifying existing media and from applying metadata to media you already have. Choose the role that matches the job before you configure a source."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Downloaders"
+        },
+        {
+          "type": "paragraph",
+          "text": "Use a downloader for acquisition and intake from a supported source. A downloader can match a source URL, fetch new media, and place the finished item into the normal library workflow without leaving Cove."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Scrapers"
+        },
+        {
+          "type": "paragraph",
+          "text": "Use a scraper to search for or extract metadata for an existing item when you want item-level review. Start with one item, inspect the suggested fields, and apply only the values you want before trusting that source broadly."
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Metadata servers"
+        },
+        {
+          "type": "paragraph",
+          "text": "Use a metadata server as a configured structured catalog after you trust its matches and want repeatable identification or enrichment. It is the better fit for identifying many items, enriching a larger part of the library, and centralizing a recurring provider workflow in Settings."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Metadata providers reference",
+              "href": "/docs/reference/metadata-providers/"
+            },
+            {
+              "label": "Scrapers reference",
+              "href": "/docs/reference/scrapers/"
+            },
+            {
+              "label": "Downloaders reference",
+              "href": "/docs/reference/downloaders/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a-recommended-workflow",
+      "title": "A recommended workflow",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Start with a scan or downloader intake.",
+            "Test a scraper or metadata source on a small representative set.",
+            "Review provenance and the quality of the result.",
+            "Scale up only after the result looks trustworthy.",
+            "Save the resulting cleanup or review workflow as a filter or dynamic group."
+          ]
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Review metadata provenance",
+              "href": "/docs/user/metadata/provenance/",
+              "topicId": "metadata-provenance"
+            },
+            {
+              "label": "Search and filters",
+              "href": "/docs/user/library/search-and-filters/",
+              "topicId": "search-and-filters"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configure-a-metadata-server",
+      "title": "Configure a metadata server",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open Settings → Data Sources & Data → Metadata Servers. Add a name, the server endpoint, and the API key from your account on that server. Set a request limit that respects the service, validate the connection, then use the server from Identify or Tagger."
+        },
+        {
+          "type": "image",
+          "src": "assets/metadata-server-configuration.webp",
+          "alt": "Empty metadata server row showing name, endpoint, API key, request limit, and validation controls",
+          "caption": "Configure and validate each metadata server once, then reuse it from identification and tagging workflows."
+        },
+        {
+          "type": "paragraph",
+          "text": "Some metadata servers call a video record a scene. Cove still matches and stores that record as a video; scene in a provider's catalog does not mean a separate Cove media type."
+        }
+      ]
+    },
+    {
+      "id": "common-metadata-servers",
+      "title": "Common metadata servers",
+      "blocks": [
+        {
+          "type": "table",
+          "caption": "Choose services that match the material in your library.",
+          "columns": ["Server", "Endpoint", "What it covers"],
+          "rows": [
+            ["StashDB", "https://stashdb.org/graphql", "Community-driven database of digital scenes across all orientations."],
+            ["ThePornDB", "https://theporndb.net/graphql", "Scenes and movies, powered by automated scrapers."],
+            ["FansDB", "https://fansdb.cc/graphql", "Creator-platform content from several common platforms."],
+            ["JAVStash", "https://javstash.org/graphql", "Japanese adult video with original Japanese metadata."],
+            ["PMV Stash", "https://pmvstash.org/graphql", "Remixed works such as adult music videos."]
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "Each server needs its own account and API key. You can configure more than one; Cove records which server supplied each saved value."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Metadata servers reference",
+              "href": "/docs/reference/metadata-servers/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "use-downloaders",
+      "title": "Install and use downloaders",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Downloaders are extensions, and each one knows how to fetch from a particular kind of source. Find the capability you need in Discover, install it like any other extension, then start a download and select it. Downloads continue in the background and appear in the library when they finish."
+        },
+        {
+          "type": "paragraph",
+          "text": "You can also create an item from a URL. In the New dialog, switch to URL and paste the link. Cove hands it to a matching installed downloader, which resolves the URL and fetches the media."
+        },
+        {
+          "type": "note",
+          "text": "Install only the downloaders you need. Supported sources and options come from the installed extension, not from Cove's core application."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Extensions reference",
+              "href": "/docs/reference/extensions/"
+            },
+            {
+              "label": "Extension development guides",
+              "href": "/docs/developer/"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "review-with-tagger",
+      "title": "Review repeatedly with Tagger",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Tagger is a fast review loop for making the same kind of metadata decision across many items. Filter first so the queue contains only the records you intend to review, compare each suggested match, and apply the changes you want before moving to the next item."
+        }
+      ]
+    }
+  ]
+}

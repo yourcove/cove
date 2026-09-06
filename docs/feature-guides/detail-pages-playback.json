@@ -1,0 +1,49 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "detail-pages-playback",
+  "title": "Use playback and the timeline",
+  "description": "Control video playback and use timeline overlays to jump to meaningful moments.",
+  "parentTopicId": "detail-pages",
+  "order": 36,
+  "pages": ["video"],
+  "sections": [
+    {
+      "id": "player-controls",
+      "title": "Control the current video",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Play or pause, seek, change volume, and enter fullscreen from the player controls.",
+            "Change playback speed when you need to review a moment more slowly or move through it faster.",
+            "Set and repeat a loop when you need to inspect the same interval.",
+            "Use the active shortcut preset for keyboard playback controls."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "timeline-overlays",
+      "title": "Use more than a progress bar",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Timeline swimlanes show where segments, detections, faces, and other supported overlays occur. Select an interval to jump directly to that moment, and collapse or filter overlays when the timeline becomes crowded."
+        },
+        {
+          "type": "image",
+          "src": "assets/video-scrubber.webp",
+          "alt": "Video player timeline with segment and face swimlanes plus speed and loop controls"
+        },
+        {
+          "type": "links",
+          "items": [
+            { "label": "Segments and compilations", "href": "/docs/user/library/segments-and-compilations/", "topicId": "segments-and-compilations" },
+            { "label": "Keyboard shortcuts", "href": "/docs/user/interface/keyboard-shortcuts/", "topicId": "keyboard-shortcuts" }
+          ]
+        }
+      ]
+    }
+  ]
+}

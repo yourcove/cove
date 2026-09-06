@@ -1,0 +1,74 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "saved-filters",
+  "title": "Use saved filters",
+  "parentTopicId": "search-and-filters",
+  "description": "Save a reusable result set, update it as your workflow changes, or apply it automatically as a page default.",
+  "order": 42,
+  "pages": ["search"],
+  "sections": [
+    {
+      "id": "save-a-view",
+      "title": "Save a result set you use again",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A saved filter stores the current search, filter conditions, and supported view options for one type of list. It reevaluates those rules against the current library each time you apply it."
+        },
+        {
+          "type": "image",
+          "src": "assets/saved-filters.webp",
+          "alt": "Saved Filters menu with actions to set a default or save the current filter",
+          "caption": "Open the bookmark menu on a list page to reuse, update, delete, or create saved filters."
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Set the search, filters, sort, display mode, and supported view options you want to keep.",
+            "Open Saved filters and choose Save current filter.",
+            "Enter a unique name and save it."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reuse-and-update",
+      "title": "Reuse, update, or delete a saved filter",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Open Saved filters and select a name to apply it. To change an existing saved filter, first arrange the current page exactly as you want, then use Update with current filter beside its name. Delete removes the named filter but does not delete any matching library items."
+        },
+        {
+          "type": "note",
+          "text": "Named saved filters belong to their content type. A video filter appears on video lists, while an image filter appears on image lists."
+        }
+      ]
+    },
+    {
+      "id": "set-a-default",
+      "title": "Open a page with a default filter",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Choose Set current as default when a page should automatically open with its current filter and view state. Use Clear default filter to return that page to its ordinary starting state. Defaults are personal preferences and can be different for pages that otherwise share the same saved-filter type."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "When to use dynamic groups",
+              "href": "/docs/user/library/dynamic-groups/",
+              "topicId": "dynamic-groups"
+            },
+            {
+              "label": "Saved filters reference",
+              "href": "/docs/reference/saved-filters/"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

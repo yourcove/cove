@@ -29,6 +29,7 @@ export interface ManualCallout {
 export interface ManualVisualOverrides {
   checkboxValues?: { target: Locator; checked: boolean }[];
   inputValues?: { target: Locator; value: string }[];
+  screenshotHeight?: number;
   textValues?: { target: Locator; value: string }[];
 }
 
@@ -190,14 +191,33 @@ export async function captureAnnotatedManualScreenshot(
 
   await mkdir(manualScreenshotDirectory, { recursive: true });
   const outputPath = path.join(manualScreenshotDirectory, `${name}.png`);
+  const screenshotHeight = visualOverrides.screenshotHeight ?? 2000;
   await page.screenshot({
     path: outputPath,
     animations: "disabled",
     caret: "hide",
+    clip: { x: 0, y: 0, width: 1700, height: screenshotHeight },
   });
   await expect
     .poll(async () => sharp(outputPath).metadata())
-    .toMatchObject({ width: 1700, height: 2000, format: "png" });
+    .toMatchObject({ width: 1700, height: screenshotHeight, format: "png" });
+}
+
+export async function captureManualElementScreenshot(
+  page: Page,
+  name: string,
+  target: Locator,
+) {
+  await waitForVisibleImages(page);
+  await expect(target).toBeVisible();
+  await mkdir(manualScreenshotDirectory, { recursive: true });
+  const outputPath = path.join(manualScreenshotDirectory, `${name}.png`);
+  await target.screenshot({
+    path: outputPath,
+    animations: "disabled",
+    caret: "hide",
+  });
+  await expect.poll(async () => (await sharp(outputPath).metadata()).width).toBeGreaterThanOrEqual(200);
 }
 
 async function resolveCallout(

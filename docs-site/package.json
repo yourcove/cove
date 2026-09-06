@@ -23,7 +23,7 @@
     "check:links": "node scripts/check-internal-links.mjs",
     "check:page-metadata": "node scripts/check-page-metadata.mjs",
     "check:navigation-output": "node scripts/check-generated-navigation.mjs",
-    "test:technical": "node --test scripts/check-code-samples.test.mjs",
+    "test:technical": "node --test scripts/check-code-samples.test.mjs scripts/check-feature-guides.test.mjs",
     "test:links": "node --test scripts/check-internal-links.test.mjs",
     "test:deployment-output": "node --test scripts/check-deployment-output.test.mjs",
     "test:navigation-output": "node --test scripts/check-generated-navigation.test.mjs"
@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "ajv": "^8.20.0",
     "parse5": "^8.0.1",
     "sharp": "0.34.5",
     "typescript": "^6.0.3"
