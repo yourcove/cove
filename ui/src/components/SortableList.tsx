@@ -177,9 +177,12 @@ export function SortableList<T>({
               setOverKey(pointer.key);
             }
 
-            const target = document
+            let target = document
               .elementFromPoint(event.clientX, event.clientY)
               ?.closest<HTMLElement>("[data-sortable-index]");
+            while (target && target.parentElement !== listRef.current) {
+              target = target.parentElement?.closest<HTMLElement>("[data-sortable-index]") ?? undefined;
+            }
             const targetIndex = Number(target?.dataset.sortableIndex);
             if (
               target?.parentElement === listRef.current &&
@@ -192,9 +195,25 @@ export function SortableList<T>({
               setOverKey(getKey(items[targetIndex]));
             }
 
+            let scrollContainer = listRef.current?.parentElement ?? null;
+            while (
+              scrollContainer &&
+              !(
+                scrollContainer.scrollHeight > scrollContainer.clientHeight &&
+                /auto|scroll/.test(getComputedStyle(scrollContainer).overflowY)
+              )
+            ) {
+              scrollContainer = scrollContainer.parentElement;
+            }
+            const bounds = scrollContainer?.getBoundingClientRect();
             const edge = 48;
-            const scrollAmount = event.clientY < edge ? -12 : event.clientY > window.innerHeight - edge ? 12 : 0;
-            if (scrollAmount) window.scrollBy({ top: scrollAmount, behavior: "auto" });
+            const scrollAmount =
+              event.clientY < (bounds?.top ?? 0) + edge
+                ? -12
+                : event.clientY > (bounds?.bottom ?? window.innerHeight) - edge
+                  ? 12
+                  : 0;
+            if (scrollAmount) (scrollContainer ?? window).scrollBy({ top: scrollAmount, behavior: "auto" });
           },
           onPointerUp: (event) => {
             const pointer = pointerDrag.current;

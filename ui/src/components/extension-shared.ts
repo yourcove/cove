@@ -117,3 +117,9 @@ export { useAppConfig } from "../state/AppConfigContext";
 export type { FindFilter } from "../api/types";
 export { ENTITY_MEDIA_TARGET } from "./EntityMedia";
 export type { EntityMediaFit, EntityMediaRenderProps, EntityMediaSurface } from "./EntityMedia";
+
+export { SortableList } from "./SortableList";
+export type { DragHandleProps } from "./SortableList";
+
+export { EntityDetailTabs } from "./EntityDetailTabs";
+export type { EntityDetailTab } from "./EntityDetailTabs";
