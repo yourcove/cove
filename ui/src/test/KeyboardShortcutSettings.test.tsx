@@ -2,6 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { KeyboardShortcutSettings } from "../components/KeyboardShortcutSettings";
 
+const keyboardShortcutMocks = vi.hoisted(() => ({
+  updatePersonalPreset: vi.fn(),
+}));
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({
     data: [
@@ -40,16 +44,16 @@ vi.mock("../keyboard/KeyboardShortcutProvider", () => ({
     presets: [
       {
         schemaVersion: 1,
-        id: "cove:native",
-        name: "Cove Native",
-        description: "Cove's native keyboard shortcuts.",
+        id: "personal:copy",
+        name: "Cove Native copy",
+        description: "A personal keyboard shortcut preset.",
         unmappedActions: "action-defaults",
         bindings: {},
-        provenance: { source: "cove" },
+        provenance: { source: "personal" },
       },
     ],
-    activePresetId: "cove:native",
-    effectivePresetId: "cove:native",
+    activePresetId: "personal:copy",
+    effectivePresetId: "personal:copy",
     effectiveBindings: {
       "global.help": ["?"],
       "extension:sample:play": ["p"],
@@ -57,7 +61,7 @@ vi.mock("../keyboard/KeyboardShortcutProvider", () => ({
     },
     selectPreset: vi.fn(),
     clonePreset: vi.fn(),
-    updatePersonalPreset: vi.fn(),
+    updatePersonalPreset: keyboardShortcutMocks.updatePersonalPreset,
     deletePersonalPreset: vi.fn(),
     importPreset: vi.fn(),
     exportPreset: vi.fn(),
@@ -105,5 +109,41 @@ describe("KeyboardShortcutSettings", () => {
     expect(screen.getByRole("tab", { name: "Cove, 0 matches" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Shared Tools (sample), 1 match" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Shared Tools (other-tools), 0 matches" })).toBeInTheDocument();
+  });
+
+  it("renames an editable preset", () => {
+    render(<KeyboardShortcutSettings />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    const dialog = screen.getByRole("dialog", { name: "Rename keyboard shortcut preset" });
+    const nameInput = within(dialog).getByRole("textbox", { name: "Preset name" });
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(nameInput, { target: { value: "  My shortcuts  " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(keyboardShortcutMocks.updatePersonalPreset).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "personal:copy", name: "My shortcuts" }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Rename keyboard shortcut preset" })).not.toBeInTheDocument();
+  });
+
+  it("keeps focus within the rename dialog and restores it on Escape", () => {
+    render(<KeyboardShortcutSettings />);
+
+    const renameButton = screen.getByRole("button", { name: "Rename" });
+    fireEvent.click(renameButton);
+    const dialog = screen.getByRole("dialog", { name: "Rename keyboard shortcut preset" });
+    const nameInput = within(dialog).getByRole("textbox", { name: "Preset name" });
+    const cancelButton = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(nameInput).toHaveFocus();
+
+    fireEvent.keyDown(nameInput, { key: "Tab", shiftKey: true });
+    expect(cancelButton).toHaveFocus();
+    fireEvent.keyDown(cancelButton, { key: "Tab" });
+    expect(nameInput).toHaveFocus();
+
+    fireEvent.keyDown(nameInput, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Rename keyboard shortcut preset" })).not.toBeInTheDocument();
+    expect(renameButton).toHaveFocus();
   });
 });

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Download, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { extensions } from "../api/client";
 import { useKeyboardShortcuts } from "../keyboard/KeyboardShortcutProvider";
 import { normalizeShortcutEvent, normalizeShortcutSequence } from "../keyboard/keybindings";
@@ -39,8 +39,11 @@ export function KeyboardShortcutSettings() {
     existing: string[];
     strokes: string[];
   } | null>(null);
+  const [renaming, setRenaming] = useState<{ presetId: string; name: string } | null>(null);
   const [activeShortcutTabId, setActiveShortcutTabId] = useState("cove");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const renameButtonRef = useRef<HTMLButtonElement>(null);
+  const renameDialogRef = useRef<HTMLDivElement>(null);
   const activePreset = presets.find((preset) => preset.id === activePresetId);
   const effectivePreset = presets.find((preset) => preset.id === effectivePresetId);
   const editable = activePreset?.provenance?.source === "personal" || activePreset?.provenance?.source === "import";
@@ -119,6 +122,37 @@ export function KeyboardShortcutSettings() {
     if (!shortcutTabs.some((tab) => tab.id === activeShortcutTabId)) setActiveShortcutTabId("cove");
   }, [activeShortcutTabId, shortcutTabs]);
 
+  const isRenaming = renaming !== null;
+  useEffect(() => {
+    if (!isRenaming) return;
+    return () => renameButtonRef.current?.focus();
+  }, [isRenaming]);
+
+  const handleRenameKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setRenaming(null);
+      return;
+    }
+    if (event.key !== "Tab" || !renameDialogRef.current) return;
+    const focusable = Array.from(
+      renameDialogRef.current.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      ),
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   const updateBindings = (actionId: string, bindings: string[]) => {
     if (!activePreset || !editable) return;
     const normalized = [...new Set(bindings.map(normalizeShortcutSequence).filter(Boolean))];
@@ -182,13 +216,23 @@ export function KeyboardShortcutSettings() {
               <Pencil className="h-4 w-4" /> Edit a copy
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => activePreset && deletePersonalPreset(activePreset.id)}
-              className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"
-            >
-              <Trash2 className="h-4 w-4" /> Delete
-            </button>
+            <>
+              <button
+                ref={renameButtonRef}
+                type="button"
+                onClick={() => activePreset && setRenaming({ presetId: activePreset.id, name: activePreset.name })}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-secondary hover:border-accent hover:text-foreground"
+              >
+                <Pencil className="h-4 w-4" /> Rename
+              </button>
+              <button
+                type="button"
+                onClick={() => activePreset && deletePersonalPreset(activePreset.id)}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -403,6 +447,61 @@ export function KeyboardShortcutSettings() {
           </div>
         )}
       </section>
+
+      {renaming &&
+        (() => {
+          const preset = presets.find((candidate) => candidate.id === renaming.presetId);
+          const trimmedName = renaming.name.trim();
+          const canSave = Boolean(preset && trimmedName && trimmedName !== preset.name);
+          return (
+            <div
+              ref={renameDialogRef}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Rename keyboard shortcut preset"
+              onKeyDown={handleRenameKeyDown}
+            >
+              <form
+                className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-2xl"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!preset || !canSave) return;
+                  updatePersonalPreset({ ...preset, name: trimmedName });
+                  setMessage(`Renamed preset to ${trimmedName}.`);
+                  setRenaming(null);
+                }}
+              >
+                <h3 className="text-lg font-semibold text-foreground">Rename preset</h3>
+                <label className="mt-4 block text-sm text-secondary">
+                  Preset name
+                  <input
+                    autoFocus
+                    value={renaming.name}
+                    onChange={(event) => setRenaming({ ...renaming, name: event.target.value })}
+                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-foreground focus:border-accent focus:outline-none"
+                  />
+                </label>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRenaming(null)}
+                    className="rounded-lg border border-border px-3 py-2 text-sm text-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!canSave}
+                    className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            </div>
+          );
+        })()}
 
       {recording && (
         <div
