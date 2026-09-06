@@ -38,6 +38,7 @@
             "tags for overlapping classification",
             "tag groups for dividing a larger tag vocabulary into understandable categories",
             "groups for a collection with its own identity or order",
+            "custom fields for metadata that Cove does not provide as a standard field",
             "saved filters for a view you want to revisit",
             "dynamic groups when a collection should resolve from a query"
           ]
@@ -71,6 +72,11 @@
               "label": "Dynamic groups",
               "href": "/docs/user/library/dynamic-groups/",
               "topicId": "dynamic-groups"
+            },
+            {
+              "label": "Custom fields",
+              "href": "/docs/user/library/custom-fields/",
+              "topicId": "custom-fields"
             }
           ]
         }

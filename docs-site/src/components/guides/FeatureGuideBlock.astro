@@ -6,7 +6,7 @@ type FeatureGuideContentBlock =
   | { type: 'steps'; items: string[] }
   | { type: 'heading'; level: 3 | 4; text: string }
   | { type: 'list'; items: string[] }
-  | { type: 'links'; items: { label: string; href: string; topicId?: string; slideId?: string }[] }
+  | { type: 'links'; items: { label: string; href: string; appHref?: string; topicId?: string; slideId?: string }[] }
   | { type: 'image'; src: string; alt: string; caption?: string }
   | { type: 'table'; caption?: string; columns: string[]; rows: string[][] }
   | { type: 'code'; language?: string; lines: string[] };

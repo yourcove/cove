@@ -157,6 +157,16 @@
               "label": "Segments and compilations",
               "href": "/docs/user/library/segments-and-compilations/",
               "topicId": "segments-and-compilations"
+            },
+            {
+              "label": "Custom fields",
+              "href": "/docs/user/library/custom-fields/",
+              "topicId": "custom-fields"
+            },
+            {
+              "label": "JSON custom fields",
+              "href": "/docs/user/library/custom-fields/json/",
+              "topicId": "json-custom-fields"
             }
           ]
         }

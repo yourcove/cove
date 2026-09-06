@@ -548,6 +548,9 @@ function AppShell({ route, navigate }: { route: Route; navigate: (r: Route) => v
             });
           }
         }}
+        onAppNavigate={(href) => {
+          if (navigateToUrl(href)) setTutorialOpen(false);
+        }}
       />
       <KeyboardShortcutsDialog open={shortcutDialogOpen} onClose={() => setShortcutDialogOpen(false)} />
     </div>

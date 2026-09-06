@@ -50,6 +50,28 @@ describe("TutorialStoryboardDialog", () => {
     expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
   });
 
+  it("opens a shared guide app link inside Cove", async () => {
+    const user = userEvent.setup();
+    const onAppNavigate = vi.fn();
+    render(
+      <TutorialStoryboardDialog
+        open
+        onClose={vi.fn()}
+        request={{ topicId: "custom-fields" }}
+        extensionTopics={[]}
+        onAppNavigate={onAppNavigate}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "Open Custom Fields settings" });
+    expect(link).toHaveAttribute("href", "/settings/library/custom-fields");
+    expect(link).not.toHaveAttribute("target");
+
+    await user.click(link);
+
+    expect(onAppNavigate).toHaveBeenCalledWith("/settings/library/custom-fields");
+  });
+
   it("keeps customization as a child of the keyboard shortcut overview", () => {
     render(
       <TutorialStoryboardDialog

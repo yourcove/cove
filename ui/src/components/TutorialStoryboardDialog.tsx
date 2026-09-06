@@ -65,7 +65,10 @@ type SharedFeatureGuideContentBlock =
   | { type: "steps"; items: string[] }
   | { type: "heading"; level: 3 | 4; text: string }
   | { type: "list"; items: string[] }
-  | { type: "links"; items: { label: string; href: string; topicId?: string; slideId?: string }[] }
+  | {
+      type: "links";
+      items: { label: string; href: string; appHref?: string; topicId?: string; slideId?: string }[];
+    }
   | { type: "image"; src: string; alt: string; caption?: string }
   | { type: "table"; caption?: string; columns: string[]; rows: string[][] }
   | { type: "code"; language?: string; lines: string[] };
@@ -186,6 +189,7 @@ interface Props {
   currentPage?: string;
   extensionTopics?: ExtensionTutorialTopic[];
   onTopicChange?: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
 }
 
 export function TutorialStoryboardDialog({
@@ -195,6 +199,7 @@ export function TutorialStoryboardDialog({
   currentPage,
   extensionTopics = [],
   onTopicChange,
+  onAppNavigate,
 }: Props) {
   const topics = useMemo(() => mergeTutorialTopics(extensionTopics), [extensionTopics]);
   const availableTopicIds = useMemo(() => new Set(topics.map((topic) => topic.id)), [topics]);
@@ -533,7 +538,12 @@ export function TutorialStoryboardDialog({
                 </div>
               ) : null}
             </div>
-            <StoryboardPreview slide={slide} onChooseTopic={chooseTopic} availableTopicIds={availableTopicIds} />
+            <StoryboardPreview
+              slide={slide}
+              onChooseTopic={chooseTopic}
+              onAppNavigate={onAppNavigate}
+              availableTopicIds={availableTopicIds}
+            />
           </div>
 
           <aside
@@ -993,10 +1003,12 @@ function SlideImage({ src, alt }: { src: string; alt: string }) {
 function StoryboardPreview({
   slide,
   onChooseTopic,
+  onAppNavigate,
   availableTopicIds,
 }: {
   slide: TutorialStoryboardSlide;
   onChooseTopic: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
   availableTopicIds: ReadonlySet<string>;
 }) {
   if (slide.guideArticle) {
@@ -1005,6 +1017,7 @@ function StoryboardPreview({
         title={slide.title}
         article={slide.guideArticle}
         onChooseTopic={onChooseTopic}
+        onAppNavigate={onAppNavigate}
         availableTopicIds={availableTopicIds}
       />
     );
@@ -1068,11 +1081,13 @@ function SharedFeatureGuideBlocks({
   blocks,
   keyPrefix,
   onChooseTopic,
+  onAppNavigate,
   availableTopicIds,
 }: {
   blocks: SharedFeatureGuideBlock[] | SharedFeatureGuideContentBlock[];
   keyPrefix: string;
   onChooseTopic: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
   availableTopicIds: ReadonlySet<string>;
 }) {
   return blocks.map((block, index) => {
@@ -1110,8 +1125,9 @@ function SharedFeatureGuideBlocks({
     if (block.type === "links") {
       return (
         <div key={key} className="flex flex-wrap gap-2">
-          {block.items.map((item) =>
-            item.topicId && availableTopicIds.has(item.topicId) ? (
+          {block.items.map((item) => {
+            const appHref = resolveInAppRouteHref(item.appHref);
+            return item.topicId && availableTopicIds.has(item.topicId) ? (
               <button
                 key={item.label}
                 type="button"
@@ -1123,15 +1139,23 @@ function SharedFeatureGuideBlocks({
             ) : (
               <a
                 key={item.label}
-                href={resolveInAppGuideHref(item.href)}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={appHref ?? resolveInAppGuideHref(item.href)}
+                target={appHref ? undefined : "_blank"}
+                rel={appHref ? undefined : "noopener noreferrer"}
+                onClick={
+                  appHref && onAppNavigate
+                    ? (event) => {
+                        event.preventDefault();
+                        onAppNavigate(appHref);
+                      }
+                    : undefined
+                }
                 className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-accent transition-colors hover:border-accent"
               >
                 {item.label}
               </a>
-            ),
-          )}
+            );
+          })}
         </div>
       );
     }
@@ -1208,6 +1232,7 @@ function SharedFeatureGuideBlocks({
                     blocks={recipe.blocks}
                     keyPrefix={`${key}:${recipe.id}`}
                     onChooseTopic={onChooseTopic}
+                    onAppNavigate={onAppNavigate}
                     availableTopicIds={availableTopicIds}
                   />
                 </div>
@@ -1225,11 +1250,13 @@ function SharedFeatureGuideArticle({
   title,
   article,
   onChooseTopic,
+  onAppNavigate,
   availableTopicIds,
 }: {
   title: string;
   article: SharedFeatureGuideArticle;
   onChooseTopic: (topicId: string, slideId?: string) => void;
+  onAppNavigate?: (href: string) => void;
   availableTopicIds: ReadonlySet<string>;
 }) {
   return (
@@ -1247,6 +1274,7 @@ function SharedFeatureGuideArticle({
                 blocks={section.blocks}
                 keyPrefix={section.id}
                 onChooseTopic={onChooseTopic}
+                onAppNavigate={onAppNavigate}
                 availableTopicIds={availableTopicIds}
               />
             </div>
@@ -1259,6 +1287,10 @@ function SharedFeatureGuideArticle({
 
 function resolveInAppGuideHref(href: string) {
   return href.startsWith("/docs/") ? `https://yourcove.net${href}` : href;
+}
+
+function resolveInAppRouteHref(href: string | undefined) {
+  return href?.startsWith("/") && !href.startsWith("//") ? href : undefined;
 }
 
 function TasksMock() {

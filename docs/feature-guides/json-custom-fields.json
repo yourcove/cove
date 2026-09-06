@@ -1,0 +1,306 @@
+{
+  "$schema": "./schema.json",
+  "schemaVersion": 1,
+  "id": "json-custom-fields",
+  "title": "JSON custom fields",
+  "description": "Store structured JSON and expose selected property paths as typed targets for filtering and sorting.",
+  "parentTopicId": "custom-fields",
+  "order": 55,
+  "pages": ["settings", "search"],
+  "contexts": ["settings-tab:library/custom-fields", "route:/settings/library/custom-fields"],
+  "sections": [
+    {
+      "id": "store-a-document-query-selected-values",
+      "title": "Store a document, query selected values",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "A JSON custom field stores one complete JSON value on each eligible record. Cove validates the value while you edit it and presents objects and arrays as a readable expandable document on the detail page. You can filter for the presence of the document, but its contents are filterable or sortable only through configured paths."
+        },
+        {
+          "type": "paragraph",
+          "text": "When one property should drive a filter or sort, add a queryable JSON path to the field definition. Each path gives Cove a JSON Pointer, a reader-friendly label, an expected Text, Number, or Boolean type, and separate Filterable and Sortable choices. You can add several paths without flattening or duplicating the stored document."
+        },
+        {
+          "type": "note",
+          "text": "Queryable paths do not restrict what the JSON document may contain. Objects and arrays may contain strings, booleans, nulls, and finite numbers; only configured scalar targets become query controls. A root JSON null clears the custom-field value instead of storing a document."
+        }
+      ]
+    },
+    {
+      "id": "json-pointer-basics",
+      "title": "Write the JSON Pointer",
+      "blocks": [
+        {
+          "type": "code",
+          "language": "json",
+          "lines": [
+            "{",
+            "  \"production\": {",
+            "    \"status\": \"review\",",
+            "    \"score\": 87,",
+            "    \"approved\": false",
+            "  },",
+            "  \"sources\": [",
+            "    { \"name\": \"catalogue\" }",
+            "  ]",
+            "}"
+          ]
+        },
+        {
+          "type": "table",
+          "caption": "Pointers for the example document",
+          "columns": ["JSON Pointer", "Value type", "Resolved value"],
+          "rows": [
+            ["/production/status", "Text", "review"],
+            ["/production/score", "Number", "87"],
+            ["/production/approved", "Boolean", "false"],
+            ["/sources/0/name", "Text", "catalogue"]
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "Begin with / and add one /-separated token for each object property or array position.",
+            "Property names are case-sensitive. /production/score and /Production/score are different paths.",
+            "A numeric token selects an array position when the current value is an array, or a property with that exact name when the current value is an object.",
+            "Escape a slash inside a property name as ~1 and a tilde as ~0. For example, the property a/b~c uses the token a~1b~0c.",
+            "The root pointer is not available as a query target. Point to a non-root Text, Number, or Boolean value."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configure-queryable-paths",
+      "title": "Configure queryable paths",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open Settings → Library → Custom Fields and add or locate the JSON field.",
+            "Under Queryable JSON paths, choose Add path.",
+            "Enter the JSON Pointer and a Label that describes the resolved property rather than the whole document.",
+            "Choose the property's Value type: Text, Number, or Boolean.",
+            "Enable Filterable, Sortable, or both. Add another path for every other property that needs its own query control.",
+            "Move focus out of a text control after editing it. Cove saves the valid definition automatically and reconciles any database indexes needed for filterable paths."
+          ]
+        },
+        {
+          "type": "image",
+          "src": "assets/json-custom-field-definition.png",
+          "alt": "JSON custom-field definition with the numeric Profile score pointer enabled for filtering and sorting",
+          "caption": "The document remains one JSON value. Profile score becomes a typed Number target because only /profile/score is configured for queries."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Open Custom Fields settings",
+              "href": "/docs/user/library/custom-fields/json/#configure-queryable-paths",
+              "appHref": "/settings/library/custom-fields"
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Adding or changing a path applies to JSON values already stored on records; you do not need to reopen and save every record. A newly changed filterable path may take a moment to become indexed while the background job completes."
+        }
+      ]
+    },
+    {
+      "id": "enter-json-values",
+      "title": "Enter and review JSON values",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            "Open an eligible video, audio, image, text, performer, tag, studio, gallery, or group and choose Edit.",
+            "Under Custom Fields, choose Add JSON or Edit JSON for the field.",
+            "Enter the complete JSON value. Choose Format JSON to validate and indent it.",
+            "Choose Apply JSON, then choose Save on the record editor.",
+            "On the Details tab, choose View JSON to inspect the expandable document."
+          ]
+        },
+        {
+          "type": "paragraph",
+          "text": "The editor will not accept malformed JSON. Keep numbers unquoted when a Number path should resolve them, and use true or false without quotes for a Boolean path. Quoted values are strings even when they look like numbers or booleans."
+        }
+      ]
+    },
+    {
+      "id": "filter-and-sort-json-targets",
+      "title": "Use a JSON target in a list",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Filter a target"
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Open an eligible entity list and choose Filters → Custom Fields.",
+            "Choose Add custom field filter and select the JSON Field.",
+            "Under Target, choose a configured path label. Choose Presence instead when only the existence of the whole JSON value matters.",
+            "Choose a type-appropriate Match operator and enter a value when required, then choose Apply."
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 3,
+          "text": "Sort by a target"
+        },
+        {
+          "type": "steps",
+          "items": [
+            "Open Primary sort above the list.",
+            "Choose Custom: field label › path label.",
+            "Choose ascending or descending order, and add another sort when records with equal or missing values need a stable tie-breaker."
+          ]
+        },
+        {
+          "type": "note",
+          "text": "A missing property, explicit null, or value of the wrong type is treated as missing for that typed target. Is Null finds those records. Inverse operators such as Does Not Equal and Not Between also include missing targets."
+        },
+        {
+          "type": "links",
+          "items": [
+            {
+              "label": "Open Videos to filter or sort",
+              "href": "/docs/user/library/custom-fields/json/#filter-and-sort-json-targets",
+              "appHref": "/videos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recipes",
+      "title": "Recipes",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Start with the shape of your document, then expose only the paths that support a real browsing workflow."
+        },
+        {
+          "type": "recipes",
+          "items": [
+            {
+              "id": "review-score-and-status",
+              "title": "Filter by status and sort by score",
+              "description": "Expose two properties from one structured review document.",
+              "blocks": [
+                {
+                  "type": "code",
+                  "language": "json",
+                  "lines": [
+                    "{",
+                    "  \"review\": {",
+                    "    \"status\": \"ready\",",
+                    "    \"score\": 92",
+                    "  }",
+                    "}"
+                  ]
+                },
+                {
+                  "type": "steps",
+                  "items": [
+                    "Add /review/status as Text and enable Filterable.",
+                    "Add /review/score as Number and enable Sortable.",
+                    "Filter the Status target with Equals ready.",
+                    "Choose Custom: field label › Score as the Primary sort and select descending order."
+                  ]
+                },
+                {
+                  "type": "note",
+                  "text": "Do not configure /review as Text. It resolves to an object, not a scalar, so the typed target would be missing."
+                }
+              ]
+            },
+            {
+              "id": "first-array-item",
+              "title": "Query a property in the first array item",
+              "description": "Use a zero-based array position in the pointer.",
+              "blocks": [
+                {
+                  "type": "code",
+                  "language": "json",
+                  "lines": [
+                    "{",
+                    "  \"checks\": [",
+                    "    { \"passed\": true },",
+                    "    { \"passed\": false }",
+                    "  ]",
+                    "}"
+                  ]
+                },
+                {
+                  "type": "steps",
+                  "items": [
+                    "Add /checks/0/passed as a Boolean path.",
+                    "Enable Filterable.",
+                    "Filter the target with Equals True to find records whose first check passed."
+                  ]
+                },
+                {
+                  "type": "note",
+                  "text": "A JSON Pointer addresses one exact position; it does not search every item in an array. Store a summary property elsewhere in the document when the query should mean any item matched."
+                }
+              ]
+            },
+            {
+              "id": "escaped-property-names",
+              "title": "Address property names containing / or ~",
+              "description": "Use JSON Pointer escapes without changing the stored keys.",
+              "blocks": [
+                {
+                  "type": "code",
+                  "language": "json",
+                  "lines": [
+                    "{",
+                    "  \"measurements\": {",
+                    "    \"width/height~source\": \"1920x1080\"",
+                    "  }",
+                    "}"
+                  ]
+                },
+                {
+                  "type": "steps",
+                  "items": [
+                    "Start the pointer with /measurements/.",
+                    "Write width~1height~0source for the property token.",
+                    "Configure /measurements/width~1height~0source as Text."
+                  ]
+                },
+                {
+                  "type": "paragraph",
+                  "text": "~1 represents / and ~0 represents ~ inside a token. Other tilde escape sequences are invalid."
+                }
+              ]
+            },
+            {
+              "id": "find-missing-or-mistyped-values",
+              "title": "Find missing or mistyped values",
+              "description": "Use Is Null as a cleanup view after defining a typed path.",
+              "blocks": [
+                {
+                  "type": "steps",
+                  "items": [
+                    "Configure the intended property with its real scalar type and enable Filterable.",
+                    "Open Filters → Custom Fields and choose that target.",
+                    "Set Match to Is Null and apply the filter.",
+                    "Review records where the property is absent, null, or stored as another type, then correct their JSON values."
+                  ]
+                },
+                {
+                  "type": "note",
+                  "text": "For a Number target, 92 is a number but \"92\" is text. For a Boolean target, true is a boolean but \"true\" is text."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

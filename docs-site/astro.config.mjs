@@ -157,6 +157,8 @@ export default defineConfig({
                 { link: '/docs/tutorial/organize-a-collection/', label: 'Organize a collection' },
                 { link: '/docs/user/library/dynamic-groups/', label: 'When to use dynamic groups' },
                 { link: '/docs/user/library/segments-and-compilations/', label: 'Segments and compilations' },
+                { link: '/docs/user/library/custom-fields/', label: 'Custom fields' },
+                { link: '/docs/user/library/custom-fields/json/', label: 'JSON custom fields' },
               ],
             },
             {
