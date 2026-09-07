@@ -10,6 +10,13 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-07
+
+Restored compatibility for existing extensions and improved extension-owned infinite scrolling.
+
+- Extensions compiled against Cove 1.3 and earlier can again call video and performer repository searches and library cleanup without `MissingMethodException`. Cove 1.4.0 had appended optional parameters to these public interface methods, which changed their binary signatures; hidden forwarding overloads now preserve the original contracts while retaining the new filtering and path-selection capabilities.
+- Extension result layouts can now reuse Cove's infinite-scroll sentinel so grid, wall, feed, and vertical display modes continue loading when an extension owns the rendered content.
+
 ## [1.4.0] - 2026-09-06
 
 Personal dashboards, richer custom metadata, customizable shortcuts, deeper search, and safer long-running library work.
