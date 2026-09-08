@@ -8,17 +8,18 @@ namespace Cove.Tests;
 public sealed class VideoSearchQueryShapeTests
 {
     [Fact]
-    public void RelationalSearch_UnionsRelationshipIdsInsteadOfDistinctVideoRows()
+    public void ResolvedTagSearch_UsesIndexedArraysWithoutRepeatedRelationshipSubqueries()
     {
         using var db = CreatePostgresContext();
-        var repository = new VideoRepository(db);
-
-        var sql = repository.ApplyVideoSearch(db.Videos, "anal sex")
+        var search = new VideoTextSearch(db, "needle", [new("needle", [11], [11], [22], [22], [], [], [], [], [], [])]);
+        var sql = search.Order(search.Apply(db.Videos))
             .Select(video => video.Id)
             .ToQueryString();
 
-        Assert.Contains("FROM video_tags AS", sql, StringComparison.Ordinal);
-        Assert.Contains("FROM video_performers AS", sql, StringComparison.Ordinal);
+        Assert.Contains("&&", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("FROM video_tags AS", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("FROM video_performers AS", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("ts_rank", sql, StringComparison.Ordinal);
         Assert.Contains("FROM files AS", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("SELECT DISTINCT", sql, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"Captions\",", sql, StringComparison.Ordinal);
