@@ -779,6 +779,34 @@ public sealed class DatabaseClient
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<int> AttachImageFingerprintFileAsync(
+        int imageId,
+        string phash,
+        long size,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new DbContextOptionsBuilder<CoveContext>()
+            .UseNpgsql(_connectionString, npgsql => npgsql.UseVector())
+            .Options;
+        await using var db = new CoveContext(options);
+        var now = DateTime.UtcNow;
+        var file = new ImageFile
+        {
+            ImageId = imageId,
+            Basename = $"duplicate-{Guid.NewGuid():N}.png",
+            ParentFolder = new Folder { Path = $"/api-tests/image-duplicates/{Guid.NewGuid():N}", ModTime = now },
+            Size = size,
+            ModTime = now,
+            Format = "png",
+            Width = 20,
+            Height = 10,
+        };
+        file.Fingerprints.Add(new FileFingerprint { Type = "phash", Value = phash });
+        db.ImageFiles.Add(file);
+        await db.SaveChangesAsync(cancellationToken);
+        return file.Id;
+    }
+
     public async Task SetStoredStudioVideoCountsAsync(
         int studioWithVideoId,
         int studioWithoutVideoId,

@@ -340,6 +340,8 @@ try
     builder.Services.AddScoped<BulkDeletionJobService>();
     builder.Services.AddScoped<DuplicateSearchJobService>();
     builder.Services.AddScoped<DuplicateSearchExecutionService>();
+    builder.Services.AddScoped<DuplicateMetadataTransferService>();
+    builder.Services.AddScoped<ImageDuplicateSearchService>();
     builder.Services.AddScoped<IFieldProvenanceService, FieldProvenanceService>();
     builder.Services.AddScoped<TagApplicationService>();
     builder.Services.AddSingleton<CustomFieldJsonIndexReconciler>();

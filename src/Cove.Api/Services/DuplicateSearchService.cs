@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
+using System.Text.Json;
 using Cove.Core.Auth;
+using Cove.Core.Common;
 using Cove.Core.DTOs;
 using Cove.Core.Entities;
 using Cove.Core.Interfaces;
@@ -15,7 +17,7 @@ public sealed class DuplicateSearchJobService(
     IJobService jobService,
     IServiceScopeFactory scopeFactory)
 {
-    internal const int MaximumPHashDistance = 16;
+    internal const int MaximumPHashDistance = 64;
     private static readonly TimeSpan ResultRetention = TimeSpan.FromDays(7);
 
     public async Task<DuplicateSearchStartDto> StartAsync(
@@ -27,12 +29,25 @@ public sealed class DuplicateSearchJobService(
     {
         var ids = candidateVideoIds?.Where(id => id > 0).Distinct().ToArray();
         var matchType = NormalizeMatchType(request.MatchType);
+        var fingerprintAlgorithm = NormalizeFingerprintAlgorithm(request.FingerprintAlgorithm);
+        var folderMode = NormalizeFolderMode(request.FolderMode);
+        var folderPaths = NormalizeFolderPaths(request.FolderPaths);
+        var rankingMode = string.Equals(request.RankingMode, "custom", StringComparison.OrdinalIgnoreCase) ? "custom" : "balanced";
+        var preferredCodecs = NormalizeStringList(request.PreferredCodecs, ["av1", "hevc", "h264", "vp9", "mpeg4"]);
+        var keeperRules = NormalizeKeeperRules(request.KeeperRules);
         var search = new DuplicateSearch
         {
             OwnerKey = owner?.Key,
             MatchType = matchType,
+            FingerprintAlgorithm = fingerprintAlgorithm,
             Distance = Math.Clamp(request.Distance, 0, MaximumPHashDistance),
             DurationDifference = Math.Max(0, request.DurationDiff ?? 10),
+            MinimumDuration = Math.Clamp(request.MinimumDuration, 0, 86_400_000),
+            FolderMode = folderMode,
+            FolderPathsJson = JsonSerializer.Serialize(folderPaths),
+            RankingMode = rankingMode,
+            PreferredCodecsJson = JsonSerializer.Serialize(preferredCodecs),
+            KeeperRulesJson = JsonSerializer.Serialize(keeperRules),
             CandidateCount = ids?.Length ?? 0,
             Status = DuplicateSearchStatus.Pending,
             ExpiresAt = DateTime.UtcNow.Add(ResultRetention),
@@ -241,6 +256,35 @@ public sealed class DuplicateSearchJobService(
             _ => "fingerprint",
         };
 
+    internal static string NormalizeFingerprintAlgorithm(string? algorithm)
+        => algorithm?.Trim().ToLowerInvariant() is "md5" or "oshash" ? algorithm.Trim().ToLowerInvariant() : "any";
+
+    internal static string NormalizeFolderMode(string? mode)
+        => mode?.Trim().ToLowerInvariant() is "include" or "exclude" ? mode.Trim().ToLowerInvariant() : "all";
+
+    internal static string[] NormalizeFolderPaths(IReadOnlyList<string>? paths)
+        => (paths ?? [])
+            .Select(path => path.Trim().Replace('\\', '/').TrimEnd('/'))
+            .Where(path => path.Length > 0)
+            .Distinct(FilesystemPaths.PathComparer)
+            .Take(100)
+            .ToArray();
+
+    private static string[] NormalizeStringList(IReadOnlyList<string>? values, string[] fallback)
+    {
+        var normalized = (values ?? []).Select(value => value.Trim().ToLowerInvariant())
+            .Where(value => value.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Take(20).ToArray();
+        return normalized.Length > 0 ? normalized : fallback;
+    }
+
+    private static string[] NormalizeKeeperRules(IReadOnlyList<string>? values)
+    {
+        string[] valid = ["metadata", "resolution", "duration", "codec", "bitrate", "size", "oldest", "newest"];
+        var requested = NormalizeStringList(values, []);
+        var normalized = requested.Where(value => valid.Contains(value, StringComparer.OrdinalIgnoreCase)).ToArray();
+        return normalized.Length > 0 ? normalized : ["resolution", "codec", "bitrate", "duration", "metadata", "oldest"];
+    }
+
     private static string DescribeMatchType(string matchType) => matchType switch
     {
         "phash" => "visual pHash",
@@ -298,7 +342,7 @@ public sealed class DuplicateSearchExecutionService(
 
             progress.Report(0.01, "Loading visible videos");
             var ids = candidateVideoIds is null
-                ? await db.Videos.AsNoTracking().Select(video => video.Id).ToArrayAsync(ct)
+                ? await ResolveCandidateIdsAsync(search, ct)
                 : candidateVideoIds.Where(id => id > 0).Distinct().ToArray();
             search.CandidateCount = ids.Length;
             await db.SaveChangesAsync(ct);
@@ -318,7 +362,7 @@ public sealed class DuplicateSearchExecutionService(
                     break;
                 default:
                     progress.Report(0.1, "Loading file fingerprints");
-                    groups = await FindFingerprintGroupsAsync(ids, ct);
+                    groups = await FindFingerprintGroupsAsync(ids, search.FingerprintAlgorithm, ct);
                     break;
             }
 
@@ -339,7 +383,42 @@ public sealed class DuplicateSearchExecutionService(
         }
     }
 
-    private async Task<List<List<int>>> FindFingerprintGroupsAsync(int[] candidateVideoIds, CancellationToken ct)
+    private async Task<int[]> ResolveCandidateIdsAsync(DuplicateSearch search, CancellationToken ct)
+    {
+        // Title and remote-ID matching also apply to metadata-only records. Requiring a file for
+        // the default, unscoped search silently excluded those videos from every match mode.
+        if (search.FolderMode == "all" && search.MinimumDuration <= 0)
+            return await db.Videos.AsNoTracking().Select(video => video.Id).ToArrayAsync(ct);
+
+        var paths = DeserializeList(search.FolderPathsJson);
+        var rows = await db.Videos
+            .SelectMany(video => video.Files.Select(file => new { video.Id, file.Duration, file.Path }))
+            .AsNoTracking()
+            .ToListAsync(ct);
+        return rows
+            .Where(row => row.Duration >= search.MinimumDuration)
+            .Where(row => search.FolderMode == "all" || paths.Length == 0 ||
+                (search.FolderMode == "include") == paths.Any(path => IsAtOrBelow(row.Path, path)))
+            .Select(row => row.Id)
+            .Distinct()
+            .ToArray();
+    }
+
+    internal static bool IsAtOrBelow(string candidate, string folder)
+    {
+        var normalizedCandidate = candidate.Replace('\\', '/').TrimEnd('/');
+        var normalizedFolder = folder.Replace('\\', '/').TrimEnd('/');
+        return normalizedCandidate.Equals(normalizedFolder, FilesystemPaths.PathComparison)
+            || normalizedCandidate.StartsWith(normalizedFolder + "/", FilesystemPaths.PathComparison);
+    }
+
+    internal static string[] DeserializeList(string? json)
+    {
+        try { return JsonSerializer.Deserialize<string[]>(json ?? "[]") ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    private async Task<List<List<int>>> FindFingerprintGroupsAsync(int[] candidateVideoIds, string algorithm, CancellationToken ct)
     {
         var rows = new List<DuplicateFingerprintCandidate>();
         foreach (var chunk in candidateVideoIds.Chunk(QueryChunkSize))
@@ -348,7 +427,7 @@ public sealed class DuplicateSearchExecutionService(
                 .Where(file => file.VideoId.HasValue && chunk.Contains(file.VideoId.Value))
                 .SelectMany(
                     file => file.Fingerprints.Where(fingerprint =>
-                        (fingerprint.Type == "oshash" || fingerprint.Type == "md5")
+                        (algorithm == "any" ? fingerprint.Type == "oshash" || fingerprint.Type == "md5" : fingerprint.Type == algorithm)
                         && fingerprint.Value != ""),
                     (file, fingerprint) => new DuplicateFingerprintCandidate(
                         file.VideoId!.Value,
@@ -501,23 +580,42 @@ public sealed class DuplicateSearchExecutionService(
         var scores = new Dictionary<int, DuplicateKeeperScore>();
         foreach (var chunk in allVideoIds.Chunk(QueryChunkSize))
         {
-            var chunkScores = await db.Videos
+            var videos = await db.Videos
                 .Where(video => chunk.Contains(video.Id))
-                .Select(video => new DuplicateKeeperScore(video.Id, video.MaxResolution, video.MaxFileSize))
+                .Include(video => video.Files)
+                .Include(video => video.VideoTags)
+                .Include(video => video.VideoPerformers)
+                .Include(video => video.VideoGalleries)
+                .Include(video => video.Urls)
+                .Include(video => video.RemoteIds)
                 .AsNoTracking()
                 .ToListAsync(ct);
-            foreach (var score in chunkScores)
+            foreach (var video in videos)
+            {
+                var file = video.Files.OrderByDescending(file => (long)file.Width * file.Height).ThenByDescending(file => file.Size).FirstOrDefault();
+                var metadataCount = new object?[] { video.Title, video.Code, video.Details, video.Director, video.Date, video.StudioId, video.Captions, video.ImageBlobId }
+                    .Count(value => value is not null && !string.IsNullOrWhiteSpace(value.ToString()))
+                    + video.VideoTags.Count + video.VideoPerformers.Count + video.VideoGalleries.Count + video.Urls.Count + video.RemoteIds.Count;
+                var score = new DuplicateKeeperScore(
+                    video.Id,
+                    video.MaxResolution,
+                    video.MaxFileSize,
+                    file?.BitRate ?? 0,
+                    file?.Duration ?? 0,
+                    NormalizeCodec(file?.VideoCodec),
+                    metadataCount,
+                    video.CreatedAt);
                 scores[score.VideoId] = score;
+            }
         }
+        var searchOptions = await db.DuplicateSearches.AsNoTracking().SingleAsync(item => item.Id == searchId, ct);
+        var preferredCodecs = DeserializeList(searchOptions.PreferredCodecsJson);
+        var keeperRules = DeserializeList(searchOptions.KeeperRulesJson);
         var boundedGroups = PreparePersistedGroups(
             groups,
             MaximumPersistedGroupSize,
             MaximumPersistedGroupCount,
-            ids => ids
-                .OrderByDescending(id => scores.GetValueOrDefault(id)?.Resolution ?? 0)
-                .ThenByDescending(id => scores.GetValueOrDefault(id)?.FileSize ?? 0)
-                .ThenBy(id => id)
-                .First());
+            ids => ChooseKeeper(ids, scores, searchOptions.RankingMode, preferredCodecs, keeperRules));
 
         var existingGroups = db.DuplicateSearchGroups.Where(group => group.SearchId == searchId);
         if (db.Database.IsRelational())
@@ -538,8 +636,20 @@ public sealed class DuplicateSearchExecutionService(
                 ct.ThrowIfCancellationRequested();
                 var videoIds = boundedGroups[position].VideoIds;
                 var keeperId = boundedGroups[position].KeeperId;
+                var risk = CalculateRisk(videoIds, scores);
+                var runnerUp = RankVideos(videoIds, scores, searchOptions.RankingMode, preferredCodecs, keeperRules).Skip(1).FirstOrDefault();
                 definitions.Add(new PersistedGroupDefinition(
-                    new DuplicateSearchGroup { SearchId = searchId, Position = position },
+                    new DuplicateSearchGroup
+                    {
+                        SearchId = searchId,
+                        Position = position,
+                        RecommendedVideoId = keeperId,
+                        RecommendationReason = runnerUp == 0
+                            ? "Only one candidate."
+                            : $"Recommended #{keeperId.ToString(CultureInfo.InvariantCulture)} over #{runnerUp.ToString(CultureInfo.InvariantCulture)} using {searchOptions.RankingMode} ranking.",
+                        RiskScore = risk.Score,
+                        RiskNotesJson = JsonSerializer.Serialize(risk.Notes),
+                    },
                     videoIds,
                     keeperId));
             }
@@ -847,7 +957,78 @@ public sealed class DuplicateSearchExecutionService(
     private sealed record DuplicateFingerprintCandidate(int VideoId, string Type, string Value);
     private sealed record DuplicateTitleCandidate(int VideoId, string Title);
     private sealed record DuplicateRemoteIdCandidate(int VideoId, string Endpoint, string RemoteId);
-    private sealed record DuplicateKeeperScore(int VideoId, int Resolution, long FileSize);
+    private static int ChooseKeeper(int[] ids, IReadOnlyDictionary<int, DuplicateKeeperScore> scores, string rankingMode, string[] preferredCodecs, string[] keeperRules)
+        => RankVideos(ids, scores, rankingMode, preferredCodecs, keeperRules).First();
+
+    private static IEnumerable<int> RankVideos(IEnumerable<int> ids, IReadOnlyDictionary<int, DuplicateKeeperScore> scores, string rankingMode, string[] preferredCodecs, string[] keeperRules)
+    {
+        var ordered = ids.Select(id => scores.GetValueOrDefault(id) ?? new DuplicateKeeperScore(id, 0, 0, 0, 0, string.Empty, 0, DateTime.MaxValue));
+        IOrderedEnumerable<DuplicateKeeperScore>? result = null;
+        if (string.Equals(rankingMode, "custom", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var rule in keeperRules)
+            {
+                Func<DuplicateKeeperScore, IComparable> selector = rule switch
+                {
+                    "metadata" => score => score.MetadataCount,
+                    "resolution" => score => score.Resolution,
+                    "duration" => score => score.Duration,
+                    "codec" => score => CodecPreference(score.Codec, preferredCodecs),
+                    "bitrate" => score => score.BitRate,
+                    "size" => score => score.FileSize,
+                    "newest" => score => score.CreatedAt,
+                    "oldest" => score => -score.CreatedAt.Ticks,
+                    _ => score => 0,
+                };
+                result = result is null ? ordered.OrderByDescending(selector) : result.ThenByDescending(selector);
+            }
+        }
+        result ??= ordered.OrderByDescending(score => score.Resolution)
+            .ThenByDescending(score => score.BitRate * CodecQualityFactor(score.Codec))
+            .ThenByDescending(score => score.Duration)
+            .ThenByDescending(score => score.MetadataCount)
+            .ThenBy(score => score.FileSize)
+            .ThenBy(score => score.CreatedAt);
+        return result.ThenBy(score => score.VideoId).Select(score => score.VideoId);
+    }
+
+    private static (int Score, string[] Notes) CalculateRisk(int[] ids, IReadOnlyDictionary<int, DuplicateKeeperScore> scores)
+    {
+        var values = ids.Select(id => scores.GetValueOrDefault(id)).Where(score => score is not null).Cast<DuplicateKeeperScore>().ToArray();
+        if (values.Length < 2) return (0, []);
+        var factor = 1;
+        var notes = new List<string>();
+        if (values.Length > 4) notes.Add($"{values.Length.ToString(CultureInfo.InvariantCulture)} videos in one group");
+        var shortest = values.Min(score => score.Duration);
+        var longest = values.Max(score => score.Duration);
+        if (shortest > 0 && shortest < 30) { factor += 2; notes.Add("short clip"); }
+        if (longest > 0 && (longest - shortest) / longest > .25) { factor++; notes.Add("durations differ by over 25%"); }
+        if (values.Select(score => score.Resolution).Distinct().Count() > 1) { factor++; notes.Add("mixed resolutions"); }
+        return ((values.Length - 1) * factor, [.. notes]);
+    }
+
+    private static int CodecPreference(string codec, string[] preferredCodecs)
+    {
+        var index = Array.FindIndex(preferredCodecs, value => string.Equals(NormalizeCodec(value), codec, StringComparison.OrdinalIgnoreCase));
+        return index < 0 ? -1_000 : preferredCodecs.Length - index;
+    }
+
+    private static double CodecQualityFactor(string codec) => codec switch
+    {
+        "av1" => 1.55,
+        "hevc" => 1.35,
+        "vp9" => 1.25,
+        "h264" => 1,
+        _ => .9,
+    };
+
+    private static string NormalizeCodec(string? value)
+    {
+        var codec = (value ?? string.Empty).Trim().ToLowerInvariant().Replace(".", "").Replace("_", "").Replace("-", "");
+        return codec switch { "h265" => "hevc", "avc" or "avc1" => "h264", "vp90" => "vp9", "av01" => "av1", _ => codec };
+    }
+
+    private sealed record DuplicateKeeperScore(int VideoId, int Resolution, long FileSize, long BitRate, double Duration, string Codec, int MetadataCount, DateTime CreatedAt);
     private sealed record BoundedDuplicateGroup(int[] VideoIds, int KeeperId);
     private sealed record PersistedGroupDefinition(DuplicateSearchGroup Entity, int[] VideoIds, int KeeperId);
     private sealed class DuplicateSearchComplexityException : Exception
@@ -942,5 +1123,16 @@ public sealed class DuplicateSearchRecoveryService(
         }
 
         await db.DuplicateSearches.Where(search => search.ExpiresAt < now).ExecuteDeleteAsync(ct);
+        await db.ImageDuplicateSearches
+            .Where(search => search.Status == DuplicateSearchStatus.Pending || search.Status == DuplicateSearchStatus.Running)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(search => search.Status, DuplicateSearchStatus.Interrupted)
+                .SetProperty(search => search.CompletedAt, now)
+                .SetProperty(search => search.Error, "The server stopped before this image search completed."), ct);
+        await db.ImageDuplicateSearches
+            .Where(search => search.CleanupJobId != null && search.CleanupJobId.StartsWith(DuplicateSearchDeletionClaim.Prefix))
+            .ExecuteUpdateAsync(update => update.SetProperty(search => search.CleanupJobId, (string?)null), ct);
+        await db.ImageDuplicateKeeperReservations.IgnoreQueryFilters().ExecuteDeleteAsync(ct);
+        await db.ImageDuplicateSearches.Where(search => search.ExpiresAt < now).ExecuteDeleteAsync(ct);
     }
 }

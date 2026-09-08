@@ -10,6 +10,8 @@ here. Keep the `## [version] - date` heading format below so the parser can read
 
 ## [Unreleased]
 
+- Duplicate Manager is now built into Cove for videos and images, with durable searches, folder scoping, keeper recommendations, side-by-side review, metadata transfer, archive protection, permission-aware path redaction, and post-commit host-managed file cleanup.
+
 ## [1.4.1] - 2026-09-07
 
 Restored compatibility for existing extensions and improved extension-owned infinite scrolling.

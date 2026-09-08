@@ -23,7 +23,7 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.VideosRead)]
-public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null, BulkDeletionJobService? bulkDeletionJobService = null, DuplicateSearchJobService? duplicateSearchJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null) : ControllerBase
+public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, MetadataServerService metadataServerService, IThumbnailService thumbnailService, IScanService scanService, IMemoryCache memoryCache, IBlobService blobService, IStreamService streamService, IUserEngagementService engagementService, CustomFieldService customFields, IEventBus eventBus, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, ISegmentSpanCacheInvalidator? segmentSpanCacheInvalidator = null, BulkDeletionJobService? bulkDeletionJobService = null, DuplicateSearchJobService? duplicateSearchJobService = null, BulkEntityDeletionService? bulkEntityDeletionService = null, PhysicalFileDeletionRecoverySignal? physicalFileDeletionRecoverySignal = null, CoveConfiguration? coveConfiguration = null, DuplicateMetadataTransferService? duplicateMetadataTransferService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private bool HasUserScopedEngagement => principalAccessor?.Current?.UserId != null;
@@ -1262,8 +1262,15 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             search.Id,
             search.JobId,
             search.MatchType,
+            search.FingerprintAlgorithm,
             search.Distance,
             search.DurationDifference,
+            search.MinimumDuration,
+            search.FolderMode,
+            CanReadFiles ? DuplicateSearchExecutionService.DeserializeList(search.FolderPathsJson) : [],
+            search.RankingMode,
+            DuplicateSearchExecutionService.DeserializeList(search.PreferredCodecsJson),
+            DuplicateSearchExecutionService.DeserializeList(search.KeeperRulesJson),
             search.Status.ToString().ToLowerInvariant(),
             search.Error,
             search.CandidateCount,
@@ -1284,6 +1291,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         Guid searchId,
         [FromQuery] int page = 1,
         [FromQuery] int perPage = 10,
+        [FromQuery] string? q = null,
         CancellationToken ct = default)
     {
         var search = await GetAccessibleDuplicateSearchAsync(searchId, ct);
@@ -1291,10 +1299,21 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             return NotFound();
 
         page = Math.Max(1, page);
-        perPage = Math.Clamp(perPage, 1, 20);
-        var totalCount = await db.DuplicateSearchGroups.CountAsync(group => group.SearchId == searchId, ct);
-        var groups = await db.DuplicateSearchGroups
-            .Where(group => group.SearchId == searchId)
+        perPage = Math.Clamp(perPage, 1, 100);
+        var groupQuery = db.DuplicateSearchGroups.Where(group => group.SearchId == searchId);
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var term = q.Trim();
+            groupQuery = groupQuery.Where(group => group.Items.Any(item => item.Video != null &&
+                ((item.Video.Title != null && EF.Functions.ILike(item.Video.Title, $"%{term}%"))
+                    || item.Video.Files.Any(file => EF.Functions.ILike(file.Basename, $"%{term}%")
+                        || (CanReadFiles && EF.Functions.ILike(file.Path, $"%{term}%")))
+                    || item.Video.VideoTags.Any(link => link.Tag != null && EF.Functions.ILike(link.Tag.Name, $"%{term}%"))
+                    || item.Video.VideoPerformers.Any(link => link.Performer != null && EF.Functions.ILike(link.Performer.Name, $"%{term}%"))
+                    || (item.Video.Studio != null && EF.Functions.ILike(item.Video.Studio.Name, $"%{term}%")))));
+        }
+        var totalCount = await groupQuery.CountAsync(ct);
+        var groups = await groupQuery
             .OrderBy(group => group.Position)
             .Skip((page - 1) * perPage)
             .Take(perPage)
@@ -1325,7 +1344,11 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 .OrderBy(video => video.Title ?? video.Files.FirstOrDefault()?.Basename ?? string.Empty)
                 .ThenBy(video => video.Id)
                 .ToList(),
-            group.Items.Where(item => item.Keep && videoLookup.ContainsKey(item.VideoId)).Select(item => item.VideoId).ToList()))
+            group.Items.Where(item => item.Keep && videoLookup.ContainsKey(item.VideoId)).Select(item => item.VideoId).ToList(),
+            group.RecommendedVideoId,
+            group.RecommendationReason,
+            group.RiskScore,
+            DuplicateSearchExecutionService.DeserializeList(group.RiskNotesJson)))
             .ToList();
 
         return Ok(new DuplicateSearchGroupPageDto(
@@ -1427,6 +1450,7 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
     [HttpPost("duplicate-searches/{searchId:guid}/delete-unkept")]
     [RequiresPermission(Permissions.VideosDelete)]
     [RequiresPermissionWhenTrue(Permissions.VideosDeleteFile, ActionArgumentName = "request", PropertyName = "DeleteFiles")]
+    [RequiresPermissionWhenTrue(Permissions.VideosWrite, ActionArgumentName = "request", PropertyName = "CopyMetadata")]
     public async Task<IActionResult> DeleteUnkeptDuplicateVideos(
         Guid searchId,
         [FromBody] DuplicateSearchDeleteRequestDto request,
@@ -1434,6 +1458,8 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         CancellationToken ct)
     {
         if (request.DeleteFiles && principalAccessor?.Current?.Has(Permissions.VideosDeleteFile) != true)
+            return Forbid();
+        if (request.CopyMetadata && principalAccessor?.Current?.Has(Permissions.VideosWrite) != true)
             return Forbid();
 
         var search = await GetMutableDuplicateSearchAsync(searchId, ct);
@@ -1510,14 +1536,40 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
                 if (decisions.Any(decision => !decision.Allowed))
                     return Forbid();
             }
+            if (request.CopyMetadata)
+            {
+                var metadataTargetIds = await db.DuplicateSearchItems
+                    .Where(item => item.Group != null && item.Group.SearchId == searchId && item.Keep)
+                    .Select(item => item.VideoId)
+                    .Distinct()
+                    .ToArrayAsync(ct);
+                foreach (var chunk in metadataTargetIds.Chunk(4_000))
+                {
+                    var decisions = await authorizationService.AuthorizeManyAsync(
+                        principalAccessor?.Current,
+                        Permissions.VideosWrite,
+                        chunk.Select(id => EntityRef.Of(EntityKinds.Video, id)).ToArray(),
+                        ct);
+                    if (decisions.Any(decision => !decision.Allowed))
+                        return Forbid();
+                }
+            }
 
-            var queued = bulkDeletionJobService!.Start(
-                principalAccessor?.Current,
-                BulkDeletionEntityKind.Video,
-                ids,
-                request.DeleteFiles,
-                request.DeleteGenerated,
-                duplicateSearchId: searchId);
+            var queued = request.CopyMetadata
+                ? duplicateMetadataTransferService!.StartDuplicateCleanup(
+                    principalAccessor?.Current,
+                    searchId,
+                    ids,
+                    request.DeleteFiles,
+                    request.DeleteGenerated,
+                    request.OverwriteConflictingMetadata)
+                : bulkDeletionJobService!.Start(
+                    principalAccessor?.Current,
+                    BulkDeletionEntityKind.Video,
+                    ids,
+                    request.DeleteFiles,
+                    request.DeleteGenerated,
+                    duplicateSearchId: searchId);
             // Once the external enqueue side effect exists, retain the claim even if linking the real
             // job id encounters an unexpected failure; this prevents a duplicate destructive job.
             releaseClaim = false;
@@ -1541,6 +1593,17 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
         DuplicateSearchRequestDto request,
         CancellationToken ct)
     {
+        var normalizedMode = DuplicateSearchJobService.NormalizeFolderMode(request.FolderMode);
+        var normalizedPaths = DuplicateSearchJobService.NormalizeFolderPaths(request.FolderPaths);
+        if (normalizedMode != "all")
+        {
+            if (!CanReadFiles)
+                return Forbid();
+            if (normalizedPaths.Length == 0)
+                return BadRequest("Choose at least one library folder for include or exclude scope.");
+            if (coveConfiguration is null || normalizedPaths.Any(path => !IsConfiguredLibraryPath(path, coveConfiguration)))
+                return BadRequest("Every duplicate-search folder must be at or below a configured library path.");
+        }
         var queued = await duplicateSearchJobService!.StartAsync(
             JobOwner.FromPrincipal(principalAccessor?.Current),
             principalAccessor?.Current,
@@ -1548,6 +1611,19 @@ public class VideosController(IVideoRepository videoRepo, Data.CoveContext db, M
             null,
             ct);
         return Accepted(queued);
+    }
+
+    private static bool IsConfiguredLibraryPath(string candidate, CoveConfiguration configuration)
+    {
+        string Canonical(string value)
+        {
+            try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(value.Trim())).Replace('\\', '/'); }
+            catch { return string.Empty; }
+        }
+        var normalized = Canonical(candidate);
+        return normalized.Length > 0 && configuration.CovePaths
+            .Select(path => Canonical(path.Path ?? string.Empty))
+            .Any(root => root.Length > 0 && DuplicateSearchExecutionService.IsAtOrBelow(normalized, root));
     }
 
     private async Task<DuplicateSearch?> GetAccessibleDuplicateSearchAsync(Guid searchId, CancellationToken ct)

@@ -79,7 +79,6 @@ const BUILTIN_ROUTE_PERMISSIONS: Partial<Record<Route["page"], string>> = {
   image: "images.read",
   faces: "faces.read",
   videoparser: "videos.read",
-  duplicates: "videos.read",
   stats: "system.read",
 };
 
@@ -562,6 +561,9 @@ export function AppRoutes({ route, navigate }: { route: Route; navigate: (r: Rou
   const { getPageOverride, resolveComponent, manifest } = useExtensions();
   const { hasPermission } = useAuth();
 
+  if (route.page === "duplicates" && !hasPermission("videos.read") && !hasPermission("images.read")) {
+    return <AccessDeniedPage navigate={navigate} />;
+  }
   const requiredPermission = BUILTIN_ROUTE_PERMISSIONS[route.page];
   if (requiredPermission && !hasPermission(requiredPermission)) {
     return <AccessDeniedPage navigate={navigate} />;

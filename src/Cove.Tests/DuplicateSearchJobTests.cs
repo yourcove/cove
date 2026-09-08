@@ -451,6 +451,63 @@ public sealed class DuplicateSearchJobTests
         Assert.Equal(DuplicateSearchJobService.MaximumPHashDistance, (await db.DuplicateSearches.SingleAsync()).Distance);
     }
 
+    [Theory]
+    [InlineData("C:/library/movie.mp4", "C:/library", true)]
+    [InlineData("C:/library/sub/movie.mp4", "C:\\library\\sub", true)]
+    [InlineData("C:/library-two/movie.mp4", "C:/library", false)]
+    public void FolderBoundaryMatchingDoesNotLeakAcrossSiblingPaths(string candidate, string folder, bool expected)
+        => Assert.Equal(expected, DuplicateSearchExecutionService.IsAtOrBelow(candidate, folder));
+
+    [Theory]
+    [InlineData("C:/library/book.cbz#page.jpg", true)]
+    [InlineData("C:/library/archive.zip#page.jpg", true)]
+    [InlineData("C:/library/page.jpg", false)]
+    public void ImageArchivePathsAreProtected(string path, bool expected)
+        => Assert.Equal(expected, ImageDuplicateSearchService.IsArchivePath(path));
+
+    [Fact]
+    public async Task DefaultTitleSearchIncludesMetadataOnlyVideos()
+    {
+        await using var db = CreateContext();
+        var search = CompletedSearch();
+        search.MatchType = "title";
+        db.AddRange(
+            new Video { Title = "Metadata-only duplicate" },
+            new Video { Title = "Metadata-only duplicate" },
+            search);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var service = new DuplicateSearchExecutionService(db, new CapturingJobService(), null!);
+
+        await service.ExecuteAsync(search.Id, null, new NullProgress(), TestContext.Current.CancellationToken);
+
+        var group = await db.DuplicateSearchGroups.Include(item => item.Items)
+            .SingleAsync(item => item.SearchId == search.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(2, group.Items.Count);
+    }
+
+    [Fact]
+    public async Task MetadataTransferFillsMissingValuesAndReparentsChildren()
+    {
+        await using var db = CreateContext();
+        var keeper = new Video { Title = "Keeper" };
+        var source = new Video { Details = "Source details", Director = "Source director" };
+        var child = new Video { Title = "Child", ParentVideo = source };
+        db.AddRange(keeper, source, child);
+        await db.SaveChangesAsync();
+
+        await DuplicateMetadataTransferService.StageVideoTransferAsync(
+            db, keeper.Id, source.Id, overwrite: false, TestContext.Current.CancellationToken);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        db.ChangeTracker.Clear();
+
+        var persistedKeeper = await db.Videos.SingleAsync(video => video.Id == keeper.Id, TestContext.Current.CancellationToken);
+        var persistedChild = await db.Videos.SingleAsync(video => video.Id == child.Id, TestContext.Current.CancellationToken);
+        Assert.Equal("Keeper", persistedKeeper.Title);
+        Assert.Equal("Source details", persistedKeeper.Details);
+        Assert.Equal("Source director", persistedKeeper.Director);
+        Assert.Equal(keeper.Id, persistedChild.ParentVideoId);
+    }
+
     private static CoveContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CoveContext>()
@@ -542,5 +599,12 @@ public sealed class DuplicateSearchJobTests
         public JobInfo? GetJob(string jobId) => ReturnedJob?.Id == jobId ? ReturnedJob : null;
         public IReadOnlyList<JobInfo> GetAllJobs() => [];
         public IReadOnlyList<JobInfo> GetJobHistory() => [];
+    }
+
+    private sealed class NullProgress : IJobProgress
+    {
+        public void Report(double progress, string? subTask = null)
+        {
+        }
     }
 }

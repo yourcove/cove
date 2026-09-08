@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Loader2 } from "lucide-react";
-import type { DeleteEntityOptions } from "../api/types";
+import type { DuplicateCleanupOptions } from "../api/types";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 
 interface Props {
@@ -8,7 +8,7 @@ interface Props {
   title: string;
   message: string;
   confirmLabel?: string;
-  onConfirm: (options?: DeleteEntityOptions) => void | Promise<void>;
+  onConfirm: (options?: DuplicateCleanupOptions) => void | Promise<void>;
   onCancel: () => void;
   destructive?: boolean;
   isPending?: boolean;
@@ -16,6 +16,10 @@ interface Props {
   /** Show a "Also delete file from disk" checkbox */
   showDeleteFile?: boolean;
   showDeleteGenerated?: boolean;
+  showCopyMetadata?: boolean;
+  defaultDeleteGenerated?: boolean;
+  defaultCopyMetadata?: boolean;
+  defaultOverwriteMetadata?: boolean;
 }
 
 export function ConfirmDialog({
@@ -30,10 +34,16 @@ export function ConfirmDialog({
   errorMessage = null,
   showDeleteFile,
   showDeleteGenerated,
+  showCopyMetadata,
+  defaultDeleteGenerated,
+  defaultCopyMetadata,
+  defaultOverwriteMetadata,
 }: Props) {
   const appConfig = useOptionalAppConfig();
   const [deleteFile, setDeleteFile] = useState(false);
   const [deleteGenerated, setDeleteGenerated] = useState(false);
+  const [copyMetadata, setCopyMetadata] = useState(false);
+  const [overwriteMetadata, setOverwriteMetadata] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -55,13 +65,21 @@ export function ConfirmDialog({
     }
 
     setDeleteFile(showDeleteFile ? (appConfig?.config?.ui.deleteFileDefault ?? false) : false);
-    setDeleteGenerated(showDeleteGenerated ? (appConfig?.config?.deleteGeneratedDefault ?? false) : false);
+    setDeleteGenerated(
+      showDeleteGenerated ? (defaultDeleteGenerated ?? appConfig?.config?.deleteGeneratedDefault ?? false) : false,
+    );
+    setCopyMetadata(showCopyMetadata ? (defaultCopyMetadata ?? true) : false);
+    setOverwriteMetadata(showCopyMetadata ? (defaultOverwriteMetadata ?? false) : false);
   }, [
     appConfig?.config?.deleteGeneratedDefault,
     appConfig?.config?.ui.deleteFileDefault,
     open,
     showDeleteFile,
     showDeleteGenerated,
+    showCopyMetadata,
+    defaultDeleteGenerated,
+    defaultCopyMetadata,
+    defaultOverwriteMetadata,
   ]);
 
   if (!open) return null;
@@ -69,6 +87,8 @@ export function ConfirmDialog({
   const resetOptions = () => {
     setDeleteFile(false);
     setDeleteGenerated(false);
+    setCopyMetadata(false);
+    setOverwriteMetadata(false);
   };
 
   const cancel = () => {
@@ -144,6 +164,38 @@ export function ConfirmDialog({
             Also delete generated files
           </label>
         )}
+        {showCopyMetadata && (
+          <div className="mb-4 space-y-3">
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-secondary">
+              <input
+                type="checkbox"
+                checked={copyMetadata}
+                onChange={(event) => {
+                  setCopyMetadata(event.target.checked);
+                  if (!event.target.checked) setOverwriteMetadata(false);
+                }}
+                className="mt-0.5 rounded border-border bg-surface accent-accent"
+              />
+              <span>
+                <strong className="block text-foreground">Copy missing metadata to keepers</strong>Relationships,
+                markers, and engagement are merged before deletion.
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-secondary">
+              <input
+                type="checkbox"
+                checked={overwriteMetadata}
+                disabled={!copyMetadata}
+                onChange={(event) => setOverwriteMetadata(event.target.checked)}
+                className="mt-0.5 rounded border-border bg-surface accent-accent disabled:opacity-50"
+              />
+              <span>
+                <strong className="block text-foreground">Overwrite conflicting metadata</strong>Prefer values from
+                removed duplicates when both records have a value.
+              </span>
+            </label>
+          </div>
+        )}
         {errorMessage ? (
           <div className="mb-4 rounded border border-red-700 bg-red-950/60 px-3 py-2 text-sm text-red-200">
             {errorMessage}
@@ -161,10 +213,16 @@ export function ConfirmDialog({
           <button
             onClick={() => {
               const options =
-                showDeleteFile || showDeleteGenerated
+                showDeleteFile || showDeleteGenerated || showCopyMetadata
                   ? {
                       deleteFile: showDeleteFile ? deleteFile : false,
                       deleteGenerated: showDeleteGenerated ? deleteGenerated : false,
+                      ...(showCopyMetadata
+                        ? {
+                            copyMetadata,
+                            overwriteConflictingMetadata: overwriteMetadata,
+                          }
+                        : {}),
                     }
                   : undefined;
               void onConfirm(options);

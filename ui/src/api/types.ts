@@ -806,6 +806,13 @@ export interface DuplicateSearchRequest {
   matchType: "fingerprint" | "phash" | "title" | "remoteId";
   distance?: number;
   durationDiff?: number | null;
+  fingerprintAlgorithm?: "any" | "md5" | "oshash";
+  minimumDuration?: number;
+  folderMode?: "all" | "include" | "exclude";
+  folderPaths?: string[];
+  rankingMode?: "balanced" | "custom";
+  preferredCodecs?: string[];
+  keeperRules?: string[];
 }
 
 export interface DuplicateSearchStart {
@@ -820,6 +827,13 @@ export interface DuplicateSearchInfo {
   matchType: string;
   distance: number;
   durationDiff: number;
+  fingerprintAlgorithm: string;
+  minimumDuration: number;
+  folderMode: string;
+  folderPaths: string[];
+  rankingMode: string;
+  preferredCodecs: string[];
+  keeperRules: string[];
   status: DuplicateSearchStatus;
   error?: string | null;
   candidateCount: number;
@@ -840,6 +854,66 @@ export interface DuplicateSearchGroup {
   position: number;
   videos: Video[];
   keepVideoIds: number[];
+  recommendedVideoId?: number | null;
+  recommendationReason?: string | null;
+  riskScore: number;
+  riskNotes: string[];
+}
+
+export interface DuplicateCleanupOptions extends DeleteEntityOptions {
+  copyMetadata?: boolean;
+  overwriteConflictingMetadata?: boolean;
+}
+
+export interface ImageDuplicateSearchStart {
+  searchId: string;
+  jobId: string;
+  candidateCount: number;
+}
+
+export interface ImageDuplicateSearchInfo {
+  id: string;
+  jobId?: string | null;
+  status: DuplicateSearchStatus;
+  error?: string | null;
+  minimumBytes: number;
+  candidateCount: number;
+  groupCount: number;
+  fileCount: number;
+  freeableBytes: number;
+  cleanupJobId?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  expiresAt: string;
+}
+
+export interface ImageDuplicateFile {
+  id: number;
+  imageId: number;
+  width: number;
+  height: number;
+  size: number;
+  path: string;
+  basename: string;
+  protected: boolean;
+}
+
+export interface ImageDuplicateGroup {
+  id: number;
+  position: number;
+  hash: string;
+  keeperFileId: number;
+  freeableBytes: number;
+  files: ImageDuplicateFile[];
+}
+
+export interface ImageDuplicateGroupPage {
+  items: ImageDuplicateGroup[];
+  totalCount: number;
+  page: number;
+  perPage: number;
+  hasMore: boolean;
 }
 
 export interface DuplicateSearchGroupPage {

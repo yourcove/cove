@@ -2196,7 +2196,14 @@ public record BatchDeleteDto(List<int> Ids, bool DeleteFiles = false, bool Delet
 public sealed record DuplicateSearchRequestDto(
     string MatchType = "fingerprint",
     int Distance = 8,
-    double? DurationDiff = 10);
+    double? DurationDiff = 10,
+    string FingerprintAlgorithm = "any",
+    double MinimumDuration = 0,
+    string FolderMode = "all",
+    IReadOnlyList<string>? FolderPaths = null,
+    string RankingMode = "balanced",
+    IReadOnlyList<string>? PreferredCodecs = null,
+    IReadOnlyList<string>? KeeperRules = null);
 
 public sealed record DuplicateSearchStartDto(Guid SearchId, string JobId, int CandidateCount);
 
@@ -2204,8 +2211,15 @@ public sealed record DuplicateSearchInfoDto(
     Guid Id,
     string? JobId,
     string MatchType,
+    string FingerprintAlgorithm,
     int Distance,
     double DurationDiff,
+    double MinimumDuration,
+    string FolderMode,
+    IReadOnlyList<string> FolderPaths,
+    string RankingMode,
+    IReadOnlyList<string> PreferredCodecs,
+    IReadOnlyList<string> KeeperRules,
     string Status,
     string? Error,
     int CandidateCount,
@@ -2222,13 +2236,21 @@ public sealed record DuplicateSearchInfoDto(
 
 public sealed record DuplicateSearchGroupDecisionDto(IReadOnlyList<int> KeepVideoIds);
 
-public sealed record DuplicateSearchDeleteRequestDto(bool DeleteFiles = false, bool DeleteGenerated = false);
+public sealed record DuplicateSearchDeleteRequestDto(
+    bool DeleteFiles = false,
+    bool DeleteGenerated = false,
+    bool CopyMetadata = false,
+    bool OverwriteConflictingMetadata = false);
 
 public sealed record DuplicateSearchGroupDto(
     int Id,
     int Position,
     IReadOnlyList<VideoDto> Videos,
-    IReadOnlyList<int> KeepVideoIds);
+    IReadOnlyList<int> KeepVideoIds,
+    int? RecommendedVideoId = null,
+    string? RecommendationReason = null,
+    int RiskScore = 0,
+    IReadOnlyList<string>? RiskNotes = null);
 
 public sealed record DuplicateSearchGroupPageDto(
     IReadOnlyList<DuplicateSearchGroupDto> Items,
@@ -2236,6 +2258,48 @@ public sealed record DuplicateSearchGroupPageDto(
     int Page,
     int PerPage,
     bool HasMore);
+
+public sealed record ImageDuplicateSearchRequestDto(long MinimumBytes = 0);
+public sealed record ImageDuplicateSearchStartDto(Guid SearchId, string JobId, int CandidateCount);
+public sealed record ImageDuplicateSearchInfoDto(
+    Guid Id,
+    string? JobId,
+    string Status,
+    string? Error,
+    long MinimumBytes,
+    int CandidateCount,
+    int GroupCount,
+    int FileCount,
+    long FreeableBytes,
+    string? CleanupJobId,
+    DateTime CreatedAt,
+    DateTime? StartedAt,
+    DateTime? CompletedAt,
+    DateTime ExpiresAt);
+public sealed record ImageDuplicateFileDto(
+    int Id,
+    int ImageId,
+    int Width,
+    int Height,
+    long Size,
+    string Path,
+    string Basename,
+    bool Protected);
+public sealed record ImageDuplicateGroupDto(
+    int Id,
+    int Position,
+    string Hash,
+    int KeeperFileId,
+    long FreeableBytes,
+    IReadOnlyList<ImageDuplicateFileDto> Files);
+public sealed record ImageDuplicateGroupPageDto(
+    IReadOnlyList<ImageDuplicateGroupDto> Items,
+    int TotalCount,
+    int Page,
+    int PerPage,
+    bool HasMore);
+public sealed record ImageDuplicateKeeperDto(int KeeperFileId);
+public sealed record ImageDuplicateCleanupRequestDto(bool CopyMetadata = true, bool DeleteGenerated = true);
 
 public interface IEntityMutationResult
 {

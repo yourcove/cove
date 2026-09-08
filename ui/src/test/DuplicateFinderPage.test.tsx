@@ -30,6 +30,13 @@ const savedSearch: DuplicateSearchInfo = {
   matchType: "title",
   distance: 0,
   durationDiff: 10,
+  fingerprintAlgorithm: "any",
+  minimumDuration: 0,
+  folderMode: "all",
+  folderPaths: [],
+  rankingMode: "balanced",
+  preferredCodecs: ["av1", "hevc", "h264"],
+  keeperRules: ["resolution", "codec"],
   status: "completed",
   candidateCount: 30_000,
   groupCount: 0,
@@ -69,11 +76,10 @@ describe("DuplicateFinderPage", () => {
       </QueryClientProvider>,
     );
 
-    const matchType = screen.getByRole("combobox");
+    const matchType = screen.getByRole("combobox", { name: "Match type" });
     await waitFor(() => expect(matchType).toHaveValue("title"));
     expect(screen.getByText("Groups videos with the same normalized title.")).toBeInTheDocument();
-    expect(screen.getByRole("spinbutton", { name: "pHash distance" })).toHaveValue(8);
-    expect(screen.getByRole("spinbutton", { name: "Max duration delta" })).toHaveValue(10);
+    expect(screen.getByRole("button", { name: /advanced/i })).toBeInTheDocument();
     expect(mocks.getDuplicateSearch).toHaveBeenCalledWith("saved-title-search");
   });
 
@@ -91,9 +97,8 @@ describe("DuplicateFinderPage", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("phash"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Match type" })).toHaveValue("phash"));
     expect(screen.getByRole("spinbutton", { name: "pHash distance" })).toHaveValue(12);
-    expect(screen.getByRole("spinbutton", { name: "Max duration delta" })).toHaveValue(45);
   });
 
   it("shows codec and bitrate on duplicate video cards", async () => {
@@ -133,7 +138,18 @@ describe("DuplicateFinderPage", () => {
       videoCount: 1,
     });
     mocks.getDuplicateSearchGroups.mockResolvedValue({
-      items: [{ id: 1, position: 0, videos: [video], keepVideoIds: [video.id] }],
+      items: [
+        {
+          id: 1,
+          position: 0,
+          videos: [video],
+          keepVideoIds: [video.id],
+          recommendedVideoId: video.id,
+          recommendationReason: "Highest resolution",
+          riskScore: 0,
+          riskNotes: [],
+        },
+      ],
       totalCount: 1,
       page: 1,
       perPage: 10,

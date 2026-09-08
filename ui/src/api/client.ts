@@ -147,6 +147,10 @@ import type {
   DuplicateSearchStart,
   DuplicateSearchInfo,
   DuplicateSearchGroupPage,
+  DuplicateCleanupOptions,
+  ImageDuplicateSearchStart,
+  ImageDuplicateSearchInfo,
+  ImageDuplicateGroupPage,
   CustomFieldDefinition,
   CustomFieldDefinitionCreate,
   CustomFieldDefinitionUpdate,
@@ -655,21 +659,23 @@ export const videos = {
     request<DuplicateSearchStart>("/videos/duplicate-searches", { method: "POST", body: JSON.stringify(options) }),
   getDuplicateSearch: (searchId: string) =>
     request<DuplicateSearchInfo>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}`),
-  getDuplicateSearchGroups: (searchId: string, page: number, perPage: number) =>
+  getDuplicateSearchGroups: (searchId: string, page: number, perPage: number, q?: string) =>
     request<DuplicateSearchGroupPage>(
-      `/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, { page, perPage })}`,
+      `/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, { page, perPage, q })}`,
     ),
   updateDuplicateSearchDecision: (searchId: string, groupId: number, keepVideoIds: number[]) =>
     request<void>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/groups/${groupId}`, {
       method: "PATCH",
       body: JSON.stringify({ keepVideoIds }),
     }),
-  deleteUnkeptDuplicates: (searchId: string, options?: DeleteEntityOptions) =>
+  deleteUnkeptDuplicates: (searchId: string, options?: DuplicateCleanupOptions) =>
     request<BulkDeletionJobStart>(`/videos/duplicate-searches/${encodeURIComponent(searchId)}/delete-unkept`, {
       method: "POST",
       body: JSON.stringify({
         deleteFiles: options?.deleteFile ?? false,
         deleteGenerated: options?.deleteGenerated ?? false,
+        copyMetadata: options?.copyMetadata ?? false,
+        overwriteConflictingMetadata: options?.overwriteConflictingMetadata ?? false,
       }),
     }),
 };
@@ -1389,6 +1395,27 @@ export const images = {
   },
   imageUrl: (id: number) => buildMediaUrl(`/stream/image/${id}`),
   thumbnailUrl: (id: number, max?: number) => buildMediaUrl(`/stream/image/${id}/thumbnail`, undefined, max),
+  startDuplicateSearch: (minimumBytes = 0) =>
+    request<ImageDuplicateSearchStart>("/images/duplicate-searches", {
+      method: "POST",
+      body: JSON.stringify({ minimumBytes }),
+    }),
+  getDuplicateSearch: (searchId: string) =>
+    request<ImageDuplicateSearchInfo>(`/images/duplicate-searches/${encodeURIComponent(searchId)}`),
+  getDuplicateSearchGroups: (searchId: string, page: number, perPage: number) =>
+    request<ImageDuplicateGroupPage>(
+      `/images/duplicate-searches/${encodeURIComponent(searchId)}/groups${buildQuery(undefined, { page, perPage })}`,
+    ),
+  updateDuplicateKeeper: (searchId: string, groupId: number, keeperFileId: number) =>
+    request<void>(`/images/duplicate-searches/${encodeURIComponent(searchId)}/groups/${groupId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ keeperFileId }),
+    }),
+  cleanupDuplicates: (searchId: string, copyMetadata = true, deleteGenerated = true) =>
+    request<BulkDeletionJobStart>(`/images/duplicate-searches/${encodeURIComponent(searchId)}/cleanup`, {
+      method: "POST",
+      body: JSON.stringify({ copyMetadata, deleteGenerated }),
+    }),
 };
 
 // ===== Audios =====

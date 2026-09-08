@@ -107,4 +107,39 @@ public sealed partial class CoveClient
             request,
             System.Net.HttpStatusCode.Accepted,
             cancellationToken);
+
+    public Task<ImageDuplicateSearchStartDto> StartImageDuplicateSearchAsync(
+        long minimumBytes = 0,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<ImageDuplicateSearchStartDto>(
+            HttpMethod.Post, "/api/images/duplicate-searches", new ImageDuplicateSearchRequestDto(minimumBytes),
+            System.Net.HttpStatusCode.Accepted, cancellationToken);
+
+    public Task<ImageDuplicateSearchInfoDto> GetImageDuplicateSearchAsync(
+        Guid searchId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ImageDuplicateSearchInfoDto>(HttpMethod.Get,
+            WithCacheNonce($"/api/images/duplicate-searches/{searchId}"), null, cancellationToken);
+
+    public Task<ImageDuplicateGroupPageDto> GetImageDuplicateGroupsAsync(
+        Guid searchId,
+        CancellationToken cancellationToken = default)
+        => SendAsync<ImageDuplicateGroupPageDto>(HttpMethod.Get,
+            WithCacheNonce($"/api/images/duplicate-searches/{searchId}/groups"), null, cancellationToken);
+
+    public Task UpdateImageDuplicateKeeperAsync(
+        Guid searchId,
+        int groupId,
+        int keeperFileId,
+        CancellationToken cancellationToken = default)
+        => SendForNoContentAsync(HttpMethod.Patch,
+            $"/api/images/duplicate-searches/{searchId}/groups/{groupId}",
+            new ImageDuplicateKeeperDto(keeperFileId), cancellationToken);
+
+    public Task<BulkDeletionJobStartResponse> CleanupImageDuplicatesAsync(
+        Guid searchId,
+        CancellationToken cancellationToken = default)
+        => SendForExpectedStatusAsync<BulkDeletionJobStartResponse>(HttpMethod.Post,
+            $"/api/images/duplicate-searches/{searchId}/cleanup",
+            new ImageDuplicateCleanupRequestDto(), System.Net.HttpStatusCode.Accepted, cancellationToken);
 }

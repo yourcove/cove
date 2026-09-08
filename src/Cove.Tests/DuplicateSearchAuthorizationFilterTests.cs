@@ -24,5 +24,7 @@ public sealed class DuplicateSearchAuthorizationFilterTests
 
         Assert.NotEmpty(db.Model.FindEntityType(typeof(DuplicateSearchItem))!.GetDeclaredQueryFilters());
         Assert.NotEmpty(db.Model.FindEntityType(typeof(DuplicateDeletionKeeperReservation))!.GetDeclaredQueryFilters());
+        Assert.NotEmpty(db.Model.FindEntityType(typeof(ImageDuplicateSearchItem))!.GetDeclaredQueryFilters());
+        Assert.NotEmpty(db.Model.FindEntityType(typeof(ImageDuplicateKeeperReservation))!.GetDeclaredQueryFilters());
     }
 }

@@ -342,11 +342,13 @@ public sealed class BulkEntityDeletionService(
         bool deleteGenerated,
         CancellationToken ct,
         bool publishEvent = true,
-        CovePrincipal? authorizationPrincipal = null)
+        CovePrincipal? authorizationPrincipal = null,
+        int? metadataTargetVideoId = null,
+        bool overwriteMetadata = false)
     {
         var deleted = kind switch
         {
-            BulkDeletionEntityKind.Video => await DeleteVideoAsync(id, executionContext, deleteFiles, deleteGenerated, authorizationPrincipal, ct),
+            BulkDeletionEntityKind.Video => await DeleteVideoAsync(id, executionContext, deleteFiles, deleteGenerated, authorizationPrincipal, metadataTargetVideoId, overwriteMetadata, ct),
             BulkDeletionEntityKind.Image => await imageDeletionService.DeleteAsync(id, deleteFiles, deleteGenerated, executionContext, ct),
             BulkDeletionEntityKind.Audio => await DeleteAudioAsync(id, executionContext, deleteFiles, deleteGenerated, ct),
             BulkDeletionEntityKind.Text => await DeleteTextAsync(id, executionContext, deleteFiles, deleteGenerated, ct),
@@ -370,6 +372,8 @@ public sealed class BulkEntityDeletionService(
         bool deleteFiles,
         bool deleteGenerated,
         CovePrincipal? authorizationPrincipal,
+        int? metadataTargetVideoId,
+        bool overwriteMetadata,
         CancellationToken ct)
     {
         VideoDeletionResult? committedDeletion = null;
@@ -399,7 +403,20 @@ public sealed class BulkEntityDeletionService(
                 var scopeIds = await VideoHierarchyQueries.ExpandAndLockDeletionScopeAsync(db, [id], ct);
                 if (!scopeIds.Contains(id))
                     return false;
-
+                await AuthorizeVideoDeletionScopeAsync(authorizationPrincipal, scopeIds, ct);
+                if (metadataTargetVideoId.HasValue)
+                {
+                    await DuplicateMetadataTransferService.StageVideoTransferAsync(
+                        db,
+                        metadataTargetVideoId.Value,
+                        id,
+                        overwriteMetadata,
+                        ct);
+                    // Persist re-parented polymorphic rows and children inside this uncommitted
+                    // transaction. Dependency cleanup will then see only source-owned leftovers.
+                    await db.SaveChangesAsync(ct);
+                    scopeIds = await VideoHierarchyQueries.ExpandAndLockDeletionScopeAsync(db, [id], ct);
+                }
                 var videos = await db.Videos
                     .IgnoreQueryFilters()
                     .Include(item => item.Files)
@@ -407,7 +424,6 @@ public sealed class BulkEntityDeletionService(
                     .ToArrayAsync(ct);
                 if (!videos.Any(video => video.Id == id))
                     return false;
-                await AuthorizeVideoDeletionScopeAsync(authorizationPrincipal, scopeIds, ct);
                 var videoIds = videos.Select(video => video.Id).ToArray();
                 var descendantIds = scopeIds.Where(videoId => videoId != id).ToArray();
                 var physicalPaths = deleteFiles

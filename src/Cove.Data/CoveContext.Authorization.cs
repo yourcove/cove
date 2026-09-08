@@ -296,6 +296,20 @@ public partial class CoveContext
                     ? CanReadVideos
                     : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadVideos, CanReadVideosByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Video, item.VideoId));
 
+        modelBuilder.Entity<ImageDuplicateSearchItem>().HasQueryFilter(item =>
+            AuthorizationFiltersBypassed
+                ? true
+                : !RequiresImageReadScopeEvaluation
+                    ? CanReadImages
+                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadImages, CanReadImagesByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Image, item.ImageId));
+
+        modelBuilder.Entity<ImageDuplicateKeeperReservation>().HasQueryFilter(item =>
+            AuthorizationFiltersBypassed
+                ? true
+                : !RequiresImageReadScopeEvaluation
+                    ? CanReadImages
+                    : CanReadEntitySql(AuthorizationFiltersBypassed, CanReadImages, CanReadImagesByRule, CurrentRoleNames, CurrentShareLinkId, EntityKinds.Image, item.ImageId));
+
         modelBuilder.Entity<PerformerUrl>().HasQueryFilter(link =>
             AuthorizationFiltersBypassed
                 ? true

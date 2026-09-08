@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
@@ -18,10 +19,137 @@ namespace Cove.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [RequiresPermission(Permissions.ImagesRead)]
-public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService customFields, IScanService scanService, ImageDeletionService imageDeletionService, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, BulkDeletionJobService? bulkDeletionJobService = null) : ControllerBase
+public class ImagesController(IImageRepository imageRepo, Data.CoveContext db, IUserEngagementService engagementService, CustomFieldService customFields, IScanService scanService, ImageDeletionService imageDeletionService, ITagProvenanceService? tagProvenanceService = null, ICurrentPrincipalAccessor? principalAccessor = null, IFieldProvenanceService? fieldProvenanceService = null, BulkDeletionJobService? bulkDeletionJobService = null, ImageDuplicateSearchService? imageDuplicateSearchService = null) : ControllerBase
 {
     private bool CanReadFiles => principalAccessor?.Current?.Has(Permissions.FilesRead) == true;
     private static string GetVisibleBasename(string path, string basename) => string.IsNullOrWhiteSpace(basename) ? System.IO.Path.GetFileName(path) : basename;
+
+    [HttpPost("duplicate-searches")]
+    [RequiresPermission(Permissions.ImagesRead, Permissions.JobsRun)]
+    public async Task<ActionResult<ImageDuplicateSearchStartDto>> StartDuplicateSearch([FromBody] ImageDuplicateSearchRequestDto request, CancellationToken ct)
+        => Accepted(await imageDuplicateSearchService!.StartAsync(JobOwner.FromPrincipal(principalAccessor?.Current), principalAccessor?.Current, request, ct));
+
+    [HttpGet("duplicate-searches/{searchId:guid}")]
+    public async Task<ActionResult<ImageDuplicateSearchInfoDto>> GetDuplicateSearch(Guid searchId, CancellationToken ct)
+    {
+        var search = await GetAccessibleImageDuplicateSearchAsync(searchId, ct);
+        if (search is null) return NotFound();
+        return Ok(new ImageDuplicateSearchInfoDto(
+            search.Id, search.JobId, search.Status.ToString().ToLowerInvariant(), search.Error,
+            search.MinimumBytes, search.CandidateCount, search.GroupCount, search.FileCount,
+            search.FreeableBytes, search.CleanupJobId, search.CreatedAt, search.StartedAt,
+            search.CompletedAt, search.ExpiresAt));
+    }
+
+    [HttpGet("duplicate-searches/{searchId:guid}/groups")]
+    public async Task<ActionResult<ImageDuplicateGroupPageDto>> GetDuplicateSearchGroups(
+        Guid searchId, [FromQuery] int page = 1, [FromQuery] int perPage = 25, CancellationToken ct = default)
+    {
+        if (await GetAccessibleImageDuplicateSearchAsync(searchId, ct) is null) return NotFound();
+        page = Math.Max(1, page); perPage = Math.Clamp(perPage, 1, 100);
+        var total = await db.ImageDuplicateSearchGroups.CountAsync(group => group.SearchId == searchId, ct);
+        var groups = await db.ImageDuplicateSearchGroups.Where(group => group.SearchId == searchId)
+            .OrderBy(group => group.Position).Skip((page - 1) * perPage).Take(perPage)
+            .Include(group => group.Items).ThenInclude(item => item.File).AsNoTracking().ToListAsync(ct);
+        var result = groups.Select(group => new ImageDuplicateGroupDto(
+            group.Id, group.Position, group.Hash, group.KeeperFileId, group.FreeableBytes,
+            group.Items.Where(item => item.File is not null).Select(item => new ImageDuplicateFileDto(
+                item.FileId, item.ImageId, item.File!.Width, item.File.Height, item.File.Size,
+                CanReadFiles ? item.File.Path : string.Empty,
+                GetVisibleBasename(item.File.Path, item.File.Basename), item.Protected)).ToArray())).ToArray();
+        return Ok(new ImageDuplicateGroupPageDto(result, total, page, perPage, page * perPage < total));
+    }
+
+    [HttpPatch("duplicate-searches/{searchId:guid}/groups/{groupId:int}")]
+    public async Task<IActionResult> UpdateDuplicateImageKeeper(Guid searchId, int groupId, [FromBody] ImageDuplicateKeeperDto request, CancellationToken ct)
+    {
+        var search = await GetAccessibleImageDuplicateSearchAsync(searchId, ct);
+        if (search is null) return NotFound();
+        if (search.Status != DuplicateSearchStatus.Completed || !string.IsNullOrWhiteSpace(search.CleanupJobId))
+            return Conflict(new { message = "Image keeper choices are locked while cleanup is queued." });
+        var group = await db.ImageDuplicateSearchGroups.Include(item => item.Items)
+            .SingleOrDefaultAsync(item => item.SearchId == searchId && item.Id == groupId, ct);
+        if (group is null) return NotFound();
+        if (!group.Items.Any(item => item.FileId == request.KeeperFileId))
+            return BadRequest("The keeper file does not belong to this duplicate group.");
+        group.KeeperFileId = request.KeeperFileId;
+        search.ExpiresAt = DateTime.UtcNow.AddDays(7);
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    [HttpPost("duplicate-searches/{searchId:guid}/cleanup")]
+    [RequiresPermission(Permissions.ImagesWrite, Permissions.ImagesDelete, Permissions.ImagesDeleteFile)]
+    public async Task<IActionResult> CleanupDuplicateImages(
+        Guid searchId,
+        [FromBody] ImageDuplicateCleanupRequestDto request,
+        [FromServices] Cove.Core.Auth.IAuthorizationService authorizationService,
+        CancellationToken ct)
+    {
+        var search = await GetAccessibleImageDuplicateSearchAsync(searchId, ct);
+        if (search is null) return NotFound();
+        if (search.Status != DuplicateSearchStatus.Completed) return Conflict(new { message = "Wait for the image duplicate search to complete." });
+        if (!string.IsNullOrWhiteSpace(search.CleanupJobId)) return Conflict(new { message = "Cleanup has already been queued." });
+        var groups = await db.ImageDuplicateSearchGroups.Where(group => group.SearchId == searchId).Include(group => group.Items).ToArrayAsync(ct);
+        if (groups.Any(group => !group.Items.Any(item => item.FileId == group.KeeperFileId)))
+            return Conflict(new { message = "One or more selected keepers are no longer available or accessible. Run a new duplicate search." });
+        var keeperImageIds = groups.SelectMany(group => group.Items.Where(item => item.FileId == group.KeeperFileId).Select(item => item.ImageId)).Distinct().ToArray();
+        var sourceImageIds = groups.SelectMany(group => group.Items.Where(item => item.FileId != group.KeeperFileId && !item.Protected).Select(item => item.ImageId))
+            .Where(id => !keeperImageIds.Contains(id)).Distinct().ToArray();
+        foreach (var (permission, ids) in new[] { (Permissions.ImagesWrite, keeperImageIds), (Permissions.ImagesDelete, sourceImageIds) })
+        foreach (var chunk in ids.Chunk(4_000))
+        {
+            var decisions = await authorizationService.AuthorizeManyAsync(principalAccessor?.Current, permission,
+                chunk.Select(id => EntityRef.Of(EntityKinds.Image, id)).ToArray(), ct);
+            if (decisions.Any(decision => !decision.Allowed)) return Forbid();
+        }
+        var claim = DuplicateSearchDeletionClaim.Create();
+        var strategy = db.Database.CreateExecutionStrategy();
+        var claimed = await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            var updated = await db.ImageDuplicateSearches
+                .Where(item => item.Id == searchId && item.Status == DuplicateSearchStatus.Completed && item.CleanupJobId == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(item => item.CleanupJobId, claim)
+                    .SetProperty(item => item.ExpiresAt, DateTime.UtcNow.AddDays(7)), ct);
+            if (updated == 0) return false;
+            db.ImageDuplicateKeeperReservations.AddRange(groups.Select(group =>
+            {
+                var keeper = group.Items.Single(item => item.FileId == group.KeeperFileId);
+                return new ImageDuplicateKeeperReservation { SearchId = searchId, ImageId = keeper.ImageId, FileId = keeper.FileId };
+            }).DistinctBy(item => item.FileId));
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return true;
+        });
+        if (!claimed) return Conflict(new { message = "Cleanup has already been queued." });
+        try
+        {
+            var queued = imageDuplicateSearchService!.StartCleanup(principalAccessor?.Current, searchId, request.CopyMetadata, request.DeleteGenerated);
+            await db.ImageDuplicateSearches.Where(item => item.Id == searchId && item.CleanupJobId == claim)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.CleanupJobId, queued.JobId), CancellationToken.None);
+            return Accepted(queued);
+        }
+        catch
+        {
+            await db.ImageDuplicateSearches.Where(item => item.Id == searchId && item.CleanupJobId == claim)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.CleanupJobId, (string?)null), CancellationToken.None);
+            await db.ImageDuplicateKeeperReservations.IgnoreQueryFilters().Where(item => item.SearchId == searchId)
+                .ExecuteDeleteAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    private async Task<ImageDuplicateSearch?> GetAccessibleImageDuplicateSearchAsync(Guid searchId, CancellationToken ct)
+    {
+        var search = await db.ImageDuplicateSearches.SingleOrDefaultAsync(item => item.Id == searchId, ct);
+        if (search is null || search.ExpiresAt < DateTime.UtcNow) return null;
+        var owner = JobOwner.FromPrincipal(principalAccessor?.Current);
+        if (search.OwnerKey is not null && owner?.Key == search.OwnerKey) return search;
+        return await Cove.Api.Hubs.JobHub.CanReadGlobalStreamAsync(principalAccessor?.Current, Permissions.JobsRead, db, ct) ? search : null;
+    }
 
     [HttpGet]
     [OutputCache(PolicyName = "ShortCache")]
