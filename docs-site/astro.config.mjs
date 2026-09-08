@@ -261,6 +261,7 @@ export default defineConfig({
                 { link: '/docs/reference/library-paths/', label: 'Library paths' },
                 { link: '/docs/reference/media/', label: 'Media' },
                 { link: '/docs/reference/videos/', label: 'Videos reference' },
+                { link: '/docs/reference/video-text-search/', label: 'Video text search' },
                 { link: '/docs/reference/images/', label: 'Images reference' },
                 { link: '/docs/reference/galleries/', label: 'Galleries reference' },
                 { link: '/docs/reference/audio/', label: 'Audio reference' },

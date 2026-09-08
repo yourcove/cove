@@ -44,6 +44,15 @@
           "text": "The search field on a content page is scoped to that content type. It can match titles, descriptions, tags and their aliases, performers and their aliases, and studios."
         },
         {
+          "type": "links",
+          "items": [
+            {
+              "label": "Video text search reference",
+              "href": "/docs/reference/video-text-search/"
+            }
+          ]
+        },
+        {
           "type": "heading",
           "level": 3,
           "text": "Search across everything"

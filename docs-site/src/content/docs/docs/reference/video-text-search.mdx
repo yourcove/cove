@@ -1,0 +1,115 @@
+---
+title: Video text search
+description: Reference for what the Videos page text search matches, how queries are interpreted, and how results are ranked.
+---
+
+import DocsScreenshot from '../../../../components/DocsScreenshot.astro';
+
+Video text search is the built-in **Text** mode on the **Videos** page. Permissions and active filters define the candidate videos before the text query is applied.
+
+<DocsScreenshot
+  src="images/screenshots/theme-reel/default.png"
+  alt="Videos page with the video text-search field beside the Date sort control"
+  width={1700}
+  height={1300}
+  caption="This page describes the Videos-page search field. Entering its first query makes Relevance available and selects it in the adjacent sort control."
+/>
+
+The tables below describe this built-in **Text** query. [Other video search paths](#other-video-search-paths) compares global, visual, compilation-inclusive, and metadata-provider searches.
+
+## Indexed values and rank weights
+
+Cove builds one searchable text vector for each video. Only the values in this table contribute to its weighted full-text rank. The weight affects **Relevance** order; it does not determine whether a value can match.
+
+| Weight | Video values |
+| --- | --- |
+| A, highest | Title and studio code |
+| B | Description and director |
+| C | Captions, combined source-file paths, and the internal SearchText compatibility field |
+
+SearchText is an internal database field. Cove includes an existing value in search, but does not currently populate the field or expose it through the video create and edit APIs.
+
+## Related values
+
+Related values are matched separately from the indexed video text and do not receive A, B, or C weights. If a video has a nonzero indexed-text rank, a related-value match gives it no additional boost. For videos with zero indexed-text rank, exact related-value matches come before partial related-value matches.
+
+| Relationship | Values searched | Operator applied to the complete trimmed query |
+| --- | --- | --- |
+| Studio | Name | Case-insensitive substring |
+| Performers | Name and aliases | Case-insensitive substring |
+| Tags | Name and aliases | Case-insensitive, complete space-delimited text |
+| Galleries | Title | Case-insensitive substring |
+| Groups | Name | Case-insensitive substring |
+
+Studio and group aliases are not searched. Tag matching prevents a query such as **1F** from also matching **1F1M**.
+
+## How a query matches
+
+Cove removes whitespace from the beginning and end of the query and compares text without regard to letter case. For indexed video text and file paths, it treats each sequence of letters or digits as a term. Spaces, underscores, hyphens, periods, plus signs, slashes, and other non-alphanumeric characters separate terms.
+
+A video is included when it satisfies at least one of these branches:
+
+1. **Indexed video text:** Every query term begins a word somewhere in the combined indexed values. Different terms can occur in different fields. Source paths are combined before indexing, so different terms can also occur in different paths. For example, **small ho** can match words beginning with **small** and **ho**.
+2. **One directly attached file path:** Every distinct query term occurs somewhere in the same path. Because punctuation separates terms, queries such as **small hole**, **small_hole**, and **small-hole** use the same two terms for this branch. This branch applies only to videos with directly attached files.
+3. **Studio:** The complete trimmed query occurs within the studio name.
+4. **Performer:** The complete trimmed query occurs within an assigned performer's name or alias.
+5. **Tag:** The complete trimmed query matches space-delimited text in an applied tag's name or alias.
+6. **Gallery:** The complete trimmed query occurs within the title of a gallery containing the video.
+7. **Group:** The complete trimmed query occurs within the name of a group containing the video.
+
+A sub-video inherits its parent's indexed path text, so it can match source-path words through the first branch. Its files belong to the parent video, so it does not use the directly attached path branch. Related branches compare the complete query as one contiguous value; separate query terms are not distributed across multiple relationships. If the trimmed input contains no letters or digits, the indexed-text branch does not narrow the candidate set.
+
+## Values that require filters
+
+| Not searched directly | Use instead |
+| --- | --- |
+| URLs | **URL** filter |
+| Remote IDs | **Remote ID** or **Remote ID Count** filter |
+| Dates | **Date**, **Created At**, or **Updated At** filter |
+| Ratings and engagement | **Rating**, **Likes**, **Play Count**, **Resume Time**, **Play Duration**, or **Last Played** filter |
+| Custom fields | The filter generated for the configured custom field |
+| Codecs, resolution, bitrate, and other technical file values | The corresponding file or media filter |
+
+## Relevance order
+
+**Relevance is available only while the search field contains a query.** Starting a query automatically adds and selects **Relevance**. Clearing the query removes it from the sort options.
+
+**Use Relevance for broad searches.** Matching and ordering are separate. With any other sort, match quality has no effect on position, so exact or otherwise strong matches can appear anywhere in the result set, including on a later page.
+
+| Active primary sort | Effect of match quality |
+| --- | --- |
+| **Relevance** | Uses the ranking keys below to bring stronger matches forward. |
+| Any other sort | Ignores match quality and orders every match only by the selected field and direction. |
+
+When **Relevance** is active, Cove applies these keys in order:
+
+| Priority | Ordering key |
+| --- | --- |
+| 1 | Title equals the complete query, without regard to case |
+| 2 | Title, description, studio code, or director contains the complete query as a contiguous phrase |
+| 3 | Weighted indexed-text rank using the A, B, and C weights above |
+| 4 | Exact performer, performer-alias, tag, tag-alias, studio, gallery, or group match, when indexed-text rank is zero |
+| 5 | Partial related-value match, when indexed-text rank is zero |
+| 6 | Same-file path match, when indexed-text rank is zero |
+| 7 | Updated time, newest first |
+| 8 | Video ID, lowest first |
+
+| Videos-page action | Sort result |
+| --- | --- |
+| Search field is empty | Do not offer **Relevance** as a sort option. |
+| Start a query while the search field is empty | Add and select **Relevance**, then remember the previous sort. |
+| Edit an existing query | Keep the current sort. |
+| Choose another primary sort | Keep the matching set and order it by the selected sort. |
+| Clear a query while **Relevance** is active | Remove **Relevance** and restore the remembered pre-query sort. If the current page did not start the query, such as for a direct link, use **Updated At** descending. |
+| Open a saved or linked query with another explicit sort | Use that explicit sort. |
+
+## Other video search paths
+
+| Search path | Video values and behavior |
+| --- | --- |
+| **Search all…** | Requires at least two characters. Video candidates use indexed video text and do not expand through related studios, performers, tags, galleries, or groups. Results prioritize exact titles, indexed-text rank, newest update, then lowest ID. |
+| **Include Compilations** | In a compatible paged Grid or List view, video rows use indexed video text without related-value expansion. Compilation rows search name, aliases, synopsis, director, and their internal `SearchText` field. The combined result does not use normal video relevance ranking. |
+| **Visual** mode | Uses the configured visual-similarity provider and **Visual Match** sort. The text rules on this page do not apply. |
+| Metadata-provider search | Searches the selected remote metadata source while scraping; it does not search the local Videos list. |
+
+See [Search and filters](../../user/library/search-and-filters/) for the user workflow and [Videos reference](../videos/) for the rest of the Videos page.
