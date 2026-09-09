@@ -241,58 +241,103 @@ public class MetadataController(
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
             var exportFile = Path.Combine(exportPath, $"cove-export-{timestamp}.json");
 
-            var exportData = new Dictionary<string, object>();
-
-            if (opts?.IncludeVideos != false)
+            // Only completed exports become visible as JSON files.
+            var temporaryFile = $"{exportFile}.{Guid.NewGuid():N}.tmp";
+            try
             {
-                progress.Report(0.1, "Exporting videos...");
-                exportData["videos"] = await dbCtx.Videos
-                    .Include(s => s.VideoTags).ThenInclude(st => st.Tag)
-                    .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
-                    .Include(s => s.Studio)
-                    .Include(s => s.Files).ThenInclude(f => f.Fingerprints)
-                    .AsNoTracking()
-                    .AsSplitQuery()
-                    .ToListAsync(ct);
-            }
+                await using (var stream = new FileStream(temporaryFile, FileMode.CreateNew, FileAccess.Write,
+                    FileShare.None, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+                    writer.WriteStartObject();
 
-            if (opts?.IncludePerformers != false)
+                    if (opts?.IncludeVideos != false)
+                    {
+                        progress.Report(0.1, "Exporting videos...");
+                        await WriteExportSectionAsync(writer, "videos", dbCtx.Videos
+                            .Include(s => s.VideoTags).ThenInclude(st => st.Tag)
+                            .Include(s => s.VideoPerformers).ThenInclude(sp => sp.Performer)
+                            .Include(s => s.Studio)
+                            .Include(s => s.Files).ThenInclude(f => f.Fingerprints), ct);
+                    }
+
+                    if (opts?.IncludePerformers != false)
+                    {
+                        progress.Report(0.3, "Exporting performers...");
+                        await WriteExportSectionAsync(writer, "performers", dbCtx.Performers, ct);
+                    }
+
+                    if (opts?.IncludeStudios != false)
+                    {
+                        progress.Report(0.5, "Exporting studios...");
+                        await WriteExportSectionAsync(writer, "studios", dbCtx.Studios, ct);
+                    }
+
+                    if (opts?.IncludeTags != false)
+                    {
+                        progress.Report(0.6, "Exporting tags...");
+                        await WriteExportSectionAsync(writer, "tags", dbCtx.Tags, ct);
+                    }
+
+                    if (opts?.IncludeGalleries != false)
+                    {
+                        progress.Report(0.7, "Exporting galleries...");
+                        await WriteExportSectionAsync(writer, "galleries", dbCtx.Galleries, ct);
+                    }
+
+                    if (opts?.IncludeGroups != false)
+                    {
+                        progress.Report(0.8, "Exporting groups...");
+                        await WriteExportSectionAsync(writer, "groups", dbCtx.Groups, ct);
+                    }
+
+                    progress.Report(0.9, "Finalizing export file...");
+                    writer.WriteEndObject();
+                    await writer.FlushAsync(ct);
+                }
+
+                ct.ThrowIfCancellationRequested();
+                System.IO.File.Move(temporaryFile, exportFile, overwrite: true);
+            }
+            finally
             {
-                progress.Report(0.3, "Exporting performers...");
-                exportData["performers"] = await dbCtx.Performers.AsNoTracking().ToListAsync(ct);
+                System.IO.File.Delete(temporaryFile);
             }
-
-            if (opts?.IncludeStudios != false)
-            {
-                progress.Report(0.5, "Exporting studios...");
-                exportData["studios"] = await dbCtx.Studios.AsNoTracking().ToListAsync(ct);
-            }
-
-            if (opts?.IncludeTags != false)
-            {
-                progress.Report(0.6, "Exporting tags...");
-                exportData["tags"] = await dbCtx.Tags.AsNoTracking().ToListAsync(ct);
-            }
-
-            if (opts?.IncludeGalleries != false)
-            {
-                progress.Report(0.7, "Exporting galleries...");
-                exportData["galleries"] = await dbCtx.Galleries.AsNoTracking().ToListAsync(ct);
-            }
-
-            if (opts?.IncludeGroups != false)
-            {
-                progress.Report(0.8, "Exporting groups...");
-                exportData["groups"] = await dbCtx.Groups.AsNoTracking().ToListAsync(ct);
-            }
-
-            progress.Report(0.9, "Writing export file...");
-            await System.IO.File.WriteAllTextAsync(exportFile, JsonSerializer.Serialize(exportData, MetadataExportJsonOptions), ct);
 
             logger.LogInformation("Export completed: {Path}", exportFile);
         }, exclusive: false);
 
         return Ok(new { jobId });
+    }
+
+    private static async Task WriteExportSectionAsync<TEntity>(
+        Utf8JsonWriter writer, string name, IQueryable<TEntity> query, CancellationToken ct)
+        where TEntity : BaseEntity
+    {
+        const int batchSize = 256;
+        writer.WriteStartArray(name);
+        int? lastId = null;
+        while (true)
+        {
+            // Split queries can buffer their results. Bound every included graph with
+            // keyset paging; streaming an unbounded EF query alone is insufficient.
+            var page = query.AsNoTracking().AsSplitQuery();
+            if (lastId is int cursor)
+                page = page.Where(entity => entity.Id > cursor);
+            var entities = await page.OrderBy(entity => entity.Id).Take(batchSize).ToListAsync(ct);
+            foreach (var entity in entities)
+            {
+                ct.ThrowIfCancellationRequested();
+                JsonSerializer.Serialize(writer, entity, MetadataExportJsonOptions);
+                await writer.FlushAsync(ct);
+            }
+
+            if (entities.Count < batchSize)
+                break;
+            lastId = entities[^1].Id;
+        }
+        writer.WriteEndArray();
+        await writer.FlushAsync(ct);
     }
 
     [HttpPost("import")]
