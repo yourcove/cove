@@ -1,5 +1,6 @@
 import type {
   BoolCriterion,
+  CountryCriterion,
   CriterionModifier,
   CustomFieldCriterion,
   FilterExpression,
@@ -98,8 +99,13 @@ export function isCriterionValueValid(value: unknown, criterion: CriterionDefini
     }
     case "related":
       return sanitizeRelatedFilterCriterion(value, criterion) !== undefined;
+    case "country": {
+      const country = value as CountryCriterion;
+      if ((country.modifier === "INCLUDES" || country.modifier === "EXCLUDES") && country.values != null)
+        return country.values.some((item) => item.trim());
+      return hasStringCriterionValue(country);
+    }
     case "string":
-    case "country":
     case "path":
     case "remoteId":
     case "hash":

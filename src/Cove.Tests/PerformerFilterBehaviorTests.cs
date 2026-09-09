@@ -11,6 +11,56 @@ namespace Cove.Tests;
 public class PerformerFilterBehaviorTests
 {
     [Theory]
+    [InlineData(CriterionModifier.Includes)]
+    [InlineData(CriterionModifier.Excludes)]
+    public async Task CountryCriterion_ListMatchesWholeNormalizedCountries(CriterionModifier modifier)
+    {
+        await using var scope = await CreateContextAsync();
+        var context = scope.Context;
+        context.Performers.AddRange(
+            new Performer { Name = "Canadian", Country = "CA" },
+            new Performer { Name = "American", Country = "US" },
+            new Performer { Name = "Custom", Country = "Moon Colony" },
+            new Performer { Name = "Partial", Country = "Canada West" },
+            new Performer { Name = "Other", Country = "GB" },
+            new Performer { Name = "Unknown" });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var filter = new PerformerFilter
+        {
+            CountryCriterion = new CountryCriterion
+            {
+                Values = [" Canada ", "us", "moon colony", "CA", " "],
+                Modifier = modifier,
+            },
+        };
+        // Exercise the persisted/API shape as well as repository matching.
+        filter = System.Text.Json.JsonSerializer.Deserialize<PerformerFilter>(
+            System.Text.Json.JsonSerializer.Serialize(filter))!;
+        var (items, totalCount) = await new PerformerRepository(context).FindAsync(
+            filter, new FindFilter { Page = 1, PerPage = 20 }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, totalCount);
+        Assert.Equal(modifier == CriterionModifier.Includes
+            ? ["American", "Canadian", "Custom"]
+            : new[] { "Other", "Partial", "Unknown" }, items.Select(item => item.Name).Order().ToArray());
+    }
+
+    [Theory]
+    [InlineData(CriterionModifier.Includes)]
+    [InlineData(CriterionModifier.Excludes)]
+    public async Task CountryCriterion_EmptyListDoesNotFilter(CriterionModifier modifier)
+    {
+        await using var scope = await CreateContextAsync();
+        scope.Context.Performers.Add(new Performer { Name = "Unknown" });
+        await scope.Context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var (_, totalCount) = await new PerformerRepository(scope.Context).FindAsync(
+            new PerformerFilter { CountryCriterion = new CountryCriterion { Values = [], Modifier = modifier } },
+            new FindFilter { Page = 1, PerPage = 20 }, TestContext.Current.CancellationToken);
+        Assert.Equal(1, totalCount);
+    }
+
+    [Theory]
     [InlineData(CriterionModifier.Equals, "Canada", "Canadian")]
     [InlineData(CriterionModifier.NotEquals, "Canada", "American")]
     [InlineData(CriterionModifier.Includes, "Canada", "Canadian")]
@@ -31,7 +81,7 @@ public class PerformerFilterBehaviorTests
         var repository = new PerformerRepository(context);
         var filter = new PerformerFilter
         {
-            CountryCriterion = new StringCriterion { Value = value, Modifier = modifier },
+            CountryCriterion = new CountryCriterion { Value = value, Modifier = modifier },
         };
 
         var (items, totalCount) = await repository.FindAsync(filter, new FindFilter { Page = 1, PerPage = 20 }, TestContext.Current.CancellationToken);

@@ -2739,6 +2739,10 @@ export interface IntCriterion {
   modifier: CriterionModifier;
 }
 
+export interface CountryCriterion extends StringCriterion {
+  values?: string[] | null;
+}
+
 export interface StringCriterion {
   value: string;
   modifier: CriterionModifier;
@@ -2884,7 +2888,7 @@ export interface PerformerFilterCriteria {
   ageCriterion?: IntCriterion;
   genderCriterion?: StringCriterion;
   ethnicityCriterion?: StringCriterion;
-  countryCriterion?: StringCriterion;
+  countryCriterion?: CountryCriterion;
   favoriteCriterion?: BoolCriterion;
   tagsCriterion?: MultiIdCriterion;
   studiosCriterion?: MultiIdCriterion;

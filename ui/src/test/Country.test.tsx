@@ -1,6 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import type { CountryCriterion } from "../api/types";
+import { CountryEditor } from "../components/PrimitiveCriterionEditors";
+import { isCriterionValueValid } from "../components/filterCriterionState";
+import { PERFORMER_CRITERIA } from "../components/filterCriteriaCatalogs";
+import { formatFilterChipValue } from "../components/ActiveObjectFilterChips";
+import { describeFilterExpressionCondition } from "../components/filterExpressionExplanation";
+import { defaultRatingSystemOptions } from "../components/Rating";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { performers } from "../api/client";
 import { CountryFlag, CountryLabel, CountrySelect, countryFlag } from "../components/Country";
@@ -21,6 +29,19 @@ function renderWithQueryClient(ui: React.ReactElement) {
 beforeEach(() => {
   vi.spyOn(performers, "countries").mockResolvedValue(options);
   document.documentElement.lang = "en-US";
+});
+
+it("validates country lists and preserves nullable legacy filters", () => {
+  const criterion = PERFORMER_CRITERIA.find((item) => item.id === "country")!;
+  const list = { value: "", values: ["CA", "US"], modifier: "INCLUDES" };
+  expect(isCriterionValueValid(list, criterion)).toBe(true);
+  expect(isCriterionValueValid({ ...list, values: [] }, criterion)).toBe(false);
+  expect(isCriterionValueValid({ value: "CA", values: null, modifier: "INCLUDES" }, criterion)).toBe(true);
+  expect(isCriterionValueValid({ ...list, values: [], modifier: "IS_NULL" }, criterion)).toBe(true);
+  expect(formatFilterChipValue(criterion, list)).toBe("Includes CA, US");
+  expect(
+    describeFilterExpressionCondition({ countryCriterion: list }, [criterion], defaultRatingSystemOptions, []),
+  ).toBe("Country includes CA or US");
 });
 
 describe("Country", () => {
@@ -110,4 +131,35 @@ describe("Country", () => {
 
     expect(onChange).toHaveBeenCalledWith("GN");
   });
+});
+
+function CountryFilterHarness() {
+  const [value, setValue] = useState<CountryCriterion>({ value: "", modifier: "INCLUDES" });
+  return (
+    <>
+      <CountryEditor
+        value={value}
+        onChange={(next) => setValue(next as CountryCriterion)}
+        modifiers={["EQUALS", "INCLUDES", "EXCLUDES", "IS_NULL"]}
+      />
+      <output>{JSON.stringify(value)}</output>
+    </>
+  );
+}
+
+it("adds, deduplicates, removes and switches multiple country selections", async () => {
+  renderWithQueryClient(<CountryFilterHarness />);
+  const user = userEvent.setup();
+  for (const name of ["Canada", "United States", "Canada"]) {
+    await user.click(screen.getByRole("button", { name: "Show countries" }));
+    await user.click(await screen.findByRole("option", { name }));
+  }
+  expect(screen.getByRole("status")).toHaveTextContent('"values":["CA","US"]');
+  await user.click(screen.getByRole("button", { name: "Excludes" }));
+  expect(screen.getByRole("status")).toHaveTextContent('"values":["CA","US"]');
+  await user.click(screen.getByRole("button", { name: "Remove CA" }));
+  expect(screen.getByRole("status")).toHaveTextContent('"values":["US"]');
+  await user.click(screen.getByRole("button", { name: "=" }));
+  expect(screen.getByRole("combobox", { name: "Country" })).toHaveValue("United States");
+  expect(screen.getByRole("status")).not.toHaveTextContent('"values"');
 });

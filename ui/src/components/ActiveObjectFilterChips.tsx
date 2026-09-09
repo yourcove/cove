@@ -199,6 +199,7 @@ export function formatFilterChipValue(
 
   const criterion = value as {
     value?: unknown;
+    values?: string[];
     value2?: unknown;
     tagId?: number;
     unit?: string;
@@ -221,6 +222,13 @@ export function formatFilterChipValue(
     if (typeof id === "number") return criterion._names?.[String(id)] ?? nameMap?.get(id) ?? "Unavailable item";
     return formatChipEntityId(id, nameMap);
   };
+
+  if (
+    def?.type === "country" &&
+    (criterion.modifier === "INCLUDES" || criterion.modifier === "EXCLUDES") &&
+    criterion.values
+  )
+    return `${modifier} ${criterion.values.join(", ")}`.trim();
 
   if (def?.type === "related") {
     const singular =
@@ -438,7 +446,19 @@ function RatingFilterChipDisplay({
 
 function CountryFilterChipDisplay({ value, fallback }: { value: unknown; fallback: string }) {
   if (!value || typeof value !== "object") return <span title={fallback}>{fallback}</span>;
-  const criterion = value as { value?: unknown; modifier?: string };
+  const criterion = value as { value?: unknown; values?: string[]; modifier?: string };
+  if ((criterion.modifier === "INCLUDES" || criterion.modifier === "EXCLUDES") && criterion.values?.length)
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <span>{CHIP_MODIFIER_LABELS[criterion.modifier]}</span>
+        {criterion.values.map((country, index) => (
+          <span key={country}>
+            {index > 0 ? ", " : ""}
+            <CountryLabel value={country} />
+          </span>
+        ))}
+      </span>
+    );
   if (
     criterion.modifier === "IS_NULL" ||
     criterion.modifier === "NOT_NULL" ||

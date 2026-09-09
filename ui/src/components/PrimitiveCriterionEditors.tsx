@@ -4,6 +4,7 @@ import { Star } from "lucide-react";
 import { metadata } from "../api/client";
 import type {
   BoolCriterion,
+  CountryCriterion,
   CriterionModifier,
   DateCriterion,
   FingerprintCriterion,
@@ -14,7 +15,7 @@ import type {
 } from "../api/types";
 import { useOptionalAppConfig } from "../state/AppConfigContext";
 import { IsoDateInput } from "./IsoDateInput";
-import { CountrySelect } from "./Country";
+import { CountryLabel, CountrySelect } from "./Country";
 import { LibraryFolderTree } from "./LibraryFolderTree";
 import {
   convertFromRatingFormat,
@@ -366,24 +367,57 @@ export function CountryEditor({
   onChange,
   modifiers,
 }: {
-  value?: StringCriterion;
+  value?: CountryCriterion;
   onChange: (v: unknown) => void;
   modifiers: CriterionModifier[];
 }) {
   const modifier = value?.modifier ?? "EQUALS";
   const isNull = modifier === "IS_NULL" || modifier === "NOT_NULL";
   const useSelector = modifier === "EQUALS" || modifier === "NOT_EQUALS";
+  const isList = modifier === "INCLUDES" || modifier === "EXCLUDES";
+  const countries = value?.values ?? (value?.value ? [value.value] : []);
+  const updateCountries = (values: string[], nextModifier = modifier) =>
+    onChange({ value: "", values, modifier: nextModifier });
 
   return (
     <div className="space-y-2">
       <ModifierSelector
         modifiers={modifiers}
         selected={modifier}
-        onSelect={(nextModifier) => onChange({ value: value?.value ?? "", modifier: nextModifier })}
+        onSelect={(nextModifier) => {
+          if (nextModifier === "INCLUDES" || nextModifier === "EXCLUDES") {
+            if (isList && value?.values == null) onChange({ ...value, modifier: nextModifier });
+            else updateCountries(countries, nextModifier);
+          } else onChange({ value: countries[0] ?? "", modifier: nextModifier });
+        }}
       />
       {!isNull ? (
         <LabeledControl label="Value">
-          {useSelector ? (
+          {isList ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {countries.map((country) => (
+                  <button
+                    key={country}
+                    type="button"
+                    aria-label={`Remove ${country}`}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-2 py-1 text-sm hover:bg-card"
+                    onClick={() => updateCountries(countries.filter((item) => item !== country))}
+                  >
+                    <CountryLabel value={country} />
+                    <span aria-hidden="true">×</span>
+                  </button>
+                ))}
+              </div>
+              <CountrySelect
+                allowClear={false}
+                onChange={(country) => {
+                  if (country && !countries.some((item) => item.toLowerCase() === country.toLowerCase()))
+                    updateCountries([...countries, country]);
+                }}
+              />
+            </div>
+          ) : useSelector ? (
             <CountrySelect value={value?.value ?? ""} onChange={(country) => onChange({ value: country, modifier })} />
           ) : (
             <input
